@@ -26,6 +26,9 @@ RUN=$PREFIX/tmp/xdesk
 LOG=$PREFIX/tmp/xdesk.log
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
 LOADER_BACKUP=/sdcard/Termux/xdesk/dist/loader.apk
+# Scripts with #!/bin/... only run through termux-exec, and RUN_COMMAND starts us without it
+TERMUX_EXEC=$PREFIX/lib/libtermux-exec-ld-preload.so
+if [ -z "${LD_PRELOAD:-}" ] && [ -f "$TERMUX_EXEC" ]; then export LD_PRELOAD=$TERMUX_EXEC; fi
 mkdir -p "$SESSIONS" "$RUN"
 
 log() { echo "$(date +%T) $*" >>"$LOG"; }
