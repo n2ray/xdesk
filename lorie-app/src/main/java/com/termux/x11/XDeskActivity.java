@@ -74,7 +74,7 @@ public class XDeskActivity extends Activity {
     private SharedPreferences prefs;
 
     private FrameLayout screens;
-    private View runningScreen, setupScreen, topBar;
+    private View runningScreen, setupScreen, topBar, sideRightButton;
     private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction;
     private ProgressBar setupProgress;
@@ -369,6 +369,7 @@ public class XDeskActivity extends Activity {
 
     private View buildRunningScreen() {
         boolean landscape = isLandscape();
+        sideRightButton = null;
         latches.clear();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -432,7 +433,8 @@ public class XDeskActivity extends Activity {
             middle.addView(touchpad, new LinearLayout.LayoutParams(0, -1, 1));
             LinearLayout side = new LinearLayout(this);
             side.setOrientation(LinearLayout.VERTICAL);
-            side.addView(mouseButton("右键", 3), new LinearLayout.LayoutParams(-1, 0, 2));
+            sideRightButton = mouseButton("右键", 3);
+            side.addView(sideRightButton, new LinearLayout.LayoutParams(-1, 0, 2));
             LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, 0, 1);
             kp.topMargin = dp(6);
             side.addView(keyboardButton(), kp);
@@ -490,6 +492,8 @@ public class XDeskActivity extends Activity {
         int topVisibility = hide ? View.GONE : View.VISIBLE;
         if (topBar.getVisibility() != topVisibility) {
             topBar.setVisibility(topVisibility);
+            // 键盘弹出后高度不够放两个按钮，右键先让位，“键盘”按钮才点得到
+            if (sideRightButton != null) sideRightButton.setVisibility(topVisibility);
             if (hide) diagText.setVisibility(View.GONE);
             else applyDiagVisibility();
         }
