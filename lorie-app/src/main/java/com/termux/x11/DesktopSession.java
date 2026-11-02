@@ -54,7 +54,7 @@ final class DesktopSession {
         @Override public void run() {
             if (!active || connected || !recovering) return;
             Log.i(TAG, "recovering, next try in " + recoverDelay * 2);
-            run("recover");
+            DesktopSession.this.run("recover");
             if (++recoverAttempts >= MAX_RECOVER_ATTEMPTS) {
                 // 多半是用户自己停的（xdesk stop），不再重试，回到等待
                 recovering = false;
