@@ -1,6 +1,8 @@
 package com.termux.x11;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.IntentFilter;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +25,7 @@ final class DesktopSession {
     private static final long RECOVER_FIRST_MS = 4000;
     private static final long RECOVER_MAX_MS = 60000;
     private static final int MAX_RECOVER_ATTEMPTS = 5;
+    private static final String ACTION_STOPPED = "io.github.n2ray.xdesk.STOPPED";
     private static final long FIRST_CONNECT_RETRY_MS = 20000;
 
     private static DesktopSession instance;
@@ -66,6 +69,17 @@ final class DesktopSession {
         }
     };
 
+    /** xdesk stop 广播过来：用户主动结束的，不恢复，立刻回到等待。 */
+    private final BroadcastReceiver stopped = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (!recovering) return;
+            recovering = false;
+            serverLost = false;
+            ui.removeCallbacks(recover);
+            if (listener != null) listener.onSessionChanged(connected, false);
+        }
+    };
+
     private DesktopSession(Context c) {
         context = c;
     }
@@ -87,6 +101,8 @@ final class DesktopSession {
         active = true;
         audio = new AudioPlayer(context, AUDIO_PORT, audioOutput);
         context.startForegroundService(new Intent(context, DesktopService.class));
+        // 只影响是否自动恢复，别的 App 发了也无害
+        context.registerReceiver(stopped, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);
         ui.post(poll);
     }
 
@@ -123,6 +139,7 @@ final class DesktopSession {
 
     /** 退出显示器，桌面继续运行。 */
     void abandon() {
+        if (active) context.unregisterReceiver(stopped);
         active = false;
         connected = false;
         recovering = false;

@@ -16,6 +16,7 @@
 #   xdesk setup              look for desktops in Termux and proot-distro
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
 set -u
+APP=io.github.n2ray.xdesk.x11
 DPY=:1
 AUDIO_PORT=47130
 DEFAULT_RES='1280 x 1024'    # what X reports before the app has connected
@@ -150,12 +151,17 @@ write_session() {  # name, command; never overwrites an existing one
     echo "  found $1"
 }
 
+
 termux_session() {  # command that starts the desktop
-    local gpu=""
+    local env="" lang
+    # Menus follow the phone's language. LC_ALL is left alone, Termux sets it for the terminal
+    lang=$(getprop persist.sys.locale 2>/dev/null | tr - _)
+    [ -n "$lang" ] && env="export LANGUAGE=$lang
+"
     # zink + Turnip on Adreno. Other GPUs: edit this file
-    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && gpu='export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0
-'
-    printf '%sexec dbus-run-session %s\n' "$gpu" "$1"
+    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && env="${env}export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0
+"
+    printf '%sexec dbus-run-session %s\n' "$env" "$1"
 }
 
 setup() {
@@ -239,6 +245,7 @@ stop)
     lock; stop_session
     pkill -f '^xdesk-x11 '
     pulseaudio --kill 2>/dev/null
+    am broadcast -a io.github.n2ray.xdesk.STOPPED -p "$APP" >/dev/null 2>&1
     say "Stopped"
     ;;
 list) list ;;
