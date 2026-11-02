@@ -50,7 +50,7 @@ public class XDeskActivity extends Activity {
     private static final String PKG_TERMUX = "com.termux";
 
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
-        PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation";
+        PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_AUTOSTART = "auto_start";
     private static final String[] OUTPUT_LABELS = {"手机扬声器", "外接屏（HDMI）", "系统默认（蓝牙等）"};
     private static final String[] OUTPUT_SHORT = {"手机", "外接", "系统"};
     private static final String[] WIDTH_LABELS = {"清晰（显示器原生）", "均衡（1920 宽）", "省电和游戏（1280 宽）"};
@@ -194,6 +194,7 @@ public class XDeskActivity extends Activity {
                 session.input().move(1, 0);
                 session.input().move(-1, 0);
             }
+            if (!c && !session.isRecovering()) showWaiting();
             updateStatus();
             if (restarted) {
                 setStatus(Style.WARN, "桌面被系统关闭后已重新启动，未保存的内容可能已丢失");
@@ -598,7 +599,7 @@ public class XDeskActivity extends Activity {
 
     private void updateStatus() {
         if (session.isConnected()) setStatus(Style.OK, "桌面已连接");
-        else setStatus(Style.WARN, "连接中断，正在恢复…");
+        else setStatus(Style.WARN, session.isRecovering() ? "连接中断，正在恢复…" : "桌面未连接");
     }
 
     private void showSetup(String title, String message, boolean progress, String action, View.OnClickListener onAction) {
@@ -778,6 +779,9 @@ public class XDeskActivity extends Activity {
         });
         c.addView(speed, new LinearLayout.LayoutParams(-1, -2));
 
+        settingsSwitch(c, "打开时自动启动桌面", PREF_AUTOSTART, false, new Runnable() {
+            @Override public void run() { }
+        });
         settingsSwitch(c, "闲置 1 分钟调暗手机屏", PREF_DIM, true, new Runnable() {
             @Override public void run() { bumpIdle(); }
         });
@@ -785,6 +789,16 @@ public class XDeskActivity extends Activity {
             @Override public void run() { applyDiagVisibility(); }
         });
 
+        settingsRow(c, "退出 XDesk（桌面继续运行）", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                client = null;
+                audio = null;
+                session.abandon();
+                MainActivity m = MainActivity.getInstance("");
+                if (m != null) m.finishAndRemoveTask();
+                finishAndRemoveTask();
+            }
+        });
         TextView end = settingsRow(c, "结束桌面", new View.OnClickListener() {
             @Override public void onClick(View v) { confirmStop(); }
         });
@@ -856,31 +870,57 @@ public class XDeskActivity extends Activity {
             attachSession();
             return;
         }
+        Display d = externalDisplay();
+        if (d == null) {
+            showSetup("插上显示器", "用支持视频输出的 USB-C 线或扩展坞连接显示器，\n插上后会自动继续。", false, null, null);
+            return;
+        }
+        attachDisplay(d);
+    }
+
+    /** XDesk 只当显示器：放好窗口就等桌面连上来，桌面怎么起由用户决定。 */
+    private void attachDisplay(Display d) {
+        placeX11(d.getDisplayId());
+        applySize(d);
+        session.attach(savedOutput());
+        client = session.input();
+        audio = session.audio();
+        if (prefs.getBoolean(PREF_AUTOSTART, false)) launchDesktop();
+        else showWaiting();
+    }
+
+    private void showWaiting() {
+        showSetup("等待桌面", "在 Termux 里运行：\n\nxdesk start\n\n也可以运行任意程序：xdesk run 命令", false, "一键启动默认环境", new View.OnClickListener() {
+            @Override public void onClick(View v) { launchDesktop(); }
+        });
+    }
+
+    /** 替用户运行 xdesk start。只有这里需要 Termux 的权限。 */
+    private void launchDesktop() {
         if (!installed(PKG_TERMUX)) {
             showSetup("缺少组件", "XDesk 需要 Termux。\n装好后回到这里会自动继续。", false, null, null);
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            showSetup("需要一个权限", "XDesk 通过 Termux 启动桌面，需要允许它运行 Termux 命令。", false, "授权", new View.OnClickListener() {
-                @Override public void onClick(View v) { requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND); }
-            });
+            requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND);
             return;
         }
-        Display d = externalDisplay();
-        if (d == null) {
-            showSetup("插上显示器", "用支持视频输出的 USB-C 线或扩展坞连接显示器，\n插上后会自动启动桌面。", false, null, null);
-            return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
         }
-        startDesktop(d);
+        showSetup("正在启动桌面", "第一次启动可能要多等一会。", true, null, null);
+        if (!session.launch()) return;
+        ui.removeCallbacks(connectTimeout);
+        ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
     }
 
     @Override public void onRequestPermissionsResult(int r, String[] p, int[] g) {
         if (r != REQ_RUN_COMMAND) return;
         if (g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) {
-            tryStart();
+            launchDesktop();
             return;
         }
-        showSetup("权限被拒绝", "在系统设置里找到 XDesk 的权限，允许“运行 Termux 命令”。", false, "打开设置", new View.OnClickListener() {
+        showSetup("没有运行 Termux 命令的权限", "可以在 Termux 里自己运行 xdesk start，\n或者在系统设置里允许 XDesk“运行 Termux 命令”。", false, "打开设置", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
             }
@@ -888,11 +928,8 @@ public class XDeskActivity extends Activity {
     }
 
     private void showConnectFailure() {
-        session.abandon();
-        client = null;
-        audio = null;
-        showSetup("桌面没有启动", "请确认 Termux 的 allow-external-apps 已打开。\n日志在 Termux 的 $PREFIX/tmp/xdesk.log。", false, "重试", new View.OnClickListener() {
-            @Override public void onClick(View v) { tryStart(); }
+        showSetup("桌面没有启动", "在 Termux 里运行 xdesk enable-app-start 和 xdesk setup，\n也可以直接运行 xdesk start 看报错。\n日志在 $PREFIX/tmp/xdesk.log。", false, "重试", new View.OnClickListener() {
+            @Override public void onClick(View v) { launchDesktop(); }
         });
     }
 
@@ -900,13 +937,16 @@ public class XDeskActivity extends Activity {
     private void attachSession() {
         client = session.input();
         audio = session.audio();
-        if (session.isConnected()) showRunning();
-        else {
-            showSetup("正在连接桌面", "桌面还在运行，正在重新连接。", true, null, null);
+        if (session.isConnected()) {
+            showRunning();
+            updateStatus();
+        } else if (session.isRecovering()) {
+            showSetup("正在连接桌面", "正在重新连接。", true, null, null);
             ui.removeCallbacks(connectTimeout);
             ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
+        } else {
+            showWaiting();
         }
-        updateStatus();
     }
 
     /** 分辨率的宽高比要和系统认定的外屏尺寸一致才能铺满（这台显示器系统认定 2560x1508）。 */
@@ -926,7 +966,6 @@ public class XDeskActivity extends Activity {
     /** 这个 App 的设置和官方 Termux:X11 是分开的，手机上的 xfce 不受影响。改了 X 会自动跟上。 */
     private void applySize(Display d) {
         String size = desktopSize(d);
-        session.setSize(size);
         Prefs p = ((LorieApp) getApplication()).getPrefs(createDisplayContext(d));
         p.displayResolutionMode.put("custom");
         p.displayResolutionCustom.put(size);
@@ -936,19 +975,6 @@ public class XDeskActivity extends Activity {
         p.additionalKbdVisible.put(false);
     }
 
-    private void startDesktop(Display d) {
-        // 没有通知权限服务照样运行，只是看不到通知，所以只问一次、不等结果
-        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
-        }
-        showSetup("正在启动桌面", "第一次启动可能要多等一会。", true, null, null);
-        placeX11(d.getDisplayId());
-        applySize(d);
-        if (!session.start(desktopSize(d), savedOutput())) return;
-        client = session.input();
-        audio = session.audio();
-        ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
-    }
 
 
 
@@ -980,9 +1006,17 @@ public class XDeskActivity extends Activity {
     }
 
     private void confirmStop() {
+        if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
+            new AlertDialog.Builder(this)
+                .setTitle("结束桌面")
+                .setMessage("XDesk 没有运行 Termux 命令的权限。请在 Termux 里运行：\n\nxdesk stop")
+                .setPositiveButton("知道了", null)
+                .show();
+            return;
+        }
         new AlertDialog.Builder(this)
             .setTitle("结束桌面？")
-            .setMessage("XFCE 会退出，未保存的内容会丢失。")
+            .setMessage("桌面会退出，未保存的内容会丢失。")
             .setNegativeButton("取消", null)
             .setPositiveButton("结束", new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface dialog, int which) {

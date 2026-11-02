@@ -5,9 +5,8 @@ import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import java.util.Random;
 
-/** 一次桌面会话：声音、前台服务和断线恢复。放在进程单例里，界面重建不影响它。 */
+/** XDesk 是显示器：这里只管声音、前台服务和连接状态。桌面由用户或 xdesk 命令启动。放在进程单例里，界面重建不影响它。 */
 final class DesktopSession {
     interface Listener {
         /** restarted：X 服务器曾经死掉并被重新拉起，未保存的内容可能已丢失。 */
@@ -17,7 +16,9 @@ final class DesktopSession {
 
     private static final String TAG = "XDesk";
     private static final String BASH = "/data/data/com.termux/files/usr/bin/bash";
-    private static final String SCRIPT = "/sdcard/Termux/xdesk/termux/x11-session.sh";
+    private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
+    /** 和 xdesk 命令里的 AUDIO_PORT 一致。 */
+    private static final int AUDIO_PORT = 47130;
     private static final long POLL_MS = 500;
     private static final long RECOVER_FIRST_MS = 4000;
     private static final long RECOVER_MAX_MS = 60000;
@@ -35,9 +36,7 @@ final class DesktopSession {
     private final DesktopInput input = new DesktopInput();
     private Listener listener;
     private AudioPlayer audio;
-    private int audioPort;
-    private String size;
-    private boolean active, connected, serverLost;
+    private boolean active, connected, serverLost, recovering;
     private long recoverDelay = RECOVER_FIRST_MS;
 
     private final Runnable poll = new Runnable() {
@@ -51,7 +50,7 @@ final class DesktopSession {
 
     private final Runnable recover = new Runnable() {
         @Override public void run() {
-            if (!active || connected) return;
+            if (!active || connected || !recovering) return;
             Log.i(TAG, "recovering, next try in " + recoverDelay * 2);
             launch();
             recoverDelay = Math.min(recoverDelay * 2, RECOVER_MAX_MS);
@@ -72,31 +71,32 @@ final class DesktopSession {
         listener = l;
     }
 
-    /** 返回 false 表示连 Termux 都调用不了，错误已经报给 listener。 */
-    boolean start(String desktopSize, int audioOutput) {
-        audioPort = 20000 + new Random().nextInt(30000);
-        size = desktopSize;
+    /** 开始当显示器：放窗口由 Activity 负责，这里不启动任何桌面。 */
+    void attach(int audioOutput) {
         serverLost = false;
+        recovering = false;
         recoverDelay = RECOVER_FIRST_MS;
-        if (!launch()) return false;
         active = true;
-        audio = new AudioPlayer(context, audioPort, audioOutput);
+        audio = new AudioPlayer(context, AUDIO_PORT, audioOutput);
         context.startForegroundService(new Intent(context, DesktopService.class));
         ui.post(poll);
-        // 第一次就没连上也要重试（比如上一次的 start 还没跑完）
-        ui.postDelayed(recover, FIRST_CONNECT_RETRY_MS);
-        return true;
     }
 
-    private boolean launch() {
-        return run("start", size, String.valueOf(audioPort));
+    /** 运行 xdesk start，需要 RUN_COMMAND 权限。之后断开会自动拉起。 */
+    boolean launch() {
+        recovering = true;
+        ui.removeCallbacks(recover);
+        ui.postDelayed(recover, FIRST_CONNECT_RETRY_MS);
+        return run("start");
     }
+
+    boolean isRecovering() { return recovering; }
 
     private void connectionChanged(boolean c) {
         connected = c;
         boolean restarted = false;
         if (c) {
-            restarted = serverLost;
+            restarted = serverLost && recovering;
             serverLost = false;
             ui.removeCallbacks(recover);
             recoverDelay = RECOVER_FIRST_MS;
@@ -104,19 +104,17 @@ final class DesktopSession {
             // 窗口还在却断了，才是 X 服务器没了；窗口不在只是界面要重放，交给 Activity
             serverLost = MainActivity.getInstance("") != null;
             ui.removeCallbacks(recover);
-            ui.postDelayed(recover, RECOVER_FIRST_MS);
+            if (recovering) ui.postDelayed(recover, RECOVER_FIRST_MS);
         }
         if (listener != null) listener.onSessionChanged(c, restarted);
     }
 
-    void setSize(String desktopSize) {
-        size = desktopSize;
-    }
 
-    /** 放弃会话，不碰桌面。用于启动失败时重试。 */
+    /** 退出显示器，桌面继续运行。 */
     void abandon() {
         active = false;
         connected = false;
+        recovering = false;
         ui.removeCallbacks(recover);
         ui.removeCallbacks(poll);
         if (audio != null) audio.close();
@@ -124,7 +122,7 @@ final class DesktopSession {
         context.stopService(new Intent(context, DesktopService.class));
     }
 
-    /** 结束桌面（XFCE 退出）。 */
+    /** 结束桌面（运行 xdesk stop）。 */
     void stop() {
         abandon();
         run("stop");

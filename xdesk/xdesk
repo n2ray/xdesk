@@ -1,0 +1,271 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# xdesk: run desktops and programs on the XDesk display, from Termux, proot or chroot.
+# XDesk only provides the display, touchpad and audio. What runs on it is one command per "session".
+#
+#   xdesk x                  start only the X server and audio
+#   xdesk run CMD...         run any program on the display
+#   xdesk list               list sessions (found by "xdesk setup" or added by you)
+#   xdesk add NAME 'CMD'     add a session, e.g. a chroot
+#   xdesk rm NAME            remove a session
+#   xdesk use NAME           choose the default session
+#   xdesk start [NAME]       start a session (default: the chosen one)
+#   xdesk switch NAME        stop the running session and start another, keeping X and the window
+#   xdesk stop               stop everything
+#   xdesk status             show what is running
+#   xdesk setup              look for desktops in Termux and proot-distro
+#   xdesk enable-app-start   let the app's "start" button run commands in Termux
+set -u
+DPY=:1
+AUDIO_PORT=47130
+DEFAULT_RES='1280 x 1024'    # what X reports before the app has connected
+CONF=$HOME/.config/xdesk
+SESSIONS=$CONF/sessions
+RUN=$PREFIX/tmp/xdesk
+LOG=$PREFIX/tmp/xdesk.log
+LOADER=$HOME/.local/libexec/xdesk/loader.apk
+LOADER_BACKUP=/sdcard/Termux/xdesk/dist/loader.apk
+mkdir -p "$SESSIONS" "$RUN"
+
+log() { echo "$(date +%T) $*" >>"$LOG"; }
+say() { echo "$*"; log "$*"; }
+x_up() { DISPLAY=$DPY timeout 2 xrandr >/dev/null 2>&1; }
+x_pid() { pgrep -f '^xdesk-x11 ' | head -1; }
+
+# Session names become file names
+valid_name() {
+    case "$1" in
+    ''|*/*|.*) echo "Invalid session name: '$1'"; return 1 ;;
+    esac
+}
+
+ensure_loader() {
+    [ -f "$LOADER" ] && return 0
+    if [ -f "$LOADER_BACKUP" ]; then
+        mkdir -p "$(dirname "$LOADER")"
+        cp "$LOADER_BACKUP" "$LOADER" && chmod 400 "$LOADER" && log "loader restored"   # Android refuses a writable dex
+        return 0
+    fi
+    say "Loader not found: $LOADER. Run install.sh again."
+    return 1
+}
+
+# Keep the lock for setup only: background processes must not inherit fd 9 or it is never released
+lock() {
+    exec 9>"$RUN/session.lock"
+    flock -w 60 9 || { say "Timed out waiting for another xdesk command"; exit 1; }
+}
+
+start_x() {
+    x_up && [ -n "$(x_pid)" ] && return 0
+    if x_up; then
+        say "Display $DPY is used by another X server (official Termux:X11?). Stop it first."
+        return 1
+    fi
+    ensure_loader || return 1
+    rm -f "${PREFIX:?}/tmp/.X11-unix/X${DPY#:}" "${PREFIX:?}/tmp/.X${DPY#:}-lock"
+    # Same environment handling as the official termux-x11 launcher
+    [ -z "${LD_LIBRARY_PATH+x}" ] || export XSTARTUP_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+    [ -z "${LD_PRELOAD+x}" ] || export XSTARTUP_LD_PRELOAD="$LD_PRELOAD"
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
+        -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
+        </dev/null >>"$LOG" 2>&1 9>&- &
+    for _ in $(seq 40); do
+        x_up && return 0
+        sleep 0.5
+    done
+    say "X server did not start, see $LOG"
+    return 1
+}
+
+start_audio() {
+    # Desktop audio goes to a null sink, the app reads it from a local port and picks the output device
+    timeout 5 pulseaudio --start --exit-idle-time=-1 </dev/null 9>&- 2>/dev/null
+    timeout 3 pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1
+    local p="timeout 3 pactl"
+    export PULSE_SERVER=127.0.0.1
+    for _ in $(seq 10); do $p info >/dev/null 2>&1 && break; sleep 0.5; done
+    $p info >/dev/null 2>&1 || { log "PulseAudio not reachable, no audio"; return 0; }
+    $p list short sinks | grep -q '^[0-9]*[[:space:]]xdesk[[:space:]]' || \
+        $p load-module module-null-sink sink_name=xdesk rate=48000 channels=2 >/dev/null
+    $p list short modules | grep -q "module-simple-protocol-tcp.*port=$AUDIO_PORT" || \
+        $p load-module module-simple-protocol-tcp port="$AUDIO_PORT" listen=127.0.0.1 source=xdesk.monitor \
+            record=true playback=false format=s16le rate=48000 channels=2 >/dev/null
+    $p set-default-sink xdesk
+    $p list short sink-inputs | cut -f1 | while read -r id; do $p move-sink-input "$id" xdesk; done
+}
+
+# The desktop keeps a wrong size for its wallpaper if it starts before the app has set the resolution
+wait_for_app() {
+    for _ in $(seq 16); do
+        DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | grep -q "current $DEFAULT_RES," || return 0
+        sleep 0.5
+    done
+    say "XDesk has not connected yet. Open the app, the desktop may need a restart to fit the screen."
+}
+
+session_pid() {
+    local p
+    p=$(cat "$RUN/session.pid" 2>/dev/null) || return 1
+    kill -0 "$p" 2>/dev/null && echo "$p"
+}
+
+current() { cat "$CONF/current" 2>/dev/null; }
+
+start_session() {
+    local name=$1 f=$SESSIONS/$1.sh
+    [ -f "$f" ] || { say "No session named '$name'. Try: xdesk list"; return 1; }
+    if [ -n "$(session_pid)" ]; then
+        echo "Session $(cat "$RUN/session.name") is already running"
+        return 0
+    fi
+    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
+    echo $! >"$RUN/session.pid"
+    echo "$name" >"$RUN/session.name"
+    say "Started session $name"
+}
+
+clear_session_state() {
+    rm -f "${RUN:?}/session.pid" "${RUN:?}/session.name"
+}
+
+stop_session() {
+    local p
+    p=$(session_pid) || { clear_session_state; return 0; }
+    DISPLAY=$DPY timeout 5 xfce4-session-logout --logout >/dev/null 2>&1
+    for _ in $(seq 8); do kill -0 "$p" 2>/dev/null || break; sleep 1; done
+    kill -- "-$p" 2>/dev/null
+    sleep 1
+    kill -9 -- "-$p" 2>/dev/null
+    clear_session_state
+    log "Session stopped"
+}
+
+write_session() {  # name, command; never overwrites an existing one
+    local f=$SESSIONS/$1.sh
+    [ -e "$f" ] && return 1
+    printf '%s\n' "$2" >"$f"
+    echo "  found $1"
+}
+
+termux_session() {  # command that starts the desktop
+    local gpu=""
+    # zink + Turnip on Adreno. Other GPUs: edit this file
+    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && gpu='export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0
+'
+    printf '%sexec dbus-run-session %s\n' "$gpu" "$1"
+}
+
+setup() {
+    echo "Looking for desktops..."
+    local de bin name distro root
+    for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session; do
+        name=${de%%:*}; bin=${de##*:}
+        if command -v "$bin" >/dev/null; then
+            write_session "termux-$name" "$(termux_session "$bin")"
+        fi
+    done
+    for root in "$PREFIX"/var/lib/proot-distro/containers/*/rootfs "$PREFIX"/var/lib/proot-distro/installed-rootfs/*; do
+        [ -d "$root" ] || continue
+        distro=$(basename "$(echo "$root" | sed 's|/rootfs$||')")
+        for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session; do
+            name=${de%%:*}; bin=${de##*:}
+            if [ -e "$root/usr/bin/$bin" ]; then
+                write_session "proot-$distro-$name" \
+                    "exec proot-distro login $distro --shared-tmp -- env DISPLAY=$DPY PULSE_SERVER=127.0.0.1 dbus-launch --exit-with-session $bin"
+            fi
+        done
+    done
+    if [ -z "$(current)" ]; then
+        name=$(ls "$SESSIONS" 2>/dev/null | head -1)
+        [ -n "$name" ] && echo "${name%.sh}" >"$CONF/current"
+    fi
+    list
+}
+
+list() {
+    local f n c
+    c=$(current)
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || { echo "No sessions yet. Run: xdesk setup, or xdesk add NAME 'CMD'"; return 0; }
+        n=$(basename "$f" .sh)
+        if [ "$n" = "$c" ]; then echo "* $n"; else echo "  $n"; fi
+    done
+}
+
+usage() { sed -n '4,16p' "$0" | sed 's/^# \?//'; }
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case "$cmd" in
+x)
+    lock; start_x && start_audio
+    ;;
+run)
+    [ $# -gt 0 ] || { usage; exit 2; }
+    lock; start_x && start_audio || exit 1
+    wait_for_app
+    exec 9>&-
+    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 exec "$@"
+    ;;
+start)
+    name=${1:-$(current)}
+    [ -n "$name" ] || { echo "No default session. Run: xdesk setup"; exit 1; }
+    lock; start_x && start_audio || exit 1
+    wait_for_app
+    start_session "$name"
+    ;;
+switch)
+    [ $# -eq 1 ] || { usage; exit 2; }
+    [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
+    lock; start_x && start_audio || exit 1
+    stop_session
+    start_session "$1" && echo "$1" >"$CONF/current"
+    ;;
+stop)
+    lock; stop_session
+    pkill -f '^xdesk-x11 '
+    pulseaudio --kill 2>/dev/null
+    say "Stopped"
+    ;;
+list) list ;;
+add)
+    [ $# -eq 2 ] || { usage; exit 2; }
+    valid_name "$1" || exit 2
+    printf '%s\n' "exec $2" >"$SESSIONS/$1.sh"
+    [ -n "$(current)" ] || echo "$1" >"$CONF/current"
+    list
+    ;;
+rm)
+    [ $# -eq 1 ] || { usage; exit 2; }
+    valid_name "$1" || exit 2
+    rm -f "${SESSIONS:?}/${1:?}.sh"
+    list
+    ;;
+use)
+    [ $# -eq 1 ] || { usage; exit 2; }
+    [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
+    echo "$1" >"$CONF/current"
+    list
+    ;;
+status)
+    if x_up; then echo "X server: running on $DPY"; else echo "X server: not running"; fi
+    DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | sed -n 's/.*\(current [0-9]* x [0-9]*\).*/Resolution: \1/p'
+    if [ -n "$(session_pid)" ]; then echo "Session: $(cat "$RUN/session.name")"; else echo "Session: none"; fi
+    echo "Default: $(current)"
+    ;;
+setup) setup ;;
+enable-app-start)
+    P=$HOME/.termux/termux.properties
+    mkdir -p "$(dirname "$P")"; touch "$P"
+    if ! grep -q '^allow-external-apps *= *true' "$P"; then
+        sed -i 's/^# *allow-external-apps *=.*/allow-external-apps = true/' "$P"
+        grep -q '^allow-external-apps *= *true' "$P" || echo 'allow-external-apps = true' >>"$P"
+        termux-reload-settings 2>/dev/null || true
+    fi
+    echo "Apps with the Run commands permission can now start programs in Termux."
+    ;;
+*)
+    usage
+    [ -z "$cmd" ]
+    ;;
+esac
