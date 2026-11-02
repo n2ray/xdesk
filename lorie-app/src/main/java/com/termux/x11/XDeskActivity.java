@@ -8,6 +8,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Typeface;
@@ -67,7 +68,8 @@ public class XDeskActivity extends Activity {
     private SharedPreferences prefs;
 
     private FrameLayout screens;
-    private View runningScreen, setupScreen;
+    private View runningScreen, setupScreen, topBar;
+    private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction;
     private ProgressBar setupProgress;
     private TextView statusText, diagText, audioChip;
@@ -224,8 +226,9 @@ public class XDeskActivity extends Activity {
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         prefs = getPreferences(MODE_PRIVATE);
         session = DesktopSession.get(this);
+        lastOrientation = getResources().getConfiguration().orientation;
         setContentView(buildUi());
-        touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
+        screens.getViewTreeObserver().addOnGlobalLayoutListener(this::fitToKeyboard);
         session.setListener(sessionListener);
         displays.registerDisplayListener(displayListener, ui);
         inputs.registerInputDeviceListener(deviceListener, ui);
@@ -337,12 +340,19 @@ public class XDeskActivity extends Activity {
         return s;
     }
 
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
     private View buildRunningScreen() {
+        boolean landscape = isLandscape();
+        latches.clear();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(8), dp(4), dp(8), dp(8));
 
         LinearLayout top = new LinearLayout(this);
+        topBar = top;
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(8), 0, 0, dp(4));
         statusDot = new View(this);
@@ -389,13 +399,42 @@ public class XDeskActivity extends Activity {
         root.addView(keys, new LinearLayout.LayoutParams(-1, dp(40)));
 
         touchpad = new TouchpadView(this, output);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, 0, 1);
-        tp.topMargin = dp(6);
-        root.addView(touchpad, tp);
+        touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
+        if (landscape) {
+            // 横屏双手拿：左右键分在两侧，键盘在右手边
+            LinearLayout middle = new LinearLayout(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(88), -1);
+            lp.rightMargin = dp(6);
+            middle.addView(mouseButton("左键", 1), lp);
+            middle.addView(touchpad, new LinearLayout.LayoutParams(0, -1, 1));
+            LinearLayout side = new LinearLayout(this);
+            side.setOrientation(LinearLayout.VERTICAL);
+            side.addView(mouseButton("右键", 3), new LinearLayout.LayoutParams(-1, 0, 2));
+            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, 0, 1);
+            kp.topMargin = dp(6);
+            side.addView(keyboardButton(), kp);
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(88), -1);
+            sp.leftMargin = dp(6);
+            middle.addView(side, sp);
+            LinearLayout.LayoutParams mid = new LinearLayout.LayoutParams(-1, 0, 1);
+            mid.topMargin = dp(6);
+            root.addView(middle, mid);
+        } else {
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, 0, 1);
+            tp.topMargin = dp(6);
+            root.addView(touchpad, tp);
+            LinearLayout bottom = new LinearLayout(this);
+            bottom.addView(mouseButton("左键", 1), bottomParams(3));
+            bottom.addView(mouseButton("右键", 3), bottomParams(3));
+            bottom.addView(keyboardButton(), bottomParams(2));
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(64));
+            bp.topMargin = dp(6);
+            root.addView(bottom, bp);
+        }
+        return root;
+    }
 
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.addView(mouseButton("左键", 1), bottomParams(3));
-        bottom.addView(mouseButton("右键", 3), bottomParams(3));
+    private TextView keyboardButton() {
         TextView kb = Style.button(this, "键盘", Style.ACCENT, 14, 12);
         kb.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -403,11 +442,34 @@ public class XDeskActivity extends Activity {
                 toggleKeyboard();
             }
         });
-        bottom.addView(kb, bottomParams(2));
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(64));
-        bp.topMargin = dp(6);
-        root.addView(bottom, bp);
-        return root;
+        return kb;
+    }
+
+    /** 转屏不重建 Activity（窗口和输入都不能断），只换一套布局。 */
+    @Override public void onConfigurationChanged(Configuration c) {
+        super.onConfigurationChanged(c);
+        if (c.orientation == lastOrientation) return;
+        lastOrientation = c.orientation;
+        releaseLatches();
+        screens.removeView(runningScreen);
+        runningScreen = buildRunningScreen();
+        screens.addView(runningScreen, 0, new FrameLayout.LayoutParams(-1, -1));
+        updateStatus();
+        keyView.requestFocus();
+        updateCapture();
+    }
+
+    /** 横屏弹出键盘时高度很紧，收起顶部状态栏。 */
+    private void fitToKeyboard() {
+        if (topBar == null) return;
+        WindowInsets w = screens.getRootWindowInsets();
+        boolean hide = isLandscape() && w != null && w.isVisible(WindowInsets.Type.ime());
+        int topVisibility = hide ? View.GONE : View.VISIBLE;
+        if (topBar.getVisibility() != topVisibility) {
+            topBar.setVisibility(topVisibility);
+            if (hide) diagText.setVisibility(View.GONE);
+            else applyDiagVisibility();
+        }
     }
 
     private LinearLayout.LayoutParams chipParams(int width) {
