@@ -11,6 +11,7 @@
 #   xdesk start [NAME]       start a session (default: the chosen one)
 #   xdesk switch NAME        stop the running session and start another, keeping X and the window
 #   xdesk stop               stop everything
+#   xdesk recover            like start, unless you ran xdesk stop (the app uses this)
 #   xdesk status             show what is running
 #   xdesk setup              look for desktops in Termux and proot-distro
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
@@ -124,6 +125,8 @@ start_session() {
     say "Started session $name"
 }
 
+clear_stopped() { [ ! -e "$RUN/stopped" ] || rm -f "${RUN:?}/stopped"; }
+
 clear_session_state() {
     rm -f "${RUN:?}/session.pid" "${RUN:?}/session.name"
 }
@@ -192,7 +195,7 @@ list() {
     done
 }
 
-usage() { sed -n '4,16p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '4,17p' "$0" | sed 's/^# \?//'; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -208,8 +211,17 @@ run)
     DISPLAY=$DPY PULSE_SERVER=127.0.0.1 exec "$@"
     ;;
 start)
+    clear_stopped
     name=${1:-$(current)}
     [ -n "$name" ] || { echo "No default session. Run: xdesk setup"; exit 1; }
+    lock; start_x && start_audio || exit 1
+    wait_for_app
+    start_session "$name"
+    ;;
+recover)
+    [ -e "$RUN/stopped" ] && exit 0
+    name=$(current)
+    [ -n "$name" ] || exit 1
     lock; start_x && start_audio || exit 1
     wait_for_app
     start_session "$name"
@@ -217,11 +229,13 @@ start)
 switch)
     [ $# -eq 1 ] || { usage; exit 2; }
     [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
+    clear_stopped
     lock; start_x && start_audio || exit 1
     stop_session
     start_session "$1" && echo "$1" >"$CONF/current"
     ;;
 stop)
+    touch "$RUN/stopped"
     lock; stop_session
     pkill -f '^xdesk-x11 '
     pulseaudio --kill 2>/dev/null

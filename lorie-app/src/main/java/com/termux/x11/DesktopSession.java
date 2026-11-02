@@ -22,6 +22,7 @@ final class DesktopSession {
     private static final long POLL_MS = 500;
     private static final long RECOVER_FIRST_MS = 4000;
     private static final long RECOVER_MAX_MS = 60000;
+    private static final int MAX_RECOVER_ATTEMPTS = 5;
     private static final long FIRST_CONNECT_RETRY_MS = 20000;
 
     private static DesktopSession instance;
@@ -38,6 +39,7 @@ final class DesktopSession {
     private AudioPlayer audio;
     private boolean active, connected, serverLost, recovering;
     private long recoverDelay = RECOVER_FIRST_MS;
+    private int recoverAttempts;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -52,7 +54,13 @@ final class DesktopSession {
         @Override public void run() {
             if (!active || connected || !recovering) return;
             Log.i(TAG, "recovering, next try in " + recoverDelay * 2);
-            launch();
+            run("recover");
+            if (++recoverAttempts >= MAX_RECOVER_ATTEMPTS) {
+                // 多半是用户自己停的（xdesk stop），不再重试，回到等待
+                recovering = false;
+                if (listener != null) listener.onSessionChanged(false, false);
+                return;
+            }
             recoverDelay = Math.min(recoverDelay * 2, RECOVER_MAX_MS);
             ui.postDelayed(this, recoverDelay);
         }
@@ -82,9 +90,11 @@ final class DesktopSession {
         ui.post(poll);
     }
 
-    /** 运行 xdesk start，需要 RUN_COMMAND 权限。之后断开会自动拉起。 */
+    /** 运行 xdesk start，需要 RUN_COMMAND 权限。之后意外断开会用 xdesk recover 拉起，用户主动 xdesk stop 的不会。 */
     boolean launch() {
         recovering = true;
+        serverLost = false;
+        recoverAttempts = 0;
         ui.removeCallbacks(recover);
         ui.postDelayed(recover, FIRST_CONNECT_RETRY_MS);
         return run("start");
@@ -96,13 +106,14 @@ final class DesktopSession {
         connected = c;
         boolean restarted = false;
         if (c) {
-            restarted = serverLost && recovering;
+            restarted = serverLost;
+            recoverAttempts = 0;
             serverLost = false;
             ui.removeCallbacks(recover);
             recoverDelay = RECOVER_FIRST_MS;
         } else {
             // 窗口还在却断了，才是 X 服务器没了；窗口不在只是界面要重放，交给 Activity
-            serverLost = MainActivity.getInstance("") != null;
+            serverLost = recovering && MainActivity.getInstance("") != null;
             ui.removeCallbacks(recover);
             if (recovering) ui.postDelayed(recover, RECOVER_FIRST_MS);
         }
