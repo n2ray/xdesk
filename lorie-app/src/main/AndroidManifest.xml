@@ -1,5 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries>
         <package android:name="com.termux" />
     </queries>
@@ -13,18 +15,23 @@
         <meta-data android:name="com.samsung.android.multidisplay.keep_process_alive" android:value="false" />
         <activity
             android:name="com.termux.x11.XDeskActivity"
-            android:label="XDesk 触摸板"
+            android:label="XDesk"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:launchMode="singleTask"
             android:taskAffinity=".XDesk"
             android:screenOrientation="portrait"
-            android:windowSoftInputMode="stateAlwaysHidden"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <service android:name="com.termux.x11.DesktopService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <!-- 只留 XDesk 一个图标：桌面窗口由 XDeskActivity 打开 -->
+        <activity android:name="com.termux.x11.MainActivity" tools:node="merge">
+            <intent-filter tools:node="removeAll" />
         </activity>
     </application>
 </manifest>
