@@ -12,6 +12,7 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Point;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
@@ -233,6 +234,8 @@ public class XDeskActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().setDecorFitsSystemWindows(false);
+        getWindow().getAttributes().layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         getWindow().setStatusBarColor(Style.BACKGROUND);
         getWindow().setNavigationBarColor(Style.BACKGROUND);
         displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
@@ -297,7 +300,12 @@ public class XDeskActivity extends Activity {
     private View buildUi() {
         screens = new FrameLayout(this);
         screens.setBackgroundColor(Style.BACKGROUND);
-        screens.setFitsSystemWindows(true);
+        // 铺满摄像头挖孔那一侧：只避开系统栏和键盘，不避开挖孔
+        screens.setOnApplyWindowInsetsListener((v, w) -> {
+            Insets i = w.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+            v.setPadding(i.left, i.top, i.right, i.bottom);
+            return WindowInsets.CONSUMED;
+        });
         runningScreen = buildRunningScreen();
         setupScreen = buildSetupScreen();
         screens.addView(runningScreen, new FrameLayout.LayoutParams(-1, -1));
@@ -616,7 +624,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void applyDiagVisibility() {
-        diagText.setVisibility(prefs.getBoolean(PREF_DIAG, true) ? View.VISIBLE : View.GONE);
+        diagText.setVisibility(prefs.getBoolean(PREF_DIAG, false) ? View.VISIBLE : View.GONE);
         updateDiag();
     }
 
@@ -769,7 +777,7 @@ public class XDeskActivity extends Activity {
         settingsSwitch(c, "闲置 1 分钟调暗手机屏", PREF_DIM, true, new Runnable() {
             @Override public void run() { bumpIdle(); }
         });
-        settingsSwitch(c, "显示诊断信息", PREF_DIAG, true, new Runnable() {
+        settingsSwitch(c, "显示诊断信息", PREF_DIAG, false, new Runnable() {
             @Override public void run() { applyDiagVisibility(); }
         });
 
