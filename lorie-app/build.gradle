@@ -81,4 +81,6 @@ tasks.matching { it.name == 'assembleDebug' }.configureEach { dependsOn ':shell-
 
 dependencies {
     implementation project(':lorie')
+    // XDeskActivity 要用 MainActivity，它的父类 AppCompatActivity 经 preference 传递而来
+    implementation "androidx.preference:preference:1.2.1"
 }
