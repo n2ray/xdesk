@@ -29,6 +29,9 @@ LOADER_BACKUP=/sdcard/Termux/xdesk/dist/loader.apk
 # Scripts with #!/bin/... only run through termux-exec, and RUN_COMMAND starts us without it
 TERMUX_EXEC=$PREFIX/lib/libtermux-exec-ld-preload.so
 if [ -z "${LD_PRELOAD:-}" ] && [ -f "$TERMUX_EXEC" ]; then export LD_PRELOAD=$TERMUX_EXEC; fi
+# RUN_COMMAND also starts us at nice 0. Chromium then runs its renderer at -8, above the X server,
+# and video drops frames. Only change the default, not a chosen value.
+if [ "$(ps -o ni= -p $$ | tr -d ' ')" = 0 ]; then renice -n -10 -p $$ >/dev/null 2>&1; fi
 mkdir -p "$SESSIONS" "$RUN"
 
 log() { echo "$(date +%T) $*" >>"$LOG"; }
