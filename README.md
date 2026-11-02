@@ -1,22 +1,87 @@
 # XDesk
 
-**A full Linux desktop on an external display, from an Android phone, with no root.** Plug in a monitor, open XDesk, and XFCE appears on the big screen while the phone becomes a touchpad and keyboard.
+**Any Linux desktop on an external display, from an Android phone, with no root.** XDesk turns the monitor into an X display and the phone into its touchpad and keyboard. What runs on it is up to you: XFCE in Termux, a desktop in proot or chroot, or a single program.
 
 [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
 
-> **Status:** a personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently, especially the GPU settings in `xdesk/startx.sh`. The UI is Chinese only for now.
+> **Status:** an early personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently. The app's UI is Chinese only for now. Reports from other devices are very welcome.
+
+## Install
+
+In [Termux](https://github.com/termux/termux-app):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
+```
+
+It installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app. Then:
+
+1. Install the app it downloaded. If your file manager reports "app not installed", use `adb install -r xdesk.apk`. On Xiaomi phones, first turn on **USB install** in Developer options.
+2. Plug in a display and open **XDesk**.
+3. Run `xdesk start`.
+
+No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
+
+> Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh). The APK is signed with the public test key from upstream, so it is fine for trying out, but anyone can sign an "update" with the same key.
+
+## Requirements
+
+- An Android phone with **video output over USB-C** (DisplayPort Alt Mode). If plugging in a monitor mirrors the screen, it qualifies
+- USB-C to HDMI cable or dock
+- Android 11 or newer (only tested on Android 16)
+- Termux
+
+## Use it with any environment
+
+XDesk only provides the display. Anything that can reach its X socket can show up on it.
+
+```sh
+xdesk x                 # start only the X server and audio
+xdesk run CMD...        # run any program on the display
+xdesk setup             # look for desktops in Termux and proot-distro
+xdesk list              # list sessions, * marks the default
+xdesk use NAME          # choose the default session
+xdesk start [NAME]      # start a session
+xdesk switch NAME       # stop the current session and start another, the window stays
+xdesk add NAME 'CMD'    # add your own session
+xdesk rm NAME           # remove a session
+xdesk status            # what is running
+xdesk stop              # stop everything
+```
+
+A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit these files freely, `xdesk setup` will not overwrite them.
+
+| Environment | How to connect |
+|---|---|
+| Termux | Found by `xdesk setup`, or `xdesk run xterm` |
+| proot-distro | Found by `xdesk setup`. By hand: `xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 dbus-launch --exit-with-session startxfce4"` |
+| Plain proot | Bind `$PREFIX/tmp` to `/tmp` and set `DISPLAY=:1` |
+| chroot (root) | Bind `$PREFIX/tmp/.X11-unix` to `/tmp/.X11-unix` in the chroot, set `DISPLAY=:1`. Untested so far |
+
+GPU acceleration is only set up for Termux on Adreno (zink + Turnip). Inside proot or chroot, expect software rendering unless you configure Mesa there yourself. That is fine for debugging, not for games.
+
+Audio from proot and chroot reaches the app through PulseAudio on `127.0.0.1`.
+
+### Starting from the app
+
+XDesk waits for a desktop by default and needs no Termux permission. To use its **start** button or the auto-start setting:
+
+```sh
+xdesk enable-app-start
+```
+
+This sets `allow-external-apps = true` in Termux, so apps can ask to run commands there. Each app also has to be granted the permission, and XDesk asks for it when you press the button.
 
 ## What you get
 
-- XFCE on the external display, GPU accelerated through Mesa (zink + Turnip on Adreno)
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop
 - Audio output you can switch: phone speaker, HDMI, or system default
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
-- Survives unplugging the display, switching apps and locking the phone. If the system kills the X server, the desktop restarts by itself, but unsaved work in it is lost
+- Survives unplugging the display, switching apps and locking the phone
 
-No root, no `adb` in daily use. It installs next to the official Termux:X11 and does not touch it.
+It installs next to the official Termux:X11 and does not touch it. Do not run both at once, since both use display `:1`.
 
 ## How it works
 
@@ -24,121 +89,59 @@ No root, no `adb` in daily use. It installs next to the official Termux:X11 and 
  Phone screen                        External display
 ┌───────────────────────┐           ┌───────────────────────┐
 │ XDeskActivity         │  direct   │ MainActivity (upstream)│
-│ touchpad, keys, audio ├──calls───►│ LorieView shows XFCE   │
+│ touchpad, keys, audio ├──calls───►│ LorieView shows X      │
 └───────────┬───────────┘           └───────────▲───────────┘
-            │ RUN_COMMAND                       │ X11
+            │ local port (audio)                │ X11 socket
 ┌───────────▼───────────────────────────────────┴───────────┐
-│ Termux: x11-session.sh → X server, XFCE, PulseAudio       │
+│ xdesk: X server, PulseAudio                               │
+│ Termux, proot, chroot: your desktop or program            │
 └───────────────────────────────────────────────────────────┘
 ```
 
 - **One app, two windows.** The upstream `MainActivity` runs unchanged on the external display. `XDeskActivity` runs on the phone in the same process and calls `LorieView.sendMouseEvent`, `sendKeyEvent` and `sendTextEvent` directly.
-- **X and XFCE stay in Termux**, started through Termux's `RUN_COMMAND`, using a loader built for this app id.
-- **Audio** goes from a PulseAudio null sink to a local TCP port. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
+- **The X server runs in Termux**, started with a loader built for this app id.
+- **Audio** goes from a PulseAudio null sink to port 47130. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
 
-Almost all changes live in `lorie-app/`, so merging upstream stays simple.
-
-## Requirements
-
-- An Android phone with **video output over USB-C** (DisplayPort Alt Mode). If plugging in a monitor mirrors the screen, it qualifies
-- USB-C to HDMI cable or dock
-- Android 11 or newer (only tested on Android 16)
-- [Termux](https://github.com/termux/termux-app) with storage access
-
-## Install
-
-### 1. Termux packages
-
-```sh
-termux-setup-storage
-pkg upgrade
-pkg install x11-repo
-pkg install xfce4 xfce4-terminal pulseaudio mesa vulkan-loader mesa-vulkan-icd-freedreno xorg-xrandr dbus util-linux git
-```
-
-`mesa-vulkan-icd-freedreno` is for Adreno GPUs. On other GPUs, replace it and adjust the variables in `xdesk/startx.sh`.
-
-### 2. Get the build
-
-Download both artifacts from the same run on the [Actions page](https://github.com/n2ray/xdesk/actions/workflows/debug_build.yml) (requires a GitHub login):
-
-- `termux-x11-universal-debug`: the APK
-- `termux-companion packages`: contains `termux-x11-nightly-*.deb`, which holds the loader
-
-Or fork this repository and let Actions build it for you. Local builds need the Android SDK and NDK:
-
-```sh
-git clone --recursive https://github.com/n2ray/xdesk
-cd xdesk && ./gradlew assembleDebug
-```
-
-> The APK is signed with the public test key from this repository. That is fine for trying it out, but anyone can sign an update with the same key.
-
-### 3. Install the Termux side
-
-```sh
-git clone https://github.com/n2ray/xdesk ~/xdesk
-bash ~/xdesk/xdesk/install.sh /path/to/termux-x11-nightly-*.deb
-```
-
-This copies the scripts to `/sdcard/Termux/xdesk`, installs the loader to `~/.local/libexec/xdesk/loader.apk` and sets `allow-external-apps = true`. That setting lets apps run commands in Termux, but each app also needs the permission in step 5.
-
-### 4. Install the APK
-
-```sh
-adb install -r termux-x11-universal-debug.apk
-```
-
-On our phone the file manager refused it with a generic "app not installed", while `adb install` worked. On Xiaomi phones, turn on **USB install** in Developer options first.
-
-### 5. Run it
-
-1. Plug in the display
-2. Open **XDesk** and allow it to **run Termux commands** and post notifications
-3. After a few seconds, XFCE appears on the display
-
-End the desktop from **Settings → End desktop**. Unsaved work is lost.
-
-## Use your own XFCE setup
-
-If `/sdcard/Termux/startx.sh` exists, XDesk uses it instead of the bundled copy. It rewrites two lines on the fly, so these must stay as they are:
-
-```sh
-termux-x11 :1 -ac -xstartup "dbus-run-session startxfce4" &
-am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity
-```
+Almost all changes live in `lorie-app/` and `xdesk/`, so merging upstream stays simple.
 
 ## Troubleshooting
 
-Logs are in `$PREFIX/tmp/xdesk.log` and `$PREFIX/tmp/xfce_startup.log`.
+Logs are in `$PREFIX/tmp/xdesk.log`.
 
 | Symptom | Likely cause |
 |---|---|
-| Stuck on "starting", then "desktop did not start" | `allow-external-apps` is off, the permission was denied, or the loader is missing. Check the log |
+| Waiting forever | Nothing is running yet. Run `xdesk start`, and check `xdesk status` |
+| "Display :1 is used by another X server" | The official Termux:X11 is running. Stop it, for example with `pkill -f termux-x11` |
+| App's start button fails | Run `xdesk enable-app-start` and check the permission |
+| Desktop does not fit the screen | It started before the app connected. Open the app first, then restart the session |
 | External screen goes black after a few minutes | XFCE's screensaver. Move the mouse, or raise `/saver/idle-activation/delay` in the `xfce4-screensaver` xfconf channel |
-| Black bars on the display | Android may report an aspect ratio that differs from the monitor's. XDesk renders at the reported ratio to fill the screen |
 | Phone's own cursor appears | Mouse capture was lost. Tap the XDesk touch screen |
 | No sound | Check the output in the top bar. Many monitors have no speakers |
 | Ctrl + letter does nothing on the soft keyboard | Pinyin mode keeps the letter in the IME. Switch to the English layout or use a physical keyboard |
-| `X server stalled` | Comes from upstream's watchdog. Do not recreate the window with `FLAG_ACTIVITY_CLEAR_TASK` |
 
 ## Limitations
 
-- Linux apps only. Android apps can be placed on the display but not controlled, because the system keeps the Android mouse on the phone screen and regular apps cannot inject input into others
+- Linux programs only. Android apps can be placed on the display but not controlled, because the system keeps the Android mouse on the phone screen and regular apps cannot inject input into others
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
-- XDesk and the official Termux:X11 share one XFCE config and display `:1`, so do not run both at once
 - Tested on a single phone, the European Xiaomi 15 Ultra
 
-## Building on this
+## Building
 
-The `xdesk` branch is the default branch. `master` tracks upstream.
+The default branch is `xdesk`, `master` tracks upstream. Pushes build on GitHub Actions, and tags like `v0.1.0` publish a release.
+
+```sh
+git clone --recursive https://github.com/n2ray/xdesk
+cd xdesk && ./gradlew assembleDebug      # needs the Android SDK and NDK
+```
+
+To merge upstream:
 
 ```sh
 git remote add upstream https://github.com/termux/termux-x11
 git fetch upstream && git merge upstream/master
 ```
 
-Upstream's manifest, package names under `com.termux.x11` and `LorieView` API are what XDesk relies on. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
+XDesk relies on upstream's manifest, class names under `com.termux.x11` and the `LorieView` API. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
 
 ## License
 

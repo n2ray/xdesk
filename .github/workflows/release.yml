@@ -1,0 +1,44 @@
+name: Release
+
+# Push a tag such as v0.1.0 to build and publish. Versions below 1.0 are marked as pre-releases.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: false
+        fetch-depth: 1
+    - uses: gradle/actions/wrapper-validation@v6.4.1
+    - uses: actions/setup-java@v6
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    - name: Fetch submodules
+      run: git submodule update --init --recursive --jobs 8 --depth 1
+    - name: Build
+      run: ./gradlew assembleDebug
+    - name: Collect release files
+      run: |
+        mkdir out
+        cp lorie-app/build/outputs/apk/standalone/debug/termux-x11-universal-debug.apk out/xdesk.apk
+        dpkg-deb -x shell-loader/build/outputs/companion/termux-x11-*-all.deb deb
+        cp "$(find deb -name loader.apk)" out/loader.apk
+        cp xdesk/xdesk out/xdesk
+        (cd out && sha256sum xdesk.apk loader.apk xdesk > SHA256SUMS)
+    - name: Publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        case "$TAG" in v0.*) PRE=--prerelease ;; *) PRE= ;; esac
+        gh release create "$TAG" $PRE --title "XDesk $TAG" --generate-notes \
+          out/xdesk.apk out/loader.apk out/xdesk out/SHA256SUMS
