@@ -4,7 +4,7 @@
 
 [English](README.md) · 基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0
 
-> **现状：** 这是个人项目，每天在一台手机上使用：小米 15 Ultra（骁龙 8 Elite，HyperOS 3，Android 16，BL 未解锁）。别的机型都没有试过，可能表现不同，尤其是 `xdesk/startx.sh` 里的 GPU 设置。界面目前只有中文。
+> **现状：** 这是个人项目，每天在一台手机上使用：欧版（EEA）小米 15 Ultra（型号 25010PN30G，骁龙 8 Elite，HyperOS 3，Android 16，BL 未解锁）。别的机型都没有试过，包括这款手机的国行版，其他机型和 ROM 可能表现不同，尤其是 `xdesk/startx.sh` 里的 GPU 设置。界面目前只有中文。
 
 ## 功能
 
@@ -127,7 +127,7 @@ am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity
 - 只能操作 Linux 程序。安卓应用可以放到外屏，但操作不了，因为系统把安卓鼠标限制在手机屏上，普通 App 也不能给别的 App 注入输入
 - Termux 和 XDesk 都要保持运行，系统清理可能杀掉它们
 - XDesk 和官方 Termux:X11 共用一份 XFCE 配置和 `:1`，不要同时运行
-- 只在一台手机上测试过
+- 只在一台手机（欧版小米 15 Ultra）上测试过
 
 ## 在这个基础上开发
 

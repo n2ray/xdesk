@@ -4,7 +4,7 @@
 
 [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
 
-> **Status:** a personal project that works daily on one device, a Xiaomi 15 Ultra (Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else. Other phones may behave differently, especially the GPU settings in `xdesk/startx.sh`. The UI is Chinese only for now.
+> **Status:** a personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently, especially the GPU settings in `xdesk/startx.sh`. The UI is Chinese only for now.
 
 ## What you get
 
@@ -127,7 +127,7 @@ Logs are in `$PREFIX/tmp/xdesk.log` and `$PREFIX/tmp/xfce_startup.log`.
 - Linux apps only. Android apps can be placed on the display but not controlled, because the system keeps the Android mouse on the phone screen and regular apps cannot inject input into others
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
 - XDesk and the official Termux:X11 share one XFCE config and display `:1`, so do not run both at once
-- Tested on a single phone
+- Tested on a single phone, the European Xiaomi 15 Ultra
 
 ## Building on this
 
