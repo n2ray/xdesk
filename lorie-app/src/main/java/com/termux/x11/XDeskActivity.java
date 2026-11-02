@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -48,12 +49,15 @@ public class XDeskActivity extends Activity {
     private static final String PKG_TERMUX = "com.termux";
 
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
-        PREF_DIM = "dim_idle", PREF_DIAG = "show_diag";
+        PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation";
     private static final String[] OUTPUT_LABELS = {"手机扬声器", "外接屏（HDMI）", "系统默认（蓝牙等）"};
     private static final String[] OUTPUT_SHORT = {"手机", "外接", "系统"};
     private static final String[] WIDTH_LABELS = {"清晰（显示器原生）", "均衡（1920 宽）", "省电和游戏（1280 宽）"};
     private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
     private static final int DEFAULT_WIDTH = 1920;
+    private static final String[] ORIENTATION_LABELS = {"横屏", "竖屏", "跟随系统"};
+    private static final int[] ORIENTATIONS = {ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+        ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_FULL_USER};
 
     private static final long CONNECT_TIMEOUT_MS = 40000;
     private static final long RESTART_NOTICE_MS = 30000;
@@ -236,6 +240,7 @@ public class XDeskActivity extends Activity {
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         prefs = getPreferences(MODE_PRIVATE);
         session = DesktopSession.get(this);
+        applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
         setContentView(buildUi());
         screens.getViewTreeObserver().addOnGlobalLayoutListener(this::fitToKeyboard);
@@ -659,6 +664,24 @@ public class XDeskActivity extends Activity {
             .show();
     }
 
+    /** 只影响 XDesk 的触控界面：手机系统锁竖屏时这里也能横过来。默认横屏。 */
+    private void applyOrientation() {
+        setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, 0)]);
+    }
+
+    private void chooseOrientation() {
+        new AlertDialog.Builder(this)
+            .setTitle("触控界面方向")
+            .setSingleChoiceItems(ORIENTATION_LABELS, prefs.getInt(PREF_ORIENTATION, 0), new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface dialog, int which) {
+                    prefs.edit().putInt(PREF_ORIENTATION, which).apply();
+                    applyOrientation();
+                    dialog.dismiss();
+                }
+            })
+            .show();
+    }
+
     private int widthIndex() {
         int w = prefs.getInt(PREF_WIDTH, DEFAULT_WIDTH);
         for (int i = 0; i < WIDTHS.length; i++) if (WIDTHS[i] == w) return i;
@@ -718,6 +741,9 @@ public class XDeskActivity extends Activity {
         });
         settingsRow(c, "桌面分辨率", new View.OnClickListener() {
             @Override public void onClick(View v) { chooseResolution(); }
+        });
+        settingsRow(c, "触控界面方向", new View.OnClickListener() {
+            @Override public void onClick(View v) { chooseOrientation(); }
         });
 
         TextView sl = new TextView(this);
