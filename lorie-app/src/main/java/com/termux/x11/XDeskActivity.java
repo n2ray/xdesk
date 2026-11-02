@@ -57,6 +57,7 @@ public class XDeskActivity extends Activity {
 
     private static final long CONNECT_TIMEOUT_MS = 40000;
     private static final long RESTART_NOTICE_MS = 30000;
+    private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
     private static final long DIM_AFTER_MS = 60000;
     private static final float DIM_BRIGHTNESS = 0.01f;
@@ -133,6 +134,11 @@ public class XDeskActivity extends Activity {
         @Override public void captureChanged(boolean has) {
             captured = has;
             updateDiag();
+            // 系统在转屏等时候会收回抓取；窗口还有焦点、鼠标还在就要回来，否则光标会跑到手机屏上
+            if (!has) {
+                ui.removeCallbacks(recapture);
+                ui.postDelayed(recapture, RECAPTURE_DELAY_MS);
+            }
         }
         @Override public void mouseScroll(float v, float h) {
             if (client == null) return;
@@ -210,6 +216,10 @@ public class XDeskActivity extends Activity {
         @Override public void run() {
             if (!session.isConnected()) showConnectFailure();
         }
+    };
+
+    private final Runnable recapture = new Runnable() {
+        @Override public void run() { updateCapture(); }
     };
 
     private final Runnable dim = new Runnable() {
