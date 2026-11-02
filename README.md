@@ -1,256 +1,145 @@
+# XDesk
 
-# Termux:X11
+**A full Linux desktop on an external display, from an Android phone, with no root.** Plug in a monitor, open XDesk, and XFCE appears on the big screen while the phone becomes a touchpad and keyboard.
 
-[![Nightly build](https://github.com/termux/termux-x11/actions/workflows/debug_build.yml/badge.svg?branch=master)](https://github.com/termux/termux-x11/actions/workflows/debug_build.yml) [![Join the chat at https://gitter.im/termux/termux](https://badges.gitter.im/termux/termux.svg)](https://gitter.im/termux/termux) [![Join the Termux discord server](https://img.shields.io/discord/641256914684084234?label=&logo=discord&logoColor=ffffff&color=5865F2)](https://discord.gg/HXpF69X)
+[中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
 
-A [Termux](https://termux.com) X11 server add-on app.
+> **Status:** a personal project that works daily on one device, a Xiaomi 15 Ultra (Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else. Other phones may behave differently, especially the GPU settings in `xdesk/startx.sh`. The UI is Chinese only for now.
 
-## About
-Termux:X11 is a fully fledged X server. It is built with Android NDK and optimized to be used with Termux.
+## What you get
 
-## Submodules caveat
-This repo uses submodules. Use 
+- XFCE on the external display, GPU accelerated through Mesa (zink + Turnip on Adreno)
+- Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
+- Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
+- Physical mouse and keyboard, forwarded to the desktop
+- Audio output you can switch: phone speaker, HDMI, or system default
+- Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
+- Survives unplugging the display, switching apps and locking the phone. If the system kills the X server, the desktop restarts by itself, but unsaved work in it is lost
 
-```
-git clone --recurse-submodules https://github.com/termux/termux-x11 
-```
-or
-```
-git clone https://github.com/termux/termux-x11
-cd termux-x11
-git submodule update --init --recursive
-```
+No root, no `adb` in daily use. It installs next to the official Termux:X11 and does not touch it.
 
-## How does it work?
-Just like any other X server.
-
-## Setup Instructions
-Termux:X11 requires Android 8 or later. It consists of an Android app and a companion termux package, and you must install both.
-
-The Android app is available via the [nightly release tag](https://github.com/termux/termux-x11/releases/tag/nightly) of this repository. Download and install `termux-x11-universal-debug.apk`.
-
-The companion termux package is available from the termux graphical repository. You can ensure it's enabled and install this package with `pkg i x11-repo && pkg i termux-x11-nightly`. If you need to, you can also download a `.deb` or `*.tar.xz` from the same nightly release tag as above.
-
-### Avoiding slowdowns
-<details>
-<summary>Android gives less CPU time to apps that aren't on screen — install the sharedUid APK to avoid this</summary>
-
-Android gives less CPU time to apps that aren't on screen. Once Termux:X11 opens, Android treats Termux itself as no longer being on screen, so things running inside Termux (like your desktop apps) can slow down.
-
-To avoid this, install `termux-x11-universal-sharedUid-debug.apk` instead of the regular one (same [nightly release tag](https://github.com/termux/termux-x11/releases/tag/nightly) or CI artifacts). This variant runs as part of Termux itself, so Android keeps treating it as one app and doesn't slow it down.
-
-This variant only works with the Termux app installed **from GitHub**, not F-Droid or Google Play — those are signed with different keys, and a shared UID requires matching signatures.
-</details>
-
-Finally, most people will want to use a desktop environment with Termux:X11. If you don't know what that means or don't know which one to pick, run `pkg i xfce` (also from `x11-repo`) to install a good one to start with. The rest of these instructions will assume that your goal is to run an XFCE desktop, or that you can modify the instructions as you follow them for your actual goal.
-
-## Running Graphical Applications
-You can start your desired graphical application by doing:
-```
-termux-x11 :1 -xstartup "dbus-launch --exit-with-session xfce4-session"
-```
-or
-```
-termux-x11 :1 -- dbus-launch --exit-with-session xfce4-session
-```
-or
-```
-termux-x11 :1 &
-env DISPLAY=:1 dbus-launch --exit-with-session xfce4-session
-```
-You may replace `xfce4-session` if you use other than Xfce
-
-`dbus-launch` does not work for some users so you can start session with
-```
-termux-x11 :1 -xstartup "xfce4-session"
-```
-
-Also you can do 
-```
-export TERMUX_X11_XSTARTUP="xfce4-session"
-termux-x11 :1
-```
-In this case you can save TERMUX_X11_XSTARTUP somewhere in `.bashrc` or other script and not type it every time you invoke termux-x11.  
-
-
-If you're done using Termux:X11 just simply exit it through its notification drawer by expanding the Termux:X11 notification then "Exit"
-But you should pay attention that `termux-x11` command is still running and can not be killed this way.
-
-For some reason some devices output only black screen with cursor instead of normal output so you should pass `-legacy-drawing` option.
-```
-termux-x11 :1 -legacy-drawing -xstartup "xfce4-session"
-```
-
-For some reason some devices show screen with swapped colours, in this case you should pass `-force-bgra` option.
-```
-termux-x11 :1 -force-bgra -xstartup "xfce4-session"
-```
-
-## Running multiple displays as separate windows
-Each display normally shares the single Termux:X11 window. Pass `-tag <tag>` to open a display as its own Android window instead:
-```
-termux-x11 :1 -tag main -xstartup "xfce4-session"
-termux-x11 :2 -tag second -xstartup "xfce4-session"
-```
-Re-running a tag brings its window back to front instead of opening a duplicate.
-
-To bring up a tagged window's activity:
-```
-am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity -d main
-```
-
-## Using with proot environment
-If you plan to use the program with proot, keep in mind that you need to launch proot/proot-distro with the --shared-tmp option. 
-
-If passing this option is not possible, set the TMPDIR environment variable to point to the directory that corresponds to /tmp in the target container.
-
-If you are using proot-distro you should know that it is possible to start `termux-x11` command from inside proot container.
-
-Example, run in a Termux shell (not inside the proot container):
-```
-termux-x11 :1 &
-proot-distro login ubuntu --shared-tmp
-```
-Then, inside the container:
-```
-export DISPLAY=:1
-dbus-launch --exit-with-session xfce4-session
-```
-
-## Using with chroot environment
-If you plan to use the program with chroot or unshare, you must run it as root and set the TMPDIR environment variable to point to the directory that corresponds to /tmp in the target container.
-
-This directory must be accessible from the shell from which you launch termux-x11, i.e. it must be in the same SELinux context, same mount namespace, and so on.
-
-Also you must set `XKB_CONFIG_ROOT` environment variable pointing to container's `/usr/share/X11/xkb` directory, otherwise you will have `xkbcomp`-related errors.
-
-You can get loader for nightly build from an artifact of [last successful build](https://github.com/termux/termux-x11/actions/workflows/debug_build.yml)
-
-Do not forget to disable SELinux
-```
-setenforce 0
-export TMPDIR=/path/to/chroot/container/tmp
-export CLASSPATH=$(/system/bin/pm path com.termux.x11 | cut -d: -f2)
-/system/bin/app_process / --nice-name=termux-x11 com.termux.x11.CmdEntryPoint :0
-```
-
-### Force stopping X server (running in termux background, not an activity)
-
-termux-x11's X server runs in process with name "termux-x11". You can kill it by
-```
-pkill -f termux-x11
-```
-
-### Closing Android activity (running in foreground, not X server)
+## How it works
 
 ```
-am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11
+ Phone screen                        External display
+┌───────────────────────┐           ┌───────────────────────┐
+│ XDeskActivity         │  direct   │ MainActivity (upstream)│
+│ touchpad, keys, audio ├──calls───►│ LorieView shows XFCE   │
+└───────────┬───────────┘           └───────────▲───────────┘
+            │ RUN_COMMAND                       │ X11
+┌───────────▼───────────────────────────────────┴───────────┐
+│ Termux: x11-session.sh → X server, XFCE, PulseAudio       │
+└───────────────────────────────────────────────────────────┘
 ```
 
-To close a window opened with `-tag`:
-```
-am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11 --es document_tag main
+- **One app, two windows.** The upstream `MainActivity` runs unchanged on the external display. `XDeskActivity` runs on the phone in the same process and calls `LorieView.sendMouseEvent`, `sendKeyEvent` and `sendTextEvent` directly.
+- **X and XFCE stay in Termux**, started through Termux's `RUN_COMMAND`, using a loader built for this app id.
+- **Audio** goes from a PulseAudio null sink to a local TCP port. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
+
+Almost all changes live in `lorie-app/`, so merging upstream stays simple.
+
+## Requirements
+
+- An Android phone with **video output over USB-C** (DisplayPort Alt Mode). If plugging in a monitor mirrors the screen, it qualifies
+- USB-C to HDMI cable or dock
+- Android 11 or newer (only tested on Android 16)
+- [Termux](https://github.com/termux/termux-app) with storage access
+
+## Install
+
+### 1. Termux packages
+
+```sh
+termux-setup-storage
+pkg upgrade
+pkg install x11-repo
+pkg install xfce4 xfce4-terminal pulseaudio mesa vulkan-loader mesa-vulkan-icd-freedreno xorg-xrandr dbus util-linux git
 ```
 
-### Opening Termux:X11 activity from command line
+`mesa-vulkan-icd-freedreno` is for Adreno GPUs. On other GPUs, replace it and adjust the variables in `xdesk/startx.sh`.
 
+### 2. Get the build
+
+Download both artifacts from the same run on the [Actions page](https://github.com/n2ray/xdesk/actions/workflows/debug_build.yml) (requires a GitHub login):
+
+- `termux-x11-universal-debug`: the APK
+- `termux-companion packages`: contains `termux-x11-nightly-*.deb`, which holds the loader
+
+Or fork this repository and let Actions build it for you. Local builds need the Android SDK and NDK:
+
+```sh
+git clone --recursive https://github.com/n2ray/xdesk
+cd xdesk && ./gradlew assembleDebug
 ```
+
+> The APK is signed with the public test key from this repository. That is fine for trying it out, but anyone can sign an update with the same key.
+
+### 3. Install the Termux side
+
+```sh
+git clone https://github.com/n2ray/xdesk ~/xdesk
+bash ~/xdesk/xdesk/install.sh /path/to/termux-x11-nightly-*.deb
+```
+
+This copies the scripts to `/sdcard/Termux/xdesk`, installs the loader to `~/.local/libexec/xdesk/loader.apk` and sets `allow-external-apps = true`. That setting lets apps run commands in Termux, but each app also needs the permission in step 5.
+
+### 4. Install the APK
+
+```sh
+adb install -r termux-x11-universal-debug.apk
+```
+
+On our phone the file manager refused it with a generic "app not installed", while `adb install` worked. On Xiaomi phones, turn on **USB install** in Developer options first.
+
+### 5. Run it
+
+1. Plug in the display
+2. Open **XDesk** and allow it to **run Termux commands** and post notifications
+3. After a few seconds, XFCE appears on the display
+
+End the desktop from **Settings → End desktop**. Unsaved work is lost.
+
+## Use your own XFCE setup
+
+If `/sdcard/Termux/startx.sh` exists, XDesk uses it instead of the bundled copy. It rewrites two lines on the fly, so these must stay as they are:
+
+```sh
+termux-x11 :1 -ac -xstartup "dbus-run-session startxfce4" &
 am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity
 ```
 
-### Logs
-If you need to obtain logs from the `com.termux.x11` application,
-set the `TERMUX_X11_DEBUG` environment variable to 1, like this:
-`TERMUX_X11_DEBUG=1 termux-x11 :0`
+## Troubleshooting
 
-The log obtained in this way can be quite long.
-It's better to redirect the output of the command to a file right away.
+Logs are in `$PREFIX/tmp/xdesk.log` and `$PREFIX/tmp/xfce_startup.log`.
 
-### Notification
-In Android 13, posting notifications was restricted so you should explicitly let Termux:X11 show you notifications.
-<details>
-<summary>Video</summary>
+| Symptom | Likely cause |
+|---|---|
+| Stuck on "starting", then "desktop did not start" | `allow-external-apps` is off, the permission was denied, or the loader is missing. Check the log |
+| External screen goes black after a few minutes | XFCE's screensaver. Move the mouse, or raise `/saver/idle-activation/delay` in the `xfce4-screensaver` xfconf channel |
+| Black bars on the display | Android may report an aspect ratio that differs from the monitor's. XDesk renders at the reported ratio to fill the screen |
+| Phone's own cursor appears | Mouse capture was lost. Tap the XDesk touch screen |
+| No sound | Check the output in the top bar. Many monitors have no speakers |
+| Ctrl + letter does nothing on the soft keyboard | Pinyin mode keeps the letter in the IME. Switch to the English layout or use a physical keyboard |
+| `X server stalled` | Comes from upstream's watchdog. Do not recreate the window with `FLAG_ACTIVITY_CLEAR_TASK` |
 
-[img_enable-notifications.webm](https://user-images.githubusercontent.com/9674930/227760411-11d440eb-90b8-451e-9024-d5a194d10b16.webm)
+## Limitations
 
-</details>
+- Linux apps only. Android apps can be placed on the display but not controlled, because the system keeps the Android mouse on the phone screen and regular apps cannot inject input into others
+- Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
+- XDesk and the official Termux:X11 share one XFCE config and display `:1`, so do not run both at once
+- Tested on a single phone
 
-Preferences:
-You can access preferences menu three ways:
-<details>
-<summary>By clicking "PREFERENCES" button on main screen when no client connected.</summary>
+## Building on this
 
-![image](./.github/static/1.jpg)
-</details>
-<details>
-<summary>By clicking "Preferences" button in notification, if available.</summary>
+The `xdesk` branch is the default branch. `master` tracks upstream.
 
-![image](./.github/static/2.jpg)
-</details>
-<details>
-<summary>By clicking "Preferences" application shortcut (long tap `Termux:X11` icon in launcher). </summary>
-
-![image](./.github/static/3.jpg)
-</details>
-
-## Toggling keyboard
-Just press "Back" button.
-
-## Touch gestures
-### Touchpad emulation mode.
-In touchpad emulation mode you can use the following gestures:
-* Tap for click
-* Double tap for double click
-* Two-finger tap for right click
-* Three-finger tap for middle click
-* Two-finger vertical swipe for vertical scroll
-* Two-finger horizontal swipe for horizontal scroll
-* Three-finger swipe down to show-hide additional keys bar.
-### Simulated touchscreen mode.
-In simulated touchscreen mode you can use the following gestures:
-* Single tap for left button click.
-* Long tap for mouse holding.
-* Double tap for double click
-* Two-finger tap for right click
-* Three-finger tap for middle click
-* Two-finger vertical swipe for vertical scroll
-* Two-finger horizontal swipe for horizontal scroll
-* Three-finger swipe down to show-hide additional keys bar.
-
-## Font or scaling is too big!
-Some apps may have issues with X server regarding DPI. please see https://wiki.archlinux.org/title/HiDPI on how to override application-specific DPI or scaling.
-
-You can fix this in your window manager settings (in the case of xfce4 and lxqt via Applications Menu > Settings > Appearance). Look for the DPI value, if it is disabled enable it and adjust its value until the fonts are the appropriate size.
-<details>
-<summary> Screenshot </summary>
-
-![image](./.github/static/dpi-scale.png) 
-</details>
-
-Also you can start `termux-x11` with `-dpi` option.
-```
-termux-x11 :1 -xstartup "xfce4-session" -dpi 120
+```sh
+git remote add upstream https://github.com/termux/termux-x11
+git fetch upstream && git merge upstream/master
 ```
 
-## Changing, dumping and restoring preferences from commandline
+Upstream's manifest, package names under `com.termux.x11` and `LorieView` API are what XDesk relies on. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
 
-It is possible to change preferences of termux-x11 from command line.
-`termux-x11-nightly` package contains `termux-x11-preference` tool which can be used like 
-```shell
-termux-x11-preference [list] {key:value} [{key2:value2}]...
-```
+## License
 
-Use `termux-x11-preference list` to dump current preferences.
-Use `termux-x11-preference list > file` to dump current preferences to file.
-Use `termux-x11-preference < file` to restore preferences from file.
-Use `termux-x11-preference "fullscreen"="false" "showAdditionalKbd"="true"` to disable fullscreen and enable additional key bar. The full list of preferences you can modify is available with `termux-x11-preference list` command. You can specify one or more preferences here.
-
-Termux:X11 activity should be available in background or foreground, otherwise `termux-x11-preference` tool will hang indefinitely.
-In the case if there is `Store preferences for secondary displays separately` preference active `termux-x11-preference` will use/modify preferences of display where Termux:X11 activity is currently opened.
-
-## Using with 3rd party apps
-It is possible to use Termux:X11 with 3rd party apps.
-Check how `shell-loader/src/main/java/com/termux/x11/Loader.java` works.
-
-# License
-Released under the [GPLv3 license](https://www.gnu.org/licenses/gpl-3.0.html).
+GPL-3.0, same as Termux:X11. All credit for the X server and rendering goes to the [Termux:X11 authors](https://github.com/termux/termux-x11).
