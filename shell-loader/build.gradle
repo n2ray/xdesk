@@ -27,7 +27,7 @@ def signingConfig = project(':lorie-app').android.signingConfigs.debug
 def keyStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
 keyStore.load(new FileInputStream(signingConfig.storeFile), signingConfig.keyPassword.toCharArray())
 
-ext.targetApplicationId = "cc.klai.xdesk.x11"
+ext.targetApplicationId = "io.github.n2ray.xdesk.x11"
 ext.embeddedApplicationId = "com.termux"
 
 android.defaultConfig.buildConfigField "String", "APPLICATION_ID", "\"$targetApplicationId\""
