@@ -55,6 +55,7 @@ public class XDeskActivity extends Activity {
     private static final int DEFAULT_WIDTH = 1920;
 
     private static final long CONNECT_TIMEOUT_MS = 40000;
+    private static final long RESTART_NOTICE_MS = 30000;
     private static final long REFOCUS_DELAY_MS = 800;
     private static final long DIM_AFTER_MS = 60000;
     private static final float DIM_BRIGHTNESS = 0.01f;
@@ -176,10 +177,16 @@ public class XDeskActivity extends Activity {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
                 bumpIdle();
+                // X 没有画面变化就不刷新，窗口刚接上时会一直黑屏：动一下光标触发重绘
+                session.input().move(1, 0);
+                session.input().move(-1, 0);
             }
             updateStatus();
             if (restarted) {
                 setStatus(Style.WARN, "桌面被系统关闭后已重新启动，未保存的内容可能已丢失");
+                ui.postDelayed(new Runnable() {
+                    @Override public void run() { updateStatus(); }
+                }, RESTART_NOTICE_MS);
                 Display d = externalDisplay();
                 if (d != null) placeX11(d.getDisplayId());
             }
@@ -814,6 +821,9 @@ public class XDeskActivity extends Activity {
         p.displayResolutionMode.put("custom");
         p.displayResolutionCustom.put(size);
         p.displayFilteringMode.put("bilinear");
+        // 上游的虚拟按键栏会占掉外屏底部的高度，手机上已有快捷键栏
+        p.showAdditionalKbd.put(false);
+        p.additionalKbdVisible.put(false);
     }
 
     private void startDesktop(Display d) {

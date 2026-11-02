@@ -16,6 +16,7 @@
         <activity
             android:name="com.termux.x11.XDeskActivity"
             android:label="XDesk"
+            android:icon="@mipmap/xdesk_icon"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:launchMode="singleTask"
             android:taskAffinity=".XDesk"
