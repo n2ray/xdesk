@@ -121,7 +121,7 @@ final class DesktopSession {
         ui.removeCallbacks(poll);
         if (audio != null) audio.close();
         audio = null;
-        context.stopService(new Intent(context, DesktopService.class));
+        DesktopService.stopIfIdle(context);
     }
 
     /** 结束桌面（运行 xdesk stop）。只由用户明确操作触发，XDesk 打开或退出都不会结束桌面。 */

@@ -9,20 +9,34 @@ import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** 颜色和控件样式。界面全部用代码构建，集中在这里调。 */
+/**
+ * 外观集中在这里：近黑的底，稍亮的面，一个蓝色强调色，状态色只用在小圆点上。边框和文字按钮尽量少，常用操作用图标。
+ * 手指点的东西至少 TARGET 高，不看也能点到。界面全部用代码构建。
+ */
 final class Style {
-    static final int BACKGROUND = 0xFF0E1116;
-    static final int SURFACE = 0xFF1A1F26;
-    static final int SURFACE_RAISED = 0xFF262C35;
+    static final int BACKGROUND = 0xFF0B0D10;
+    static final int SURFACE = 0xFF15181D;
+    static final int SURFACE_RAISED = 0xFF21252C;
     static final int RIPPLE = 0x33FFFFFF;
     static final int TEXT = 0xFFE8ECF1;
     static final int TEXT_DIM = 0xFF8D97A3;
-    static final int ACCENT = 0xFF4C8DFF;
+    static final int ACCENT = 0xFF3D7EF5;
     static final int OK = 0xFF3FCF7F;
     static final int WARN = 0xFFF2B33D;
     static final int DANGER = 0xFFE5534B;
+
+    /** 间距，单位 dp。 */
+    static final int GAP = 6, EDGE = 8;
+    /** 手指目标的最小边长，单位 dp。 */
+    static final int TARGET = 48;
+    /** 字号，单位 sp。 */
+    static final float TEXT_TITLE = 20, TEXT_BODY = 15, TEXT_SMALL = 12, TEXT_TINY = 10;
+    /** 圆角，单位 dp。 */
+    static final float RADIUS = 12;
 
     private Style() { }
 
@@ -58,5 +72,75 @@ final class Style {
 
     static void tick(View v) {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+    }
+
+    static TextView label(Context c, String text, int color, float sp) {
+        TextView t = new TextView(c);
+        t.setText(text);
+        t.setTextColor(color);
+        t.setTextSize(sp);
+        return t;
+    }
+
+    /** 小圆点：状态色只出现在这里。 */
+    static GradientDrawable dot(int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        return d;
+    }
+
+    /** 常用操作：一个图标，下面可以有一行小字，比如当前的值。不抢焦点。 */
+    static final class IconButton extends LinearLayout {
+        private final ImageView icon;
+        private final TextView text;
+        private final int color;
+
+        IconButton(Context c, int iconId, String label, int color) {
+            super(c);
+            this.color = color;
+            setOrientation(VERTICAL);
+            setGravity(Gravity.CENTER);
+            setClickable(true);
+            setFocusable(false);
+            setHapticFeedbackEnabled(true);
+            setMinimumHeight(dp(c, TARGET));
+            setMinimumWidth(dp(c, TARGET));
+            setBackground(ripple(c, color, RADIUS));
+            icon = new ImageView(c);
+            icon.setImageResource(iconId);
+            icon.setColorFilter(TEXT);
+            int size = dp(c, 22);
+            addView(icon, new LayoutParams(size, size));
+            text = new TextView(c);
+            text.setTextColor(TEXT);
+            text.setTextSize(TEXT_TINY);
+            text.setSingleLine(true);
+            text.setGravity(Gravity.CENTER);
+            addView(text, new LayoutParams(-2, -2));
+            setLabel(label);
+            setContentDescription(label);
+        }
+
+        void setLabel(String label) {
+            text.setText(label);
+            text.setVisibility(label == null || label.isEmpty() ? GONE : VISIBLE);
+        }
+
+        void setIcon(int iconId) {
+            icon.setImageResource(iconId);
+        }
+
+        /** 强调色表示开着，比如接管了键鼠。 */
+        void setActive(boolean on) {
+            setBackground(ripple(getContext(), on ? ACCENT : color, RADIUS));
+        }
+
+        void onTap(final Runnable action) {
+            setOnClickListener(v -> {
+                tick(v);
+                action.run();
+            });
+        }
     }
 }

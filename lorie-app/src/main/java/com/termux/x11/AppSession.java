@@ -56,6 +56,7 @@ final class AppSession {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final CursorOverlay cursor;
     private final CursorPolicy cursorPolicy = new CursorPolicy();
+    private final TouchDots touchDots;
     private final AudioRoute audioRoute;
     /** 接管过键鼠又切去了 Termux 桌面：切回来时接着接管。用户没要过就不会自己接管。 */
     private boolean forwardOnReturn;
@@ -203,6 +204,7 @@ final class AppSession {
     private AppSession(Context c) {
         context = c;
         cursor = new CursorOverlay(c);
+        touchDots = new TouchDots(c);
         audioRoute = AudioRoute.get(c);
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
@@ -308,6 +310,7 @@ final class AppSession {
         cursorPolicy.setAlwaysShow(alwaysShow);
         cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
+        touchDots.attach(d);
         updateCursor();
         if (injector == null) audioRoute.setPending(true);
         Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label);
@@ -547,6 +550,7 @@ final class AppSession {
         forwarding = false;
         display = null;
         cursor.remove();
+        touchDots.remove();
     }
 
     private void loadDensity(IInjector i, Display d) throws RemoteException {
@@ -645,7 +649,7 @@ final class AppSession {
         applyCurrentDensity(dpi == 0);
     }
 
-    /** 记在每个包上，默认鼠标。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
+    /** 触控模式还是键鼠模式，记在每个包上（键名沿用以前的手指设置，存过的自动算触控），默认键鼠。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
     private boolean touchModeFor(AppCatalog.App a) {
         return canUseTouchMode(a) && touchModes.getBoolean(a.packageName, false);
     }
@@ -683,6 +687,23 @@ final class AppSession {
 
     static boolean touchModeAllowed(AppCatalog.App a) {
         return canUseTouchMode(a);
+    }
+
+    /** 触控模式：手机触控区的一帧。外接屏上每根手指一个点。 */
+    void touchFrame(int action, int[] ids, float[] x, float[] y) {
+        int masked = action & android.view.MotionEvent.ACTION_MASK;
+        boolean over = masked == android.view.MotionEvent.ACTION_UP || masked == android.view.MotionEvent.ACTION_CANCEL;
+        touchDots.show(over ? new float[0] : x, over ? new float[0] : y);
+        IInjector i = injector;
+        try {
+            if (i != null) i.touchFrame(action, ids, x, y);
+        } catch (RemoteException ignored) { }
+    }
+
+    /** 外接屏的逻辑尺寸，不知道时是 null。 */
+    int[] displaySize() {
+        Display d = display;
+        return d != null ? logicalSize(d) : null;
     }
 
     /** 关闭应用要靠注入服务。 */
@@ -796,6 +817,7 @@ final class AppSession {
         forgetDensity(0);
         setForwarding(false);
         cursor.remove();
+        touchDots.remove();
         if (listener != null) listener.onAppStateChanged();
     }
 
@@ -805,6 +827,7 @@ final class AppSession {
         forgetDensity(0);
         cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
+        touchDots.attach(d);
         final IInjector i = injector;
         if (i != null) {
             new Thread(() -> {
@@ -829,6 +852,7 @@ final class AppSession {
         int[] size = logicalSize(d);
         cursorPolicy.setHeight(size[1]);
         cursor.displayChanged(d);
+        touchDots.displayChanged(d);
         try {
             i.setDisplay(id, size[0], size[1]);
         } catch (RemoteException ignored) { }
@@ -866,6 +890,7 @@ final class AppSession {
         forwarding = false;
         display = null;
         cursor.remove();
+        touchDots.remove();
         final IInjector i = injector;
         injector = null;
         final Shizuku.UserServiceArgs a = args;
@@ -893,6 +918,6 @@ final class AppSession {
             });
         }, "xdesk-app-stop").start();
         // endSession keeps the foreground service until the moves are done, or the process could be killed before that
-        if (done == null && !desktopActive) context.stopService(new Intent(context, DesktopService.class));
+        if (done == null && !desktopActive) DesktopService.stopIfIdle(context);
     }
 }

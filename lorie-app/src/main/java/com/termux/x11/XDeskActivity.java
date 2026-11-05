@@ -41,6 +41,7 @@ import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
+import com.termux.x11.app.R;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -57,7 +58,8 @@ public class XDeskActivity extends Activity {
 
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
-        PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor";
+        PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
+        PREF_FULL_KEYS = "pad_full_keys", PREF_FULL_TOUCH = "pad_full_touch";
     private static final int MAX_RECENTS = 6;
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
@@ -67,7 +69,11 @@ public class XDeskActivity extends Activity {
     private static final String[] WIDTH_LABELS = {"清晰（显示器原生）", "均衡（1920 宽）", "省电和游戏（1280 宽）"};
     private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
     private static final int DEFAULT_WIDTH = 1920;
-    private static final String[] ORIENTATION_LABELS = {"横屏", "竖屏", "跟随系统"};
+    private static final String[] ORIENTATION_LABELS = {"跟随系统", "竖屏", "横屏"};
+    /** 存的值，顺序同上。没选过就跟随系统；以前明确选过的不变。 */
+    private static final int[] ORIENTATION_VALUES = {2, 1, 0};
+    private static final int ORIENTATION_DEFAULT = 2;
+    private static final int SIDE_WIDTH = 72, SIDE_WIDTH_TOUCH = 56;
     private static final int[] ORIENTATIONS = {ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
         ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_FULL_USER};
 
@@ -87,7 +93,14 @@ public class XDeskActivity extends Activity {
     private SharedPreferences prefs;
 
     private FrameLayout screens;
-    private View runningScreen, setupScreen, topBar, sideRightButton;
+    private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
+    private Style.IconButton keysHandle;
+    private DirectTouchView directTouch;
+    private boolean keysExpanded, keyboardOpen;
+    /** 触控区铺满整个手机屏，系统栏隐藏。 */
+    private boolean padFullscreen;
+    /** 这个显示器已经放过仪表盘了，放不上去也别一直试。 */
+    private int dashboardTried = Display.INVALID_DISPLAY;
     private ChooserView chooser;
     private AppSession apps;
     private AppCatalog catalog;
@@ -99,7 +112,8 @@ public class XDeskActivity extends Activity {
     private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction, setupBack;
     private ProgressBar setupProgress;
-    private TextView statusText, diagText, audioChip, forwardChip, touchChip, backAppKey;
+    private TextView statusText, diagText;
+    private Style.IconButton audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn, backBtn;
     private View statusDot;
     private TouchpadView touchpad;
     private KeyInputView keyView;
@@ -192,6 +206,10 @@ public class XDeskActivity extends Activity {
 
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override public void onDisplayAdded(int id) {
+            // 放在最底下，所以要先放它，再放应用或桌面窗口
+            dashboardTried = Display.INVALID_DISPLAY;
+            Display forDashboard = displays.getDisplay(id);
+            if (forDashboard != null && id != Display.DEFAULT_DISPLAY) startDashboard(forDashboard);
             if (apps.isActive()) {
                 Display added = displays.getDisplay(id);
                 if (added != null) apps.displayAdded(added);
@@ -209,6 +227,10 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public void onDisplayRemoved(int id) {
+            // 不收的话系统会把它挪到手机屏上
+            DashboardActivity.closeIfAlive();
+            dashboardTried = Display.INVALID_DISPLAY;
+            if (!session.isActive() && !apps.isActive()) DesktopService.stopIfIdle(XDeskActivity.this);
             if (apps.isActive()) {
                 apps.displayRemoved(id);
                 refocusSelf();
@@ -281,6 +303,8 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onAppGone() {
             openChooserOverSession();
+            dashboardTried = Display.INVALID_DISPLAY;
+            ensureDashboard();
         }
         @Override public void onAppMessage(String message) {
             Toast.makeText(XDeskActivity.this, message, Toast.LENGTH_LONG).show();
@@ -304,14 +328,13 @@ public class XDeskActivity extends Activity {
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
         @Override public void onItemLongPress(String key) { showAppCard(key); }
-        @Override public void onDockAll() { openChooserOverSession(); }
         @Override public void onDockToggle(String key) {
             List<String> dock = savedLines(PREF_DOCK);
             if (!dock.remove(key)) dock.add(key);
             saveDock(dock);
         }
         @Override public void onChooserClose() { closeChooserOverSession(); }
-        @Override public void onEndXDesk() { confirmEndXDesk(); }
+        @Override public void onOpenSettings() { showSettings(); }
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
@@ -416,11 +439,13 @@ public class XDeskActivity extends Activity {
         displays.registerDisplayListener(displayListener, ui);
         inputs.registerInputDeviceListener(deviceListener, ui);
         tryStart();
+        ensureDashboard();
     }
 
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        ensureDashboard();
         // 从系统设置或 Shizuku 授权回来、或装好缺的 App 回来时接着走
         if (pendingApp != null) {
             startApp(pendingApp);
@@ -458,6 +483,7 @@ public class XDeskActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
         if (focus) {
+            if (padFullscreen) applyImmersive();
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
             updateCapture();
@@ -553,101 +579,238 @@ public class XDeskActivity extends Activity {
 
     private View buildRunningScreen() {
         boolean landscape = isLandscape();
-        sideRightButton = null;
         latches.clear();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(8), dp(4), dp(8), dp(8));
+        root.setBackgroundColor(Style.BACKGROUND);
+        root.setPadding(dp(Style.EDGE), dp(4), dp(Style.EDGE), dp(Style.EDGE));
 
-        LinearLayout top = new LinearLayout(this);
-        topBar = top;
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(8), 0, 0, dp(4));
-        // 竖屏放不下一行，状态单独占一行
-        LinearLayout statusRow = landscape ? top : new LinearLayout(this);
-        statusRow.setGravity(Gravity.CENTER_VERTICAL);
-        if (!landscape) statusRow.setPadding(dp(8), 0, 0, dp(4));
         statusDot = new View(this);
-        statusRow.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
-        statusText = new TextView(this);
-        statusText.setTextColor(Style.TEXT);
-        statusText.setTextSize(13);
+        statusText = Style.label(this, "", Style.TEXT, Style.TEXT_SMALL + 1);
         statusText.setMaxLines(2);
         statusText.setPadding(dp(8), 0, dp(8), 0);
-        statusRow.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1));
-        if (!landscape) {
-            root.addView(statusRow, new LinearLayout.LayoutParams(-1, -2));
-            top.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        }
-        audioChip = Style.button(this, "", Style.SURFACE_RAISED, 12, 16);
-        audioChip.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { chooseOutput(); }
-        });
-        top.addView(audioChip, chipParams(dp(68)));
-        ((LinearLayout.LayoutParams) audioChip.getLayoutParams()).rightMargin = dp(6);
-        forwardChip = Style.button(this, "", Style.ACCENT, 12, 16);
-        forwardChip.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Style.tick(v);
-                apps.setForwarding(!apps.isForwarding());
-            }
-        });
-        top.addView(forwardChip, chipParams(dp(84)));
-        // 只听触摸的应用或网页（比如手机版网站的播放器）：左键当手指。记在每个应用上
-        touchChip = Style.button(this, "", Style.SURFACE_RAISED, 12, 16);
-        touchChip.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Style.tick(v);
-                apps.toggleTouchMode();
-                updateStatus();
-            }
-        });
-        LinearLayout.LayoutParams touchParams = chipParams(dp(56));
-        touchParams.leftMargin = dp(6);
-        top.addView(touchChip, touchParams);
-        TextView back = Style.button(this, "启动器", Style.SURFACE_RAISED, 12, 16);
-        back.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { openChooserOverSession(); }
-        });
-        LinearLayout.LayoutParams backParams = chipParams(dp(52));
-        backParams.leftMargin = dp(6);
-        top.addView(back, backParams);
-        TextView menu = Style.button(this, "设置", Style.SURFACE_RAISED, 12, 16);
-        menu.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showSettings(); }
-        });
-        LinearLayout.LayoutParams mp = chipParams(dp(52));
-        mp.leftMargin = dp(6);
-        top.addView(menu, mp);
-        root.addView(top, new LinearLayout.LayoutParams(-1, dp(40)));
-        updateAudioChip();
-        applyModeToTopBar();
+        buildTopButtons();
+        runningDock = new DockBar(this, chooserHost, !landscape, false);
 
-        diagText = new TextView(this);
-        diagText.setTextColor(Style.TEXT_DIM);
-        diagText.setTextSize(11);
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        if (landscape) {
+            // 横屏高度最值钱：状态、收藏和按钮共一行
+            topBar = top;
+            top.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
+            top.addView(statusText, new LinearLayout.LayoutParams(dp(128), -2));
+            top.addView(runningDock, new LinearLayout.LayoutParams(0, dp(Style.TARGET), 1));
+            addTopButtons(top, false);
+            root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            // 竖屏放不下一行，状态单独占一行
+            topBar = null;
+            LinearLayout status = new LinearLayout(this);
+            status.setGravity(Gravity.CENTER_VERTICAL);
+            status.setPadding(dp(4), dp(2), 0, dp(4));
+            status.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
+            status.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1));
+            root.addView(status, new LinearLayout.LayoutParams(-1, -2));
+            addTopButtons(top, true);
+            root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        diagText = Style.label(this, "", Style.TEXT_DIM, Style.TEXT_TINY + 1);
         diagText.setPadding(dp(8), 0, dp(8), dp(4));
         root.addView(diagText, new LinearLayout.LayoutParams(-1, -2));
         applyDiagVisibility();
 
-        // 切换器：会话中一直在，点一下换外接屏上的内容。横屏高度紧，只留图标
-        runningDock = new DockBar(this, chooserHost, !landscape, true);
-        root.addView(runningDock, new LinearLayout.LayoutParams(-1, dp(landscape ? 44 : 60)));
-        refreshRunningDock();
+        if (!landscape) {
+            LinearLayout.LayoutParams dock = new LinearLayout.LayoutParams(-1, dp(62));
+            dock.topMargin = dp(4);
+            root.addView(runningDock, dock);
+        }
 
-        LinearLayout keys = new LinearLayout(this);
+        View center = buildTouchArea();
+        backBtn = new Style.IconButton(this, R.drawable.xd_ic_back, "返回 App", Style.SURFACE);
         // 安卓的 Back，给外接屏上的应用。手机上它是边缘滑动，有些应用不留返回按钮
-        backAppKey = smallKey("返回 App");
-        backAppKey.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Style.tick(v);
-                apps.sendBack();
+        backBtn.onTap(new Runnable() {
+            @Override public void run() { apps.sendBack(); }
+        });
+        Style.IconButton keyboard = new Style.IconButton(this, R.drawable.xd_ic_keyboard, "键盘", Style.SURFACE);
+        keyboard.onTap(new Runnable() {
+            @Override public void run() { toggleKeyboard(); }
+        });
+        // 不盖在触控区上：触控模式下那里的每个点都对应外接屏
+        keysHandle = new Style.IconButton(this, R.drawable.xd_ic_chevron_down, "功能键", Style.SURFACE);
+        keysHandle.onTap(new Runnable() {
+            @Override public void run() {
+                keysExpanded = !keysExpanded;
+                applyKeysVisibility();
             }
         });
-        LinearLayout.LayoutParams backKeyParams = keyParams();
-        backKeyParams.weight = 1.6f;
-        keys.addView(backAppKey, backKeyParams);
-        backAppKey.setVisibility(apps.isActive() ? View.VISIBLE : View.GONE);
+        leftButton = mouseButton("左键", 1);
+        rightButton = mouseButton("右键", 3);
+        int gap = dp(Style.GAP);
+        if (landscape) {
+            // 左右键在触控区两边，两只手正好够得到。Back 和键盘各在一边的底下
+            LinearLayout middle = new LinearLayout(this);
+            leftColumn = sideColumn(leftButton, backBtn, keysHandle);
+            rightColumn = sideColumn(rightButton, keyboard);
+            middle.addView(leftColumn, new LinearLayout.LayoutParams(dp(SIDE_WIDTH), -1));
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -1, 1);
+            cp.leftMargin = cp.rightMargin = gap;
+            middle.addView(center, cp);
+            middle.addView(rightColumn, new LinearLayout.LayoutParams(dp(SIDE_WIDTH), -1));
+            LinearLayout.LayoutParams mid = new LinearLayout.LayoutParams(-1, 0, 1);
+            mid.topMargin = gap;
+            root.addView(middle, mid);
+        } else {
+            leftColumn = rightColumn = null;
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, 0, 1);
+            tp.topMargin = gap;
+            root.addView(center, tp);
+            // 左右键紧贴触控区下面，一左一右；Back 和键盘在中间
+            LinearLayout bottom = new LinearLayout(this);
+            bottom.setGravity(Gravity.CENTER_HORIZONTAL);
+            bottom.addView(leftButton, bottomParams(1));
+            for (View b : new View[]{backBtn, keyboard, keysHandle}) {
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(Style.TARGET + 4), -1);
+                p.leftMargin = p.rightMargin = dp(2);
+                bottom.addView(b, p);
+            }
+            bottom.addView(rightButton, bottomParams(1));
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(64));
+            bp.topMargin = gap;
+            root.addView(bottom, bp);
+        }
+        updateAudioChip();
+        applyModeToTopBar();
+        applyKeysVisibility();
+        refreshRunningDock();
+        return padFullscreen ? fullscreenRoot(center) : root;
+    }
+
+    /** 只留触控区和一个退出按钮。其余的控件还在，只是不显示。键鼠模式下左右键也不显示：轻点、双指轻点和长按拖动都能代替。 */
+    private View fullscreenRoot(View center) {
+        ((android.view.ViewGroup) center.getParent()).removeView(center);
+        FrameLayout full = new FrameLayout(this);
+        full.setBackgroundColor(Style.BACKGROUND);
+        full.addView(center, new FrameLayout.LayoutParams(-1, -1));
+        // 按钮收下这里的触摸，不传给应用。横屏多半落在触控框外面的黑边上
+        Style.IconButton exit = new Style.IconButton(this, R.drawable.xd_ic_close, "", Style.SURFACE);
+        exit.setAlpha(0.5f);
+        exit.setContentDescription("退出全屏");
+        exit.onTap(new Runnable() {
+            @Override public void run() { setFullscreenWanted(false); }
+        });
+        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET));
+        p.gravity = Gravity.TOP | Gravity.END;
+        p.topMargin = p.rightMargin = dp(4);
+        full.addView(exit, p);
+        // 系统只认每条边最靠下的 200dp，手势条也排除不了。这里能拦多少算多少
+        full.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+            v.setSystemGestureExclusionRects(java.util.Collections.singletonList(new android.graphics.Rect(0, 0, r - l, b - t))));
+        return full;
+    }
+
+    private String fullscreenPref() {
+        return apps.isActive() && apps.isTouchMode() ? PREF_FULL_TOUCH : PREF_FULL_KEYS;
+    }
+
+    /** 每种操作方式各记一个，下次还是这样。 */
+    private void setFullscreenWanted(boolean on) {
+        prefs.edit().putBoolean(fullscreenPref(), on).apply();
+        applyFullscreen();
+    }
+
+    /** 只有控制界面在最前面时才全屏，启动器和设置屏都要看得到系统栏。 */
+    private void applyFullscreen() {
+        boolean running = (apps.isActive() && apps.isStarted()) || session.isActive();
+        boolean want = running && chooser != null && chooser.getVisibility() != View.VISIBLE
+            && setupScreen.getVisibility() != View.VISIBLE && prefs.getBoolean(fullscreenPref(), false);
+        if (want == padFullscreen) return;
+        padFullscreen = want;
+        rebuildRunning();
+        applyImmersive();
+    }
+
+    private void applyImmersive() {
+        android.view.WindowInsetsController c = getWindow().getInsetsController();
+        if (c == null) return;
+        if (padFullscreen) {
+            // 从边上滑一下系统栏临时出来，又自己收回去
+            c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            c.hide(WindowInsets.Type.systemBars());
+        } else {
+            c.show(WindowInsets.Type.systemBars());
+        }
+    }
+
+    private void rebuildRunning() {
+        releaseLatches();
+        directTouch.cancel();
+        screens.removeView(runningScreen);
+        runningScreen = buildRunningScreen();
+        screens.addView(runningScreen, 0, new FrameLayout.LayoutParams(-1, -1));
+        updateStatus();
+        if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
+        updateCapture();
+    }
+
+    private LinearLayout sideColumn(View big, View... small) {
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
+        side.addView(big, new LinearLayout.LayoutParams(-1, 0, 1));
+        for (View s : small) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52));
+            p.topMargin = dp(Style.GAP);
+            side.addView(s, p);
+        }
+        return side;
+    }
+
+    private void buildTopButtons() {
+        audioBtn = new Style.IconButton(this, R.drawable.xd_ic_sound, "", Style.SURFACE);
+        audioBtn.onTap(new Runnable() {
+            @Override public void run() { chooseOutput(); }
+        });
+        touchBtn = new Style.IconButton(this, R.drawable.xd_ic_pointer, "键鼠", Style.SURFACE);
+        touchBtn.onTap(new Runnable() {
+            @Override public void run() {
+                apps.toggleTouchMode();
+                updateStatus();
+            }
+        });
+        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, "接管", Style.SURFACE);
+        forwardBtn.onTap(new Runnable() {
+            @Override public void run() { apps.setForwarding(!apps.isForwarding()); }
+        });
+        fullscreenBtn = new Style.IconButton(this, R.drawable.xd_ic_fullscreen, "全屏", Style.SURFACE);
+        fullscreenBtn.onTap(new Runnable() {
+            @Override public void run() { setFullscreenWanted(true); }
+        });
+        launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, "启动器", Style.SURFACE);
+        launcherBtn.onTap(new Runnable() {
+            @Override public void run() { openChooserOverSession(); }
+        });
+        settingsBtn = new Style.IconButton(this, R.drawable.xd_ic_settings, "设置", Style.SURFACE);
+        settingsBtn.onTap(new Runnable() {
+            @Override public void run() { showSettings(); }
+        });
+    }
+
+    private void addTopButtons(LinearLayout row, boolean fill) {
+        for (View b : new View[]{audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn}) {
+            LinearLayout.LayoutParams p = fill ? new LinearLayout.LayoutParams(0, dp(Style.TARGET + 4), 1)
+                : new LinearLayout.LayoutParams(dp(Style.TARGET + 4), dp(Style.TARGET));
+            p.leftMargin = fill ? dp(2) : dp(4);
+            if (fill) p.rightMargin = dp(2);
+            row.addView(b, p);
+        }
+    }
+
+    /** 功能键（默认收起）和触控区。触摸板和触控面在同一个位置，看模式显示哪个。 */
+    private View buildTouchArea() {
+        LinearLayout area = new LinearLayout(this);
+        area.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout keys = new LinearLayout(this);
+        keysRow = keys;
         keys.addView(keyButton("Esc", KeyInputView.SCAN_ESC), keyParams());
         keys.addView(keyButton("Tab", KeyInputView.SCAN_TAB), keyParams());
         keys.addView(latchButton("Ctrl", KeyInputView.SCAN_CTRL), keyParams());
@@ -658,54 +821,28 @@ public class XDeskActivity extends Activity {
         keys.addView(keyButton("↑", KeyInputView.SCAN_UP), keyParams());
         keys.addView(keyButton("↓", KeyInputView.SCAN_DOWN), keyParams());
         keys.addView(keyButton("→", KeyInputView.SCAN_RIGHT), keyParams());
-        root.addView(keys, new LinearLayout.LayoutParams(-1, dp(40)));
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
+        kp.bottomMargin = dp(Style.GAP);
+        area.addView(keys, kp);
 
+        FrameLayout frame = new FrameLayout(this);
         touchpad = new TouchpadView(this, output);
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
-        if (landscape) {
-            // 横屏双手拿：左右键分在两侧，键盘在右手边
-            LinearLayout middle = new LinearLayout(this);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(88), -1);
-            lp.rightMargin = dp(6);
-            middle.addView(mouseButton("左键", 1), lp);
-            middle.addView(touchpad, new LinearLayout.LayoutParams(0, -1, 1));
-            LinearLayout side = new LinearLayout(this);
-            side.setOrientation(LinearLayout.VERTICAL);
-            sideRightButton = mouseButton("右键", 3);
-            side.addView(sideRightButton, new LinearLayout.LayoutParams(-1, 0, 2));
-            LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, 0, 1);
-            kp.topMargin = dp(6);
-            side.addView(keyboardButton(), kp);
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(88), -1);
-            sp.leftMargin = dp(6);
-            middle.addView(side, sp);
-            LinearLayout.LayoutParams mid = new LinearLayout.LayoutParams(-1, 0, 1);
-            mid.topMargin = dp(6);
-            root.addView(middle, mid);
-        } else {
-            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, 0, 1);
-            tp.topMargin = dp(6);
-            root.addView(touchpad, tp);
-            LinearLayout bottom = new LinearLayout(this);
-            bottom.addView(mouseButton("左键", 1), bottomParams(3));
-            bottom.addView(mouseButton("右键", 3), bottomParams(3));
-            bottom.addView(keyboardButton(), bottomParams(2));
-            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(64));
-            bp.topMargin = dp(6);
-            root.addView(bottom, bp);
-        }
-        return root;
+        frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
+        directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
+            @Override public void frame(int action, int[] ids, float[] x, float[] y) { apps.touchFrame(action, ids, x, y); }
+        });
+        frame.addView(directTouch, new FrameLayout.LayoutParams(-1, -1));
+        area.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
+        return area;
     }
 
-    private TextView keyboardButton() {
-        TextView kb = Style.button(this, "键盘", Style.ACCENT, 14, 12);
-        kb.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Style.tick(v);
-                toggleKeyboard();
-            }
-        });
-        return kb;
+    /** 收起时修饰键的锁定还在。键盘弹出时自动展开，收起后回到用户选的样子。 */
+    private void applyKeysVisibility() {
+        if (keysRow == null) return;
+        boolean show = (keysExpanded || keyboardOpen) && !padFullscreen;
+        keysRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        keysHandle.setIcon(show ? R.drawable.xd_ic_chevron_up : R.drawable.xd_ic_chevron_down);
     }
 
     /** 转屏不重建 Activity（窗口和输入都不能断），只换一套布局。 */
@@ -713,27 +850,23 @@ public class XDeskActivity extends Activity {
         super.onConfigurationChanged(c);
         if (c.orientation == lastOrientation) return;
         lastOrientation = c.orientation;
-        releaseLatches();
-        screens.removeView(runningScreen);
-        runningScreen = buildRunningScreen();
-        screens.addView(runningScreen, 0, new FrameLayout.LayoutParams(-1, -1));
-        updateStatus();
-        if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
-        updateCapture();
+        rebuildRunning();
+        applyImmersive();
     }
 
-    /** 横屏弹出键盘时高度很紧，收起顶部状态栏。 */
+    /** 键盘弹出：展开功能键。横屏高度很紧，再收起顶部一行。 */
     private void fitToKeyboard() {
-        if (topBar == null) return;
         WindowInsets w = screens.getRootWindowInsets();
-        boolean hide = isLandscape() && w != null && w.isVisible(WindowInsets.Type.ime());
-        int topVisibility = hide ? View.GONE : View.VISIBLE;
+        boolean open = w != null && w.isVisible(WindowInsets.Type.ime());
+        if (open != keyboardOpen) {
+            keyboardOpen = open;
+            applyKeysVisibility();
+        }
+        if (topBar == null) return;
+        int topVisibility = open ? View.GONE : View.VISIBLE;
         if (topBar.getVisibility() != topVisibility) {
             topBar.setVisibility(topVisibility);
-            // 键盘弹出后高度不够放两个按钮，右键先让位，“键盘”按钮才点得到
-            if (sideRightButton != null) sideRightButton.setVisibility(topVisibility);
-            if (runningDock != null) runningDock.setVisibility(topVisibility);
-            if (hide) diagText.setVisibility(View.GONE);
+            if (open) diagText.setVisibility(View.GONE);
             else applyDiagVisibility();
         }
     }
@@ -838,18 +971,39 @@ public class XDeskActivity extends Activity {
     /** 桌面的键鼠走 Pointer Capture，没有接管这回事。 */
     private void applyModeToTopBar() {
         boolean app = apps.isActive();
-        forwardChip.setVisibility(app ? View.VISIBLE : View.GONE);
-        if (backAppKey != null) backAppKey.setVisibility(app ? View.VISIBLE : View.GONE);
-        touchChip.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
+        forwardBtn.setVisibility(app ? View.VISIBLE : View.GONE);
+        backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
+        touchBtn.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
+        applyInputMode();
+    }
+
+    /**
+     * 键鼠：触摸板加左右键。触控：手指直接到外接屏上，这时不用鼠标键，触控区更大。实体鼠标在两种模式下都能用，
+     * 触控模式下左键是一根手指，右键是两根，滚轮是滑动。
+     */
+    private void applyInputMode() {
+        boolean touch = apps.isActive() && apps.isTouchMode();
+        if (!touch) directTouch.cancel();
+        directTouch.setVisibility(touch ? View.VISIBLE : View.GONE);
+        touchpad.setVisibility(touch ? View.GONE : View.VISIBLE);
+        leftButton.setVisibility(touch ? View.GONE : View.VISIBLE);
+        rightButton.setVisibility(touch ? View.GONE : View.VISIBLE);
+        for (View side : new View[]{leftColumn, rightColumn}) {
+            if (side != null) side.getLayoutParams().width = dp(touch ? SIDE_WIDTH_TOUCH : SIDE_WIDTH);
+        }
+        if (leftColumn != null) leftColumn.requestLayout();
+        if (rightColumn != null) rightColumn.requestLayout();
+        int[] size = apps.displaySize();
+        if (size != null) directTouch.setDisplaySize(size[0], size[1]);
     }
 
     private void updateAppStatus() {
-        forwardChip.setText(apps.isForwarding() ? "交还键鼠" : "接管键鼠");
+        forwardBtn.setLabel(apps.isForwarding() ? "交还" : "接管");
+        forwardBtn.setActive(apps.isForwarding());
         boolean touch = apps.isTouchMode();
-        touchChip.setText(touch ? "左键=手指" : "左键=鼠标");
-        touchChip.setTextSize(10);
-        touchChip.setBackground(Style.ripple(this, touch ? Style.ACCENT : Style.SURFACE_RAISED, 16));
-        forwardChip.setBackground(Style.ripple(this, apps.isForwarding() ? Style.ACCENT : Style.SURFACE_RAISED, 16));
+        touchBtn.setLabel(touch ? "触控" : "键鼠");
+        touchBtn.setIcon(touch ? R.drawable.xd_ic_touch : R.drawable.xd_ic_pointer);
+        touchBtn.setActive(touch);
         if (apps.hasInjector() && apps.hasDisplay() && apps.app() == null) {
             setStatus(Style.WARN, "外接屏上没有应用了，选一个");
         } else if (!apps.hasInjector()) {
@@ -857,15 +1011,16 @@ public class XDeskActivity extends Activity {
         } else if (!apps.hasDisplay()) {
             setStatus(Style.WARN, "外接屏已断开，插回后 " + apps.label() + " 自动回去");
         } else if (apps.isForwarding() && apps.deviceCount() == 0) {
-            setStatus(Style.WARN, apps.label() + "：没有找到外接键鼠，插上后自动接管");
+            setStatus(Style.WARN, apps.label() + "：没有外接键鼠，插上后接管");
         } else if (apps.isForwarding()) {
-            setStatus(Style.OK, apps.label() + "：键鼠在外接屏，Ctrl+Alt+M 交还手机");
+            setStatus(Style.OK, apps.label() + " · 键鼠在外接屏");
         } else {
-            setStatus(Style.OK, apps.label() + "：键鼠在手机，Ctrl+Alt+M 接管");
+            setStatus(Style.OK, apps.label() + " · 键鼠在手机");
         }
     }
 
     private void updateStatus() {
+        applyFullscreen();
         applyModeToTopBar();
         if (apps.isActive()) {
             updateAppStatus();
@@ -879,6 +1034,7 @@ public class XDeskActivity extends Activity {
         chooser.setVisibility(View.GONE);
         chooser.setNotice(null);
         setupScreen.setVisibility(View.VISIBLE);
+        applyFullscreen();
         setupTitle.setText(title);
         setupMessage.setText(message);
         setupProgress.setVisibility(progress ? View.VISIBLE : View.GONE);
@@ -897,6 +1053,7 @@ public class XDeskActivity extends Activity {
         chooser.setVisibility(View.GONE);
         chooser.setNotice(null);
         setupScreen.setVisibility(View.GONE);
+        applyFullscreen();
         refreshDocks();
         keyView.requestFocus();
         updateCapture();
@@ -941,8 +1098,8 @@ public class XDeskActivity extends Activity {
     // --- 设置 ---
 
     private void updateAudioChip() {
-        String label = "声音·" + audioRoute.shortLabel();
-        if (audioChip != null) audioChip.setText(label);
+        String label = audioRoute.shortLabel();
+        if (audioBtn != null) audioBtn.setLabel(label);
         if (chooser != null) chooser.setOutputLabel(label);
     }
 
@@ -990,15 +1147,15 @@ public class XDeskActivity extends Activity {
 
     /** 只影响 XDesk 的触控界面：手机系统锁竖屏时这里也能横过来。默认横屏。 */
     private void applyOrientation() {
-        setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, 0)]);
+        setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT)]);
     }
 
     private void chooseOrientation() {
         new AlertDialog.Builder(this)
             .setTitle("触控界面方向")
-            .setSingleChoiceItems(ORIENTATION_LABELS, prefs.getInt(PREF_ORIENTATION, 0), new DialogInterface.OnClickListener() {
+            .setSingleChoiceItems(ORIENTATION_LABELS, 2 - prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT), new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface dialog, int which) {
-                    prefs.edit().putInt(PREF_ORIENTATION, which).apply();
+                    prefs.edit().putInt(PREF_ORIENTATION, ORIENTATION_VALUES[which]).apply();
                     applyOrientation();
                     dialog.dismiss();
                 }
@@ -1216,20 +1373,7 @@ public class XDeskActivity extends Activity {
         });
 
         final AlertDialog[] dialog = new AlertDialog[1];
-        settingsRow(c, "打开启动器（外接屏不变）", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                dialog[0].dismiss();
-                openChooserOverSession();
-            }
-        });
-        TextView endXDesk = settingsRow(c, "结束 XDesk（应用回到手机，外接屏恢复）", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                dialog[0].dismiss();
-                confirmEndXDesk();
-            }
-        });
-        endXDesk.setTextColor(Style.DANGER);
-        if (!appMode) {
+        if (session.isActive()) {
             TextView end = settingsRow(c, "结束 Termux 桌面（XDesk 不退出）", new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     dialog[0].dismiss();
@@ -1238,6 +1382,14 @@ public class XDeskActivity extends Activity {
             });
             end.setTextColor(Style.DANGER);
         }
+        TextView endXDesk = settingsRow(c, "结束 XDesk（应用回到手机，外接屏恢复镜像）", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                dialog[0].dismiss();
+                confirmEndXDesk();
+            }
+        });
+        endXDesk.setTextColor(Style.DANGER);
+        endXDesk.setVisibility(DesktopService.isRunning() ? View.VISIBLE : View.GONE);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(c);
@@ -1319,6 +1471,7 @@ public class XDeskActivity extends Activity {
         setupScreen.setVisibility(View.GONE);
         chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
+        applyFullscreen();
         keyView.releasePointerCapture();
         updateAudioChip();
         refreshChooser();
@@ -1329,6 +1482,7 @@ public class XDeskActivity extends Activity {
         setupScreen.setVisibility(View.GONE);
         chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
+        applyFullscreen();
         keyView.releasePointerCapture();
         refreshChooser();
     }
@@ -1338,7 +1492,8 @@ public class XDeskActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
+        if (padFullscreen) setFullscreenWanted(false);
+        else if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
         else super.onBackPressed();
     }
 
@@ -1349,13 +1504,23 @@ public class XDeskActivity extends Activity {
         return session.isActive() && desktopName != null ? ChooserView.recentKey(desktopName) : null;
     }
 
+    /** 上一个应用：现在这个之前用的那个；什么都没在运行时就是最后用的那个。 */
+    private String previousKey() {
+        String current = currentKey();
+        for (String key : savedRecents()) {
+            if (key.equals(current)) continue;
+            if (!ChooserView.isAppKey(key) || catalog.find(ChooserView.componentOf(key)) != null) return key;
+        }
+        return null;
+    }
+
     private void refreshRunningDock() {
-        if (runningDock != null) runningDock.setItems(savedLines(PREF_DOCK), currentKey());
+        if (runningDock != null) runningDock.setItems(savedLines(PREF_DOCK), previousKey(), currentKey());
     }
 
     private void refreshDocks() {
         refreshRunningDock();
-        chooser.setDock(savedLines(PREF_DOCK), currentKey());
+        chooser.setDock(savedLines(PREF_DOCK), previousKey(), currentKey());
     }
 
     private void saveDock(List<String> dock) {
@@ -1417,17 +1582,22 @@ public class XDeskActivity extends Activity {
             c.addView(row, new LinearLayout.LayoutParams(-1, -2));
 
             if (AppSession.touchModeAllowed(app)) {
-                Switch finger = new Switch(this);
-                finger.setText("左键当手指（给只听触摸的应用或网页）");
-                finger.setTextColor(Style.TEXT);
-                finger.setTextSize(15);
-                finger.setPadding(dp(4), dp(14), dp(4), dp(10));
-                finger.setChecked(apps.isTouchMode(app));
-                finger.setOnCheckedChangeListener((b, on) -> {
-                    apps.setTouchMode(app, on);
-                    updateStatus();
-                });
-                c.addView(finger, new LinearLayout.LayoutParams(-1, -2));
+                settingsLabel(c, "操作方式");
+                LinearLayout mode = new LinearLayout(this);
+                boolean touch = apps.isTouchMode(app);
+                for (final boolean option : new boolean[]{false, true}) {
+                    TextView b = Style.button(this, option ? "触控" : "键鼠", option == touch ? Style.ACCENT : Style.SURFACE_RAISED, Style.TEXT_BODY, Style.RADIUS);
+                    b.setOnClickListener(v -> {
+                        apps.setTouchMode(app, option);
+                        updateStatus();
+                        card[0].dismiss();
+                        showAppCard(key);
+                    });
+                    LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(Style.TARGET), 1);
+                    mp.rightMargin = dp(Style.GAP);
+                    mode.addView(b, mp);
+                }
+                c.addView(mode, new LinearLayout.LayoutParams(-1, -2));
             }
 
             if (apps.canCloseApps()) {
@@ -1501,7 +1671,6 @@ public class XDeskActivity extends Activity {
 
     private void refreshChooser() {
         updateChooserDisplay();
-        chooser.setRecents(savedRecents());
         refreshTermux();
         // 先用上次存的，马上就有；后台读完再更新
         chooser.setApps(catalog.apps());
@@ -1542,7 +1711,7 @@ public class XDeskActivity extends Activity {
         r.add(0, key);
         while (r.size() > MAX_RECENTS) r.remove(r.size() - 1);
         prefs.edit().putString(PREF_RECENTS, String.join("\n", r)).apply();
-        chooser.setRecents(r);
+        refreshDocks();
     }
 
     private void setChooserTermux(List<String> sessions, String defaultName, String running, boolean x, String hint) {
@@ -1633,6 +1802,8 @@ public class XDeskActivity extends Activity {
         }
         if (apps.hasInjector()) apps.stop();
         showChooser();
+        dashboardTried = Display.INVALID_DISPLAY;
+        ensureDashboard();
     }
 
     /** 明确结束：应用移回手机，外接屏恢复镜像，键鼠、声音路由和界面大小恢复。Termux 桌面继续运行。 */
@@ -1650,6 +1821,33 @@ public class XDeskActivity extends Activity {
                 }
             })
             .show();
+    }
+
+    // --- 外接屏仪表盘 ---
+
+    /** XDesk 开着又有外接屏时，它就在最底下。外接屏上已有应用或桌面时不放，否则它会盖住它们。 */
+    private void ensureDashboard() {
+        Display d = externalDisplay();
+        if (d == null || apps.hasAppOnDisplay() || session.isActive()) return;
+        if (dashboardTried == d.getDisplayId()) return;
+        startDashboard(d);
+    }
+
+    private void startDashboard(Display d) {
+        if (DashboardActivity.isAlive()) return;
+        dashboardTried = d.getDisplayId();
+        try {
+            // 这个前台服务让从最近任务划掉时收得到 onTaskRemoved，否则仪表盘会一直留在外接屏上
+            if (!DesktopService.isRunning()) startForegroundService(new Intent(this, DesktopService.class));
+            Intent i = new Intent(this, DashboardActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ActivityOptions o = ActivityOptions.makeBasic();
+            o.setLaunchDisplayId(d.getDisplayId());
+            startActivity(i, o.toBundle());
+            refocusSelf();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "cannot show the dashboard", e);
+        }
     }
 
     // --- 安卓应用 ---

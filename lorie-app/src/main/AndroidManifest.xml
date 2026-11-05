@@ -39,6 +39,16 @@
         </activity>
         <!-- stopWithTask 必须是 false，否则划掉任务时收不到 onTaskRemoved -->
         <service android:name="com.termux.x11.DesktopService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
+        <!-- 外接屏最底层的仪表盘。自己一个任务，不进最近任务 -->
+        <activity
+            android:name="com.termux.x11.DashboardActivity"
+            android:label="XDesk"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:launchMode="singleTask"
+            android:taskAffinity=".XDeskDashboard"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
+            android:exported="false" />
         <receiver android:name="com.termux.x11.TermuxResultReceiver" android:exported="false" />
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

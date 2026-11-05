@@ -107,3 +107,19 @@ The monitor may have no speakers, so the user chooses where sound goes.
 ## Delivery for this round
 
 Same rules as above: branch `ext-apps` only, no tag or release, no personal data. Run the debug build with `gh workflow run debug_build.yml --ref ext-apps`, because this branch does not trigger it. Report what was built, the differences from this spec, and a test list, riskiest first.
+
+# Third UI
+
+Agreed after the second round. XDesk's job is putting apps on the big screen, with the phone as the control surface.
+
+**External display dashboard.** XDesk's own window at the bottom of the external display, needing no Shizuku, shown as soon as XDesk is open with a display connected. Apps and desktops open on top of it, and when an app exits it is uncovered rather than mirroring. It shows a clock, the date, a hint and a status row, shifts slowly and dims against burn-in, and its sizes are parts of its window. 结束 XDesk removes it and mirroring returns. It is not moved to the phone and does not count as an app in front.
+
+**Phone launcher.** Header; 我的收藏, starting with the single previous app and a divider, then favourites that scroll; 所有应用 with search, which collapses the favourites, and Linux desktops as a small group at the top with running state and start or stop. Long press opens the per-app card.
+
+**Control screen.** Status and buttons, the same row, the touch area with collapsible function keys, and the bottom controls. In portrait the left and right buttons are directly under the touch area. In landscape they are on its sides, and status and favourites share one row. Termux desktops use the same screen.
+
+**Input modes per app.** 键鼠 is the keyboard and mouse path. 触控 makes the touch area a direct touch surface for the display, with absolute mapping, up to five fingers, a dot per finger on the display, and no mouse buttons on the phone. A physical mouse then acts as fingers. RustDesk stays at 键鼠.
+
+**Full screen touch area.** A button makes the touch area the whole phone screen with the system bars hidden, remembered per mode, keeping the display's shape with a letterbox if the ratios differ. A small translucent button or Back leaves it.
+
+**Orientation** follows the system by default, with a setting to fix it. **Look:** dark, one blue accent, status colour only on small dots, icons for common actions, targets of at least 48 dp.

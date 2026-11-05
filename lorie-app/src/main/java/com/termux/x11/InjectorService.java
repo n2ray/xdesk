@@ -353,6 +353,10 @@ public class InjectorService extends IInjector.Stub {
         fromPhone(() -> injector.key(scan, down ? 1 : 0));
     }
 
+    @Override public void touchFrame(final int action, final int[] ids, final float[] x, final float[] y) {
+        post(() -> injector.touchFrame(action, ids, x, y));
+    }
+
     @Override public void sendBack() {
         fromPhone(() -> {
             injector.androidKey(android.view.KeyEvent.KEYCODE_BACK);

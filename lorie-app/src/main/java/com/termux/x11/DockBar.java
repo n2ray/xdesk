@@ -11,109 +11,122 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.List;
 
-/** 用户自己定的一排应用和 Termux 环境。点一下切换外接屏上的内容，长按打开设置卡片。不抢键盘焦点。 */
-final class DockBar extends HorizontalScrollView {
+/**
+ * 启动器和控制界面共用的一行：先是上一个应用，方便来回切换，然后一条竖线，后面是收藏，可以横向滚动。上一个应用也可能在
+ * 收藏里，两边都显示。没有上一个应用时连竖线一起隐藏。点一下切换外接屏上的内容，长按打开设置卡片。不抢键盘焦点。
+ */
+final class DockBar extends LinearLayout {
     interface Host {
         void onDockTap(String key);
         /** 长按一个图标，打开它的设置卡片。 */
         void onItemLongPress(String key);
-        /** 点了“全部”。 */
-        void onDockAll();
     }
 
     private final Host host;
-    private final boolean showLabels, showAll;
-    private final LinearLayout row;
+    private final boolean showLabels, hintWhenEmpty;
+    private final LinearLayout previous, row;
+    private final View divider;
 
-    DockBar(Context c, Host host, boolean showLabels, boolean showAll) {
+    DockBar(Context c, Host host, boolean showLabels, boolean hintWhenEmpty) {
         super(c);
         this.host = host;
         this.showLabels = showLabels;
-        this.showAll = showAll;
-        setHorizontalScrollBarEnabled(false);
+        this.hintWhenEmpty = hintWhenEmpty;
+        setGravity(Gravity.CENTER_VERTICAL);
         setFocusable(false);
+        previous = new LinearLayout(c);
+        addView(previous, new LayoutParams(-2, -1));
+        divider = new View(c);
+        divider.setBackgroundColor(Style.SURFACE_RAISED);
+        LayoutParams dp = new LayoutParams(dp(1), dp(32));
+        dp.leftMargin = dp.rightMargin = dp(Style.GAP);
+        addView(divider, dp);
+        HorizontalScrollView scroll = new HorizontalScrollView(c);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setFocusable(false);
         row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        addView(row, new LayoutParams(-2, -1));
+        scroll.addView(row, new HorizontalScrollView.LayoutParams(-2, -1));
+        addView(scroll, new LayoutParams(0, -1, 1));
     }
 
     private int dp(float v) {
         return Style.dp(getContext(), v);
     }
 
-    /** @param current 正在外接屏上的那一项，会高亮 */
-    void setItems(List<String> keys, String current) {
+    /**
+     * @param previousKey 上一个应用，没有是 null
+     * @param current 正在外接屏上的那一项，会高亮
+     */
+    void setItems(List<String> keys, String previousKey, String current) {
+        previous.removeAllViews();
         row.removeAllViews();
-        Context c = getContext();
-        if (showAll) {
-            View all = item(null, "⋯", "全部", false);
-            all.setOnClickListener(v -> {
-                Style.tick(v);
-                host.onDockAll();
-            });
-            row.addView(all);
+        View prev = previousKey != null ? item(previousKey, current) : null;
+        if (prev != null) previous.addView(prev);
+        boolean hasPrevious = prev != null;
+        previous.setVisibility(hasPrevious ? VISIBLE : GONE);
+        divider.setVisibility(hasPrevious ? VISIBLE : GONE);
+        for (String key : keys) {
+            View v = item(key, current);
+            if (v != null) row.addView(v);
         }
-        AppCatalog catalog = AppCatalog.get(c);
-        for (final String key : keys) {
-            AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
-            if (ChooserView.isAppKey(key) && app == null) continue;  // 卸载了，或者列表还没读到
-            View v = app != null ? item(app, null, app.label, key.equals(current))
-                : item(null, ">_", ChooserView.sessionOf(key), key.equals(current));
-            v.setOnClickListener(view -> {
-                Style.tick(view);
-                host.onDockTap(key);
-            });
-            v.setOnLongClickListener(view -> {
-                host.onItemLongPress(key);
-                return true;
-            });
-            row.addView(v);
-        }
-        if (keys.isEmpty() && !showAll) {
-            TextView hint = new TextView(c);
-            hint.setText("点列表右边的 ☆ 把常用的加到这里");
-            hint.setTextColor(Style.TEXT_DIM);
-            hint.setTextSize(13);
-            row.addView(hint);
+        if (hintWhenEmpty && keys.isEmpty()) {
+            row.addView(Style.label(getContext(), "点列表右边的星把常用的加到这里", Style.TEXT_DIM, 13));
         }
     }
 
-    private View item(AppCatalog.App app, String glyph, String label, boolean current) {
+    private View item(final String key, String current) {
+        AppCatalog catalog = AppCatalog.get(getContext());
+        boolean isApp = ChooserView.isAppKey(key);
+        AppCatalog.App app = isApp ? catalog.find(ChooserView.componentOf(key)) : null;
+        if (isApp && app == null) return null;  // 卸载了，或者列表还没读到
+        View v = build(app, app != null ? app.label : ChooserView.sessionOf(key), key.equals(current));
+        v.setOnClickListener(view -> {
+            Style.tick(view);
+            host.onDockTap(key);
+        });
+        v.setOnLongClickListener(view -> {
+            host.onItemLongPress(key);
+            return true;
+        });
+        return v;
+    }
+
+    private View build(AppCatalog.App app, String label, boolean current) {
         Context c = getContext();
         LinearLayout box = new LinearLayout(c);
-        box.setOrientation(LinearLayout.VERTICAL);
+        box.setOrientation(VERTICAL);
         box.setGravity(Gravity.CENTER);
         box.setClickable(true);
         box.setFocusable(false);
+        box.setMinimumWidth(dp(Style.TARGET));
+        box.setMinimumHeight(dp(Style.TARGET));
         box.setPadding(dp(4), dp(2), dp(4), dp(2));
-        box.setBackground(Style.ripple(c, current ? Style.ACCENT : Style.BACKGROUND, 10));
+        box.setBackground(Style.ripple(c, current ? Style.ACCENT : Style.BACKGROUND, Style.RADIUS));
         box.setContentDescription(label);
         int size = dp(36);
         if (app != null) {
             ImageView icon = new ImageView(c);
             AppCatalog.get(c).showIcon(app, icon);
-            box.addView(icon, new LinearLayout.LayoutParams(size, size));
+            box.addView(icon, new LayoutParams(size, size));
         } else {
             TextView tile = new TextView(c);
-            tile.setText(glyph);
+            tile.setText(">_");
             tile.setTextColor(Style.TEXT);
             tile.setTextSize(14);
             tile.setTypeface(Typeface.MONOSPACE);
             tile.setGravity(Gravity.CENTER);
-            tile.setBackground(Style.rounded(c, Style.SURFACE_RAISED, 10));
-            box.addView(tile, new LinearLayout.LayoutParams(size, size));
+            tile.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
+            box.addView(tile, new LayoutParams(size, size));
         }
         if (showLabels) {
-            TextView t = new TextView(c);
-            t.setText(label);
-            t.setTextColor(Style.TEXT);
-            t.setTextSize(10);
+            TextView t = Style.label(c, label, Style.TEXT, Style.TEXT_TINY);
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             t.setGravity(Gravity.CENTER);
-            box.addView(t, new LinearLayout.LayoutParams(dp(52), -2));
+            box.addView(t, new LayoutParams(dp(52), -2));
         }
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2);
+        LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);
         box.setLayoutParams(p);
         return box;

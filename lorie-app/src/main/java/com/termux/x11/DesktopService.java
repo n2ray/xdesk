@@ -17,7 +17,18 @@ public class DesktopService extends Service {
     /** 通知的标题，不给就是桌面。 */
     static final String EXTRA_TITLE = "title";
     private PowerManager.WakeLock wakeLock;
-    private static boolean ending;
+    private static boolean ending, running;
+
+    static boolean isRunning() {
+        return running;
+    }
+
+    /** 会话结束了不等于 XDesk 结束了：外接屏上还有仪表盘时，从最近任务划掉仍然要能收到。 */
+    static void stopIfIdle(android.content.Context c) {
+        android.content.Context app = c.getApplicationContext();
+        if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()) return;
+        app.stopService(new Intent(app, DesktopService.class));
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -26,6 +37,7 @@ public class DesktopService extends Service {
         PowerManager pm = getSystemService(PowerManager.class);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xdesk:session");
         wakeLock.acquire();
+        running = true;
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -35,7 +47,7 @@ public class DesktopService extends Service {
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         Notification n = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setContentTitle(title != null ? title : "XDesk 桌面运行中")
+            .setContentTitle(title != null ? title : "XDesk 运行中")
             .setContentText("点击回到触摸板")
             .setContentIntent(open)
             .setOngoing(true)
@@ -46,7 +58,7 @@ public class DesktopService extends Service {
     }
 
     /**
-     * 从最近任务划掉 XDesk：会话结束，手机恢复原样。安卓应用移回手机（不关闭），桌面窗口去掉，外接屏回到系统的镜像，
+     * 从最近任务划掉 XDesk：会话结束，手机恢复原样。安卓应用移回手机（不关闭），桌面窗口和仪表盘去掉，外接屏回到系统的镜像，
      * 键鼠和声音路由恢复。Termux 里的 X 和桌面继续运行，下次打开在选择界面上显示为运行中。
      * 任何任务被移除都会走到这里，包括外屏的桌面窗口，所以只认 XDesk 自己的任务。
      * 进程没等到这里就被杀的话，靠注入服务的 link-to-death 兜底（InjectorService.link）。
@@ -77,12 +89,14 @@ public class DesktopService extends Service {
         }
         AppSession.get(app).endSession(external, () -> {
             DesktopSession.get(app).abandon();
+            DashboardActivity.closeIfAlive();
             app.stopService(new Intent(app, DesktopService.class));
             ending = false;
         });
     }
 
     @Override public void onDestroy() {
+        running = false;
         if (wakeLock.isHeld()) wakeLock.release();
         super.onDestroy();
     }

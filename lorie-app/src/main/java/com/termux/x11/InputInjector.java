@@ -99,6 +99,10 @@ final class InputInjector {
     private float pendingX, pendingY;
     /** See setTouchMode. */
     private boolean touchMode;
+    /** 触控 mode: the phone's fingers are on the display. The last frame, in pixels, for cancelling. */
+    private boolean directActive;
+    private int[] directIds = new int[0];
+    private float[] directX = new float[0], directY = new float[0];
     /** Touch mode: the button holding fingers down, 0 for none. Left is one finger, right is two. */
     private int pressBit;
     private int touchDevice;
@@ -171,7 +175,8 @@ final class InputInjector {
     }
 
     /**
-     * For apps and pages that only listen to touch, such as a mobile site's video player: the left button is a finger at
+     * 触控 mode, for apps and pages that only listen to touch, such as a mobile site's video player. The phone's fingers
+     * come through touchFrame. A physical mouse adapts: the left button is a finger at
      * the cursor. Moving without a press sends nothing to the app, the cursor only moves on our overlay, so hover effects
      * do not exist here. The wheel stays a mouse wheel. An app with its own mouse method (RustDesk) never uses this.
      */
@@ -225,6 +230,7 @@ final class InputInjector {
         endSwipe();
         if (bit != MotionEvent.BUTTON_PRIMARY && bit != MotionEvent.BUTTON_SECONDARY) return;
         if (down) {
+            cancelDirect();  // the newest input wins
             // A second button while one holds fingers is ignored, and its release too, so nothing can stay down
             if (pressBit != 0) return;
             pressBit = bit;
@@ -276,8 +282,73 @@ final class InputInjector {
         e.recycle();
     }
 
+    private void directEvent(int action, int count) throws ReflectiveOperationException {
+        MotionEvent.PointerProperties[] props = new MotionEvent.PointerProperties[count];
+        MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[count];
+        for (int i = 0; i < count; i++) {
+            props[i] = new MotionEvent.PointerProperties();
+            props[i].id = directIds[i];
+            props[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+            coords[i] = new MotionEvent.PointerCoords();
+            coords[i].x = directX[i];
+            coords[i].y = directY[i];
+            coords[i].size = 1f;
+            coords[i].pressure = 1f;
+        }
+        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, count, props, coords,
+            0, 0, 1f, 1f, touchDevice, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
+        setDisplayMotion.invoke(e, display);
+        send(e);
+        e.recycle();
+    }
+
+    /** All current fingers go down, one per event. */
+    private void directBegin() throws ReflectiveOperationException {
+        cancelTouch();
+        endSwipe();
+        directActive = true;
+        downTime = SystemClock.uptimeMillis();
+        touchDevice = touchDeviceId();
+        directEvent(MotionEvent.ACTION_DOWN, 1);
+        for (int i = 1; i < directIds.length; i++) {
+            directEvent(MotionEvent.ACTION_POINTER_DOWN | (i << MotionEvent.ACTION_POINTER_INDEX_SHIFT), i + 1);
+        }
+    }
+
+    /**
+     * A frame from the phone's touch area in 触控 mode, passed through as it is. The newest input wins: a finger going
+     * down on the phone cancels a mouse press or a wheel swipe, and a mouse press cancels the phone's fingers, whose
+     * following frames are dropped until another finger goes down.
+     */
+    void touchFrame(int action, int[] ids, float[] nx, float[] ny) throws ReflectiveOperationException {
+        if (!touching()) return;
+        int masked = action & MotionEvent.ACTION_MASK;
+        boolean starts = masked == MotionEvent.ACTION_DOWN || masked == MotionEvent.ACTION_POINTER_DOWN;
+        if (!directActive && !starts) return;
+        directIds = ids;
+        directX = new float[ids.length];
+        directY = new float[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            directX[i] = nx[i] * (width - 1);
+            directY[i] = ny[i] * (height - 1);
+        }
+        if (!directActive) {
+            directBegin();
+            return;
+        }
+        directEvent(action, ids.length);
+        if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) directActive = false;
+    }
+
+    private void cancelDirect() throws ReflectiveOperationException {
+        if (!directActive) return;
+        directActive = false;
+        directEvent(MotionEvent.ACTION_CANCEL, directIds.length);
+    }
+
     /** Takes back any fingers a button holds, with no tap: a release would count as one. */
     void cancelTouch() throws ReflectiveOperationException {
+        cancelDirect();
         if (pressBit == 0) return;
         int bit = pressBit;
         pressBit = 0;
@@ -320,7 +391,7 @@ final class InputInjector {
      * scroll this means the page follows the fingers, see TouchpadView.scrollBy.
      */
     private void swipe(float vertical, float horizontal) throws ReflectiveOperationException, InterruptedException {
-        if (pressBit != 0) return;  // a button is holding fingers down
+        if (pressBit != 0 || directActive) return;  // fingers are already down
         float step = height * SWIPE_STEP_FRACTION;
         float dx = -horizontal * step, dy = vertical * step;
         if (!swiping) startSwipe();
