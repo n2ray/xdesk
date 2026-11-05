@@ -46,6 +46,9 @@ public class InjectorService extends IInjector.Stub {
     private volatile String packageName;
     private volatile int displayId = -1;
     private Thread sessionWatcher;
+    private String ownPackage;
+    private boolean linked;
+    private volatile boolean sessionOver;
 
     private final EvdevReader.Sink physical = new EvdevReader.Sink() {
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -101,6 +104,12 @@ public class InjectorService extends IInjector.Stub {
     };
 
     public InjectorService() {
+        // Grabs end with the process by themselves, the sound route does not
+        Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
+            Log.e(TAG, "injector crashed", e);
+            audio.clear(false);
+            System.exit(1);
+        });
         InputInjector i = null;
         String error = null;
         try {
@@ -156,7 +165,7 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public String configure(IInjectorListener l, final int displayId, final int width, final int height, final String pkg, float speed) {
         if (injector == null) return injectorError;
-        attach(l);
+        link(l);
         mouseSpeed = speed;
         enabled = true;
         inSession = false;
@@ -182,17 +191,34 @@ public class InjectorService extends IInjector.Stub {
         return null;
     }
 
-    @Override public void attach(IInjectorListener l) {
+    @Override public void attach(IInjectorListener l, String ownPackage) {
+        this.ownPackage = ownPackage;
+        link(l);
+    }
+
+    /**
+     * Backup for daemon(false) and for XDesk being killed without onTaskRemoved: whatever happens to the app, nothing
+     * stays grabbed, routed or stranded on the external display. Grabs end with this process. Shizuku may kill it first,
+     * so this is best effort.
+     */
+    private synchronized void link(IInjectorListener l) {
         listener = l;
+        if (linked) return;
+        linked = true;
         try {
-            // Backup for daemon(false): whatever happens to the app, nothing stays grabbed or routed
             l.asBinder().linkToDeath(() -> {
-                audio.clear(false);
+                String left = audio.clear(false);
+                if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+                if (!sessionOver && displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
                 System.exit(0);
             }, 0);
         } catch (RemoteException e) {
             System.exit(0);
         }
+    }
+
+    @Override public String returnToPhone(int display) {
+        return ownPackage == null ? "XDesk 没有连上注入服务" : TaskMover.moveAllToPhone(display, ownPackage);
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
@@ -283,7 +309,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /** Returns {error or null, output}. */
-    private static String[] exec(long timeoutMs, String... argv) {
+    static String[] exec(long timeoutMs, String... argv) {
         try {
             final Process p = new ProcessBuilder(argv).redirectErrorStream(true).start();
             Thread watchdog = new Thread(() -> {
@@ -382,6 +408,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void shutdown() {
+        sessionOver = true;
         EvdevReader r;
         synchronized (this) {
             r = reader;

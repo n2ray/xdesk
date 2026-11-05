@@ -44,6 +44,29 @@ public class DesktopService extends Service {
         return START_NOT_STICKY;
     }
 
+    /**
+     * 从最近任务划掉 XDesk：会话结束，手机恢复原样。安卓应用移回手机（不关闭），桌面窗口去掉，外接屏回到系统的镜像，
+     * 键鼠和声音路由恢复。Termux 里的 X 和桌面继续运行，下次打开在选择界面上显示为运行中。
+     * 任何任务被移除都会走到这里，包括外屏的桌面窗口，所以只认 XDesk 自己的任务。
+     * 进程没等到这里就被杀的话，靠注入服务的 link-to-death 兜底（InjectorService.link）。
+     */
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        android.content.ComponentName c = rootIntent != null ? rootIntent.getComponent() : null;
+        if (c == null || !XDeskActivity.class.getName().equals(c.getClassName())) return;
+        for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
+        int external = -1;
+        for (android.view.Display d : getSystemService(android.hardware.display.DisplayManager.class).getDisplays()) {
+            if (d.getDisplayId() != android.view.Display.DEFAULT_DISPLAY) {
+                external = d.getDisplayId();
+                break;
+            }
+        }
+        AppSession.get(this).endSession(external, () -> {
+            DesktopSession.get(this).abandon();
+            stopSelf();
+        });
+    }
+
     @Override public void onDestroy() {
         if (wakeLock.isHeld()) wakeLock.release();
         super.onDestroy();

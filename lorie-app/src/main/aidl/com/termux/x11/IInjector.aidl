@@ -41,5 +41,7 @@ interface IInjector {
     /** Prefer this device for media on the whole system, type < 0 clears it. Returns null or the error. */
     String setAudioOutput(int type, String address) = 18;
     /** Connect without an app, for the sound route alone. Reads no input devices. */
-    void attach(IInjectorListener listener) = 19;
+    void attach(IInjectorListener listener, String ownPackage) = 19;
+    /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
+    String returnToPhone(int displayId) = 21;
 }

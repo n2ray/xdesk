@@ -40,6 +40,7 @@ final class AppSession {
     /** Shizuku's first version with user services. */
     private static final int SHIZUKU_MIN_VERSION = 10;
     private static final long BIND_TIMEOUT_MS = 15000;
+    private static final long REBIND_DELAY_MS = 2000;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private static AppSession instance;
@@ -117,7 +118,7 @@ final class AppSession {
             if (audioOnly) {
                 new Thread(() -> {
                     try {
-                        i.attach(fromInjector);
+                        i.attach(fromInjector, context.getPackageName());
                         i.setEnabled(false);
                         ui.post(() -> audioRoute.attachInjector(i));
                     } catch (RemoteException e) {
@@ -134,6 +135,11 @@ final class AppSession {
     };
 
     private final Runnable cursorTimer = this::updateCursor;
+
+    private final Runnable rebind = () -> {
+        if (active) reconnect();
+        else if (DesktopSession.get(context).isActive()) connectForAudio();
+    };
 
     private final Runnable bindTimeout = () -> fail("注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
 
@@ -314,6 +320,7 @@ final class AppSession {
         if (i == null || d == null) return;
         try {
             int[] size = logicalSize(d);
+            i.attach(fromInjector, context.getPackageName());
             String error = i.configure(fromInjector, d.getDisplayId(), size[0], size[1], app.packageName, mouseSpeed);
             if (error != null) {
                 ui.post(() -> fail("无法注入输入：" + error));
@@ -393,6 +400,8 @@ final class AppSession {
         audioRoute.detachInjector();
         forwarding = false;
         cursor.hide();
+        // The sound route outlives the process, and only a new injector can set it right and later clear it
+        ui.postDelayed(rebind, REBIND_DELAY_MS);
         if (!active) return;
         if (!started) {
             fail("注入服务断开了");
@@ -588,8 +597,24 @@ final class AppSession {
 
     /** Stop forwarding, remove the cursor and clear the sound route. The app itself keeps running, and so does any Termux desktop. */
     void stop() {
+        stop(-1, null);
+    }
+
+    /**
+     * The whole session ends (XDesk was swiped away): the same as stop, but apps on the external display first go back to
+     * the phone, not closed. Without an injector that cannot happen and they stay where they are.
+     *
+     * @param externalDisplay the display to empty, or -1
+     * @param done runs on the main thread when it is over
+     */
+    void endSession(int externalDisplay, Runnable done) {
+        stop(externalDisplay, done);
+    }
+
+    private void stop(final int moveFrom, final Runnable done) {
         ui.removeCallbacks(bindTimeout);
         ui.removeCallbacks(cursorTimer);
+        ui.removeCallbacks(rebind);
         forwardOnReturn = false;
         audioBinding = false;
         audioRoute.detachInjector();
@@ -604,6 +629,13 @@ final class AppSession {
         final Shizuku.UserServiceArgs a = args;
         new Thread(() -> {
             try {
+                if (i != null && moveFrom >= 0) {
+                    String error = i.returnToPhone(moveFrom);
+                    if (error != null) {
+                        Log.w(TAG, "tasks not moved back: " + error);
+                        ui.post(() -> android.widget.Toast.makeText(context, "有的应用没能移回手机：" + error, android.widget.Toast.LENGTH_LONG).show());
+                    }
+                }
                 // Lifts everything held before the process goes away
                 if (i != null) i.shutdown();
             } catch (RemoteException ignored) { }
@@ -612,7 +644,9 @@ final class AppSession {
             } catch (RuntimeException e) {
                 Log.w(TAG, "unbind", e);
             }
+            if (done != null) ui.post(done);
         }, "xdesk-app-stop").start();
-        if (!desktopActive) context.stopService(new Intent(context, DesktopService.class));
+        // endSession keeps the foreground service until the moves are done, or the process could be killed before that
+        if (done == null && !desktopActive) context.stopService(new Intent(context, DesktopService.class));
     }
 }
