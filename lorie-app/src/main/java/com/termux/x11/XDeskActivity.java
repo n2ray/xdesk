@@ -51,7 +51,7 @@ public class XDeskActivity extends Activity {
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
 
-    private static final String PREF_SCROLL_SPEED = "pad_scroll_speed";
+    private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
@@ -90,6 +90,8 @@ public class XDeskActivity extends Activity {
     private SharedPreferences prefs;
 
     private FrameLayout screens;
+    private ExternalCover cover;
+    private boolean forwardingBeforeCover;
     private View keyboardBtn, comboRow;
     private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
     private Style.IconButton keysHandle;
@@ -229,6 +231,7 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public void onDisplayRemoved(int id) {
+            removeCover();
             // 不收的话系统会把它挪到手机屏上
             DashboardActivity.closeIfAlive();
             dashboardTried = Display.INVALID_DISPLAY;
@@ -420,6 +423,7 @@ public class XDeskActivity extends Activity {
         displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        cover = new ExternalCover(this);
         prefs = getPreferences(MODE_PRIVATE);
         session = DesktopSession.get(this);
         apps = AppSession.get(this);
@@ -461,12 +465,38 @@ public class XDeskActivity extends Activity {
         }
     }
 
+    /** 手机切到别的应用、或者锁屏：外接屏上的内容盖起来，键鼠交给手机。回来时都恢复。 */
+    @Override protected void onStop() {
+        super.onStop();
+        Display d = externalDisplay();
+        if (d == null || !prefs.getBoolean(PREF_COVER, true) || !(apps.isActive() || session.isActive())) return;
+        cover.show(d);
+        if (cover.isShown()) {
+            forwardingBeforeCover = apps.isForwarding();
+            if (forwardingBeforeCover) apps.setForwarding(false);
+        }
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        removeCover();
+    }
+
+    private void removeCover() {
+        if (!cover.isShown()) return;
+        cover.hide();
+        if (forwardingBeforeCover) apps.setForwarding(true);
+        forwardingBeforeCover = false;
+        if (phonePassive) apps.focusExternal();
+    }
+
     @Override protected void onPause() {
         resumed = false;
         super.onPause();
     }
 
     @Override protected void onDestroy() {
+        cover.hide();
         displays.unregisterDisplayListener(displayListener);
         inputs.unregisterInputDeviceListener(deviceListener);
         ui.removeCallbacksAndMessages(null);
@@ -1289,6 +1319,9 @@ public class XDeskActivity extends Activity {
 
         LinearLayout external = s.section(c, "外屏");
         addDensitySetting(s, external);
+        s.switchRow(external, "切到其他应用时遮住外屏", "外屏显示时钟，键鼠交给手机。应用继续运行，声音不停", prefs.getBoolean(PREF_COVER, true), on -> {
+            prefs.edit().putBoolean(PREF_COVER, on).apply();
+        });
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(external, "桌面分辨率", "Termux 桌面的 X 分辨率", WIDTH_LABELS[widthIndex()], () -> chooseResolution(resolution[0]));
