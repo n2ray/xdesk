@@ -78,6 +78,7 @@ public class XDeskActivity extends Activity {
     private static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
+    private static final int SCAN_A = 30, SCAN_X = 45, SCAN_C = 46, SCAN_V = 47, SCAN_Z = 44;
     private static final long DIM_AFTER_MS = 60000;
     private static final float DIM_BRIGHTNESS = 0.01f;
 
@@ -88,6 +89,7 @@ public class XDeskActivity extends Activity {
     private SharedPreferences prefs;
 
     private FrameLayout screens;
+    private View keyboardBtn, comboRow;
     private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
     private Style.IconButton keysHandle;
     private DirectTouchView directTouch;
@@ -627,6 +629,7 @@ public class XDeskActivity extends Activity {
             @Override public void run() { apps.sendBack(); }
         });
         Style.IconButton keyboard = new Style.IconButton(this, R.drawable.xd_ic_keyboard, "键盘", Style.SURFACE);
+        keyboardBtn = keyboard;
         keyboard.onTap(new Runnable() {
             @Override public void run() { toggleKeyboard(); }
         });
@@ -693,9 +696,11 @@ public class XDeskActivity extends Activity {
         addCornerIcon(full, R.drawable.xd_ic_close, "退出全屏", Gravity.TOP | Gravity.END, new Runnable() {
             @Override public void run() { setFullscreenWanted(false); }
         });
-        addCornerIcon(full, R.drawable.xd_ic_keyboard, "键盘", Gravity.BOTTOM | Gravity.END, new Runnable() {
-            @Override public void run() { toggleKeyboard(); }
-        });
+        if (!apps.isActive()) {
+            addCornerIcon(full, R.drawable.xd_ic_keyboard, "键盘", Gravity.BOTTOM | Gravity.END, new Runnable() {
+                @Override public void run() { toggleKeyboard(); }
+            });
+        }
         if (apps.isActive()) {
             addCornerIcon(full, R.drawable.xd_ic_back, "返回 App", Gravity.TOP | Gravity.START, new Runnable() {
                 @Override public void run() { apps.sendBack(); }
@@ -823,6 +828,18 @@ public class XDeskActivity extends Activity {
         keys.addView(keyButton("↑", KeyInputView.SCAN_UP), keyParams());
         keys.addView(keyButton("↓", KeyInputView.SCAN_DOWN), keyParams());
         keys.addView(keyButton("→", KeyInputView.SCAN_RIGHT), keyParams());
+        // 系统键盘的字直接交给应用，加不上这里锁定的修饰键，所以把常用组合的字母放在这里
+        LinearLayout combos = new LinearLayout(this);
+        comboRow = combos;
+        combos.setVisibility(View.GONE);
+        combos.addView(keyButton("A 全选", SCAN_A), keyParams());
+        combos.addView(keyButton("X 剪切", SCAN_X), keyParams());
+        combos.addView(keyButton("C 复制", SCAN_C), keyParams());
+        combos.addView(keyButton("V 粘贴", SCAN_V), keyParams());
+        combos.addView(keyButton("Z 撤销", SCAN_Z), keyParams());
+        LinearLayout.LayoutParams cr = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
+        cr.bottomMargin = dp(Style.GAP);
+        area.addView(combos, cr);
         LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
         kp.bottomMargin = dp(Style.GAP);
         area.addView(keys, kp);
@@ -860,6 +877,7 @@ public class XDeskActivity extends Activity {
         if (keysRow == null) return;
         boolean show = (keysExpanded || keyboardOpen) && !padFullscreen;
         keysRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        applyComboRow();
         keysHandle.setIcon(show ? R.drawable.xd_ic_chevron_up : R.drawable.xd_ic_chevron_down);
     }
 
@@ -939,6 +957,18 @@ public class XDeskActivity extends Activity {
         l.on = on;
         if (client != null) client.key(l.scan, on);
         l.button.setBackground(Style.ripple(this, on ? Style.ACCENT : Style.SURFACE_RAISED, 8));
+        applyComboRow();
+    }
+
+    /** Ctrl、Alt 这些锁定时才显示。桌面的键盘文字会经过这里，用不着。 */
+    private void applyComboRow() {
+        if (comboRow == null) return;
+        boolean show = apps.isActive() && keysRow.getVisibility() == View.VISIBLE;
+        if (show) {
+            show = false;
+            for (Latch l : latches) show |= l.on;
+        }
+        comboRow.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     private void releaseLatches() {
@@ -987,16 +1017,6 @@ public class XDeskActivity extends Activity {
         WindowInsets w = getWindow().getDecorView().getRootWindowInsets();
         if (w != null && w.isVisible(WindowInsets.Type.ime())) {
             ime.hideSoftInputFromWindow(keyView.getWindowToken(), 0);
-        } else if (apps.isActive()) {
-            // 键盘是外接屏上的应用弹的，这个窗口看不到它。Back 先到输入法，只收起键盘。
-            // 系统键盘要跟应用连着才不闪、能打中文，所以这里不弹，由应用的输入框决定
-            new Thread(() -> {
-                boolean shown = apps.isKeyboardShown();
-                ui.post(() -> {
-                    if (shown) apps.sendBack();
-                    else android.widget.Toast.makeText(this, "点应用里的输入位置会弹出键盘", android.widget.Toast.LENGTH_SHORT).show();
-                });
-            }, "xdesk-keyboard").start();
         } else {
             keyView.requestFocus();
             ime.showSoftInput(keyView, 0);
@@ -1020,6 +1040,8 @@ public class XDeskActivity extends Activity {
         boolean app = apps.isActive();
         forwardBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
+        // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
+        keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
         touchBtn.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
         applyInputMode();
     }
@@ -1038,6 +1060,8 @@ public class XDeskActivity extends Activity {
         for (View side : new View[]{leftColumn, rightColumn}) {
             if (side != null) side.getLayoutParams().width = dp(touch ? SIDE_WIDTH_TOUCH : SIDE_WIDTH);
         }
+        // 右边这一列只放右键和键盘按钮，这时都不显示
+        if (rightColumn != null && touch) rightColumn.getLayoutParams().width = 0;
         if (leftColumn != null) leftColumn.requestLayout();
         if (rightColumn != null) rightColumn.requestLayout();
         int[] size = apps.displaySize();

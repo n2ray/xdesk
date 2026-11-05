@@ -283,10 +283,6 @@ public class InjectorService extends IInjector.Stub {
         return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
     }
 
-    @Override public boolean isKeyboardShown() {
-        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/dumpsys", "input_method");
-        return r[0] == null && r[1].contains("mInputShown=true");
-    }
 
     @Override public void focusExternal() {
         post(() -> {

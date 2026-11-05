@@ -833,15 +833,6 @@ final class AppSession {
         } catch (RemoteException ignored) { }
     }
 
-    /** Blocks on the injector: not on the UI thread. */
-    boolean isKeyboardShown() {
-        IInjector i = injector;
-        try {
-            return i != null && i.isKeyboardShown();
-        } catch (RemoteException e) {
-            return false;
-        }
-    }
 
     void focusExternal() {
         IInjector i = injector;
