@@ -35,6 +35,7 @@ final class TouchpadView extends View {
     private boolean dragging;
     private boolean used;
     private float speed = 1f;
+    private float scrollStepDp = SCROLL_STEP_DP;
     private long lastTapUp;
     private final Runnable longPress = new Runnable() {
         @Override public void run() {
@@ -61,6 +62,11 @@ final class TouchpadView extends View {
     }
 
     /** 1 = 默认灵敏度。 */
+    /** 双指滚动的速度：1 是默认。手指走的距离不变，每一格变短。 */
+    void setScrollSpeed(float s) {
+        scrollStepDp = SCROLL_STEP_DP / s;
+    }
+
     void setSpeed(float s) {
         speed = s;
     }
@@ -172,10 +178,10 @@ final class TouchpadView extends View {
         // 自然滚动：手指向上推，内容向上走，也就是向下滚
         scrollY -= dy;
         scrollX -= dx;
-        int ty = (int) (scrollY / SCROLL_STEP_DP), tx = (int) (scrollX / SCROLL_STEP_DP);
+        int ty = (int) (scrollY / scrollStepDp), tx = (int) (scrollX / scrollStepDp);
         if (ty != 0 || tx != 0) {
-            scrollY -= ty * SCROLL_STEP_DP;
-            scrollX -= tx * SCROLL_STEP_DP;
+            scrollY -= ty * scrollStepDp;
+            scrollX -= tx * scrollStepDp;
             output.scroll(ty, tx);
         }
     }

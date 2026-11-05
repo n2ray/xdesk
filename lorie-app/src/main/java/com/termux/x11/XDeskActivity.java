@@ -51,6 +51,7 @@ public class XDeskActivity extends Activity {
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
 
+    private static final String PREF_SCROLL_SPEED = "pad_scroll_speed";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
@@ -847,6 +848,7 @@ public class XDeskActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         touchpad = new TouchpadView(this, output);
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
+        touchpad.setScrollSpeed(prefs.getFloat(PREF_SCROLL_SPEED, 1f));
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
         directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
             @Override public void moveCursor(int dx, int dy) { apps.input().move(dx, dy); }
@@ -1264,6 +1266,11 @@ public class XDeskActivity extends Activity {
             touchpad.setSpeed(v);
             directTouch.setSpeed(v);
             prefs.edit().putFloat(PREF_SPEED, v).apply();
+        });
+        s.percentRow(input, "双指滚动速度", "键鼠模式的触摸板", Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
+            float v = p / 100f;
+            touchpad.setScrollSpeed(v);
+            prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
         });
         if (appMode) {
             s.percentRow(input, "实体鼠标速度", "100% 按显示器宽度自动算", Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
