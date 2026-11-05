@@ -55,7 +55,7 @@ interface IInjector {
     /** Give input focus to the external display, or to the phone so its keyboard has a window to serve. */
     oneway void focusDisplay(boolean external) = 28;
     /** Whether the on-screen keyboard is up, for any app. */
-    boolean isKeyboardShown() = 16777115;
+    boolean isKeyboardShown() = 29;
     /** Android Back to the app on the external display. */
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
