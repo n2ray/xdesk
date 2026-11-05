@@ -116,6 +116,37 @@ final class TaskMover {
         return false;
     }
 
+    /**
+     * What is in front on the display: a package, empty when that is not a normal app (nothing, XDesk's own window or a
+     * launcher), or null when this cannot be read. Assumes the system lists tasks top first.
+     */
+    static String topPackage(int display, String ownPackage) {
+        try {
+            Object atm = taskManager();
+            List<?> infos = (List<?>) atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class).invoke(atm, display);
+            for (Object info : infos) {
+                if (!visible(info)) continue;
+                if (!movable(info, ownPackage)) return "";
+                ComponentName c = (ComponentName) info.getClass().getField("topActivity").get(info);
+                if (c == null) c = (ComponentName) info.getClass().getField("baseActivity").get(info);
+                return c != null ? c.getPackageName() : "";
+            }
+            return "";
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.i(TAG, "no top task: " + e);
+            return null;
+        }
+    }
+
+    private static boolean visible(Object info) {
+        for (String name : new String[]{"visible", "isVisible"}) {
+            try {
+                return info.getClass().getField(name).getBoolean(info);
+            } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        }
+        return true;
+    }
+
     /** Returns null when everything on the display went to the phone, otherwise what went wrong. */
     static String moveAllToPhone(int display, String ownPackage) {
         Object atm = null;

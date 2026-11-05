@@ -11,4 +11,6 @@ oneway interface IInjectorListener {
     void onAppInSession(boolean inSession) = 4;
     /** A mouse button was released. */
     void onButtonUp() = 5;
+    /** What Back left in front on the display: a package, or empty when no normal app is showing. */
+    void onTopApp(String packageName) = 6;
 }

@@ -91,6 +91,12 @@ final class AppCatalog {
         return null;
     }
 
+    /** 这个包的第一个可启动入口，没有是 null。 */
+    App findPackage(String pkg) {
+        for (App a : apps) if (a.packageName.equals(pkg)) return a;
+        return null;
+    }
+
     /** 后台重读，读完回到主线程调用 done。 */
     void refresh(final Runnable done) {
         scanner.execute(() -> {

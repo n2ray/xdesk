@@ -491,6 +491,17 @@ final class InputInjector {
         send(e);
     }
 
+    /** A key with no key code of its own on a keyboard, such as Back: down and up on the display. */
+    void androidKey(int keyCode) throws ReflectiveOperationException {
+        long now = SystemClock.uptimeMillis();
+        for (int action : new int[]{KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+            KeyEvent e = new KeyEvent(now, SystemClock.uptimeMillis(), action, keyCode, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
+            setDisplayKey.invoke(e, display);
+            send(e);
+        }
+    }
+
     /** Text from the phone's input method. Returns how many characters have no key on a keyboard and were dropped. */
     int text(String s) throws ReflectiveOperationException {
         KeyCharacterMap map = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);

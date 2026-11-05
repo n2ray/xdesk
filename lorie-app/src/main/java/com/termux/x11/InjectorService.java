@@ -51,6 +51,31 @@ public class InjectorService extends IInjector.Stub {
     private boolean linked;
     private volatile boolean sessionOver;
 
+    private static final int BACK_CHECK_MS = 800;
+    private final boolean[] sideButtonIsKey = new boolean[2];
+
+    /**
+     * RustDesk in a session keeps the mouse's side buttons as they always went, because they belong to the remote machine.
+     * Elsewhere a side button is Back or Forward: as a mouse button it would only act as a press at the cursor, because
+     * Android turns these into keys for a real mouse but not for an injected one.
+     */
+    private boolean sideButtonsAreKeys() {
+        boolean remote = AppInputProfile.forPackage(packageName).hoverButtons && (inSession || !watchSession);
+        return !remote;
+    }
+
+    /** Back on an app's top screen can close it or uncover something else, so look at what is in front afterwards. */
+    private void checkTopAfterBack(int keyCode) {
+        if (keyCode != android.view.KeyEvent.KEYCODE_BACK) return;
+        worker.schedule(() -> post(() -> {
+            String own = ownPackage;
+            if (own == null) return;
+            String top = TaskMover.topPackage(injector.displayId(), own);
+            IInjectorListener l = listener;
+            if (top != null && l != null) l.onTopApp(top);
+        }), BACK_CHECK_MS, TimeUnit.MILLISECONDS);
+    }
+
     private final EvdevReader.Sink physical = new EvdevReader.Sink() {
         @Override public void onForwarding(final boolean on, final int devices) {
             post(() -> {
@@ -86,6 +111,23 @@ public class InjectorService extends IInjector.Stub {
             postScroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP);
         }
         @Override public void onButton(final int code, final boolean down) {
+            if (code == BTN_SIDE || code == BTN_EXTRA) {
+                int side = code == BTN_SIDE ? 0 : 1;
+                // Decided on the press, so a press and its release always go the same way
+                if (down) sideButtonIsKey[side] = sideButtonsAreKeys();
+                if (sideButtonIsKey[side]) {
+                    if (!down) return;
+                    final int keyCode = code == BTN_SIDE ? android.view.KeyEvent.KEYCODE_BACK : android.view.KeyEvent.KEYCODE_FORWARD;
+                    post(() -> {
+                        injector.focus(injector.displayId());
+                        Thread.sleep(FOCUS_SETTLE_MS);
+                        focusStale = false;
+                        injector.androidKey(keyCode);
+                        checkTopAfterBack(keyCode);
+                    });
+                    return;
+                }
+            }
             post(() -> {
                 int bit = androidButton(code);
                 if (bit != 0) injector.button(bit, down);
@@ -309,6 +351,13 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void key(final int scan, final boolean down) {
         fromPhone(() -> injector.key(scan, down ? 1 : 0));
+    }
+
+    @Override public void sendBack() {
+        fromPhone(() -> {
+            injector.androidKey(android.view.KeyEvent.KEYCODE_BACK);
+            checkTopAfterBack(android.view.KeyEvent.KEYCODE_BACK);
+        });
     }
 
     @Override public void tapKey(final int scan) {

@@ -50,6 +50,8 @@ interface IInjector {
     String displayUniqueId(int displayId) = 24;
     /** Close this app's tasks, as swiping them away would. Returns null or the error. */
     String closeApp(String packageName) = 25;
+    /** Android Back to the app on the external display. */
+    oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
     String returnToPhone(int displayId) = 21;
 }

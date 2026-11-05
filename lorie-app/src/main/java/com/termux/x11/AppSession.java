@@ -30,6 +30,8 @@ final class AppSession {
         /** Forwarding, connection or display changed, redraw the status. */
         void onAppStateChanged();
         void onAppMessage(String message);
+        /** 外接屏上不再有我们放的应用了（关闭了，或者按 Back 退出了）：该让用户选一个。 */
+        void onAppGone();
     }
 
     static final int SHIZUKU_READY = 0, SHIZUKU_NOT_INSTALLED = 1, SHIZUKU_NOT_RUNNING = 2, SHIZUKU_NO_PERMISSION = 3, SHIZUKU_TOO_OLD = 4;
@@ -110,6 +112,9 @@ final class AppSession {
                 cursorPolicy.setInSession(inSession);
                 updateCursor();
             });
+        }
+        @Override public void onTopApp(final String pkg) {
+            ui.post(() -> topAppChanged(pkg));
         }
         @Override public void onButtonUp() {
             ui.post(() -> {
@@ -678,11 +683,59 @@ final class AppSession {
         return injector != null;
     }
 
+    /** Back 之后外接屏前面是什么。还是原来的应用就什么都不做。 */
+    private void topAppChanged(String pkg) {
+        if (!active || !started) return;
+        if (app != null && app.packageName.equals(pkg)) return;
+        AppCatalog.App now = pkg.isEmpty() ? null : AppCatalog.get(context).findPackage(pkg);
+        if (now == null) {
+            currentAppGone();
+            return;
+        }
+        // 露出了后面的另一个应用：输入方式和界面大小跟着它
+        app = now;
+        IInjector i = injector;
+        try {
+            if (i != null) {
+                i.setApp(now.packageName);
+                i.setTouchMode(touchModeFor(now));
+            }
+        } catch (RemoteException ignored) { }
+        cursorPolicy.setProfile(AppInputProfile.forPackage(now.packageName));
+        updateCursor();
+        applyCurrentDensity(false);
+        if (listener != null) listener.onAppStateChanged();
+    }
+
+    /** 输入方式回到普通，界面值回到默认，让用户选下一个。 */
+    private void currentAppGone() {
+        if (app == null) return;
+        app = null;
+        IInjector i = injector;
+        try {
+            if (i != null) i.setApp("");
+        } catch (RemoteException ignored) { }
+        cursorPolicy.setProfile(AppInputProfile.forPackage(null));
+        updateCursor();
+        applyCurrentDensity(false);
+        if (listener != null) {
+            listener.onAppStateChanged();
+            listener.onAppGone();
+        }
+    }
+
+    void sendBack() {
+        IInjector i = injector;
+        try {
+            if (i != null) i.sendBack();
+        } catch (RemoteException ignored) { }
+    }
+
     /**
      * 关闭一个应用（移除它的任务，和从最近任务划掉一样）。如果它正在外接屏上，外接屏上就没有我们放的应用了，
-     * 输入方式回到普通，界面值回到默认，之后 afterCurrent 让用户选下一个。
+     * 见 currentAppGone。
      */
-    void closeApp(final AppCatalog.App a, final Runnable afterCurrent) {
+    void closeApp(final AppCatalog.App a) {
         final IInjector i = injector;
         if (i == null) return;
         new Thread(() -> {
@@ -699,15 +752,7 @@ final class AppSession {
                     return;
                 }
                 if (!active || app == null || !app.packageName.equals(a.packageName)) return;
-                app = null;
-                try {
-                    i.setApp("");
-                } catch (RemoteException ignored) { }
-                cursorPolicy.setProfile(AppInputProfile.forPackage(null));
-                updateCursor();
-                applyCurrentDensity(false);
-                if (listener != null) listener.onAppStateChanged();
-                afterCurrent.run();
+                currentAppGone();
             });
         }, "xdesk-app-close").start();
     }

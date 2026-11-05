@@ -99,7 +99,7 @@ public class XDeskActivity extends Activity {
     private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction, setupBack;
     private ProgressBar setupProgress;
-    private TextView statusText, diagText, audioChip, forwardChip, touchChip;
+    private TextView statusText, diagText, audioChip, forwardChip, touchChip, backAppKey;
     private View statusDot;
     private TouchpadView touchpad;
     private KeyInputView keyView;
@@ -250,7 +250,7 @@ public class XDeskActivity extends Activity {
                 : "桌面意外停止了（X 服务器退出了），XDesk 不会自动重启。未保存的内容可能已丢失。点下面的环境可以重新启动。");
         }
         @Override public void onSessionError(String message) {
-            showSetup("无法调用 Termux", message, false, "返回选择", new View.OnClickListener() {
+            showSetup("无法调用 Termux", message, false, "回到启动器", new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
             });
         }
@@ -269,13 +269,16 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onAppFailed(String message) {
             client = null;
-            showSetup("无法在外接屏上运行", message, false, "返回选择", new View.OnClickListener() {
+            showSetup("无法在外接屏上运行", message, false, "回到启动器", new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
             });
         }
         @Override public void onAppStateChanged() {
             updateStatus();
             refreshDocks();
+        }
+        @Override public void onAppGone() {
+            openChooserOverSession();
         }
         @Override public void onAppMessage(String message) {
             Toast.makeText(XDeskActivity.this, message, Toast.LENGTH_LONG).show();
@@ -530,7 +533,7 @@ public class XDeskActivity extends Activity {
         ap.topMargin = dp(28);
         s.addView(setupAction, ap);
 
-        setupBack = Style.button(this, "返回选择", Style.SURFACE_RAISED, 14, 24);
+        setupBack = Style.button(this, "回到启动器", Style.SURFACE_RAISED, 14, 24);
         setupBack.setPadding(dp(28), dp(10), dp(28), dp(10));
         setupBack.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToChooser(); }
@@ -599,7 +602,7 @@ public class XDeskActivity extends Activity {
         LinearLayout.LayoutParams touchParams = chipParams(dp(56));
         touchParams.leftMargin = dp(6);
         top.addView(touchChip, touchParams);
-        TextView back = Style.button(this, "返回", Style.SURFACE_RAISED, 12, 16);
+        TextView back = Style.button(this, "启动器", Style.SURFACE_RAISED, 12, 16);
         back.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToChooser(); }
         });
@@ -630,6 +633,18 @@ public class XDeskActivity extends Activity {
         refreshRunningDock();
 
         LinearLayout keys = new LinearLayout(this);
+        // 安卓的 Back，给外接屏上的应用。手机上它是边缘滑动，有些应用不留返回按钮
+        backAppKey = smallKey("返回 App");
+        backAppKey.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Style.tick(v);
+                apps.sendBack();
+            }
+        });
+        LinearLayout.LayoutParams backKeyParams = keyParams();
+        backKeyParams.weight = 1.6f;
+        keys.addView(backAppKey, backKeyParams);
+        backAppKey.setVisibility(apps.isActive() ? View.VISIBLE : View.GONE);
         keys.addView(keyButton("Esc", KeyInputView.SCAN_ESC), keyParams());
         keys.addView(keyButton("Tab", KeyInputView.SCAN_TAB), keyParams());
         keys.addView(latchButton("Ctrl", KeyInputView.SCAN_CTRL), keyParams());
@@ -821,6 +836,7 @@ public class XDeskActivity extends Activity {
     private void applyModeToTopBar() {
         boolean app = apps.isActive();
         forwardChip.setVisibility(app ? View.VISIBLE : View.GONE);
+        if (backAppKey != null) backAppKey.setVisibility(app ? View.VISIBLE : View.GONE);
         touchChip.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
     }
 
@@ -832,7 +848,7 @@ public class XDeskActivity extends Activity {
         touchChip.setBackground(Style.ripple(this, touch ? Style.ACCENT : Style.SURFACE_RAISED, 16));
         forwardChip.setBackground(Style.ripple(this, apps.isForwarding() ? Style.ACCENT : Style.SURFACE_RAISED, 16));
         if (apps.hasInjector() && apps.hasDisplay() && apps.app() == null) {
-            setStatus(Style.WARN, "外接屏上的应用已关闭，选一个新的");
+            setStatus(Style.WARN, "外接屏上没有应用了，选一个");
         } else if (!apps.hasInjector()) {
             setStatus(Style.DANGER, "注入服务断开了，确认 Shizuku 还在运行");
         } else if (!apps.hasDisplay()) {
@@ -1197,7 +1213,7 @@ public class XDeskActivity extends Activity {
         });
 
         final AlertDialog[] dialog = new AlertDialog[1];
-        settingsRow(c, "返回选择（应用回到手机，桌面继续运行）", new View.OnClickListener() {
+        settingsRow(c, "回到启动器（应用回到手机，桌面继续运行）", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 dialog[0].dismiss();
                 backToChooser();
@@ -1418,7 +1434,7 @@ public class XDeskActivity extends Activity {
                     .setNegativeButton("取消", null)
                     .setPositiveButton("关闭", (d, w) -> {
                         card[0].dismiss();
-                        apps.closeApp(app, this::openChooserOverSession);
+                        apps.closeApp(app);
                     })
                     .show());
                 close.setTextColor(Style.DANGER);
