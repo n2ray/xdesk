@@ -584,6 +584,11 @@ final class InputInjector {
         send(e);
     }
 
+    /** Held down now, and not a modifier: what auto-repeat applies to. */
+    boolean repeats(int linuxCode) {
+        return held.contains(linuxCode) && metaOf(linuxCode) == 0 && KEYS.containsKey(linuxCode);
+    }
+
     /** A key with no key code of its own on a keyboard, such as Back: down and up on the display. */
     void androidKey(int keyCode) throws ReflectiveOperationException {
         long now = SystemClock.uptimeMillis();

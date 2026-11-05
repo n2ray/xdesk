@@ -26,6 +26,7 @@ public class InjectorService extends IInjector.Stub {
     /** The touchpad's gain was tuned on a 1920 wide desktop. */
     private static final float PAD_REFERENCE_WIDTH = 1920f;
     private static final float WHEEL_STEP = 1f;
+    private static final long KEY_REPEAT_DELAY_MS = 400, KEY_REPEAT_MS = 40;
     private static final long SESSION_POLL_MS = 1000;
     private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276;
 
@@ -42,6 +43,7 @@ public class InjectorService extends IInjector.Stub {
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
     private volatile boolean hotkeyAllowed = true;
+    private int repeatingKey = -1;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private volatile boolean enabled = true, watchSession, inSession;
@@ -143,6 +145,7 @@ public class InjectorService extends IInjector.Stub {
                     focusStale = false;
                 }
                 injector.key(code, value);
+                if (value == 1) startRepeat(code);
             });
         }
     };
@@ -203,6 +206,23 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /** In touch mode a scroll is a finger on the display, which has to be lifted after a short idle. */
+    /**
+     * Android turns off the kernel's key repeat and makes its own for real keyboards, which stops at our grab. The newest
+     * key held repeats, as on a keyboard. The held state ends it, so releaseAll does too.
+     */
+    private void startRepeat(final int code) {
+        repeatingKey = code;
+        if (injector.repeats(code)) scheduleRepeat(code, KEY_REPEAT_DELAY_MS);
+    }
+
+    private void scheduleRepeat(final int code, long delayMs) {
+        worker.schedule(() -> post(() -> {
+            if (repeatingKey != code || !injector.repeats(code)) return;
+            injector.key(code, 2);
+            scheduleRepeat(code, KEY_REPEAT_MS);
+        }), delayMs, TimeUnit.MILLISECONDS);
+    }
+
     private void postScroll(final float vertical, final float horizontal) {
         post(() -> {
             injector.scroll(vertical, horizontal);
