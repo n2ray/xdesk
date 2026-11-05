@@ -10,5 +10,3 @@
 -keep class io.github.muntashirakon.crypto.spake2.** { *; }
 # HiddenApiBypass reads the layout of these mirror classes by reflection.
 -keep class org.lsposed.hiddenapibypass.** { *; }
-# libadb looks these up by name when they exist. XDesk has only the platform's Conscrypt.
--dontwarn org.conscrypt.**

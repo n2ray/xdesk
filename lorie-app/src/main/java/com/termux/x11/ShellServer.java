@@ -13,7 +13,6 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
 
 /**
  * The shell-user process for people without Shizuku: ShellActivation runs this through app_process over wireless
@@ -61,7 +60,7 @@ public final class ShellServer extends IShellServer.Stub {
         server.exitWhenApkGoes(System.getenv("CLASSPATH"));
         new Thread(() -> server.answerKnocks(Integer.parseInt(args[2])), "xdesk-knock").start();
         new Thread(ShellServer::grantSecureSettings, "xdesk-grant").start();
-        CmdEntryPoint.sendBroadcast(server.binderIntent);
+        server.sendBinder();
         Looper.loop();
     }
 
@@ -103,6 +102,15 @@ public final class ShellServer extends IShellServer.Stub {
         System.exit(0);
     }
 
+    /** Its last fallback throws. XDesk knocks again, so that must not end this process. */
+    private void sendBinder() {
+        try {
+            CmdEntryPoint.sendBroadcast(binderIntent);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "broadcast failed", e);
+        }
+    }
+
     private void answerKnocks(int port) {
         try (ServerSocket socket = new ServerSocket(port, KNOCK_BACKLOG, InetAddress.getByName("127.0.0.1"))) {
             while (true) {
@@ -110,7 +118,7 @@ public final class ShellServer extends IShellServer.Stub {
                 long now = SystemClock.uptimeMillis();
                 if (now - lastSent < MIN_RESEND_MS) continue;
                 lastSent = now;
-                CmdEntryPoint.sendBroadcast(binderIntent);
+                sendBinder();
             }
         } catch (IOException e) {
             // XDesk will not find this process after a restart, so it starts a new one and that one kills this one
