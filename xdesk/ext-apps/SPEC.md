@@ -118,8 +118,8 @@ Agreed after the second round. XDesk's job is putting apps on the big screen, wi
 
 **Control screen.** Status and buttons, the same row, the touch area with collapsible function keys, and the bottom controls. In portrait the left and right buttons are directly under the touch area. In landscape they are on its sides, and status and favourites share one row. Termux desktops use the same screen.
 
-**Input modes per app.** 键鼠 is the keyboard and mouse path. 触控 makes the touch area a direct touch surface for the display, with absolute mapping, up to five fingers, a dot per finger on the display, and no mouse buttons on the phone. A physical mouse then acts as fingers. RustDesk stays at 键鼠.
+**Input modes per app.** 键鼠 is the keyboard and mouse path. 触控 sends a real touch stream with positions from the cursor, because the user watches the big screen: one finger moves the cursor, tap, tap then slide to drag, press and hold. Two to five fingers are real pointers placed around the cursor, with a dot per finger on the display. There are no mouse buttons on the phone. A physical mouse then acts as fingers. RustDesk stays at 键鼠. Absolute mapping was tried and replaced, and only makes sense with a live preview on the phone, which is not built.
 
-**Full screen touch area.** A button makes the touch area the whole phone screen with the system bars hidden, remembered per mode, keeping the display's shape with a letterbox if the ratios differ. A small translucent button or Back leaves it.
+**Full screen touch area.** An icon in the touch area's corner makes it the whole phone screen with the system bars hidden, remembered globally as a property of the touch area. Small translucent corner icons give Back and the keyboard, and leave it.
 
 **Orientation** follows the system by default, with a setting to fix it. **Look:** dark, one blue accent, status colour only on small dots, icons for common actions, targets of at least 48 dp.

@@ -5,7 +5,10 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.content.res.Resources;
+import android.content.res.XmlResourceParser;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.Drawable;
 import android.graphics.Point;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -95,7 +98,7 @@ final class CursorOverlay {
         margin = Math.round(size * MARGIN_OF_SIZE);
         int window = size + 2 * margin;
         Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " at " + attachedDensity + " dpi");
-        view = new ArrowView(dc, size, margin);
+        view = new ArrowView(dc, size, margin, SystemPointer.load());
         view.setFaint(faint);
         params = new WindowManager.LayoutParams(window, window, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -150,8 +153,78 @@ final class CursorOverlay {
     }
 
     /**
-     * A slim black arrow with a tail, a thin white outline and a soft shadow, so it reads on light and dark. Our own
-     * drawing: all sizes come from the cursor size passed in, nothing from resources or density.
+     * The phone's own pointer, loaded at run time so nothing of it is copied into this repository. Null when this Android
+     * has none under these names.
+     */
+    private static final class SystemPointer {
+        /** Used when the hot spot cannot be read: the tip is near the top left, inset from the corner. */
+        private static final float FALLBACK_HOT = 0.25f;
+        final Drawable drawable;
+        /** Hot spot as a part of the drawable's size. */
+        final float hotX, hotY;
+
+        private SystemPointer(Drawable d, float x, float y) {
+            drawable = d;
+            hotX = x;
+            hotY = y;
+        }
+
+        static SystemPointer load() {
+            Resources res = Resources.getSystem();
+            for (String name : new String[]{"pointer_arrow_vector", "pointer_arrow"}) {
+                try {
+                    int id = res.getIdentifier(name, "drawable", "android");
+                    if (id == 0) continue;
+                    Drawable d = res.getDrawable(id, null).mutate();
+                    float widthDp = d.getIntrinsicWidth() / res.getDisplayMetrics().density;
+                    float[] hot = readHotSpot(res, widthDp);
+                    Log.i(TAG, "cursor from " + name + ", hot spot " + hot[0] + "," + hot[1]);
+                    return new SystemPointer(d, hot[0], hot[1]);
+                } catch (RuntimeException e) {
+                    Log.i(TAG, "no system pointer " + name + ": " + e);
+                }
+            }
+            return null;
+        }
+
+        /** From the `pointer-icon` resource, whose hotSpotX and hotSpotY are dimensions. */
+        private static float[] readHotSpot(Resources res, float widthDp) {
+            float[] hot = {FALLBACK_HOT, FALLBACK_HOT};
+            int id = res.getIdentifier("pointer_arrow_icon", "drawable", "android");
+            if (id == 0 || widthDp <= 0) return hot;
+            try (XmlResourceParser p = res.getXml(id)) {
+                int event;
+                while ((event = p.next()) != XmlResourceParser.END_DOCUMENT) {
+                    if (event != XmlResourceParser.START_TAG) continue;
+                    for (int i = 0; i < p.getAttributeCount(); i++) {
+                        String attr = p.getAttributeName(i);
+                        float dp = parseDp(p.getAttributeValue(i));
+                        if (dp < 0) continue;
+                        if ("hotSpotX".equals(attr)) hot[0] = dp / widthDp;
+                        else if ("hotSpotY".equals(attr)) hot[1] = dp / widthDp;
+                    }
+                    break;
+                }
+            } catch (Exception e) {
+                Log.i(TAG, "no pointer hot spot: " + e);
+            }
+            return hot;
+        }
+
+        /** Text such as 6.5dip. Below 0 when it is something else. */
+        private static float parseDp(String value) {
+            if (value == null || !value.endsWith("dip")) return -1;
+            try {
+                return Float.parseFloat(value.substring(0, value.length() - 3));
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+    }
+
+    /**
+     * The system's pointer when it can be loaded, otherwise our own slim black arrow with a white outline and a soft
+     * shadow. All sizes come from the cursor size passed in, nothing from density.
      */
     private static final class ArrowView extends View {
         /** The arrow on a grid of 24 by 24, with the tip at 0,0. */
@@ -164,10 +237,17 @@ final class CursorOverlay {
         private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG), dotEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path arrow = new Path();
         private final float size, tipX;
+        private final SystemPointer pointer;
         private boolean faint;
 
-        ArrowView(Context c, int size, int margin) {
+        ArrowView(Context c, int size, int margin, SystemPointer pointer) {
             super(c);
+            this.pointer = pointer;
+            if (pointer != null) {
+                // Its hot spot goes on the window's top row, so what little is drawn above the tip is cut off
+                int left = Math.round(margin - pointer.hotX * size), top = Math.round(-pointer.hotY * size);
+                pointer.drawable.setBounds(left, top, left + size, top + size);
+            }
             this.size = size;
             tipX = margin;
             float s = size / GRID;
@@ -203,6 +283,10 @@ final class CursorOverlay {
                 float r = size * FAINT_DOT_OF_SIZE / 2;
                 c.drawCircle(tipX + r, r, r, dot);
                 c.drawCircle(tipX + r, r, r, dotEdge);
+                return;
+            }
+            if (pointer != null) {
+                pointer.drawable.draw(c);
                 return;
             }
             c.drawPath(arrow, outline);

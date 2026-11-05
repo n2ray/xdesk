@@ -13,4 +13,6 @@ oneway interface IInjectorListener {
     void onButtonUp() = 5;
     /** What Back left in front on the display: a package, or empty when no normal app is showing. */
     void onTopApp(String packageName) = 6;
+    /** 触控 mode: where the fingers are on the display, in pixels. Empty when none are down. */
+    void onFingers(in float[] x, in float[] y) = 7;
 }

@@ -157,11 +157,19 @@ public class InjectorService extends IInjector.Stub {
         InputInjector i = null;
         String error = null;
         try {
-            i = new InputInjector((x, y) -> {
-                IInjectorListener l = listener;
-                try {
-                    if (l != null) l.onCursor(x, y);
-                } catch (RemoteException ignored) { }
+            i = new InputInjector(new InputInjector.CursorListener() {
+                @Override public void onCursor(int x, int y) {
+                    IInjectorListener l = listener;
+                    try {
+                        if (l != null) l.onCursor(x, y);
+                    } catch (RemoteException ignored) { }
+                }
+                @Override public void onFingers(float[] x, float[] y) {
+                    IInjectorListener l = listener;
+                    try {
+                        if (l != null) l.onFingers(x, y);
+                    } catch (RemoteException ignored) { }
+                }
             });
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.e(TAG, "no input injection", e);

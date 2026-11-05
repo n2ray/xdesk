@@ -20,11 +20,11 @@ final class TouchpadView extends View {
     private static final long TAP_MS = 220;
     private static final long LONG_PRESS_MS = 350;
     private static final long TAP_DRAG_WINDOW_MS = 250;
-    private static final float TAP_SLOP_DP = 8;
+    static final float TAP_SLOP_DP = 8;
     private static final float SCROLL_STEP_DP = 28;
-    private static final float BASE_GAIN = 1.3f;
-    private static final float ACCEL_PER_DP = 0.09f;
-    private static final float MAX_GAIN = 5f;
+    static final float BASE_GAIN = 1.3f;
+    static final float ACCEL_PER_DP = 0.09f;
+    static final float MAX_GAIN = 5f;
 
     private final Output output;
     private final float density;

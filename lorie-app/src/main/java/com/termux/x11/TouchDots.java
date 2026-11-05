@@ -63,14 +63,14 @@ final class TouchDots {
         if (view != null && (real.x != width || real.y != height)) attach(display);
     }
 
-    /** x and y are 0 to 1 across the display. An empty array removes the dots. */
+    /** Pixels on the display. An empty array removes the dots. */
     void show(float[] x, float[] y) {
         if (view == null) return;
         if (x.length == 0) {
             hide();
             return;
         }
-        view.set(x, y, width, height);
+        view.set(x, y);
         if (shown) return;
         try {
             windows.addView(view, params);
@@ -99,7 +99,6 @@ final class TouchDots {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float radius;
         private float[] x = new float[0], y = new float[0];
-        private int w, h;
 
         DotsView(Context c, float radius) {
             super(c);
@@ -110,18 +109,16 @@ final class TouchDots {
             edge.setStrokeWidth(Math.max(1f, radius / 8));
         }
 
-        void set(float[] newX, float[] newY, int width, int height) {
+        void set(float[] newX, float[] newY) {
             x = newX;
             y = newY;
-            w = width;
-            h = height;
             invalidate();
         }
 
         @Override protected void onDraw(Canvas c) {
             for (int i = 0; i < x.length; i++) {
-                c.drawCircle(x[i] * (w - 1), y[i] * (h - 1), radius, fill);
-                c.drawCircle(x[i] * (w - 1), y[i] * (h - 1), radius, edge);
+                c.drawCircle(x[i], y[i], radius, fill);
+                c.drawCircle(x[i], y[i], radius, edge);
             }
         }
     }

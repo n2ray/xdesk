@@ -42,6 +42,7 @@ final class AppSession {
     /** Shizuku's first version with user services. */
     private static final int SHIZUKU_MIN_VERSION = 10;
     private static final long BIND_TIMEOUT_MS = 15000;
+    private static final long TOUCH_CURSOR_HIDE_MS = 2000;
     private static final long REBIND_DELAY_MS = 2000;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
@@ -63,6 +64,7 @@ final class AppSession {
     private boolean alwaysShowCursor;
     /** Termux 桌面也要靠注入服务选声音输出：只为这个连上，不读键鼠。 */
     private boolean audioBinding;
+    private int lastCursorX, lastCursorY;
     /** 切去 Termux 桌面时应用的任务留在了外接屏上。 */
     private boolean appBehindDesktop;
     private boolean stopping;
@@ -89,9 +91,12 @@ final class AppSession {
         @Override public void onCursor(final int x, final int y) {
             ui.post(() -> {
                 if (!active) return;
+                lastCursorX = x;
+                lastCursorY = y;
                 cursorPolicy.moved(y);
                 cursor.moveTo(x, y);
                 updateCursor();
+                scheduleCursorHide();
             });
         }
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -117,10 +122,20 @@ final class AppSession {
         @Override public void onTopApp(final String pkg) {
             ui.post(() -> topAppChanged(pkg));
         }
+        @Override public void onFingers(final float[] x, final float[] y) {
+            ui.post(() -> {
+                if (active) touchDots.show(x, y);
+            });
+        }
         @Override public void onButtonUp() {
             ui.post(() -> {
                 cursorPolicy.buttonUp(SystemClock.uptimeMillis());
                 updateCursor();
+                // 点按时让人看到点在哪
+                if (active && app != null && touchModeFor(app)) {
+                    cursor.moveTo(lastCursorX, lastCursorY);
+                    scheduleCursorHide();
+                }
             });
         }
     };
@@ -153,6 +168,7 @@ final class AppSession {
     };
 
     private final Runnable cursorTimer = this::updateCursor;
+    private final Runnable cursorHide = this::hideTouchCursor;
 
     private final Runnable rebind = this::rebindInjector;
 
@@ -214,6 +230,16 @@ final class AppSession {
         Shizuku.addRequestPermissionResultListener((code, result) -> {
             if (code == PERMISSION_REQUEST) shizukuChanged();
         });
+    }
+
+    private void hideTouchCursor() {
+        cursor.hide();
+    }
+
+    /** 触控模式下光标不动一会就藏起来，下次移动再出现。 */
+    private void scheduleCursorHide() {
+        ui.removeCallbacks(cursorHide);
+        if (active && app != null && touchModeFor(app)) ui.postDelayed(cursorHide, TOUCH_CURSOR_HIDE_MS);
     }
 
     private void updateCursor() {
@@ -689,11 +715,8 @@ final class AppSession {
         return canUseTouchMode(a);
     }
 
-    /** 触控模式：手机触控区的一帧。外接屏上每根手指一个点。 */
+    /** 触控模式：多指的一帧。外接屏上的点由注入那边告诉我们，它才知道手指实际在哪。 */
     void touchFrame(int action, int[] ids, float[] x, float[] y) {
-        int masked = action & android.view.MotionEvent.ACTION_MASK;
-        boolean over = masked == android.view.MotionEvent.ACTION_UP || masked == android.view.MotionEvent.ACTION_CANCEL;
-        touchDots.show(over ? new float[0] : x, over ? new float[0] : y);
         IInjector i = injector;
         try {
             if (i != null) i.touchFrame(action, ids, x, y);

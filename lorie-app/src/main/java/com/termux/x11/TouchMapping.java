@@ -3,8 +3,8 @@ package com.termux.x11;
 import android.graphics.RectF;
 
 /**
- * How the phone's touch area stands for the external display in 触控 mode. Absolute: the area, letterboxed to the
- * display's shape, is the whole display. To try another mapping, this is the only piece to change.
+ * Absolute mapping from a view to the external display. Not in use: 触控 mode takes positions from the cursor, because the
+ * user watches the big screen. Kept for a possible live preview of the display on the phone, where absolute makes sense.
  */
 final class TouchMapping {
     private TouchMapping() { }

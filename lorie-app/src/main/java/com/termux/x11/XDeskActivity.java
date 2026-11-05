@@ -59,7 +59,7 @@ public class XDeskActivity extends Activity {
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
-        PREF_FULL_KEYS = "pad_full_keys", PREF_FULL_TOUCH = "pad_full_touch";
+        PREF_FULL_PAD = "pad_fullscreen";
     private static final int MAX_RECENTS = 6;
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
@@ -686,36 +686,47 @@ public class XDeskActivity extends Activity {
         return padFullscreen ? fullscreenRoot(center) : root;
     }
 
-    /** 只留触控区和一个退出按钮。其余的控件还在，只是不显示。键鼠模式下左右键也不显示：轻点、双指轻点和长按拖动都能代替。 */
+    /**
+     * 只留触控区和角上半透明的小图标：退出，返回 App，键盘。它们收下自己那里的触摸。其余的控件还在，只是不显示。
+     * 键鼠模式下左右键也不显示：轻点、双指轻点和长按拖动都能代替。
+     */
     private View fullscreenRoot(View center) {
         ((android.view.ViewGroup) center.getParent()).removeView(center);
         FrameLayout full = new FrameLayout(this);
         full.setBackgroundColor(Style.BACKGROUND);
         full.addView(center, new FrameLayout.LayoutParams(-1, -1));
-        // 按钮收下这里的触摸，不传给应用。横屏多半落在触控框外面的黑边上
-        Style.IconButton exit = new Style.IconButton(this, R.drawable.xd_ic_close, "", Style.SURFACE);
-        exit.setAlpha(0.5f);
-        exit.setContentDescription("退出全屏");
-        exit.onTap(new Runnable() {
+        fullscreenBtn.setVisibility(View.GONE);
+        addCornerIcon(full, R.drawable.xd_ic_close, "退出全屏", Gravity.TOP | Gravity.END, new Runnable() {
             @Override public void run() { setFullscreenWanted(false); }
         });
-        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET));
-        p.gravity = Gravity.TOP | Gravity.END;
-        p.topMargin = p.rightMargin = dp(4);
-        full.addView(exit, p);
+        addCornerIcon(full, R.drawable.xd_ic_keyboard, "键盘", Gravity.BOTTOM | Gravity.END, new Runnable() {
+            @Override public void run() { toggleKeyboard(); }
+        });
+        if (apps.isActive()) {
+            addCornerIcon(full, R.drawable.xd_ic_back, "返回 App", Gravity.TOP | Gravity.START, new Runnable() {
+                @Override public void run() { apps.sendBack(); }
+            });
+        }
         // 系统只认每条边最靠下的 200dp，手势条也排除不了。这里能拦多少算多少
         full.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
             v.setSystemGestureExclusionRects(java.util.Collections.singletonList(new android.graphics.Rect(0, 0, r - l, b - t))));
         return full;
     }
 
-    private String fullscreenPref() {
-        return apps.isActive() && apps.isTouchMode() ? PREF_FULL_TOUCH : PREF_FULL_KEYS;
+    private void addCornerIcon(FrameLayout parent, int icon, String label, int gravity, Runnable action) {
+        Style.IconButton b = new Style.IconButton(this, icon, "", Style.SURFACE);
+        b.setAlpha(0.5f);
+        b.setContentDescription(label);
+        b.onTap(action);
+        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET));
+        p.gravity = gravity;
+        p.leftMargin = p.topMargin = p.rightMargin = p.bottomMargin = dp(4);
+        parent.addView(b, p);
     }
 
-    /** 每种操作方式各记一个，下次还是这样。 */
+    /** 全屏是触控区的属性，不分操作方式，也不分应用。 */
     private void setFullscreenWanted(boolean on) {
-        prefs.edit().putBoolean(fullscreenPref(), on).apply();
+        prefs.edit().putBoolean(PREF_FULL_PAD, on).apply();
         applyFullscreen();
     }
 
@@ -723,7 +734,7 @@ public class XDeskActivity extends Activity {
     private void applyFullscreen() {
         boolean running = (apps.isActive() && apps.isStarted()) || session.isActive();
         boolean want = running && chooser != null && chooser.getVisibility() != View.VISIBLE
-            && setupScreen.getVisibility() != View.VISIBLE && prefs.getBoolean(fullscreenPref(), false);
+            && setupScreen.getVisibility() != View.VISIBLE && prefs.getBoolean(PREF_FULL_PAD, false);
         if (want == padFullscreen) return;
         padFullscreen = want;
         rebuildRunning();
@@ -781,10 +792,6 @@ public class XDeskActivity extends Activity {
         forwardBtn.onTap(new Runnable() {
             @Override public void run() { apps.setForwarding(!apps.isForwarding()); }
         });
-        fullscreenBtn = new Style.IconButton(this, R.drawable.xd_ic_fullscreen, "全屏", Style.SURFACE);
-        fullscreenBtn.onTap(new Runnable() {
-            @Override public void run() { setFullscreenWanted(true); }
-        });
         launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, "启动器", Style.SURFACE);
         launcherBtn.onTap(new Runnable() {
             @Override public void run() { openChooserOverSession(); }
@@ -796,7 +803,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void addTopButtons(LinearLayout row, boolean fill) {
-        for (View b : new View[]{audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn}) {
+        for (View b : new View[]{audioBtn, touchBtn, forwardBtn, launcherBtn, settingsBtn}) {
             LinearLayout.LayoutParams p = fill ? new LinearLayout.LayoutParams(0, dp(Style.TARGET + 4), 1)
                 : new LinearLayout.LayoutParams(dp(Style.TARGET + 4), dp(Style.TARGET));
             p.leftMargin = fill ? dp(2) : dp(4);
@@ -830,9 +837,25 @@ public class XDeskActivity extends Activity {
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
         directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
+            @Override public void moveCursor(int dx, int dy) { apps.input().move(dx, dy); }
+            @Override public void tap() { apps.input().click(1); }
+            @Override public void press(boolean down) { apps.input().button(1, down); }
             @Override public void frame(int action, int[] ids, float[] x, float[] y) { apps.touchFrame(action, ids, x, y); }
         });
+        directTouch.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         frame.addView(directTouch, new FrameLayout.LayoutParams(-1, -1));
+        // 全屏是触控区自己的事，图标放在它的角上
+        Style.IconButton enter = new Style.IconButton(this, R.drawable.xd_ic_fullscreen, "", Style.SURFACE_RAISED);
+        enter.setAlpha(0.7f);
+        enter.setContentDescription("触控区全屏");
+        enter.onTap(new Runnable() {
+            @Override public void run() { setFullscreenWanted(true); }
+        });
+        fullscreenBtn = enter;
+        FrameLayout.LayoutParams ep = new FrameLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET));
+        ep.gravity = Gravity.TOP | Gravity.END;
+        ep.topMargin = ep.rightMargin = dp(4);
+        frame.addView(enter, ep);
         area.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         return area;
     }
@@ -1330,6 +1353,7 @@ public class XDeskActivity extends Activity {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
                 float v = (p + 50) / 100f;
                 touchpad.setSpeed(v);
+                directTouch.setSpeed(v);
                 if (user) prefs.edit().putFloat(PREF_SPEED, v).apply();
             }
             @Override public void onStartTrackingTouch(SeekBar s) { }

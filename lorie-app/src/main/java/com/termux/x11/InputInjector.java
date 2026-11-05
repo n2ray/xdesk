@@ -23,6 +23,7 @@ final class InputInjector {
     /** Called with the logical pointer position after every movement. */
     interface CursorListener {
         void onCursor(int x, int y);
+        void onFingers(float[] x, float[] y);
     }
 
     private static final String TAG = "XDeskInjector";
@@ -101,6 +102,7 @@ final class InputInjector {
     private boolean touchMode;
     /** 触控 mode: the phone's fingers are on the display. The last frame, in pixels, for cancelling. */
     private boolean directActive;
+    private float anchorX, anchorY;
     private int[] directIds = new int[0];
     private float[] directX = new float[0], directY = new float[0];
     /** Touch mode: the button holding fingers down, 0 for none. Left is one finger, right is two. */
@@ -304,8 +306,6 @@ final class InputInjector {
 
     /** All current fingers go down, one per event. */
     private void directBegin() throws ReflectiveOperationException {
-        cancelTouch();
-        endSwipe();
         directActive = true;
         downTime = SystemClock.uptimeMillis();
         touchDevice = touchDeviceId();
@@ -316,34 +316,56 @@ final class InputInjector {
     }
 
     /**
-     * A frame from the phone's touch area in 触控 mode, passed through as it is. The newest input wins: a finger going
-     * down on the phone cancels a mouse press or a wheel swipe, and a mouse press cancels the phone's fingers, whose
-     * following frames are dropped until another finger goes down.
+     * Two or more of the phone's fingers in 触控 mode, placed around where the cursor was when they went down. Fingers that
+     * reach an edge stop there. The cursor follows their middle and shows again when they lift. The newest input wins: a
+     * finger going down on the phone cancels a mouse press or a wheel swipe, and a mouse press cancels the phone's fingers,
+     * whose following frames are dropped until another finger goes down.
      */
-    void touchFrame(int action, int[] ids, float[] nx, float[] ny) throws ReflectiveOperationException {
+    void touchFrame(int action, int[] ids, float[] offsetX, float[] offsetY) throws ReflectiveOperationException {
         if (!touching()) return;
         int masked = action & MotionEvent.ACTION_MASK;
         boolean starts = masked == MotionEvent.ACTION_DOWN || masked == MotionEvent.ACTION_POINTER_DOWN;
         if (!directActive && !starts) return;
+        if (!directActive) {
+            cancelTouch();
+            endSwipe();
+            anchorX = x;
+            anchorY = y;
+        }
         directIds = ids;
         directX = new float[ids.length];
         directY = new float[ids.length];
+        float sumX = 0, sumY = 0;
         for (int i = 0; i < ids.length; i++) {
-            directX[i] = nx[i] * (width - 1);
-            directY[i] = ny[i] * (height - 1);
+            directX[i] = Math.max(0, Math.min(width - 1, anchorX + offsetX[i]));
+            directY[i] = Math.max(0, Math.min(height - 1, anchorY + offsetY[i]));
+            sumX += directX[i];
+            sumY += directY[i];
         }
         if (!directActive) {
             directBegin();
-            return;
+        } else {
+            directEvent(action, ids.length);
         }
-        directEvent(action, ids.length);
-        if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) directActive = false;
+        boolean over = masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL;
+        if (masked == MotionEvent.ACTION_MOVE) {
+            x = sumX / ids.length;
+            y = sumY / ids.length;
+        }
+        if (over) {
+            directActive = false;
+            cursor.onFingers(new float[0], new float[0]);
+            cursor.onCursor((int) x, (int) y);
+        } else {
+            cursor.onFingers(directX, directY);
+        }
     }
 
     private void cancelDirect() throws ReflectiveOperationException {
         if (!directActive) return;
         directActive = false;
         directEvent(MotionEvent.ACTION_CANCEL, directIds.length);
+        cursor.onFingers(new float[0], new float[0]);
     }
 
     /** Takes back any fingers a button holds, with no tap: a release would count as one. */

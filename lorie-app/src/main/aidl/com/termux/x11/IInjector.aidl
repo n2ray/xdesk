@@ -50,8 +50,8 @@ interface IInjector {
     String displayUniqueId(int displayId) = 24;
     /** Close this app's tasks, as swiping them away would. Returns null or the error. */
     String closeApp(String packageName) = 25;
-    /** 触控 mode: the fingers on the phone's touch area. x and y are 0 to 1 across the display, ids stay with a finger. */
-    oneway void touchFrame(int action, in int[] ids, in float[] x, in float[] y) = 27;
+    /** 触控 mode: two or more fingers, placed around the cursor. Offsets are pixels on the display, ids stay with a finger. */
+    oneway void touchFrame(int action, in int[] ids, in float[] offsetX, in float[] offsetY) = 27;
     /** Android Back to the app on the external display. */
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
