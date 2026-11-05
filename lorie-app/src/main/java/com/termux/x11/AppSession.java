@@ -776,6 +776,7 @@ final class AppSession {
         if (d == null || i == null || d.getDisplayId() != id) return;
         int[] size = logicalSize(d);
         cursorPolicy.setHeight(size[1]);
+        cursor.displayChanged(d);
         try {
             i.setDisplay(id, size[0], size[1]);
         } catch (RemoteException ignored) { }
