@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- 显示器 -->
-    <path android:fillColor="#FFFFFF" android:pathData="M30,34 h48 a4,4 0 0 1 4,4 v28 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 v-28 a4,4 0 0 1 4,-4 z M31,39 v26 h46 v-26 z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M46,70 h16 v5 h6 v3 h-28 v-3 h6 z" />
-    <!-- 窗口 -->
-    <path android:fillColor="#7FB2FF" android:pathData="M36,44 h22 v16 h-22 z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M61,50 h11 v2 h-11 z M61,55 h11 v2 h-11 z" />
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M36,72L44.6,63.4M63.4,44.6L72,36"
+        android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
+    <path android:pathData="M36,36L72,72"
+        android:strokeColor="#FFFFFF" android:strokeWidth="11" android:strokeLineCap="round" />
 </vector>
