@@ -317,7 +317,7 @@ final class InputInjector {
 
     /**
      * Two or more of the phone's fingers in 触控 mode, placed around where the cursor was when they went down. Fingers that
-     * reach an edge stop there. The cursor follows their middle and shows again when they lift. The newest input wins: a
+     * reach an edge stop there. The cursor stays put, only one finger moves it, and shows again when they lift. The newest input wins: a
      * finger going down on the phone cancels a mouse press or a wheel swipe, and a mouse press cancels the phone's fingers,
      * whose following frames are dropped until another finger goes down.
      */
@@ -335,12 +335,9 @@ final class InputInjector {
         directIds = ids;
         directX = new float[ids.length];
         directY = new float[ids.length];
-        float sumX = 0, sumY = 0;
         for (int i = 0; i < ids.length; i++) {
             directX[i] = Math.max(0, Math.min(width - 1, anchorX + offsetX[i]));
             directY[i] = Math.max(0, Math.min(height - 1, anchorY + offsetY[i]));
-            sumX += directX[i];
-            sumY += directY[i];
         }
         if (!directActive) {
             directBegin();
@@ -348,10 +345,6 @@ final class InputInjector {
             directEvent(action, ids.length);
         }
         boolean over = masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL;
-        if (masked == MotionEvent.ACTION_MOVE) {
-            x = sumX / ids.length;
-            y = sumY / ids.length;
-        }
         if (over) {
             directActive = false;
             cursor.onFingers(new float[0], new float[0]);
