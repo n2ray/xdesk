@@ -268,6 +268,8 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void phoneTouched() {
         focusStale = true;
+        // Touching the phone moves focus away. The phone's own mouse buttons press after this, so they still work
+        post(injector::cancelTouch);
     }
 
     @Override public void move(final int dx, final int dy) {

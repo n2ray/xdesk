@@ -27,8 +27,8 @@ final class InputInjector {
 
     private static final String TAG = "XDeskInjector";
     private static final int FOCUS_SETTLE_MS = 150;
-    /** Longer than the usual long press timeout of 400 to 500 ms. */
-    private static final long LONG_PRESS_MS = 650;
+    /** How far apart the right button's two fingers are, as a part of the display height: 60 pixels on 1508. */
+    private static final float TWO_FINGER_GAP_OF_HEIGHT = 60f / 1508f;
     /** One wheel tick in touch mode, as a part of the display height. Raise it to scroll further per tick. */
     private static final float SWIPE_STEP_FRACTION = 1f / 16f;
     private static final int SWIPE_MOVES_PER_TICK = 3;
@@ -98,7 +98,9 @@ final class InputInjector {
     private int pendingButton;
     private float pendingX, pendingY;
     /** See setTouchMode. */
-    private boolean touchMode, fingerDown;
+    private boolean touchMode;
+    /** Touch mode: the button holding fingers down, 0 for none. Left is one finger, right is two. */
+    private int pressBit;
     private int touchDevice;
     /** A synthetic one-finger swipe from the wheel or two-finger scroll is in progress, see scroll(). */
     private boolean swiping;
@@ -216,22 +218,71 @@ final class InputInjector {
     }
 
     /**
-     * Left is press, drag and release. Right is a long press, because that is what a finger has instead of a right click:
-     * it blocks this thread for the hold time, which only delays input for that moment. Other buttons do nothing.
+     * Left is one finger: press, hold and drag follow the button, so a hold is a long press. Right is two fingers, see
+     * twoFingers. Other buttons do nothing.
      */
-    private void touchButton(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
+    private void touchButton(int bit, boolean down) throws ReflectiveOperationException {
         endSwipe();
-        if (bit == MotionEvent.BUTTON_PRIMARY) {
-            if (down == fingerDown) return;
-            fingerDown = down;
-            if (down) downTime = SystemClock.uptimeMillis();
-            finger(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
-        } else if (bit == MotionEvent.BUTTON_SECONDARY && down && !fingerDown) {
+        if (bit != MotionEvent.BUTTON_PRIMARY && bit != MotionEvent.BUTTON_SECONDARY) return;
+        if (down) {
+            // A second button while one holds fingers is ignored, and its release too, so nothing can stay down
+            if (pressBit != 0) return;
+            pressBit = bit;
             downTime = SystemClock.uptimeMillis();
-            finger(MotionEvent.ACTION_DOWN);
-            Thread.sleep(LONG_PRESS_MS);
-            finger(MotionEvent.ACTION_UP);
+            if (bit == MotionEvent.BUTTON_PRIMARY) {
+                finger(MotionEvent.ACTION_DOWN);
+            } else {
+                touchDevice = touchDeviceId();
+                twoFingers(MotionEvent.ACTION_DOWN, 1);
+                twoFingers(MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2);
+            }
+        } else if (pressBit == bit) {
+            pressBit = 0;
+            if (bit == MotionEvent.BUTTON_PRIMARY) {
+                finger(MotionEvent.ACTION_UP);
+            } else {
+                twoFingers(MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2);
+                twoFingers(MotionEvent.ACTION_UP, 1);
+            }
         }
+    }
+
+    /**
+     * The right button is two fingers side by side at the cursor, moving together, so one button gives a two-finger tap,
+     * long press or drag by how it is used. What that does is up to the app: many do nothing with two fingers, or read
+     * them as a pinch or a scroll. At the display's edge the pair stops as one, and the spacing never changes.
+     *
+     * @param count pointers in this event: 1 is only id 0, 2 is ids 0 and 1
+     */
+    private void twoFingers(int action, int count) throws ReflectiveOperationException {
+        float half = height * TWO_FINGER_GAP_OF_HEIGHT / 2;
+        float center = Math.max(half, Math.min(width - 1 - half, x));
+        MotionEvent.PointerProperties[] props = new MotionEvent.PointerProperties[count];
+        MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[count];
+        for (int i = 0; i < count; i++) {
+            props[i] = new MotionEvent.PointerProperties();
+            props[i].id = i;
+            props[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+            coords[i] = new MotionEvent.PointerCoords();
+            coords[i].x = i == 0 ? center - half : center + half;
+            coords[i].y = y;
+            coords[i].size = 1f;
+            coords[i].pressure = 1f;
+        }
+        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, count, props, coords,
+            0, 0, 1f, 1f, touchDevice, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
+        setDisplayMotion.invoke(e, display);
+        send(e);
+        e.recycle();
+    }
+
+    /** Takes back any fingers a button holds, with no tap: a release would count as one. */
+    void cancelTouch() throws ReflectiveOperationException {
+        if (pressBit == 0) return;
+        int bit = pressBit;
+        pressBit = 0;
+        if (bit == MotionEvent.BUTTON_PRIMARY) finger(MotionEvent.ACTION_CANCEL);
+        else twoFingers(MotionEvent.ACTION_CANCEL, 2);
     }
 
     private boolean inPress() {
@@ -243,7 +294,8 @@ final class InputInjector {
         x = Math.max(0, Math.min(width - 1, x + dx));
         y = Math.max(0, Math.min(height - 1, y + dy));
         if (touching()) {
-            if (fingerDown) finger(MotionEvent.ACTION_MOVE);
+            if (pressBit == MotionEvent.BUTTON_PRIMARY) finger(MotionEvent.ACTION_MOVE);
+            else if (pressBit == MotionEvent.BUTTON_SECONDARY) twoFingers(MotionEvent.ACTION_MOVE, 2);
             cursor.onCursor((int) x, (int) y);
             return;
         }
@@ -268,7 +320,7 @@ final class InputInjector {
      * scroll this means the page follows the fingers, see TouchpadView.scrollBy.
      */
     private void swipe(float vertical, float horizontal) throws ReflectiveOperationException, InterruptedException {
-        if (fingerDown) return;  // the one finger we have is dragging
+        if (pressBit != 0) return;  // a button is holding fingers down
         float step = height * SWIPE_STEP_FRACTION;
         float dx = -horizontal * step, dy = vertical * step;
         if (!swiping) startSwipe();
@@ -465,6 +517,7 @@ final class InputInjector {
      */
     void focus(int displayId) {
         try {
+            cancelTouch();  // focus is moving: fingers must not stay down behind it
             Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "activity_task");
             Object atm = Class.forName("android.app.IActivityTaskManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
             atm.getClass().getMethod("focusTopTask", int.class).invoke(atm, displayId);
@@ -492,10 +545,7 @@ final class InputInjector {
     void releaseAll() throws ReflectiveOperationException, InterruptedException {
         pendingButton = 0;  // a click that never finished, do not fire it now
         endSwipe();
-        if (fingerDown) {
-            fingerDown = false;
-            finger(MotionEvent.ACTION_CANCEL);  // a release would count as a tap
-        }
+        cancelTouch();
         for (Integer code : new ArrayList<>(held)) key(code, 0);
         for (int bit : ALL_BUTTONS) button(bit, false);
     }
