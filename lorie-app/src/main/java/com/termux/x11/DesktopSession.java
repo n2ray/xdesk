@@ -161,9 +161,9 @@ final class DesktopSession {
         context.stopService(new Intent(context, DesktopService.class));
     }
 
-    /** 结束桌面（运行 xdesk stop）。 */
+    /** 结束桌面（运行 xdesk stop）。只由用户明确操作触发，XDesk 打开或退出都不会结束桌面。 */
     void stop() {
-        abandon();
+        if (active) abandon();
         run("stop");
     }
 

@@ -136,10 +136,7 @@ final class AppSession {
 
     private final Runnable cursorTimer = this::updateCursor;
 
-    private final Runnable rebind = () -> {
-        if (active) reconnect();
-        else if (DesktopSession.get(context).isActive()) connectForAudio();
-    };
+    private final Runnable rebind = this::rebindInjector;
 
     private final Runnable bindTimeout = () -> fail("注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
 
@@ -422,6 +419,11 @@ final class AppSession {
             audioRoute.setPending(false);
             Log.w(TAG, "audio only bind", e);
         }
+    }
+
+    private void rebindInjector() {
+        if (active) reconnect();
+        else if (DesktopSession.get(context).isActive()) connectForAudio();
     }
 
     /** After Shizuku came back. */

@@ -1,6 +1,8 @@
 # XDesk
 
-**Any Linux desktop on an external display, from an Android phone, with no root.** XDesk turns the monitor into an X display and the phone into its touchpad and keyboard. What runs on it is up to you: XFCE in Termux, a desktop in proot or chroot, or a single program. It can also run an Android app full screen on the display, which needs Shizuku.
+**Put apps on the big screen from an Android phone, with no root.** XDesk runs an Android app full screen on an external display, or a Linux desktop from Termux, proot or chroot. The phone is the control surface: launcher and switcher, touchpad, keyboard and settings. Android apps need Shizuku. Linux desktops do not.
+
+XDesk's lifetime is separate from any desktop. Opening or swiping away XDesk never starts or stops XFCE. A Termux desktop is one entry in the launcher, and you start and stop it yourself.
 
 [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
 
@@ -64,7 +66,7 @@ Audio from proot and chroot reaches the app through PulseAudio on `127.0.0.1`.
 
 ### Starting from the app
 
-The chooser lists your sessions and starts the one you tap, which needs permission to run commands in Termux. Without it, pick **只当显示器** (display only) in the chooser and run `xdesk start` yourself. To allow it:
+The launcher lists your sessions and starts the one you tap, which needs permission to run commands in Termux. Without it, the launcher offers **接上 X 显示** (attach to the X display), and you run `xdesk start` yourself. To allow it:
 
 ```sh
 xdesk enable-app-start
@@ -72,7 +74,7 @@ xdesk enable-app-start
 
 This sets `allow-external-apps = true` in Termux, so apps can ask to run commands there. Each app also has to be granted the permission, and XDesk asks for it when you tap a session.
 
-A session that is already running is marked in the chooser. Tapping it reattaches without restarting anything.
+A session that is already running is marked in the launcher. Tapping it reattaches without restarting anything. Its **结束** (stop) button, or the same item in settings, is how you stop it, because leaving XDesk does not. `xdesk stop` also works.
 
 ## Android apps on the display
 
@@ -83,7 +85,7 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - **Dock and switching.** The chooser has search by name or package. The star on a row adds it to a dock, and long pressing a dock item moves or removes it. The dock stays on the touchpad screen, and one tap switches what is on the display without going back to the chooser. An app that is already running comes to the front with its state. A desktop keeps running behind an app and an app's task stays behind a desktop, as long as Android does not close it. Desktop audio is silent while an app is in front.
 - **Cursor in RustDesk.** During a remote session XDesk's cursor hides over the remote picture and shows over the toolbar, and for a few seconds after a toolbar click so menus can be used. It detects a session from a window flag seen in one version. If that is wrong, turn on the setting to always show the cursor.
 - **Touch mode, per app.** Some apps and mobile web pages only listen to touch, so hovering and dragging with a mouse do nothing. The 左键=鼠标 chip in the top bar makes the left button a finger at the cursor for this app, and XDesk remembers it per app. The right button becomes a long press, and hover effects do not exist in this mode. The default is mouse, and the chip is not offered for RustDesk.
-- **Ending the session.** Swiping XDesk away from recent tasks ends it: apps on the display move back to the phone, not closed, the display returns to mirroring, input is released and the sound route is cleared. A Termux desktop keeps running without its window, and the chooser shows it as running. Moving apps needs Shizuku. Without a running injector they stay on the display. The **返回** button is different: it keeps the app on the display.
+- **Ending the session.** Swiping XDesk away from recent tasks, or Exit in settings, ends it: apps on the display move back to the phone, not closed, the display returns to mirroring, input is released and the sound route is cleared. A Termux desktop keeps running without its window, and the chooser shows it as running. Moving apps needs Shizuku. Without a running injector they stay on the display. The **返回** button is different: it keeps the app on the display.
 - **Tested on one phone only,** and only with RustDesk.
 - **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
 - **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
@@ -128,7 +130,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 | Symptom | Likely cause |
 |---|---|
-| Waiting forever | You chose display only and nothing is running yet. Run `xdesk start`, and check `xdesk status` |
+| Waiting forever | You attached to the X display and nothing is running yet. Run `xdesk start`, and check `xdesk status` |
 | No sessions in the chooser | Run `xdesk enable-app-start` and `xdesk setup`, and allow XDesk to run Termux commands |
 | Android app list is short | Some ROMs limit what apps can see. On Xiaomi, check the permission to get installed apps |
 | Injector service does not start | Open Shizuku and check that it is running. It has to be started again after a reboot |

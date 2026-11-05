@@ -33,6 +33,8 @@ final class ChooserView extends LinearLayout {
         void onDockToggle(String key);
         /** 盖在会话上时点了关闭。 */
         void onChooserClose();
+        /** 结束运行中的 Termux 环境。打开或退出 XDesk 不会结束它，这是明确的操作。 */
+        void onSessionStop(String name);
         /** 声音输出，和设置里、触摸板界面上是同一个设置。 */
         void onChooseOutput();
     }
@@ -62,6 +64,8 @@ final class ChooserView extends LinearLayout {
     private static final class Row {
         boolean header;
         String title, subtitle, key;
+        /** 运行中的环境，这一行多一个结束按钮。 */
+        String stoppable;
         AppCatalog.App app;
         Runnable action;
     }
@@ -217,6 +221,7 @@ final class ChooserView extends LinearLayout {
         else if (name.equals(runningSession)) r.subtitle = "正在运行，点按接回";
         else if (name.equals(defaultSession)) r.subtitle = "Termux 桌面（默认）";
         else r.subtitle = "Termux 桌面";
+        if (name.equals(runningSession)) r.stoppable = name;
         r.action = () -> host.onSessionChosen(name);
         return r;
     }
@@ -268,16 +273,14 @@ final class ChooserView extends LinearLayout {
                 hint.action = host::onTermuxHint;
                 termux.add(hint);
             }
-            Row attach = new Row();
-            if (xRunning && runningSession == null) {
-                attach.title = "接回正在运行的 X 显示";
-                attach.subtitle = "X 服务器正在运行";
-            } else {
-                attach.title = "只当显示器";
-                attach.subtitle = "等 Termux 里的 xdesk 命令连上来";
+            // 环境都在上面的列表里。只有 xdesk run 的程序，或者读不到 Termux 的状态时，才需要直接接上 X
+            if ((xRunning && runningSession == null) || termuxHint != null) {
+                Row attach = new Row();
+                attach.title = xRunning ? "接回正在运行的 X 显示" : "接上 X 显示";
+                attach.subtitle = xRunning ? "比如 xdesk run 启动的程序" : "自己在 Termux 里运行 xdesk 命令";
+                attach.action = host::onAttachChosen;
+                termux.add(attach);
             }
-            attach.action = host::onAttachChosen;
-            termux.add(attach);
         }
         if (!termux.isEmpty()) {
             rows.add(header("Termux 桌面"));
@@ -303,7 +306,7 @@ final class ChooserView extends LinearLayout {
 
     private static final class Holder {
         ImageView icon;
-        TextView title, subtitle, star;
+        TextView title, subtitle, star, stop;
     }
 
     private final class Adapter extends BaseAdapter {
@@ -349,6 +352,10 @@ final class ChooserView extends LinearLayout {
                 h.subtitle.setTextSize(13);
                 text.addView(h.subtitle);
                 row.addView(text, new LayoutParams(0, -2, 1));
+                h.stop = Style.button(c, "结束", Style.SURFACE_RAISED, 12, 14);
+                LayoutParams sp = new LayoutParams(Style.dp(c, 52), Style.dp(c, 32));
+                sp.rightMargin = Style.dp(c, 4);
+                row.addView(h.stop, sp);
                 h.star = new TextView(c);
                 h.star.setTextSize(22);
                 h.star.setGravity(Gravity.CENTER);
@@ -368,6 +375,13 @@ final class ChooserView extends LinearLayout {
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);
+            }
+            if (r.stoppable != null) {
+                h.stop.setVisibility(VISIBLE);
+                h.stop.setOnClickListener(view -> host.onSessionStop(r.stoppable));
+            } else {
+                h.stop.setVisibility(GONE);
+                h.stop.setOnClickListener(null);
             }
             if (r.key != null) {
                 boolean docked = dockKeys.contains(r.key);

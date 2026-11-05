@@ -61,6 +61,8 @@ public class XDeskActivity extends Activity {
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
     private static final long TERMUX_SWITCH_WAIT_MS = 3000;
+    /** xdesk stop 要等桌面退出，过一会再看状态。 */
+    private static final long STOP_REFRESH_MS = 4000;
     private static final String[] WIDTH_LABELS = {"清晰（显示器原生）", "均衡（1920 宽）", "省电和游戏（1280 宽）"};
     private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
     private static final int DEFAULT_WIDTH = 1920;
@@ -302,6 +304,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onChooserClose() { closeChooserOverSession(); }
         @Override public void onChooseOutput() { chooseOutput(); }
+        @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
             if (externalDisplay() == null) {
                 needDisplayNotice();
@@ -1104,16 +1107,21 @@ public class XDeskActivity extends Activity {
                 backToChooser();
             }
         });
-        settingsRow(c, appMode ? "退出 XDesk（停止转发，应用留在外接屏）" : "退出 XDesk（桌面继续运行）", new View.OnClickListener() {
+        settingsRow(c, "退出 XDesk（应用回到手机，Termux 桌面继续运行）", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 dialog[0].dismiss();
-                backToChooser();
+                releaseLatches();
+                client = null;
+                DesktopService.endAll(XDeskActivity.this);
                 finishAndRemoveTask();
             }
         });
         if (!appMode) {
-            TextView end = settingsRow(c, "结束桌面", new View.OnClickListener() {
-                @Override public void onClick(View v) { confirmStop(); }
+            TextView end = settingsRow(c, "结束 Termux 桌面（XDesk 不退出）", new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    dialog[0].dismiss();
+                    confirmStop();
+                }
             });
             end.setTextColor(Style.DANGER);
         }
@@ -1663,6 +1671,24 @@ public class XDeskActivity extends Activity {
         }, REFOCUS_DELAY_MS);
     }
 
+    /** 只结束桌面。XDesk 留着，外接屏上的安卓应用也不受影响。 */
+    private void stopDesktop() {
+        boolean wasOnDisplay = session.isActive();
+        if (wasOnDisplay) backToChooser();
+        session.stop();
+        // 切到安卓应用时桌面窗口留在了后面
+        MainActivity m = MainActivity.getInstance("");
+        if (m != null) m.finishAndRemoveTask();
+        runningSession = null;
+        desktopName = null;
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
+            }
+        }, STOP_REFRESH_MS);
+        if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
+    }
+
     private void confirmStop() {
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             new AlertDialog.Builder(this)
@@ -1677,14 +1703,7 @@ public class XDeskActivity extends Activity {
             .setMessage("桌面会退出，未保存的内容会丢失。")
             .setNegativeButton("取消", null)
             .setPositiveButton("结束", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    client = null;
-                    session.stop();
-                    if (apps.isActive() || apps.hasInjector()) apps.stop();
-                    MainActivity m = MainActivity.getInstance("");
-                    if (m != null) m.finishAndRemoveTask();
-                    finishAndRemoveTask();
-                }
+                @Override public void onClick(DialogInterface dialog, int which) { stopDesktop(); }
             })
             .show();
     }

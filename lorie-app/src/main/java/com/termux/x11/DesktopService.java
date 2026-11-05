@@ -53,17 +53,23 @@ public class DesktopService extends Service {
     @Override public void onTaskRemoved(Intent rootIntent) {
         android.content.ComponentName c = rootIntent != null ? rootIntent.getComponent() : null;
         if (c == null || !XDeskActivity.class.getName().equals(c.getClassName())) return;
+        endAll(this);
+    }
+
+    /** 从最近任务划掉和设置里的“退出 XDesk”是同一回事。 */
+    static void endAll(android.content.Context context) {
+        final android.content.Context app = context.getApplicationContext();
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
         int external = -1;
-        for (android.view.Display d : getSystemService(android.hardware.display.DisplayManager.class).getDisplays()) {
+        for (android.view.Display d : app.getSystemService(android.hardware.display.DisplayManager.class).getDisplays()) {
             if (d.getDisplayId() != android.view.Display.DEFAULT_DISPLAY) {
                 external = d.getDisplayId();
                 break;
             }
         }
-        AppSession.get(this).endSession(external, () -> {
-            DesktopSession.get(this).abandon();
-            stopSelf();
+        AppSession.get(app).endSession(external, () -> {
+            DesktopSession.get(app).abandon();
+            app.stopService(new Intent(app, DesktopService.class));
         });
     }
 
