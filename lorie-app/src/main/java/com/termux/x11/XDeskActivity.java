@@ -245,7 +245,9 @@ public class XDeskActivity extends Activity {
             // 不自动重启：启动和结束桌面都由用户决定
             runningSession = null;
             desktopName = null;
-            backToChooser();
+            desktopGone();
+            String stopped = byUser ? "桌面已结束。" : "桌面意外停止了，不会自动重启。";
+            Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
             chooser.setNotice(byUser ? "桌面已结束。点下面的环境可以重新启动。"
                 : "桌面意外停止了（X 服务器退出了），XDesk 不会自动重启。未保存的内容可能已丢失。点下面的环境可以重新启动。");
         }
@@ -309,6 +311,7 @@ public class XDeskActivity extends Activity {
             saveDock(dock);
         }
         @Override public void onChooserClose() { closeChooserOverSession(); }
+        @Override public void onEndXDesk() { confirmEndXDesk(); }
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
@@ -604,7 +607,7 @@ public class XDeskActivity extends Activity {
         top.addView(touchChip, touchParams);
         TextView back = Style.button(this, "启动器", Style.SURFACE_RAISED, 12, 16);
         back.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { backToChooser(); }
+            @Override public void onClick(View v) { openChooserOverSession(); }
         });
         LinearLayout.LayoutParams backParams = chipParams(dp(52));
         backParams.leftMargin = dp(6);
@@ -1213,21 +1216,19 @@ public class XDeskActivity extends Activity {
         });
 
         final AlertDialog[] dialog = new AlertDialog[1];
-        settingsRow(c, "回到启动器（应用回到手机，桌面继续运行）", new View.OnClickListener() {
+        settingsRow(c, "打开启动器（外接屏不变）", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 dialog[0].dismiss();
-                backToChooser();
+                openChooserOverSession();
             }
         });
-        settingsRow(c, "退出 XDesk（应用回到手机，Termux 桌面继续运行）", new View.OnClickListener() {
+        TextView endXDesk = settingsRow(c, "结束 XDesk（应用回到手机，外接屏恢复）", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 dialog[0].dismiss();
-                releaseLatches();
-                client = null;
-                DesktopService.endAll(XDeskActivity.this);
-                finishAndRemoveTask();
+                confirmEndXDesk();
             }
         });
+        endXDesk.setTextColor(Style.DANGER);
         if (!appMode) {
             TextView end = settingsRow(c, "结束 Termux 桌面（XDesk 不退出）", new View.OnClickListener() {
                 @Override public void onClick(View v) {
@@ -1325,6 +1326,7 @@ public class XDeskActivity extends Activity {
 
     /** 不停会话，把完整列表盖在触摸板上，用来切换到不在 Dock 里的东西。 */
     private void openChooserOverSession() {
+        setupScreen.setVisibility(View.GONE);
         chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
         keyView.releasePointerCapture();
@@ -1594,43 +1596,60 @@ public class XDeskActivity extends Activity {
     }
 
     /**
-     * 回到选择界面，会话结束：安卓应用移回手机（不关闭），停止转发和光标，清除声音路由。桌面继续运行。
-     * 会话中盖上来的“全部”列表不走这里，什么都不移动。
+     * 离开设置和等待屏幕。外接屏不因此改变：有会话就把启动器盖在它上面。只取消还没成功的启动。
+     * 结束会话只有 endXDesk 和从最近任务划掉。
      */
     private void backToChooser() {
         pendingApp = null;
         pendingSession = null;
         ui.removeCallbacks(connectTimeout);
+        if (apps.isActive() && !apps.isStarted()) {
+            apps.stop();
+            showChooser();
+        } else if (apps.isActive() || session.isConnected()) {
+            openChooserOverSession();
+        } else if (session.isActive()) {
+            desktopGone();
+        } else {
+            showChooser();
+        }
+    }
+
+    /**
+     * 桌面窗口要消失：桌面结束了，或者等它连上时用户不等了。后面还留着安卓应用就接着用它，否则这次会话没东西了。
+     * 这里不移动任何应用。
+     */
+    private void desktopGone() {
+        ui.removeCallbacks(connectTimeout);
         releaseLatches();
         client = null;
-        returnAppsAndStopInjector();
-        if (session.isActive()) {
-            session.abandon();
-            MainActivity m = MainActivity.getInstance("");
-            if (m != null) m.finishAndRemoveTask();
+        session.abandon();
+        MainActivity m = MainActivity.getInstance("");
+        if (m != null) m.finishAndRemoveTask();
+        Display d = externalDisplay();
+        if (d != null && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
+            showSetup("正在回到 " + apps.label(), "桌面窗口关了，外接屏上还有这个应用。", true, null, null);
+            return;
         }
+        if (apps.hasInjector()) apps.stop();
         showChooser();
     }
 
-    /** 也包括切去桌面时留着的注入服务。移动要靠它，所以在它结束之前做；它不在就说一声。 */
-    private void returnAppsAndStopInjector() {
-        final boolean hadApps = apps.hasAppOnDisplay();
-        if (hadApps && !apps.hasInjector()) {
-            Toast.makeText(this, "注入服务没有运行（Shizuku 停了？），外接屏上的应用没能移回手机", Toast.LENGTH_LONG).show();
-        }
-        if (!apps.isActive() && !apps.hasInjector()) return;
-        Display d = externalDisplay();
-        apps.endSession(d != null ? d.getDisplayId() : -1, new Runnable() {
-            @Override public void run() {
-                if (!session.isActive() && !apps.isActive()) stopService(new Intent(XDeskActivity.this, DesktopService.class));
-                // 移回来的应用盖住了手机屏，把选择界面拿回前面
-                if (hadApps && !isFinishing()) {
-                    Intent self = new Intent(XDeskActivity.this, XDeskActivity.class);
-                    self.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-                    startActivity(self);
+    /** 明确结束：应用移回手机，外接屏恢复镜像，键鼠、声音路由和界面大小恢复。Termux 桌面继续运行。 */
+    private void confirmEndXDesk() {
+        new AlertDialog.Builder(this)
+            .setTitle("结束 XDesk？")
+            .setMessage("外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Termux 桌面继续运行，只是没有窗口。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("结束", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface dialog, int which) {
+                    releaseLatches();
+                    client = null;
+                    DesktopService.endAll(XDeskActivity.this);
+                    finishAndRemoveTask();
                 }
-            }
-        });
+            })
+            .show();
     }
 
     // --- 安卓应用 ---
@@ -1881,8 +1900,7 @@ public class XDeskActivity extends Activity {
 
     /** 只结束桌面。XDesk 留着，外接屏上的安卓应用也不受影响。 */
     private void stopDesktop() {
-        boolean wasOnDisplay = session.isActive();
-        if (wasOnDisplay) backToChooser();
+        if (session.isActive()) desktopGone();
         session.stop();
         // 切到安卓应用时桌面窗口留在了后面
         MainActivity m = MainActivity.getInstance("");

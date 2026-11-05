@@ -33,6 +33,8 @@ final class ChooserView extends LinearLayout {
         void onDockToggle(String key);
         /** 盖在会话上时点了关闭。 */
         void onChooserClose();
+        /** 明确结束 XDesk。 */
+        void onEndXDesk();
         /** 结束运行中的 Termux 环境。打开或退出 XDesk 不会结束它，这是明确的操作。 */
         void onSessionStop(String name);
         /** 声音输出，和设置里、触摸板界面上是同一个设置。 */
@@ -71,7 +73,8 @@ final class ChooserView extends LinearLayout {
     }
 
     private final Host host;
-    private final TextView banner, notice, close, output;
+    private final TextView banner, notice, output;
+    private final LinearLayout sessionRow;
     private final EditText search;
     private final DockBar dock;
     private final Adapter adapter = new Adapter();
@@ -106,12 +109,25 @@ final class ChooserView extends LinearLayout {
         LayoutParams op = new LayoutParams(-2, -2);
         op.rightMargin = Style.dp(c, 6);
         head.addView(output, op);
-        close = Style.button(c, "回到触摸板", Style.SURFACE_RAISED, 13, 16);
-        close.setPadding(Style.dp(c, 12), Style.dp(c, 6), Style.dp(c, 12), Style.dp(c, 6));
-        close.setOnClickListener(v -> host.onChooserClose());
-        close.setVisibility(GONE);
-        head.addView(close, new LayoutParams(-2, -2));
         addView(head, new LayoutParams(-1, -2));
+
+        // 只在会话进行时有：这时启动器只是盖在会话上的一层，外接屏不变
+        sessionRow = new LinearLayout(c);
+        sessionRow.setGravity(Gravity.CENTER_VERTICAL);
+        sessionRow.setPadding(0, Style.dp(c, 6), 0, 0);
+        TextView close = Style.button(c, "回到触摸板", Style.ACCENT, 14, 16);
+        close.setPadding(Style.dp(c, 14), Style.dp(c, 8), Style.dp(c, 14), Style.dp(c, 8));
+        close.setOnClickListener(v -> host.onChooserClose());
+        LayoutParams closeParams = new LayoutParams(0, -2, 1);
+        closeParams.rightMargin = Style.dp(c, 8);
+        sessionRow.addView(close, closeParams);
+        TextView end = Style.button(c, "结束 XDesk", Style.SURFACE_RAISED, 14, 16);
+        end.setTextColor(Style.DANGER);
+        end.setPadding(Style.dp(c, 14), Style.dp(c, 8), Style.dp(c, 14), Style.dp(c, 8));
+        end.setOnClickListener(v -> host.onEndXDesk());
+        sessionRow.addView(end, new LayoutParams(-2, -2));
+        sessionRow.setVisibility(GONE);
+        addView(sessionRow, new LayoutParams(-1, -2));
 
         banner = new TextView(c);
         banner.setTextSize(14);
@@ -179,7 +195,7 @@ final class ChooserView extends LinearLayout {
 
     /** 盖在运行中的会话上时才有关闭按钮。 */
     void setOverSession(boolean over) {
-        close.setVisibility(over ? VISIBLE : GONE);
+        sessionRow.setVisibility(over ? VISIBLE : GONE);
     }
 
     /** 刚发生的事，比如桌面停止了。null 去掉。 */

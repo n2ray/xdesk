@@ -17,6 +17,7 @@ public class DesktopService extends Service {
     /** 通知的标题，不给就是桌面。 */
     static final String EXTRA_TITLE = "title";
     private PowerManager.WakeLock wakeLock;
+    private static boolean ending;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -56,9 +57,16 @@ public class DesktopService extends Service {
         endAll(this);
     }
 
-    /** 从最近任务划掉和设置里的“退出 XDesk”是同一回事。 */
+    /** 从最近任务划掉和“结束 XDesk”是同一回事。 */
     static void endAll(android.content.Context context) {
+        // 结束时 XDesk 自己的任务也会被移除，又走到这里一次
+        if (ending) return;
+        ending = true;
         final android.content.Context app = context.getApplicationContext();
+        AppSession apps = AppSession.get(app);
+        if (apps.hasAppOnDisplay() && !apps.hasInjector()) {
+            android.widget.Toast.makeText(app, "注入服务没有运行（Shizuku 停了？），外接屏上的应用没能移回手机", android.widget.Toast.LENGTH_LONG).show();
+        }
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
         int external = -1;
         for (android.view.Display d : app.getSystemService(android.hardware.display.DisplayManager.class).getDisplays()) {
@@ -70,6 +78,7 @@ public class DesktopService extends Service {
         AppSession.get(app).endSession(external, () -> {
             DesktopSession.get(app).abandon();
             app.stopService(new Intent(app, DesktopService.class));
+            ending = false;
         });
     }
 

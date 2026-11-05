@@ -235,6 +235,13 @@ final class AppSession {
     boolean isActive() { return active; }
     /** Started and receiving input. */
     boolean isStarted() { return started; }
+    /** 桌面窗口没了，外接屏上露出留在后面的应用：接着用它。没有这样的应用返回 false。 */
+    boolean resumeApp(Display d, float speed, boolean alwaysShow) {
+        if (active || !appBehindDesktop || app == null || injector == null) return false;
+        start(app, d, speed, alwaysShow);
+        return true;
+    }
+
     /** 外接屏上有 XDesk 放上去的应用。 */
     boolean hasAppOnDisplay() { return (active && started) || appBehindDesktop; }
     /** 上一个注入服务还在结束。 */
@@ -833,7 +840,7 @@ final class AppSession {
     }
 
     /**
-     * The whole session ends (XDesk was swiped away or 返回 was pressed): the same as stop, but apps on the external display first go back to
+     * The whole session ends (XDesk was swiped away, or 结束 XDesk): the same as stop, but apps on the external display first go back to
      * the phone, not closed. Without an injector that cannot happen and they stay where they are.
      *
      * @param externalDisplay the display to empty, or -1
