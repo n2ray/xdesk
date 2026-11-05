@@ -2,9 +2,8 @@ package com.termux.x11;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
-import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -32,13 +31,9 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
-import android.widget.SeekBar;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.termux.x11.app.R;
@@ -106,7 +101,9 @@ public class XDeskActivity extends Activity {
     private AppCatalog catalog;
     private AudioRoute audioRoute;
     private DockBar runningDock;
-    private AlertDialog outputDialog;
+    private Dialog outputDialog;
+    /** 设置页开着时的声音输出那一行。 */
+    private TextView settingsOutputValue;
     /** 这次接上的桌面环境名，只当显示器时不知道。 */
     private String desktopName;
     private int lastOrientation;
@@ -359,14 +356,9 @@ public class XDeskActivity extends Activity {
                     reattach();
                 }
             } else if (runningSession != null) {
-                new AlertDialog.Builder(XDeskActivity.this)
-                    .setTitle("切换桌面？")
-                    .setMessage("会结束正在运行的 " + runningSession + "，未保存的内容会丢失。")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("切换", new DialogInterface.OnClickListener() {
-                        @Override public void onClick(DialogInterface dialog, int which) { launchDesktop(name, true); }
-                    })
-                    .show();
+                ui().confirm("切换桌面？", "会结束正在运行的 " + runningSession + "，未保存的内容会丢失。", "切换", new Runnable() {
+                    @Override public void run() { launchDesktop(name, true); }
+                });
             } else {
                 launchDesktop(name, false);
             }
@@ -1123,6 +1115,7 @@ public class XDeskActivity extends Activity {
     private void updateAudioChip() {
         String label = audioRoute.shortLabel();
         if (audioBtn != null) audioBtn.setLabel(label);
+        if (settingsOutputValue != null) settingsOutputValue.setText(label);
         if (chooser != null) chooser.setOutputLabel(label);
     }
 
@@ -1139,51 +1132,23 @@ public class XDeskActivity extends Activity {
             labels[i + 1] = o.label;
             if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1;
         }
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.VERTICAL);
-        head.setPadding(dp(24), dp(20), dp(24), dp(8));
-        TextView title = new TextView(this);
-        title.setText("声音从哪里播放");
-        title.setTextColor(Style.TEXT);
-        title.setTextSize(18);
-        head.addView(title);
-        TextView note = new TextView(this);
-        note.setText((apps.shizukuState() == AppSession.SHIZUKU_READY
-            ? "所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。回到选择界面或退出后手机恢复正常，下次会话再按这里的选择。"
+        String note = (apps.shizukuState() == AppSession.SHIZUKU_READY
+            ? "所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。结束 XDesk 后手机恢复正常，下次再按这里的选择。"
             : "Shizuku 没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。")
-            + "\n只是把输出指向这个设备，音质和蓝牙编码没法确认。");
-        note.setTextColor(Style.TEXT_DIM);
-        note.setTextSize(13);
-        note.setPadding(0, dp(6), 0, 0);
-        head.addView(note);
-        outputDialog = new AlertDialog.Builder(this)
-            .setCustomTitle(head)
-            .setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    dialog.dismiss();
-                    audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
-                    if (audioRoute.isMissing()) setStatus(Style.WARN, "现在没有这个输出设备，暂时走系统默认");
-                }
-            })
-            .show();
+            + "\n只是把输出指向这个设备，音质和蓝牙编码没法确认。";
+        outputDialog = ui().choice("声音从哪里播放", note, labels, checked, which -> {
+            audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
+            if (audioRoute.isMissing()) setStatus(Style.WARN, "现在没有这个输出设备，暂时走系统默认");
+        });
     }
 
-    /** 只影响 XDesk 的触控界面：手机系统锁竖屏时这里也能横过来。默认横屏。 */
+    private SettingsUi ui() {
+        return new SettingsUi(this);
+    }
+
+    /** 只影响 XDesk 的触控界面：手机系统锁竖屏时这里也能横过来。默认跟随系统。 */
     private void applyOrientation() {
         setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT)]);
-    }
-
-    private void chooseOrientation() {
-        new AlertDialog.Builder(this)
-            .setTitle("触控界面方向")
-            .setSingleChoiceItems(ORIENTATION_LABELS, 2 - prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT), new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    prefs.edit().putInt(PREF_ORIENTATION, ORIENTATION_VALUES[which]).apply();
-                    applyOrientation();
-                    dialog.dismiss();
-                }
-            })
-            .show();
     }
 
     private int widthIndex() {
@@ -1192,236 +1157,105 @@ public class XDeskActivity extends Activity {
         return 1;
     }
 
-    private void chooseResolution() {
-        new AlertDialog.Builder(this)
-            .setTitle("桌面分辨率")
-            .setSingleChoiceItems(WIDTH_LABELS, widthIndex(), new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    prefs.edit().putInt(PREF_WIDTH, WIDTHS[which]).apply();
-                    Display d = externalDisplay();
-                    if (d != null) applySize(d);
-                    dialog.dismiss();
-                }
-            })
-            .show();
-    }
-
-    private TextView settingsRow(LinearLayout parent, String label, View.OnClickListener l) {
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextColor(Style.TEXT);
-        t.setTextSize(15);
-        t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(dp(4), dp(14), dp(4), dp(14));
-        t.setClickable(true);
-        t.setOnClickListener(l);
-        parent.addView(t, new LinearLayout.LayoutParams(-1, -2));
-        return t;
-    }
-
-    private void settingsSwitch(LinearLayout parent, String label, final String pref, boolean def, final Runnable changed) {
-        Switch s = new Switch(this);
-        s.setText(label);
-        s.setTextColor(Style.TEXT);
-        s.setTextSize(15);
-        s.setPadding(dp(4), dp(10), dp(4), dp(10));
-        s.setChecked(prefs.getBoolean(pref, def));
-        s.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-            @Override public void onCheckedChanged(android.widget.CompoundButton b, boolean on) {
-                prefs.edit().putBoolean(pref, on).apply();
-                changed.run();
-            }
+    private void chooseResolution(final TextView value) {
+        ui().choice("桌面分辨率", null, WIDTH_LABELS, widthIndex(), which -> {
+            prefs.edit().putInt(PREF_WIDTH, WIDTHS[which]).apply();
+            Display d = externalDisplay();
+            if (d != null) applySize(d);
+            value.setText(WIDTH_LABELS[which]);
         });
-        parent.addView(s, new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    private boolean densityInRange(int dpi) {
-        return dpi >= DENSITY_MIN && dpi <= DENSITY_MAX;
-    }
-
-    /** 一个数字框加“应用”按钮：确认时才生效，每次改动应用都要重新布局。 */
-    private LinearLayout densityRow(final EditText field, final java.util.function.IntConsumer onValid) {
-        field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        field.setTextColor(Style.TEXT);
-        field.setHintTextColor(Style.TEXT_DIM);
-        field.setTextSize(15);
-        field.setSingleLine(true);
-        field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
-        final Runnable confirm = new Runnable() {
-            @Override public void run() {
-                int dpi;
-                try {
-                    dpi = Integer.parseInt(field.getText().toString().trim());
-                } catch (NumberFormatException e) {
-                    dpi = -1;
-                }
-                if (!densityInRange(dpi)) {
-                    field.setError(DENSITY_MIN + " 到 " + DENSITY_MAX);
-                    return;
-                }
-                ime.hideSoftInputFromWindow(field.getWindowToken(), 0);
-                field.clearFocus();
-                onValid.accept(dpi);
-            }
-        };
-        field.setOnEditorActionListener((v, action, event) -> {
-            confirm.run();
-            return true;
-        });
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(field, new LinearLayout.LayoutParams(dp(92), -2));
-        TextView apply = Style.button(this, "应用", Style.ACCENT, 13, 14);
-        apply.setOnClickListener(v -> confirm.run());
-        LinearLayout.LayoutParams ap = chipParams(dp(56));
-        ap.leftMargin = dp(8);
-        row.addView(apply, ap);
-        return row;
-    }
-
-    private void addSmallButton(LinearLayout row, String label, View.OnClickListener l) {
-        TextView b = Style.button(this, label, Style.SURFACE_RAISED, 13, 14);
-        b.setPadding(dp(10), 0, dp(10), 0);
-        b.setOnClickListener(l);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(32));
-        p.leftMargin = dp(8);
-        row.addView(b, p);
-    }
-
-    private TextView settingsLabel(LinearLayout parent, String text) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextColor(Style.TEXT);
-        label.setTextSize(15);
-        label.setPadding(dp(4), dp(14), dp(4), dp(4));
-        parent.addView(label, new LinearLayout.LayoutParams(-1, -2));
-        return label;
     }
 
     /** 外接屏界面大小的默认值。应用可以在长按卡片里有自己的值。 */
-    private void addDensitySetting(LinearLayout parent) {
-        final TextView label = settingsLabel(parent, "");
+    private void addDensitySetting(SettingsUi s, LinearLayout card) {
         if (!apps.canSetDensity()) {
             String why = session.isActive() ? "Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值"
                 : apps.shizukuState() != AppSession.SHIZUKU_READY ? "需要 Shizuku" : "外接屏上有安卓应用时才能改";
-            label.setText("外接屏界面大小：" + why);
-            label.setTextColor(Style.TEXT_DIM);
+            s.infoRow(card, "界面大小", why, null);
             return;
         }
-        final String own = apps.defaultDensity() > 0 ? apps.defaultDensity() + " dpi" : "未知";
-        label.setText("外接屏界面大小（" + DENSITY_MIN + " 到 " + DENSITY_MAX + "，越小内容越多）");
-        final EditText field = new EditText(this);
-        field.setHint(String.valueOf(apps.defaultDensity() > 0 ? apps.defaultDensity() : ""));
-        if (apps.savedDensity() > 0) field.setText(String.valueOf(apps.savedDensity()));
-        LinearLayout row = densityRow(field, dpi -> apps.setDensity(dpi));
-        addSmallButton(row, "恢复显示器默认（" + own + "）", v -> {
-            field.setText("");
-            field.setError(null);
-            apps.setDensity(0);
-        });
-        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        String own = apps.defaultDensity() > 0 ? String.valueOf(apps.defaultDensity()) : "未知";
+        s.numberRow(card, "界面大小", DENSITY_MIN + " 到 " + DENSITY_MAX + " dpi，越小内容越多。显示器默认 " + own,
+            apps.defaultDensity() > 0 ? own : "dpi", apps.savedDensity(), DENSITY_MIN, DENSITY_MAX,
+            dpi -> apps.setDensity(dpi), "恢复默认", () -> apps.setDensity(0));
     }
 
     private void showSettings() {
+        final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(20), dp(8), dp(20), dp(8));
-
         boolean appMode = apps.isActive();
-        settingsRow(c, "声音输出", new View.OnClickListener() {
-            @Override public void onClick(View v) { chooseOutput(); }
+        final Dialog[] page = new Dialog[1];
+
+        LinearLayout show = s.section(c, "显示");
+        int orientation = 2 - prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT);
+        s.segmentedRow(show, "触控界面方向", null, ORIENTATION_LABELS, orientation, which -> {
+            prefs.edit().putInt(PREF_ORIENTATION, ORIENTATION_VALUES[which]).apply();
+            applyOrientation();
         });
-        if (!appMode) {
-            settingsRow(c, "桌面分辨率", new View.OnClickListener() {
-                @Override public void onClick(View v) { chooseResolution(); }
-            });
-        }
-        settingsRow(c, "触控界面方向", new View.OnClickListener() {
-            @Override public void onClick(View v) { chooseOrientation(); }
+        s.switchRow(show, "闲置时调暗手机屏", "1 分钟没碰就调暗，外接屏不受影响", prefs.getBoolean(PREF_DIM, true), on -> {
+            prefs.edit().putBoolean(PREF_DIM, on).apply();
+            bumpIdle();
         });
 
-        TextView sl = new TextView(this);
-        sl.setText("触摸板灵敏度");
-        sl.setTextColor(Style.TEXT);
-        sl.setTextSize(15);
-        sl.setPadding(dp(4), dp(14), dp(4), dp(4));
-        c.addView(sl, new LinearLayout.LayoutParams(-1, -2));
-        SeekBar speed = new SeekBar(this);
-        speed.setMax(150);  // 50%–200%
-        speed.setProgress(Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100) - 50);
-        speed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                float v = (p + 50) / 100f;
-                touchpad.setSpeed(v);
-                directTouch.setSpeed(v);
-                if (user) prefs.edit().putFloat(PREF_SPEED, v).apply();
-            }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { }
+        LinearLayout input = s.section(c, "输入");
+        s.percentRow(input, "触摸板灵敏度", null, Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100), p -> {
+            float v = p / 100f;
+            touchpad.setSpeed(v);
+            directTouch.setSpeed(v);
+            prefs.edit().putFloat(PREF_SPEED, v).apply();
         });
-        c.addView(speed, new LinearLayout.LayoutParams(-1, -2));
-
         if (appMode) {
-            TextView ml = new TextView(this);
-            ml.setText("实体鼠标速度");
-            ml.setTextColor(Style.TEXT);
-            ml.setTextSize(15);
-            ml.setPadding(dp(4), dp(14), dp(4), dp(4));
-            c.addView(ml, new LinearLayout.LayoutParams(-1, -2));
-            SeekBar mouseSpeed = new SeekBar(this);
-            mouseSpeed.setMax(150);  // 50%–200%，100% 按显示器宽度自动算
-            mouseSpeed.setProgress(Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100) - 50);
-            mouseSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                    if (!user) return;
-                    float v = (p + 50) / 100f;
-                    prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
-                    apps.setMouseSpeed(v);
-                }
-                @Override public void onStartTrackingTouch(SeekBar s) { }
-                @Override public void onStopTrackingTouch(SeekBar s) { }
+            s.percentRow(input, "实体鼠标速度", "100% 按显示器宽度自动算", Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
+                float v = p / 100f;
+                prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
+                apps.setMouseSpeed(v);
             });
-            c.addView(mouseSpeed, new LinearLayout.LayoutParams(-1, -2));
-            settingsSwitch(c, "始终显示 XDesk 光标（RustDesk 会话里判断错时打开）", PREF_ALWAYS_CURSOR, false, new Runnable() {
-                @Override public void run() { apps.setAlwaysShowCursor(prefs.getBoolean(PREF_ALWAYS_CURSOR, false)); }
+            s.switchRow(input, "始终显示 XDesk 光标", "RustDesk 会话里判断错时打开", prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
+                prefs.edit().putBoolean(PREF_ALWAYS_CURSOR, on).apply();
+                apps.setAlwaysShowCursor(on);
             });
         }
 
-        addDensitySetting(c);
+        LinearLayout sound = s.section(c, "声音");
+        settingsOutputValue = s.valueRow(sound, "声音输出", null, audioRoute.shortLabel(), this::chooseOutput);
 
-        settingsSwitch(c, "闲置 1 分钟调暗手机屏", PREF_DIM, true, new Runnable() {
-            @Override public void run() { bumpIdle(); }
-        });
-        settingsSwitch(c, "显示诊断信息", PREF_DIAG, false, new Runnable() {
-            @Override public void run() { applyDiagVisibility(); }
+        LinearLayout external = s.section(c, "外屏");
+        addDensitySetting(s, external);
+        if (!appMode) {
+            final TextView[] resolution = new TextView[1];
+            resolution[0] = s.valueRow(external, "桌面分辨率", "Termux 桌面的 X 分辨率", WIDTH_LABELS[widthIndex()], () -> chooseResolution(resolution[0]));
+        }
+
+        LinearLayout about = s.section(c, "关于");
+        s.infoRow(about, "XDesk", null, versionName());
+        s.switchRow(about, "显示诊断信息", "在控制界面上显示焦点和事件计数", prefs.getBoolean(PREF_DIAG, false), on -> {
+            prefs.edit().putBoolean(PREF_DIAG, on).apply();
+            applyDiagVisibility();
         });
 
-        final AlertDialog[] dialog = new AlertDialog[1];
         if (session.isActive()) {
-            TextView end = settingsRow(c, "结束 Termux 桌面（XDesk 不退出）", new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    dialog[0].dismiss();
-                    confirmStop();
-                }
+            s.dangerRow(c, "结束 Termux 桌面", "XDesk 不退出", () -> {
+                page[0].dismiss();
+                confirmStop();
             });
-            end.setTextColor(Style.DANGER);
         }
-        TextView endXDesk = settingsRow(c, "结束 XDesk（应用回到手机，外接屏恢复镜像）", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                dialog[0].dismiss();
+        if (DesktopService.isRunning()) {
+            s.dangerRow(c, "结束 XDesk", "应用回到手机，外接屏恢复镜像", () -> {
+                page[0].dismiss();
                 confirmEndXDesk();
-            }
-        });
-        endXDesk.setTextColor(Style.DANGER);
-        endXDesk.setVisibility(DesktopService.isRunning() ? View.VISIBLE : View.GONE);
+            });
+        }
+        page[0] = s.page("设置", c);
+        page[0].setOnDismissListener(d -> settingsOutputValue = null);
+    }
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(c);
-        dialog[0] = new AlertDialog.Builder(this)
-            .setTitle("XDesk 设置")
-            .setView(scroll)
-            .setPositiveButton("完成", null)
-            .show();
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "";
+        }
     }
 
     // --- 物理键鼠 ---
@@ -1565,88 +1399,48 @@ public class XDeskActivity extends Activity {
     private void showAppCard(final String key) {
         final AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
         if (ChooserView.isAppKey(key) && app == null) return;
+        final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(20), dp(8), dp(20), dp(8));
-        final AlertDialog[] card = new AlertDialog[1];
+        final Dialog[] card = new Dialog[1];
 
-        boolean docked = savedLines(PREF_DOCK).contains(key);
-        LinearLayout dockRow = new LinearLayout(this);
-        dockRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView dockLabel = new TextView(this);
-        dockLabel.setText("Dock");
-        dockLabel.setTextColor(Style.TEXT);
-        dockLabel.setTextSize(15);
-        dockRow.addView(dockLabel);
-        addSmallButton(dockRow, docked ? "移出" : "加入", v -> {
+        final boolean docked = savedLines(PREF_DOCK).contains(key);
+        LinearLayout box = s.card(c);
+        s.switchRow(box, "我的收藏", null, docked, on -> {
             chooserHost.onDockToggle(key);
             card[0].dismiss();
             showAppCard(key);
         });
         if (docked) {
-            addSmallButton(dockRow, "往左", v -> moveInDock(key, -1));
-            addSmallButton(dockRow, "往右", v -> moveInDock(key, 1));
+            s.valueRow(box, "在收藏里往左挪", null, "", () -> moveInDock(key, -1));
+            s.valueRow(box, "在收藏里往右挪", null, "", () -> moveInDock(key, 1));
         }
-        LinearLayout.LayoutParams dockParams = new LinearLayout.LayoutParams(-1, -2);
-        dockParams.topMargin = dp(8);
-        c.addView(dockRow, dockParams);
 
         if (app != null) {
             int global = apps.savedDensity() > 0 ? apps.savedDensity() : apps.defaultDensity();
-            settingsLabel(c, "界面大小（" + DENSITY_MIN + " 到 " + DENSITY_MAX + "）");
-            final EditText field = new EditText(this);
-            field.setHint(global > 0 ? "默认 " + global : "默认");
-            if (apps.appDensity(app) > 0) field.setText(String.valueOf(apps.appDensity(app)));
-            LinearLayout row = densityRow(field, dpi -> apps.setAppDensity(app, dpi));
-            addSmallButton(row, "跟随默认", v -> {
-                field.setText("");
-                field.setError(null);
-                apps.setAppDensity(app, 0);
-            });
-            c.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
+            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, dp(Style.GAP));
+            c.addView(new View(this), gap);
+            LinearLayout own = s.card(c);
+            s.numberRow(own, "界面大小", DENSITY_MIN + " 到 " + DENSITY_MAX + " dpi，空着就跟随默认",
+                global > 0 ? "默认 " + global : "默认", apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
+                dpi -> apps.setAppDensity(app, dpi), "跟随默认", () -> apps.setAppDensity(app, 0));
             if (AppSession.touchModeAllowed(app)) {
-                settingsLabel(c, "操作方式");
-                LinearLayout mode = new LinearLayout(this);
-                boolean touch = apps.isTouchMode(app);
-                for (final boolean option : new boolean[]{false, true}) {
-                    TextView b = Style.button(this, option ? "触控" : "键鼠", option == touch ? Style.ACCENT : Style.SURFACE_RAISED, Style.TEXT_BODY, Style.RADIUS);
-                    b.setOnClickListener(v -> {
-                        apps.setTouchMode(app, option);
-                        updateStatus();
-                        card[0].dismiss();
-                        showAppCard(key);
-                    });
-                    LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(Style.TARGET), 1);
-                    mp.rightMargin = dp(Style.GAP);
-                    mode.addView(b, mp);
-                }
-                c.addView(mode, new LinearLayout.LayoutParams(-1, -2));
+                s.segmentedRow(own, "操作方式", "触控给只听触摸的应用或网页", new String[]{"键鼠", "触控"}, apps.isTouchMode(app) ? 1 : 0, which -> {
+                    apps.setTouchMode(app, which == 1);
+                    updateStatus();
+                });
             }
-
             if (apps.canCloseApps()) {
-                TextView close = settingsRow(c, "关闭这个应用", v -> new AlertDialog.Builder(this)
-                    .setMessage("关闭 " + app.label + "？未保存的内容可能会丢失。")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton("关闭", (d, w) -> {
-                        card[0].dismiss();
-                        apps.closeApp(app);
-                    })
-                    .show());
-                close.setTextColor(Style.DANGER);
+                s.dangerRow(c, "关闭这个应用", null, () -> s.confirm("关闭 " + app.label + "？", "未保存的内容可能会丢失。", "关闭", () -> {
+                    card[0].dismiss();
+                    apps.closeApp(app);
+                }));
             } else {
-                TextView close = settingsLabel(c, "关闭这个应用：会话中才能用（要靠 Shizuku）");
-                close.setTextColor(Style.TEXT_DIM);
+                c.addView(new View(this), new LinearLayout.LayoutParams(-1, dp(Style.GAP)));
+                s.infoRow(s.card(c), "关闭这个应用", "会话中才能用（要靠 Shizuku）", null);
             }
         }
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(c);
-        card[0] = new AlertDialog.Builder(this)
-            .setTitle(app != null ? app.label : ChooserView.sessionOf(key))
-            .setView(scroll)
-            .setPositiveButton("完成", null)
-            .show();
+        card[0] = s.sheet(app != null ? app.label : ChooserView.sessionOf(key), null, c);
     }
 
     private void chooseKey(String key) {
@@ -1832,19 +1626,14 @@ public class XDeskActivity extends Activity {
 
     /** 明确结束：应用移回手机，外接屏恢复镜像，键鼠、声音路由和界面大小恢复。Termux 桌面继续运行。 */
     private void confirmEndXDesk() {
-        new AlertDialog.Builder(this)
-            .setTitle("结束 XDesk？")
-            .setMessage("外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Termux 桌面继续运行，只是没有窗口。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("结束", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    releaseLatches();
-                    client = null;
-                    DesktopService.endAll(XDeskActivity.this);
-                    finishAndRemoveTask();
-                }
-            })
-            .show();
+        ui().confirm("结束 XDesk？", "外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Termux 桌面继续运行，只是没有窗口。", "结束", new Runnable() {
+            @Override public void run() {
+                releaseLatches();
+                client = null;
+                DesktopService.endAll(XDeskActivity.this);
+                finishAndRemoveTask();
+            }
+        });
     }
 
     // --- 外接屏仪表盘 ---
@@ -2139,20 +1928,11 @@ public class XDeskActivity extends Activity {
 
     private void confirmStop() {
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            new AlertDialog.Builder(this)
-                .setTitle("结束桌面")
-                .setMessage("XDesk 没有运行 Termux 命令的权限。请在 Termux 里运行：\n\nxdesk stop")
-                .setPositiveButton("知道了", null)
-                .show();
+            ui().confirm("结束桌面", "XDesk 没有运行 Termux 命令的权限。请在 Termux 里运行：\n\nxdesk stop", "知道了", null);
             return;
         }
-        new AlertDialog.Builder(this)
-            .setTitle("结束桌面？")
-            .setMessage("桌面会退出，未保存的内容会丢失。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("结束", new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) { stopDesktop(); }
-            })
-            .show();
+        ui().confirm("结束桌面？", "桌面会退出，未保存的内容会丢失。", "结束", new Runnable() {
+            @Override public void run() { stopDesktop(); }
+        });
     }
 }

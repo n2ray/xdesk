@@ -122,4 +122,6 @@ Agreed after the second round. XDesk's job is putting apps on the big screen, wi
 
 **Full screen touch area.** An icon in the touch area's corner makes it the whole phone screen with the system bars hidden, remembered globally as a property of the touch area. Small translucent corner icons give Back and the keyboard, and leave it.
 
+**Settings** is a full page of grouped rounded cards (显示, 输入, 声音, 外屏, 关于) with values on the right, and its own switches and selectors in the accent colour. 结束 XDesk is last, separate and red. The per-app card uses the same components.
+
 **Orientation** follows the system by default, with a setting to fix it. **Look:** dark, one blue accent, status colour only on small dots, icons for common actions, targets of at least 48 dp.
