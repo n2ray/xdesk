@@ -60,6 +60,9 @@ final class AppSession {
     private boolean alwaysShowCursor;
     /** Termux 桌面也要靠注入服务选声音输出：只为这个连上，不读键鼠。 */
     private boolean audioBinding;
+    /** 切去 Termux 桌面时应用的任务留在了外接屏上。 */
+    private boolean appBehindDesktop;
+    private boolean stopping;
     private final android.content.SharedPreferences touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
@@ -216,6 +219,10 @@ final class AppSession {
     boolean isActive() { return active; }
     /** Started and receiving input. */
     boolean isStarted() { return started; }
+    /** 外接屏上有 XDesk 放上去的应用。 */
+    boolean hasAppOnDisplay() { return (active && started) || appBehindDesktop; }
+    /** 上一个注入服务还在结束。 */
+    boolean isStopping() { return stopping; }
     boolean isForwarding() { return forwarding; }
     boolean hasInjector() { return injector != null; }
     boolean hasDisplay() { return display != null; }
@@ -269,6 +276,7 @@ final class AppSession {
         active = true;
         started = false;
         forwarding = false;
+        appBehindDesktop = false;
         app = a;
         display = d;
         mouseSpeed = speed;
@@ -409,7 +417,7 @@ final class AppSession {
 
     /** Shizuku 就绪就连上，声音输出才选得准。没有就算了：Termux 桌面不需要 Shizuku，也不弹授权。 */
     void connectForAudio() {
-        if (injector != null || audioBinding || active || shizukuState() != SHIZUKU_READY) return;
+        if (injector != null || audioBinding || active || stopping || shizukuState() != SHIZUKU_READY) return;
         audioBinding = true;
         audioRoute.setPending(true);
         try {
@@ -490,6 +498,7 @@ final class AppSession {
     void suspend() {
         if (!active) return;
         forwardOnReturn = forwarding;
+        appBehindDesktop = started;
         ui.removeCallbacks(bindTimeout);
         ui.removeCallbacks(cursorTimer);
         setForwarding(false);
@@ -603,7 +612,7 @@ final class AppSession {
     }
 
     /**
-     * The whole session ends (XDesk was swiped away): the same as stop, but apps on the external display first go back to
+     * The whole session ends (XDesk was swiped away or 返回 was pressed): the same as stop, but apps on the external display first go back to
      * the phone, not closed. Without an injector that cannot happen and they stay where they are.
      *
      * @param externalDisplay the display to empty, or -1
@@ -619,6 +628,8 @@ final class AppSession {
         ui.removeCallbacks(rebind);
         forwardOnReturn = false;
         audioBinding = false;
+        appBehindDesktop = false;
+        stopping = true;
         audioRoute.detachInjector();
         boolean desktopActive = DesktopSession.get(context).isActive();
         active = false;
@@ -646,7 +657,11 @@ final class AppSession {
             } catch (RuntimeException e) {
                 Log.w(TAG, "unbind", e);
             }
-            if (done != null) ui.post(done);
+            ui.post(() -> {
+                stopping = false;
+                if (done != null) done.run();
+                rebindInjector();
+            });
         }, "xdesk-app-stop").start();
         // endSession keeps the foreground service until the moves are done, or the process could be killed before that
         if (done == null && !desktopActive) context.stopService(new Intent(context, DesktopService.class));

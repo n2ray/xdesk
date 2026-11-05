@@ -71,7 +71,8 @@ public class XDeskActivity extends Activity {
         ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_FULL_USER};
 
     private static final long CONNECT_TIMEOUT_MS = 40000;
-    private static final long RESTART_NOTICE_MS = 30000;
+    /** 注入服务还在结束时选了应用：等它结束再启动，否则新的会被一起结束。 */
+    private static final long STOPPING_RETRY_MS = 200;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
     private static final long DIM_AFTER_MS = 60000;
@@ -226,7 +227,7 @@ public class XDeskActivity extends Activity {
     };
 
     private final DesktopSession.Listener sessionListener = new DesktopSession.Listener() {
-        @Override public void onSessionChanged(boolean c, boolean restarted) {
+        @Override public void onSessionChanged(boolean c) {
             if (c) {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
@@ -235,16 +236,16 @@ public class XDeskActivity extends Activity {
                 session.input().move(1, 0);
                 session.input().move(-1, 0);
             }
-            if (!c && !session.isRecovering()) showWaiting();
+            if (!c) showWaiting();
             updateStatus();
-            if (restarted) {
-                setStatus(Style.WARN, "桌面被系统关闭后已重新启动，未保存的内容可能已丢失");
-                ui.postDelayed(new Runnable() {
-                    @Override public void run() { updateStatus(); }
-                }, RESTART_NOTICE_MS);
-                Display d = externalDisplay();
-                if (d != null) placeX11(d.getDisplayId());
-            }
+        }
+        @Override public void onDesktopStopped(boolean byUser) {
+            // 不自动重启：启动和结束桌面都由用户决定
+            runningSession = null;
+            desktopName = null;
+            backToChooser();
+            chooser.setNotice(byUser ? "桌面已结束。点下面的环境可以重新启动。"
+                : "桌面意外停止了（X 服务器退出了），XDesk 不会自动重启。未保存的内容可能已丢失。点下面的环境可以重新启动。");
         }
         @Override public void onSessionError(String message) {
             showSetup("无法调用 Termux", message, false, "返回选择", new View.OnClickListener() {
@@ -848,11 +849,12 @@ public class XDeskActivity extends Activity {
             return;
         }
         if (session.isConnected()) setStatus(Style.OK, desktopName != null ? "外接屏上：" + desktopName : "桌面已连接");
-        else setStatus(Style.WARN, session.isRecovering() ? "连接中断，正在恢复…" : "桌面未连接");
+        else setStatus(Style.WARN, "桌面未连接");
     }
 
     private void showSetup(String title, String message, boolean progress, String action, View.OnClickListener onAction) {
         chooser.setVisibility(View.GONE);
+        chooser.setNotice(null);
         setupScreen.setVisibility(View.VISIBLE);
         setupTitle.setText(title);
         setupMessage.setText(message);
@@ -870,6 +872,7 @@ public class XDeskActivity extends Activity {
             chooser.clearSearch();
         }
         chooser.setVisibility(View.GONE);
+        chooser.setNotice(null);
         setupScreen.setVisibility(View.GONE);
         refreshDocks();
         keyView.requestFocus();
@@ -1101,7 +1104,7 @@ public class XDeskActivity extends Activity {
         });
 
         final AlertDialog[] dialog = new AlertDialog[1];
-        settingsRow(c, appMode ? "返回选择（停止转发，应用留在外接屏）" : "返回选择（桌面继续运行）", new View.OnClickListener() {
+        settingsRow(c, "返回选择（应用回到手机，桌面继续运行）", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 dialog[0].dismiss();
                 backToChooser();
@@ -1411,15 +1414,17 @@ public class XDeskActivity extends Activity {
         setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? "没有找到环境。在 Termux 里运行 xdesk setup 后点这里" : null);
     }
 
-    /** 回到选择界面。桌面继续运行，安卓应用留在外接屏上，只停止转发和光标。 */
+    /**
+     * 回到选择界面，会话结束：安卓应用移回手机（不关闭），停止转发和光标，清除声音路由。桌面继续运行。
+     * 会话中盖上来的“全部”列表不走这里，什么都不移动。
+     */
     private void backToChooser() {
         pendingApp = null;
         pendingSession = null;
         ui.removeCallbacks(connectTimeout);
         releaseLatches();
         client = null;
-        // 也包括切去桌面时留着的注入服务
-        if (apps.isActive() || apps.hasInjector()) apps.stop();
+        returnAppsAndStopInjector();
         if (session.isActive()) {
             session.abandon();
             MainActivity m = MainActivity.getInstance("");
@@ -1428,10 +1433,38 @@ public class XDeskActivity extends Activity {
         showChooser();
     }
 
+    /** 也包括切去桌面时留着的注入服务。移动要靠它，所以在它结束之前做；它不在就说一声。 */
+    private void returnAppsAndStopInjector() {
+        final boolean hadApps = apps.hasAppOnDisplay();
+        if (hadApps && !apps.hasInjector()) {
+            Toast.makeText(this, "注入服务没有运行（Shizuku 停了？），外接屏上的应用没能移回手机", Toast.LENGTH_LONG).show();
+        }
+        if (!apps.isActive() && !apps.hasInjector()) return;
+        Display d = externalDisplay();
+        apps.endSession(d != null ? d.getDisplayId() : -1, new Runnable() {
+            @Override public void run() {
+                if (!session.isActive() && !apps.isActive()) stopService(new Intent(XDeskActivity.this, DesktopService.class));
+                // 移回来的应用盖住了手机屏，把选择界面拿回前面
+                if (hadApps && !isFinishing()) {
+                    Intent self = new Intent(XDeskActivity.this, XDeskActivity.class);
+                    self.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    startActivity(self);
+                }
+            }
+        });
+    }
+
     // --- 安卓应用 ---
 
     /** 权限和 Shizuku 都就绪才启动。缺什么说什么，弄好了回来会接着走（onResume、onShizukuChanged）。 */
     private void startApp(final AppCatalog.App app) {
+        if (apps.isStopping()) {
+            showSetup("正在启动 " + app.label, "等上一个注入服务结束。", true, null, null);
+            ui.postDelayed(new Runnable() {
+                @Override public void run() { startApp(app); }
+            }, STOPPING_RETRY_MS);
+            return;
+        }
         Display d = externalDisplay();
         if (d == null) {
             pendingApp = null;
@@ -1604,10 +1637,6 @@ public class XDeskActivity extends Activity {
         if (session.isConnected()) {
             showRunning();
             updateStatus();
-        } else if (session.isRecovering()) {
-            showSetup("正在连接桌面", "正在重新连接。", true, null, null);
-            ui.removeCallbacks(connectTimeout);
-            ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
         } else {
             showWaiting();
         }

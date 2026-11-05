@@ -8,11 +8,15 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-/** XDesk 是显示器：这里只管声音、前台服务和连接状态。桌面由用户或 xdesk 命令启动。放在进程单例里，界面重建不影响它。 */
+/**
+ * XDesk 是显示器：这里只管声音、前台服务和连接状态。放在进程单例里，界面重建不影响它。
+ * 桌面只由用户明确启动和结束：这里不会自己重启桌面，X 服务器没了就告诉界面。
+ */
 final class DesktopSession {
     interface Listener {
-        /** restarted：X 服务器曾经死掉并被重新拉起，未保存的内容可能已丢失。 */
-        void onSessionChanged(boolean connected, boolean restarted);
+        void onSessionChanged(boolean connected);
+        /** X 服务器没了。byUser：用户运行了 xdesk stop。 */
+        void onDesktopStopped(boolean byUser);
         void onSessionError(String message);
     }
 
@@ -22,11 +26,9 @@ final class DesktopSession {
     /** 和 xdesk 命令里的 AUDIO_PORT 一致。 */
     private static final int AUDIO_PORT = 47130;
     private static final long POLL_MS = 500;
-    private static final long RECOVER_FIRST_MS = 4000;
-    private static final long RECOVER_MAX_MS = 60000;
-    private static final int MAX_RECOVER_ATTEMPTS = 5;
+    /** 窗口重建时也会短暂断开，断开这么久才算 X 服务器没了。 */
+    private static final long SERVER_LOST_MS = 3000;
     private static final String ACTION_STOPPED = "io.github.n2ray.xdesk.STOPPED";
-    private static final long FIRST_CONNECT_RETRY_MS = 20000;
 
     private static DesktopSession instance;
 
@@ -40,11 +42,7 @@ final class DesktopSession {
     private final DesktopInput input = new DesktopInput();
     private Listener listener;
     private AudioPlayer audio;
-    private boolean active, connected, serverLost, recovering;
-    private long recoverDelay = RECOVER_FIRST_MS;
-    private int recoverAttempts;
-    /** 用户这次选的环境，恢复时也是它；null 表示默认环境。 */
-    private String chosen;
+    private boolean active, connected, stoppedByUser;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -55,31 +53,19 @@ final class DesktopSession {
         }
     };
 
-    private final Runnable recover = new Runnable() {
+    private final Runnable serverLost = new Runnable() {
         @Override public void run() {
-            if (!active || connected || !recovering) return;
-            Log.i(TAG, "recovering, next try in " + recoverDelay * 2);
-            if (chosen != null) DesktopSession.this.run("recover", chosen);
-            else DesktopSession.this.run("recover");
-            if (++recoverAttempts >= MAX_RECOVER_ATTEMPTS) {
-                // 多半是用户自己停的（xdesk stop），不再重试，回到等待
-                recovering = false;
-                if (listener != null) listener.onSessionChanged(false, false);
-                return;
-            }
-            recoverDelay = Math.min(recoverDelay * 2, RECOVER_MAX_MS);
-            ui.postDelayed(this, recoverDelay);
+            // 窗口不在只是界面要重放（比如显示器拔了），交给 Activity
+            if (!active || connected || MainActivity.getInstance("") == null) return;
+            Log.i(TAG, "X server gone, by user: " + stoppedByUser);
+            if (listener != null) listener.onDesktopStopped(stoppedByUser);
         }
     };
 
-    /** xdesk stop 广播过来：用户主动结束的，不恢复，立刻回到等待。 */
+    /** xdesk stop 广播过来：用户主动结束的，界面不用当成意外。 */
     private final BroadcastReceiver stopped = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            if (!recovering) return;
-            recovering = false;
-            serverLost = false;
-            ui.removeCallbacks(recover);
-            if (listener != null) listener.onSessionChanged(connected, false);
+            stoppedByUser = true;
         }
     };
 
@@ -98,63 +84,40 @@ final class DesktopSession {
 
     /** 开始当显示器：放窗口由 Activity 负责，这里不启动任何桌面。 */
     void attach() {
-        serverLost = false;
-        recovering = false;
-        recoverDelay = RECOVER_FIRST_MS;
+        stoppedByUser = false;
         active = true;
         audio = new AudioPlayer(AUDIO_PORT, AudioRoute.get(context));
         context.startForegroundService(new Intent(context, DesktopService.class));
-        // 只影响是否自动恢复，别的 App 发了也无害
+        // 只用来区分是不是用户结束的，别的 App 发了也无害
         context.registerReceiver(stopped, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);
         ui.post(poll);
     }
 
     /**
-     * 运行 xdesk start，需要 RUN_COMMAND 权限。之后意外断开会用 xdesk recover 拉起，用户主动 xdesk stop 的不会。
-     * 只有用户在这次打开时选了环境才会走到这里，单纯接回运行中的桌面不会恢复或重启任何东西。
+     * 运行 xdesk start，需要 RUN_COMMAND 权限。只由用户的选择触发。
      *
      * @param name 环境名，null 是默认环境
      * @param replaceRunning 结束运行中的另一个环境再启动（xdesk switch）
      */
     boolean launch(String name, boolean replaceRunning) {
-        chosen = name;
-        recovering = true;
-        serverLost = false;
-        recoverAttempts = 0;
-        ui.removeCallbacks(recover);
-        ui.postDelayed(recover, FIRST_CONNECT_RETRY_MS);
+        stoppedByUser = false;
         if (name == null) return run("start");
         return replaceRunning ? run("switch", name) : run("start", name);
     }
 
-    boolean isRecovering() { return recovering; }
-
     private void connectionChanged(boolean c) {
         connected = c;
-        boolean restarted = false;
-        if (c) {
-            restarted = serverLost;
-            recoverAttempts = 0;
-            serverLost = false;
-            ui.removeCallbacks(recover);
-            recoverDelay = RECOVER_FIRST_MS;
-        } else {
-            // 窗口还在却断了，才是 X 服务器没了；窗口不在只是界面要重放，交给 Activity
-            serverLost = recovering && MainActivity.getInstance("") != null;
-            ui.removeCallbacks(recover);
-            if (recovering) ui.postDelayed(recover, RECOVER_FIRST_MS);
-        }
-        if (listener != null) listener.onSessionChanged(c, restarted);
+        ui.removeCallbacks(serverLost);
+        if (!c) ui.postDelayed(serverLost, SERVER_LOST_MS);
+        if (listener != null) listener.onSessionChanged(c);
     }
-
 
     /** 退出显示器，桌面继续运行。 */
     void abandon() {
         if (active) context.unregisterReceiver(stopped);
         active = false;
         connected = false;
-        recovering = false;
-        ui.removeCallbacks(recover);
+        ui.removeCallbacks(serverLost);
         ui.removeCallbacks(poll);
         if (audio != null) audio.close();
         audio = null;

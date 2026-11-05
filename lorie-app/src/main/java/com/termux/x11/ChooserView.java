@@ -71,7 +71,7 @@ final class ChooserView extends LinearLayout {
     }
 
     private final Host host;
-    private final TextView banner, close, output;
+    private final TextView banner, notice, close, output;
     private final EditText search;
     private final DockBar dock;
     private final Adapter adapter = new Adapter();
@@ -117,6 +117,13 @@ final class ChooserView extends LinearLayout {
         banner.setTextSize(14);
         banner.setPadding(0, Style.dp(c, 4), 0, Style.dp(c, 6));
         addView(banner, new LayoutParams(-1, -2));
+
+        notice = new TextView(c);
+        notice.setTextColor(Style.WARN);
+        notice.setTextSize(14);
+        notice.setPadding(0, 0, 0, Style.dp(c, 6));
+        notice.setVisibility(GONE);
+        addView(notice, new LayoutParams(-1, -2));
 
         dock = new DockBar(c, host, true, false);
         LayoutParams dp = new LayoutParams(-1, Style.dp(c, 62));
@@ -167,6 +174,12 @@ final class ChooserView extends LinearLayout {
     /** 盖在运行中的会话上时才有关闭按钮。 */
     void setOverSession(boolean over) {
         close.setVisibility(over ? VISIBLE : GONE);
+    }
+
+    /** 刚发生的事，比如桌面停止了。null 去掉。 */
+    void setNotice(String text) {
+        notice.setText(text);
+        notice.setVisibility(text != null ? VISIBLE : GONE);
     }
 
     void setOutputLabel(String label) {
