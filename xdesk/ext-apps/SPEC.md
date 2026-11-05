@@ -63,3 +63,47 @@ A DeX-style desktop (launcher, task bar, freeform windows). Keep the injector an
 - The project is a fork of Termux:X11; follow the existing style in `lorie-app/src/main/java/com/termux/x11/`.
 - Keep README in English and Chinese accurate for what ships. Say plainly that Android app mode needs Shizuku, was tested only on one phone, and that the RustDesk input method relies on RustDesk internals.
 - No personal data in the repository: no IP addresses, device ids, names or remote machine details.
+
+# Second round (after the first phone test)
+
+The first version works well on the phone, including other Android apps full screen. These come from that test.
+
+## Fixes since the first version
+
+RustDesk clicks no longer use the toolbar heuristic: see `hoverMethodButton` in `InputInjector`. A press with no movement is a real DOWN and UP, and one that moves goes as hovers.
+
+## 1. No double cursor in a RustDesk session
+
+XDesk's cursor and the remote machine's cursor overlap in a RustDesk session. It is usable but ugly.
+
+- While RustDesk is in a remote session, hide XDesk's cursor over the remote picture and show it over the bottom toolbar, where the remote picture has no cursor. Keep showing it on RustDesk's home page and in every other app.
+- Signal for "in a session": RustDesk's window has `KEEP_SCREEN_ON` during a session and not on its home page. Seen in `dumpsys window windows` (`fl=KEEP_SCREEN_ON`) and in `dumpsys power` wake lock history. This is from a limited observation, and it can be polled from the shell-user injector about once a second. Keep the check in the per-package profile with the reason in a comment.
+- A menu opened from the toolbar covers the picture and has no remote cursor. Do something reasonable: for example show XDesk's cursor for a few seconds after a toolbar click, or until the cursor has moved off the menu. Say what you chose.
+- Add a setting to always show XDesk's cursor, in case the signal is wrong on another version.
+
+## 2. The phone UI becomes a launcher and app switcher
+
+The app list is one long list and it is hard to find an app.
+
+- **Search** over the app list, filtering as you type, by label and package.
+- **Dock:** a user-defined row of favourite apps. Add and remove from the list (long press or a clear button), reorder, and keep it across restarts. A Termux desktop can be in the dock too.
+- **Switcher:** the dock stays visible on the phone during a session, on the touchpad screen, not just on the chooser. One tap switches what is on the external display, with no trip back to the chooser. Leave room for the touchpad, and handle landscape and portrait.
+- Switching to an app that is already running must bring its existing task to the front on the external display, not restart it, so its state survives.
+- Show which app is currently on the display.
+- On a switch, change the input profile for the new app and refocus, so keys and mouse follow. Cursor hiding follows the new app too.
+- When switching to a Termux desktop and back, the desktop keeps running and the Android app's task survives. Say plainly if Android or HyperOS prevents that.
+- Good app icons and fast loading: cache what is slow so the list does not stall. The phone is the main control surface, so this has to feel quick.
+
+## 3. Sound output
+
+The monitor may have no speakers, so the user chooses where sound goes.
+
+- A setting listing the available outputs: phone speaker, HDMI or the external display, Bluetooth, USB or wired, using `AudioManager.getDevices(GET_DEVICES_OUTPUTS)`. Update it when devices come and go, and fall back cleanly when the chosen one disappears. Remember the choice.
+- **Android apps and everything else on the system:** the shell user holds `MODIFY_AUDIO_ROUTING`. This worked in an earlier test through `app_process`: reflection on `AudioSystem.setDevicesRoleForStrategy` with `STRATEGY_MEDIA` = 5 and role preferred, then clearing it with `removeDevicesRoleForStrategy`. It needs an `AudioDeviceAttributes` for the chosen device. The earlier test was phone speaker only, and it probably does not survive a reboot. Do it from the injector, and clear the preference when XDesk's session ends so the phone returns to normal. Check the method names against the Android version at runtime with a clear error rather than a crash.
+- **Termux desktop audio:** XDesk's own `AudioPlayer` can use `AudioTrack.setPreferredDevice` with no Shizuku. Use that, so a desktop still gets a choice without Shizuku.
+- Without Shizuku, say that the choice only covers desktop audio.
+- Be honest in the UI about what cannot be verified, such as Bluetooth codec behaviour. Put a quick output switch where it is easy to reach during a session.
+
+## Delivery for this round
+
+Same rules as above: branch `ext-apps` only, no tag or release, no personal data. Run the debug build with `gh workflow run debug_build.yml --ref ext-apps`, because this branch does not trigger it. Report what was built, the differences from this spec, and a test list, riskiest first.
