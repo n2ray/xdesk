@@ -14,6 +14,8 @@ import android.os.PowerManager;
 public class DesktopService extends Service {
     private static final String CHANNEL = "desktop";
     private static final int NOTIFICATION = 1;
+    /** 通知的标题，不给就是桌面。 */
+    static final String EXTRA_TITLE = "title";
     private PowerManager.WakeLock wakeLock;
 
     @Override public void onCreate() {
@@ -29,9 +31,10 @@ public class DesktopService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0,
             new Intent(this, XDeskActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE);
+        String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         Notification n = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setContentTitle("XDesk 桌面运行中")
+            .setContentTitle(title != null ? title : "XDesk 桌面运行中")
             .setContentText("点击回到触摸板")
             .setContentIntent(open)
             .setOngoing(true)

@@ -1,6 +1,6 @@
 # XDesk
 
-**不用 root，让安卓手机在外接显示器上跑任意 Linux 桌面。** XDesk 把显示器变成 X 显示器，手机变成它的触摸板和键盘。上面跑什么由你决定：Termux 里的 XFCE、proot 或 chroot 里的桌面，或者单个程序。
+**不用 root，让安卓手机在外接显示器上跑任意 Linux 桌面。** XDesk 把显示器变成 X 显示器，手机变成它的触摸板和键盘。上面跑什么由你决定：Termux 里的 XFCE、proot 或 chroot 里的桌面，或者单个程序。也可以把安卓应用全屏放到外接屏上，这需要 Shizuku。
 
 [English](README.md) · 基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0
 
@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh 
 
 1. 安装它下载的 App。如果文件管理器提示“未安装应用”，就用 `adb install -r xdesk.apk`。小米手机要先在开发者选项里打开 **USB 安装**。
 2. 插上显示器，打开 **XDesk**。
-3. 运行 `xdesk start`。
+3. 选择要运行什么：Termux 环境或安卓应用。不选就不会启动任何东西。
 
 还没有桌面？比如：`pkg install xfce4 xfce4-terminal && xdesk setup`。
 
@@ -64,19 +64,32 @@ proot 和 chroot 的声音通过 `127.0.0.1` 的 PulseAudio 传给 App。
 
 ### 从 App 启动
 
-XDesk 默认只等待桌面连上来，不需要任何 Termux 权限。如果想用它的**一键启动**按钮或自动启动设置：
+选择界面会列出你的环境，点哪个就启动哪个，这需要在 Termux 里运行命令的权限。没有权限时，可以在选择界面选**只当显示器**，再自己运行 `xdesk start`。要允许的话：
 
 ```sh
 xdesk enable-app-start
 ```
 
-这会在 Termux 里设置 `allow-external-apps = true`，允许 App 请求运行命令。每个 App 还要单独获得权限，XDesk 会在你按按钮时询问。
+这会在 Termux 里设置 `allow-external-apps = true`，允许 App 请求运行命令。每个 App 还要单独获得权限，XDesk 会在你点环境时询问。
+
+正在运行的环境会在选择界面上标出来。点它只是接回，不会重启任何东西。
+
+## 外接屏上的安卓应用
+
+在选择界面点一个应用，它就全屏运行在外接屏上，手机做它的触摸板和键盘。实体鼠标和键盘先留给手机，按顶部的**接管键鼠**或 Ctrl+Alt+M 才转给外接屏，再按一次交还。**返回**回到选择界面，停止转发并去掉光标。应用留在外接屏上，运行中的 Termux 桌面不受影响。
+
+- **需要 [Shizuku](https://shizuku.rikka.app/)。** 安卓不允许普通 App 给别的 App 注入输入，所以这个 APK 的一个小服务通过 Shizuku 以 shell 用户运行，由它读取 `/dev/input` 并注入事件。Termux 环境不需要 Shizuku。
+- **需要悬浮窗权限，** 因为安卓自己的光标留在手机屏上，XDesk 要在外接屏上画一个。
+- **只在一台手机上测试过，** 也只试过 RustDesk。
+- **RustDesk 的输入方式依赖它的内部实现。** 普通鼠标事件在那里会被 Flutter 弄坏拖动，所以 XDesk 把按键变化作为悬停事件发送，并靠猜测判断一次点击是不是给 RustDesk 自己的工具栏。RustDesk 更新后可能失效。需要特殊方式的应用列在 `AppInputProfile.java`，其他应用用普通的安卓鼠标事件。
+- **手机键盘只能发送键盘打得出来的字符。** 中文等输入法文字到不了安卓应用。
 
 ## 功能
 
 - 手机当触摸板：移动、轻点、双指右键和滚动，长按或轻点后按住拖动
 - 软键盘，支持输入法打字（包括中文），还有快捷键栏（Esc、Tab、Ctrl、Alt、Super、Shift、方向键）
 - 实体鼠标和键盘，转发到桌面
+- 安卓应用全屏放到外接屏上（需要 Shizuku）
 - 声音输出可切换：手机扬声器、HDMI、系统默认
 - 分辨率档位、灵敏度、触控界面横竖屏、闲置时调暗手机屏
 - 拔掉显示器、切换 App、锁屏后都能恢复
@@ -100,6 +113,7 @@ xdesk enable-app-start
 
 - **一个 App，两个窗口。** 上游的 `MainActivity` 原样放在外接屏上。`XDeskActivity` 在手机屏上，和它在同一个进程，直接调用 `LorieView.sendMouseEvent`、`sendKeyEvent`、`sendTextEvent`。
 - **X 服务器在 Termux 里运行**，用的是为这个包名构建的启动器。
+- **安卓应用** 由注入服务（`InjectorService`）放到外接屏上，它以 shell 用户运行，用 `injectInputEvent` 发送事件。光标由 `CursorOverlay` 绘制。
 - **声音** 从 PulseAudio 的 null sink 走 47130 端口，由 App 用 `AudioTrack` 播放，所以不需要特殊权限就能选输出设备。这个端口只绑定本机，但没有验证，手机上的其他 App 理论上能读到桌面的声音。
 
 改动几乎都在 `lorie-app/` 和 `xdesk/`，合并上游比较简单。
@@ -110,7 +124,10 @@ xdesk enable-app-start
 
 | 现象 | 可能的原因 |
 |---|---|
-| 一直等待 | 还没有程序在运行。运行 `xdesk start`，再看 `xdesk status` |
+| 一直等待 | 你选了只当显示器，还没有程序在运行。运行 `xdesk start`，再看 `xdesk status` |
+| 选择界面没有环境 | 运行 `xdesk enable-app-start` 和 `xdesk setup`，并允许 XDesk 运行 Termux 命令 |
+| 安卓应用列表不全 | 有些 ROM 限制 App 能看到什么。小米手机检查“获取应用列表”权限 |
+| 注入服务启动不了 | 打开 Shizuku 确认它在运行。重启手机后要重新启动它 |
 | 提示 “Display :1 is used by another X server” | 官方 Termux:X11 在运行，先结束它，比如 `pkill -f termux-x11` |
 | App 的启动按钮失败 | 运行 `xdesk enable-app-start`，再检查权限 |
 | 桌面没有铺满 | 它在 App 连上之前就启动了。先打开 App，再重启环境 |
@@ -121,7 +138,7 @@ xdesk enable-app-start
 
 ## 局限
 
-- 只能操作 Linux 程序。安卓应用可以放到外屏，但操作不了，因为系统把安卓鼠标限制在手机屏上，普通 App 也不能给别的 App 注入输入
+- 安卓应用需要 Shizuku，外接屏同一时间只能放一个全屏应用或桌面，切换要经过选择界面
 - Termux 和 XDesk 都要保持运行，系统清理可能杀掉它们
 - 只在一台手机（欧版小米 15 Ultra）上测试过
 

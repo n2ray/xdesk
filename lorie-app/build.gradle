@@ -51,6 +51,8 @@ android {
         keyPassword 'xrj45yWGLbsO7W0v'
     }
 
+    buildFeatures.aidl true
+
     compileOptions.sourceCompatibility JavaVersion.VERSION_1_9
     compileOptions.targetCompatibility JavaVersion.VERSION_1_9
     buildTypes.debug {
@@ -83,4 +85,7 @@ dependencies {
     implementation project(':lorie')
     // XDeskActivity 要用 MainActivity，它的父类 AppCompatActivity 经 preference 传递而来
     implementation "androidx.preference:preference:1.2.1"
+    // Android apps on the external display: runs the input injector as the shell user
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
 }

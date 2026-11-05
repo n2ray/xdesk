@@ -11,7 +11,7 @@
 #   xdesk start [NAME]       start a session (default: the chosen one)
 #   xdesk switch NAME        stop the running session and start another, keeping X and the window
 #   xdesk stop               stop everything
-#   xdesk recover            like start, unless you ran xdesk stop (the app uses this)
+#   xdesk recover [NAME]     like start, unless you ran xdesk stop (the app uses this)
 #   xdesk status             show what is running
 #   xdesk setup              look for desktops in Termux and proot-distro
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
@@ -232,7 +232,7 @@ start)
     ;;
 recover)
     [ -e "$RUN/stopped" ] && exit 0
-    name=$(current)
+    name=${1:-$(current)}
     [ -n "$name" ] || exit 1
     lock; start_x && start_audio || exit 1
     wait_for_app

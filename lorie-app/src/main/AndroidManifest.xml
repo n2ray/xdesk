@@ -2,8 +2,16 @@
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 外接屏上的光标（只有运行安卓应用时用） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <queries>
         <package android:name="com.termux" />
+        <package android:name="moe.shizuku.privileged.api" />
+        <!-- 选择界面列出可启动的安卓应用 -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
     <application
         android:icon="@mipmap/lorie_ic_launcher"
@@ -30,6 +38,14 @@
             </intent-filter>
         </activity>
         <service android:name="com.termux.x11.DesktopService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <receiver android:name="com.termux.x11.TermuxResultReceiver" android:exported="false" />
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <!-- 图标和任务列表都只留 XDesk：桌面窗口由 XDeskActivity 打开 -->
         <activity android:name="com.termux.x11.MainActivity" android:excludeFromRecents="true" tools:node="merge">
             <intent-filter tools:node="removeAll" />

@@ -1,0 +1,315 @@
+package com.termux.x11;
+
+import android.os.RemoteException;
+import android.util.Log;
+import android.view.MotionEvent;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Shizuku user service: a process of this APK's code that runs as the shell user (uid 2000), which may inject input
+ * into other apps and read /dev/input. Normal apps have neither. It dies with the app (daemon(false) and the
+ * link-to-death below) and every grab ends with the process, so a crash cannot take the keyboard away for good.
+ *
+ * All input from all threads goes through one worker, in order, because InputInjector sleeps between button changes.
+ */
+public class InjectorService extends IInjector.Stub {
+    private static final String TAG = "XDeskInjector";
+    private static final long AM_TIMEOUT_MS = 10000, DUMPSYS_TIMEOUT_MS = 5000, SHUTDOWN_TIMEOUT_MS = 2000;
+    /** Time for a focus change to reach the input system before a key is sent. */
+    private static final int FOCUS_SETTLE_MS = 60;
+    /** 2 felt right for a physical mouse on a 2560 wide display. */
+    private static final float MOUSE_GAIN = 2f, MOUSE_REFERENCE_WIDTH = 2560f;
+    /** The touchpad's gain was tuned on a 1920 wide desktop. */
+    private static final float PAD_REFERENCE_WIDTH = 1920f;
+    private static final float WHEEL_STEP = 1f;
+    private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276;
+
+    private interface Task {
+        void run() throws Exception;
+    }
+
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final InputInjector injector;
+    private final String injectorError;
+    private EvdevReader reader;
+    private volatile IInjectorListener listener;
+    private volatile float mouseSpeed = 1f;
+    /** The phone was touched since the external display last had focus. */
+    private volatile boolean focusStale;
+
+    private final EvdevReader.Sink physical = new EvdevReader.Sink() {
+        @Override public void onForwarding(final boolean on, final int devices) {
+            post(() -> {
+                if (on) {
+                    injector.take();
+                    focusStale = false;
+                } else {
+                    injector.releaseAll();
+                    injector.hoverExit();
+                }
+                IInjectorListener l = listener;
+                if (l != null) l.onForwarding(on, devices);
+            });
+        }
+        @Override public void onDeviceCount(final int devices, final boolean removed) {
+            post(() -> {
+                // A key or button held on a device that went away would stay down for ever
+                if (removed) injector.releaseAll();
+                IInjectorListener l = listener;
+                if (l != null) l.onForwarding(true, devices);
+            });
+        }
+        @Override public void onModifiersUp() {
+            post(injector::clearModifiers);
+        }
+        @Override public void onMove(final int dx, final int dy) {
+            post(() -> {
+                float gain = MOUSE_GAIN * injector.width() / MOUSE_REFERENCE_WIDTH * mouseSpeed;
+                injector.moveBy(dx * gain, dy * gain);
+            });
+        }
+        @Override public void onWheel(final int vertical, final int horizontal) {
+            post(() -> injector.scroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP));
+        }
+        @Override public void onButton(final int code, final boolean down) {
+            post(() -> {
+                int bit = androidButton(code);
+                if (bit != 0) injector.button(bit, down);
+            });
+        }
+        @Override public void onKey(final int code, final int value) {
+            post(() -> {
+                if (focusStale) {
+                    injector.focus(injector.displayId());
+                    Thread.sleep(FOCUS_SETTLE_MS);
+                    focusStale = false;
+                }
+                injector.key(code, value);
+            });
+        }
+    };
+
+    public InjectorService() {
+        InputInjector i = null;
+        String error = null;
+        try {
+            i = new InputInjector((x, y) -> {
+                IInjectorListener l = listener;
+                try {
+                    if (l != null) l.onCursor(x, y);
+                } catch (RemoteException ignored) { }
+            });
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.e(TAG, "no input injection", e);
+            error = e.toString();
+        }
+        injector = i;
+        injectorError = error;
+    }
+
+    private static int androidButton(int code) {
+        switch (code) {
+            case BTN_LEFT: return MotionEvent.BUTTON_PRIMARY;
+            case BTN_RIGHT: return MotionEvent.BUTTON_SECONDARY;
+            case BTN_MIDDLE: return MotionEvent.BUTTON_TERTIARY;
+            case BTN_SIDE: return MotionEvent.BUTTON_BACK;
+            case BTN_EXTRA: return MotionEvent.BUTTON_FORWARD;
+            default: return 0;
+        }
+    }
+
+    private void post(final Task t) {
+        if (worker.isShutdown()) return;
+        worker.execute(() -> {
+            try {
+                t.run();
+            } catch (Exception e) {
+                Log.w(TAG, "input failed", e);
+            }
+        });
+    }
+
+    private void message(String s) {
+        IInjectorListener l = listener;
+        try {
+            if (l != null) l.onMessage(s);
+        } catch (RemoteException ignored) { }
+    }
+
+    @Override public String configure(IInjectorListener l, final int displayId, final int width, final int height, final String pkg, float speed) {
+        if (injector == null) return injectorError;
+        listener = l;
+        mouseSpeed = speed;
+        try {
+            // Backup for daemon(false): whatever happens to the app, nothing stays grabbed
+            l.asBinder().linkToDeath(() -> System.exit(0), 0);
+        } catch (RemoteException e) {
+            System.exit(0);
+        }
+        post(() -> {
+            injector.setProfile(AppInputProfile.forPackage(pkg));
+            injector.setDisplay(displayId, width, height);
+        });
+        synchronized (this) {
+            if (reader == null) {
+                try {
+                    reader = new EvdevReader(physical);
+                    Evdev.close(-1);  // does nothing, but a failed library load shows here and not in the reader thread
+                    reader.start();
+                } catch (LinkageError e) {
+                    Log.e(TAG, "no evdev", e);
+                    reader = null;
+                    message("无法读取实体键鼠，手机触摸板仍可使用：" + e.getMessage());
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override public void setDisplay(final int displayId, final int width, final int height) {
+        post(() -> injector.setDisplay(displayId, width, height));
+    }
+
+    @Override public void setForwarding(boolean on) {
+        EvdevReader r;
+        synchronized (this) {
+            r = reader;
+        }
+        if (r != null) r.setGrabbed(on);
+    }
+
+    @Override public void setMouseSpeed(float speed) {
+        mouseSpeed = speed;
+    }
+
+    @Override public void phoneTouched() {
+        focusStale = true;
+    }
+
+    @Override public void move(final int dx, final int dy) {
+        post(() -> {
+            float gain = injector.width() / PAD_REFERENCE_WIDTH;
+            injector.moveBy(dx * gain, dy * gain);
+        });
+    }
+
+    @Override public void button(final int button, final boolean down) {
+        final int bit = button == 1 ? MotionEvent.BUTTON_PRIMARY : button == 3 ? MotionEvent.BUTTON_SECONDARY : button == 2 ? MotionEvent.BUTTON_TERTIARY : 0;
+        if (bit != 0) post(() -> injector.button(bit, down));
+    }
+
+    @Override public void scroll(final int dy, final int dx) {
+        // AXIS_VSCROLL is positive for up, AXIS_HSCROLL positive for right
+        post(() -> injector.scroll(-dy * WHEEL_STEP, dx * WHEEL_STEP));
+    }
+
+    /**
+     * The phone's keyboard lives on the phone and needs focus there, the keys need focus on the external display.
+     * Swap for each delivery and swap back, or the input method would lose its window.
+     */
+    private void fromPhone(final Task t) {
+        post(() -> {
+            injector.focus(injector.displayId());
+            Thread.sleep(FOCUS_SETTLE_MS);
+            t.run();
+            Thread.sleep(FOCUS_SETTLE_MS);
+            injector.focus(android.view.Display.DEFAULT_DISPLAY);
+            focusStale = true;
+        });
+    }
+
+    @Override public void key(final int scan, final boolean down) {
+        fromPhone(() -> injector.key(scan, down ? 1 : 0));
+    }
+
+    @Override public void tapKey(final int scan) {
+        fromPhone(() -> {
+            injector.key(scan, 1);
+            injector.key(scan, 0);
+        });
+    }
+
+    @Override public void text(final String s) {
+        fromPhone(() -> {
+            if (injector.text(s) > 0) message("有些文字无法作为按键发送给安卓应用（比如中文）");
+        });
+    }
+
+    /** am start is what the prototype was tested with. Windowing mode 1 is full screen. */
+    @Override public String startApp(String component, int displayId) {
+        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--display", String.valueOf(displayId), "--windowingMode", "1",
+            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", "0x10200000", "-n", component);
+        if (r[0] != null) return r[0];
+        return r[1].contains("Error") ? r[1].trim() : null;
+    }
+
+    @Override public String findPresentation(int displayId) {
+        String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
+        if (r[0] != null) return null;
+        String window = null;
+        boolean onDisplay = false;
+        for (String line : r[1].split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Window #")) {
+                window = t;
+                onDisplay = false;
+            } else if (t.contains("mDisplayId=" + displayId + " ")) {
+                onDisplay = true;
+            } else if (onDisplay && (t.contains("ty=PRESENTATION") || t.contains("ty=PRIVATE_PRESENTATION"))) {
+                return window;
+            }
+        }
+        return null;
+    }
+
+    /** Returns {error or null, output}. */
+    private static String[] exec(long timeoutMs, String... argv) {
+        try {
+            final Process p = new ProcessBuilder(argv).redirectErrorStream(true).start();
+            Thread watchdog = new Thread(() -> {
+                try {
+                    if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) p.destroyForcibly();
+                } catch (InterruptedException ignored) { }
+            });
+            watchdog.setDaemon(true);
+            watchdog.start();
+            StringBuilder out = new StringBuilder();
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = in.readLine()) != null) out.append(line).append('\n');
+            }
+            int code = p.waitFor();
+            return new String[]{code == 0 ? null : argv[0] + " exit " + code + ": " + out, out.toString()};
+        } catch (Exception e) {
+            return new String[]{e.toString(), ""};
+        }
+    }
+
+    @Override public void shutdown() {
+        EvdevReader r;
+        synchronized (this) {
+            r = reader;
+            reader = null;
+        }
+        if (r != null) {
+            r.setGrabbed(false);
+            r.shutdown();
+        }
+        listener = null;
+        if (injector == null) return;
+        post(injector::releaseAll);
+        worker.shutdown();
+        try {
+            worker.awaitTermination(SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) { }
+    }
+
+    @Override public void destroy() {
+        shutdown();
+        System.exit(0);
+    }
+}

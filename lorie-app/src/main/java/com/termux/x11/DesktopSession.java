@@ -43,6 +43,8 @@ final class DesktopSession {
     private boolean active, connected, serverLost, recovering;
     private long recoverDelay = RECOVER_FIRST_MS;
     private int recoverAttempts;
+    /** 用户这次选的环境，恢复时也是它；null 表示默认环境。 */
+    private String chosen;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -57,7 +59,8 @@ final class DesktopSession {
         @Override public void run() {
             if (!active || connected || !recovering) return;
             Log.i(TAG, "recovering, next try in " + recoverDelay * 2);
-            DesktopSession.this.run("recover");
+            if (chosen != null) DesktopSession.this.run("recover", chosen);
+            else DesktopSession.this.run("recover");
             if (++recoverAttempts >= MAX_RECOVER_ATTEMPTS) {
                 // 多半是用户自己停的（xdesk stop），不再重试，回到等待
                 recovering = false;
@@ -106,14 +109,22 @@ final class DesktopSession {
         ui.post(poll);
     }
 
-    /** 运行 xdesk start，需要 RUN_COMMAND 权限。之后意外断开会用 xdesk recover 拉起，用户主动 xdesk stop 的不会。 */
-    boolean launch() {
+    /**
+     * 运行 xdesk start，需要 RUN_COMMAND 权限。之后意外断开会用 xdesk recover 拉起，用户主动 xdesk stop 的不会。
+     * 只有用户在这次打开时选了环境才会走到这里，单纯接回运行中的桌面不会恢复或重启任何东西。
+     *
+     * @param name 环境名，null 是默认环境
+     * @param replaceRunning 结束运行中的另一个环境再启动（xdesk switch）
+     */
+    boolean launch(String name, boolean replaceRunning) {
+        chosen = name;
         recovering = true;
         serverLost = false;
         recoverAttempts = 0;
         ui.removeCallbacks(recover);
         ui.postDelayed(recover, FIRST_CONNECT_RETRY_MS);
-        return run("start");
+        if (name == null) return run("start");
+        return replaceRunning ? run("switch", name) : run("start", name);
     }
 
     boolean isRecovering() { return recovering; }

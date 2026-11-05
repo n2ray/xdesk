@@ -1,6 +1,6 @@
 # XDesk
 
-**Any Linux desktop on an external display, from an Android phone, with no root.** XDesk turns the monitor into an X display and the phone into its touchpad and keyboard. What runs on it is up to you: XFCE in Termux, a desktop in proot or chroot, or a single program.
+**Any Linux desktop on an external display, from an Android phone, with no root.** XDesk turns the monitor into an X display and the phone into its touchpad and keyboard. What runs on it is up to you: XFCE in Termux, a desktop in proot or chroot, or a single program. It can also run an Android app full screen on the display, which needs Shizuku.
 
 [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
 
@@ -18,7 +18,7 @@ It installs the `xdesk` command and its loader, looks for desktops you already h
 
 1. Install the app it downloaded. If your file manager reports "app not installed", use `adb install -r xdesk.apk`. On Xiaomi phones, first turn on **USB install** in Developer options.
 2. Plug in a display and open **XDesk**.
-3. Run `xdesk start`.
+3. Choose what to run: a Termux session or an Android app. Nothing starts until you choose.
 
 No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
 
@@ -64,19 +64,32 @@ Audio from proot and chroot reaches the app through PulseAudio on `127.0.0.1`.
 
 ### Starting from the app
 
-XDesk waits for a desktop by default and needs no Termux permission. To use its **start** button or the auto-start setting:
+The chooser lists your sessions and starts the one you tap, which needs permission to run commands in Termux. Without it, pick **只当显示器** (display only) in the chooser and run `xdesk start` yourself. To allow it:
 
 ```sh
 xdesk enable-app-start
 ```
 
-This sets `allow-external-apps = true` in Termux, so apps can ask to run commands there. Each app also has to be granted the permission, and XDesk asks for it when you press the button.
+This sets `allow-external-apps = true` in Termux, so apps can ask to run commands there. Each app also has to be granted the permission, and XDesk asks for it when you tap a session.
+
+A session that is already running is marked in the chooser. Tapping it reattaches without restarting anything.
+
+## Android apps on the display
+
+Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **接管键鼠** (take input) in the top bar or Ctrl+Alt+M, and the same again gives them back. **返回** (back) returns to the chooser, stops forwarding and removes the cursor. The app stays on the display, and a running Termux desktop is not affected.
+
+- **Needs [Shizuku](https://shizuku.rikka.app/).** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user through Shizuku. It reads `/dev/input` and injects events. Termux sessions do not need Shizuku.
+- **Needs the overlay permission,** because Android keeps its own pointer on the phone and XDesk draws a cursor on the display.
+- **Tested on one phone only,** and only with RustDesk.
+- **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
+- **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
 
 ## What you get
 
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop
+- Android apps full screen on the display, with Shizuku
 - Audio output you can switch: phone speaker, HDMI, or system default
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
@@ -100,6 +113,7 @@ It installs next to the official Termux:X11 and does not touch it. Do not run bo
 
 - **One app, two windows.** The upstream `MainActivity` runs unchanged on the external display. `XDeskActivity` runs on the phone in the same process and calls `LorieView.sendMouseEvent`, `sendKeyEvent` and `sendTextEvent` directly.
 - **The X server runs in Termux**, started with a loader built for this app id.
+- **Android apps** are started on the display with the injector (`InjectorService`), which runs as the shell user and sends events with `injectInputEvent`. `CursorOverlay` draws the pointer.
 - **Audio** goes from a PulseAudio null sink to port 47130. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
 
 Almost all changes live in `lorie-app/` and `xdesk/`, so merging upstream stays simple.
@@ -110,7 +124,10 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 | Symptom | Likely cause |
 |---|---|
-| Waiting forever | Nothing is running yet. Run `xdesk start`, and check `xdesk status` |
+| Waiting forever | You chose display only and nothing is running yet. Run `xdesk start`, and check `xdesk status` |
+| No sessions in the chooser | Run `xdesk enable-app-start` and `xdesk setup`, and allow XDesk to run Termux commands |
+| Android app list is short | Some ROMs limit what apps can see. On Xiaomi, check the permission to get installed apps |
+| Injector service does not start | Open Shizuku and check that it is running. It has to be started again after a reboot |
 | "Display :1 is used by another X server" | The official Termux:X11 is running. Stop it, for example with `pkill -f termux-x11` |
 | App's start button fails | Run `xdesk enable-app-start` and check the permission |
 | Desktop does not fit the screen | It started before the app connected. Open the app first, then restart the session |
@@ -121,7 +138,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 ## Limitations
 
-- Linux programs only. Android apps can be placed on the display but not controlled, because the system keeps the Android mouse on the phone screen and regular apps cannot inject input into others
+- Android apps need Shizuku, and only one full screen app or desktop can use the display at a time. Moving between them goes through the chooser
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
 - Tested on a single phone, the European Xiaomi 15 Ultra
 

@@ -80,3 +80,6 @@ set(CMAKE_REQUIRED_QUIET ${CMAKE_REQUIRED_QUIET_OLD})
 foreach(project xorgproto fontenc md pixman tirpc xshmfence Xdmcp Xau Xfont2 xkbcomp xserver)
     include(recipes/${project}.cmake)
 endforeach()
+
+# XDesk: raw input device access for the injector process, see lorie-app's Evdev.java
+add_library(xdesk_evdev SHARED lorie/xdesk_evdev.c)
