@@ -197,7 +197,7 @@ final class AppSession {
 
     private void updateCursor() {
         long now = SystemClock.uptimeMillis();
-        cursor.setSuppressed(!cursorPolicy.visible(now));
+        cursor.setFaint(!cursorPolicy.fullCursor(now));
         ui.removeCallbacks(cursorTimer);
         long next = cursorPolicy.nextChange(now);
         if (next >= 0) ui.postDelayed(cursorTimer, next + 1);

@@ -20,6 +20,8 @@ import android.view.WindowManager;
 final class CursorOverlay {
     private static final String TAG = "XDesk";
     private static final float SIZE_DP = 24;
+    /** The faint cursor, next to a remote machine's own cursor: a dot this wide, this opaque (0 to 1). */
+    private static final float FAINT_DOT_DP = 6, FAINT_OPACITY = 0.45f;
     /**
      * Android refuses touches that pass through another app's overlay, even a non-touchable one, when the point is
      * inside its frame. So the window starts just past the point the pointer really is at.
@@ -28,9 +30,9 @@ final class CursorOverlay {
 
     private final Context context;
     private WindowManager windows;
-    private View view;
+    private ArrowView view;
     private WindowManager.LayoutParams params;
-    private boolean shown, framePending, suppressed;
+    private boolean shown, framePending, faint;
     private int x, y;
 
     CursorOverlay(Context c) {
@@ -54,7 +56,7 @@ final class CursorOverlay {
         windows = dc.getSystemService(WindowManager.class);
         int size = Math.round(SIZE_DP * dc.getResources().getDisplayMetrics().density);
         view = new ArrowView(dc);
-        view.setVisibility(suppressed ? View.INVISIBLE : View.VISIBLE);
+        view.setFaint(faint);
         params = new WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -65,10 +67,10 @@ final class CursorOverlay {
         params.setTitle("XDesk cursor");
     }
 
-    /** Keep following the pointer but draw nothing, see CursorPolicy. */
-    void setSuppressed(boolean s) {
-        suppressed = s;
-        if (view != null) view.setVisibility(s ? View.INVISIBLE : View.VISIBLE);
+    /** See CursorPolicy. */
+    void setFaint(boolean f) {
+        faint = f;
+        if (view != null) view.setFaint(f);
     }
 
     void moveTo(int newX, int newY) {
@@ -111,6 +113,7 @@ final class CursorOverlay {
     private static final class ArrowView extends View {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path arrow = new Path();
+        private boolean faint;
 
         ArrowView(Context c) {
             super(c);
@@ -133,7 +136,26 @@ final class CursorOverlay {
             arrow.close();
         }
 
+        void setFaint(boolean f) {
+            if (faint == f) return;
+            faint = f;
+            invalidate();
+        }
+
         @Override protected void onDraw(Canvas c) {
+            if (faint) {
+                // In the corner of the window, which is where the pointer really is
+                float r = FAINT_DOT_DP * getResources().getDisplayMetrics().density / 2;
+                // With an edge, so it also shows on a white page
+                int alpha = Math.round(FAINT_OPACITY * 255);
+                fill.setAlpha(alpha);
+                edge.setAlpha(alpha);
+                c.drawCircle(r, r, r, fill);
+                c.drawCircle(r, r, r, edge);
+                fill.setAlpha(255);
+                edge.setAlpha(255);
+                return;
+            }
             c.drawPath(arrow, fill);
             c.drawPath(arrow, edge);
         }

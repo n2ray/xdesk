@@ -5,8 +5,8 @@ import android.util.Log;
 import android.view.MotionEvent;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -33,7 +33,7 @@ public class InjectorService extends IInjector.Stub {
         void run() throws Exception;
     }
 
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private final InputInjector injector;
     private final String injectorError;
     private EvdevReader reader;
@@ -82,7 +82,7 @@ public class InjectorService extends IInjector.Stub {
             });
         }
         @Override public void onWheel(final int vertical, final int horizontal) {
-            post(() -> injector.scroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP));
+            postScroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP);
         }
         @Override public void onButton(final int code, final boolean down) {
             post(() -> {
@@ -146,6 +146,14 @@ public class InjectorService extends IInjector.Stub {
             } catch (Exception e) {
                 Log.w(TAG, "input failed", e);
             }
+        });
+    }
+
+    /** In touch mode a scroll is a finger on the display, which has to be lifted after a short idle. */
+    private void postScroll(final float vertical, final float horizontal) {
+        post(() -> {
+            injector.scroll(vertical, horizontal);
+            if (injector.isSwiping()) worker.schedule(() -> post(injector::endSwipeIfIdle), InputInjector.SWIPE_IDLE_MS + 20, TimeUnit.MILLISECONDS);
         });
     }
 
@@ -259,7 +267,7 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void scroll(final int dy, final int dx) {
         // AXIS_VSCROLL is positive for up, AXIS_HSCROLL positive for right
-        post(() -> injector.scroll(-dy * WHEEL_STEP, dx * WHEEL_STEP));
+        postScroll(-dy * WHEEL_STEP, dx * WHEEL_STEP);
     }
 
     /**

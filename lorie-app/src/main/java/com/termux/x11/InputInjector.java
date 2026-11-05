@@ -29,6 +29,12 @@ final class InputInjector {
     private static final int FOCUS_SETTLE_MS = 150;
     /** Longer than the usual long press timeout of 400 to 500 ms. */
     private static final long LONG_PRESS_MS = 650;
+    /** One wheel tick in touch mode, as a part of the display height. Raise it to scroll further per tick. */
+    private static final float SWIPE_STEP_FRACTION = 1f / 16f;
+    private static final int SWIPE_MOVES_PER_TICK = 3;
+    private static final int SWIPE_MOVE_MS = 6;
+    /** Ticks closer together than this are one gesture. Long enough that the lift causes no fling. */
+    static final long SWIPE_IDLE_MS = 250;
     private static final HashMap<Integer, Integer> KEYS = new HashMap<>();
     /** Android button bits, in the order they are released. */
     private static final int[] ALL_BUTTONS = {MotionEvent.BUTTON_PRIMARY, MotionEvent.BUTTON_SECONDARY, MotionEvent.BUTTON_TERTIARY,
@@ -94,6 +100,10 @@ final class InputInjector {
     /** See setTouchMode. */
     private boolean touchMode, fingerDown;
     private int touchDevice;
+    /** A synthetic one-finger swipe from the wheel or two-finger scroll is in progress, see scroll(). */
+    private boolean swiping;
+    private float swipeX, swipeY;
+    private long lastSwipe;
 
     /** Hidden APIs: fine here, because a process started through app_process has no hidden API restrictions. */
     InputInjector(CursorListener cursor) throws ReflectiveOperationException {
@@ -183,13 +193,17 @@ final class InputInjector {
     }
 
     private void finger(int action) throws ReflectiveOperationException {
+        fingerAt(action, x, y);
+    }
+
+    private void fingerAt(int action, float fingerX, float fingerY) throws ReflectiveOperationException {
         if (action == MotionEvent.ACTION_DOWN) touchDevice = touchDeviceId();
         MotionEvent.PointerProperties p = new MotionEvent.PointerProperties();
         p.id = 0;
         p.toolType = MotionEvent.TOOL_TYPE_FINGER;
         MotionEvent.PointerCoords c = new MotionEvent.PointerCoords();
-        c.x = x;
-        c.y = y;
+        c.x = fingerX;
+        c.y = fingerY;
         c.size = 1f;
         c.pressure = 1f;
         long now = SystemClock.uptimeMillis();
@@ -206,6 +220,7 @@ final class InputInjector {
      * it blocks this thread for the hold time, which only delays input for that moment. Other buttons do nothing.
      */
     private void touchButton(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
+        endSwipe();
         if (bit == MotionEvent.BUTTON_PRIMARY) {
             if (down == fingerDown) return;
             fingerDown = down;
@@ -240,8 +255,63 @@ final class InputInjector {
         cursor.onCursor((int) x, (int) y);
     }
 
-    void scroll(float vertical, float horizontal) throws ReflectiveOperationException {
-        mouse(MotionEvent.ACTION_SCROLL, 0, vertical, horizontal);
+    /** @param vertical wheel steps, positive is up. @param horizontal wheel steps, positive is right. */
+    void scroll(float vertical, float horizontal) throws ReflectiveOperationException, InterruptedException {
+        if (touching()) swipe(vertical, horizontal);
+        else mouse(MotionEvent.ACTION_SCROLL, 0, vertical, horizontal);
+    }
+
+    /**
+     * Touch mode has no wheel, so scrolling is a finger: DOWN at the cursor, MOVEs, and UP after a short idle, with
+     * following ticks continuing the same gesture. Content follows a finger, so scrolling up (content moves down) is a
+     * finger moving down, and scrolling right (content moves left) is a finger moving left. For the phone's two-finger
+     * scroll this means the page follows the fingers, see TouchpadView.scrollBy.
+     */
+    private void swipe(float vertical, float horizontal) throws ReflectiveOperationException, InterruptedException {
+        if (fingerDown) return;  // the one finger we have is dragging
+        float step = height * SWIPE_STEP_FRACTION;
+        float dx = -horizontal * step, dy = vertical * step;
+        if (!swiping) startSwipe();
+        float toX = Math.max(0, Math.min(width - 1, swipeX + dx)), toY = Math.max(0, Math.min(height - 1, swipeY + dy));
+        boolean hitEdge = toX != swipeX + dx || toY != swipeY + dy;
+        if (hitEdge && (swipeX != x || swipeY != y)) {
+            // Out of display: lift and go on from the cursor again
+            endSwipe();
+            startSwipe();
+            toX = Math.max(0, Math.min(width - 1, swipeX + dx));
+            toY = Math.max(0, Math.min(height - 1, swipeY + dy));
+        }
+        float fromX = swipeX, fromY = swipeY;
+        for (int i = 1; i <= SWIPE_MOVES_PER_TICK; i++) {
+            swipeX = fromX + (toX - fromX) * i / SWIPE_MOVES_PER_TICK;
+            swipeY = fromY + (toY - fromY) * i / SWIPE_MOVES_PER_TICK;
+            fingerAt(MotionEvent.ACTION_MOVE, swipeX, swipeY);
+            Thread.sleep(SWIPE_MOVE_MS);
+        }
+        lastSwipe = SystemClock.uptimeMillis();
+    }
+
+    private void startSwipe() throws ReflectiveOperationException {
+        swiping = true;
+        swipeX = x;
+        swipeY = y;
+        downTime = SystemClock.uptimeMillis();
+        fingerAt(MotionEvent.ACTION_DOWN, swipeX, swipeY);
+    }
+
+    private void endSwipe() throws ReflectiveOperationException {
+        if (!swiping) return;
+        swiping = false;
+        fingerAt(MotionEvent.ACTION_UP, swipeX, swipeY);
+    }
+
+    /** The scroll has stopped if nothing came for SWIPE_IDLE_MS. */
+    void endSwipeIfIdle() throws ReflectiveOperationException {
+        if (swiping && SystemClock.uptimeMillis() - lastSwipe >= SWIPE_IDLE_MS) endSwipe();
+    }
+
+    boolean isSwiping() {
+        return swiping;
     }
 
     /** @param bit a MotionEvent.BUTTON_* value */
@@ -421,6 +491,7 @@ final class InputInjector {
     /** Release every held key and button. Runs when physical input goes back to the phone and when stopping. */
     void releaseAll() throws ReflectiveOperationException, InterruptedException {
         pendingButton = 0;  // a click that never finished, do not fire it now
+        endSwipe();
         if (fingerDown) {
             fingerDown = false;
             finger(MotionEvent.ACTION_CANCEL);  // a release would count as a tap

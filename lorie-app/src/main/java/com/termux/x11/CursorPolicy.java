@@ -1,8 +1,10 @@
 package com.termux.x11;
 
 /**
- * Whether XDesk's cursor should show. In an app that draws a remote machine's cursor, two cursors would overlap, so ours
- * hides over the remote picture. It shows over the app's toolbar, which has no remote cursor.
+ * Which cursor XDesk draws. In an app that draws a remote machine's cursor, two full cursors would overlap, so ours is
+ * faint over the remote picture. It never disappears: the session signal stays on in the app's own screens, such as
+ * RustDesk's settings, which have no remote cursor, and nothing says which screen is showing. Over the app's toolbar,
+ * which has no remote cursor, ours is the full one.
  *
  * A menu opened from the toolbar covers the picture and has no remote cursor either, and we cannot see the menu. So
  * after a click on the toolbar ours stays for MENU_MS, enough to pick something. The next click over the picture
@@ -52,11 +54,12 @@ final class CursorPolicy {
         return !alwaysShow && inSession && profile.keepScreenOnMeansRemoteCursor;
     }
 
-    boolean visible(long now) {
+    /** The normal cursor, otherwise the faint one. */
+    boolean fullCursor(long now) {
         return !hidingApplies() || overToolbar() || now < showUntil;
     }
 
-    /** Milliseconds until visible() can change with nothing else happening, or -1. */
+    /** Milliseconds until fullCursor() can change with nothing else happening, or -1. */
     long nextChange(long now) {
         return hidingApplies() && !overToolbar() && now < showUntil ? showUntil - now : -1;
     }
