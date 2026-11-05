@@ -127,3 +127,12 @@ Agreed after the second round. XDesk's job is putting apps on the big screen, wi
 **Keyboard on the display.** By default the display's IME policy is set to hide while the injector runs, so apps do not raise the keyboard there, and the old value returns at the end, also on crash paths. A setting turns it off.
 
 **Orientation** follows the system by default, with a setting to fix it. **Look:** dark, one blue accent, status colour only on small dots, icons for common actions, targets of at least 48 dp.
+
+# Built-in activation
+
+Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privileged injector. When Shizuku is running and has allowed XDesk, it is used as before. Otherwise XDesk pairs once with the device's own adbd over wireless debugging (libadb-android, API 30+) and starts `ShellServer` through `app_process`. That process stays between sessions, because starting it again may need Wi-Fi, and each session is one `InjectorService`, which gives back what it holds when it ends or when the app dies. `AppSession` only sees an `IInjector`.
+
+- Only XDesk can get the Binder (a package-limited broadcast to a receiver requiring `INTERACT_ACROSS_USERS_FULL`) and only XDesk's uid can call it (`onTransact`).
+- A running XDesk asks for the Binder by connecting to a loopback port. That connection carries nothing.
+- A server exits when its APK goes away, and XDesk ends a server with another install's version.
+- XDesk only ever writes `adb_wifi_enabled`, never `adb_enabled` or `adb_allowed_connection_time`, has no boot receiver and does not use `adb tcpip`.
