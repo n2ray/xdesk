@@ -75,7 +75,7 @@ final class ChooserView extends LinearLayout {
     }
 
     private final Host host;
-    private final TextView banner, notice, favouritesLabel;
+    private final TextView activate, banner, notice, favouritesLabel;
     private final Style.IconButton output;
     private final TextView close;
     private final EditText search;
@@ -121,6 +121,13 @@ final class ChooserView extends LinearLayout {
         sp.leftMargin = Style.dp(c, Style.GAP);
         head.addView(settings, sp);
         addView(head, new LayoutParams(-1, -2));
+
+        // 安卓应用还不能用时，第一眼就看到，点了去激活
+        activate = Style.button(c, "", Style.ACCENT, 14, Style.RADIUS);
+        activate.setVisibility(GONE);
+        LayoutParams ap = new LayoutParams(-1, -2);
+        ap.topMargin = Style.dp(c, Style.GAP);
+        addView(activate, ap);
 
         banner = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
         banner.setPadding(0, Style.dp(c, 4), 0, 0);
@@ -213,6 +220,17 @@ final class ChooserView extends LinearLayout {
     /** 盖在运行中的会话上时才有回到触摸板。 */
     void setOverSession(boolean over) {
         close.setVisibility(over ? VISIBLE : GONE);
+    }
+
+    /** 安卓应用要先激活时的提示，点了执行 onTap。text 为 null 时不显示。 */
+    void setActivation(String text, final Runnable onTap) {
+        activate.setVisibility(text != null ? VISIBLE : GONE);
+        if (text == null) return;
+        activate.setText(text);
+        activate.setOnClickListener(v -> {
+            Style.tick(v);
+            onTap.run();
+        });
     }
 
     /** 刚发生的事，比如桌面停止了。null 去掉。 */

@@ -296,6 +296,7 @@ public class XDeskActivity extends Activity {
     private final AppSession.Listener appListener = new AppSession.Listener() {
         @Override public void onInjectorSourceChanged() {
             if (activation != null && activation.isShowing()) activation.refresh();
+            updateActivationPrompt();
             if (pendingApp != null) {
                 startApp(pendingApp);
             } else {
@@ -1691,6 +1692,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void refreshChooser() {
+        updateActivationPrompt();
         updateChooserDisplay();
         refreshTermux();
         // 先用上次存的，马上就有；后台读完再更新
@@ -1907,7 +1909,26 @@ public class XDeskActivity extends Activity {
         }
     }
 
-    /** 没有 Shizuku 也行：XDesk 自己通过无线调试启动注入服务。 */
+    /** 启动器顶部的提示：安卓应用能不能用，不能用就引导去激活。和外接屏无关，配对只要手机。 */
+    private void updateActivationPrompt() {
+        if (chooser == null) return;
+        ShellActivation shell = apps.shell();
+        String text;
+        if (apps.injectorReady()) text = null;
+        else if (!shell.supported()) text = "外屏运行安卓应用需要 Shizuku · 去设置";
+        else if (!shell.isPaired()) text = "外屏运行安卓应用要先激活一次 · 去激活";
+        else if (shell.isStarting()) text = "正在启动注入服务…";
+        else text = "注入服务没有运行 · 去启动";
+        chooser.setActivation(text, () -> {
+            if (apps.shell().supported()) showActivation(null);
+            else showShizukuSetup();
+        });
+    }
+
+    /**
+     * 没有 Shizuku 也行：XDesk 自己通过无线调试启动注入服务。
+     * @param app 激活完要启动的应用，从启动器的提示进来时是 null
+     */
     private void showActivation(AppCatalog.App app) {
         final ShellActivation shell = apps.shell();
         if (!shell.isPaired() || shell.isPairing()) {
@@ -1917,7 +1938,7 @@ public class XDeskActivity extends Activity {
         closeActivation();
         if (shell.problem() == null) shell.start();
         if (shell.isStarting()) {
-            showSetup("正在启动 " + app.label, "正在启动注入服务。", true, null, null);
+            showSetup(app != null ? "正在启动 " + app.label : "正在启动注入服务", "正在启动注入服务。", true, null, null);
             return;
         }
         showSetup("还差一步", String.valueOf(shell.problem()), false, "打开无线调试设置", new View.OnClickListener() {
@@ -1982,6 +2003,7 @@ public class XDeskActivity extends Activity {
         if (problem != null) chooser.setNotice(problem);
         else if (shownShellProblem != null) chooser.setNotice(null);
         shownShellProblem = problem;
+        updateActivationPrompt();
     }
 
     /** 用户选了 Shizuku，或者系统太旧用不了无线调试。 */
