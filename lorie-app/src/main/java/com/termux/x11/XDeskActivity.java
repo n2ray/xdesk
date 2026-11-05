@@ -78,7 +78,8 @@ public class XDeskActivity extends Activity {
     private static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
-    private static final long KEYBOARD_GONE_MS = 1500;
+    private static final long KEYBOARD_GONE_MS = 2000, SHOW_KEYBOARD_RETRY_MS = 200;
+    private static final int SHOW_KEYBOARD_TRIES = 6;
     private static final long DIM_AFTER_MS = 60000;
     private static final float DIM_BRIGHTNESS = 0.01f;
 
@@ -93,6 +94,7 @@ public class XDeskActivity extends Activity {
     private Style.IconButton keysHandle;
     private DirectTouchView directTouch;
     private boolean keysExpanded, keyboardOpen, keyboardWanted, phonePassive;
+    private int showKeyboardTries;
     /** 触控区铺满整个手机屏，系统栏隐藏。 */
     private boolean padFullscreen;
     /** 这个显示器已经放过仪表盘了，放不上去也别一直试。 */
@@ -481,7 +483,11 @@ public class XDeskActivity extends Activity {
             if (padFullscreen) applyImmersive();
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
-            if (keyboardWanted) ime.showSoftInput(keyView, 0);
+            if (keyboardWanted) {
+                showKeyboardTries = SHOW_KEYBOARD_TRIES;
+                ui.removeCallbacks(showKeyboard);
+                ui.post(showKeyboard);
+            }
             updateCapture();
         }
     }
@@ -996,6 +1002,25 @@ public class XDeskActivity extends Activity {
         }
     };
 
+    private void openPhoneKeyboard() {
+        keyboardWanted = true;
+        updatePhoneFocus();
+        // 窗口拿到焦点后，onWindowFocusChanged 里弹
+        apps.focusDisplay(false);
+        ui.removeCallbacks(keyboardGone);
+        ui.postDelayed(keyboardGone, KEYBOARD_GONE_MS);
+    }
+
+    /** 窗口刚拿到焦点时，输入法还没连上这个窗口，请求会被忽略，所以要多试几次。 */
+    private final Runnable showKeyboard = new Runnable() {
+        @Override public void run() {
+            if (!keyboardWanted || keyboardOpen || showKeyboardTries-- <= 0) return;
+            keyView.requestFocus();
+            ime.showSoftInput(keyView, 0);
+            ui.postDelayed(this, SHOW_KEYBOARD_RETRY_MS);
+        }
+    };
+
     private void toggleKeyboard() {
         WindowInsets w = getWindow().getDecorView().getRootWindowInsets();
         if (w != null && w.isVisible(WindowInsets.Type.ime())) {
@@ -1005,12 +1030,14 @@ public class XDeskActivity extends Activity {
                 updatePhoneFocus();
             }
         } else if (apps.isActive()) {
-            // 窗口拿到焦点后在 onWindowFocusChanged 里弹
-            keyboardWanted = true;
-            updatePhoneFocus();
-            apps.focusDisplay(false);
-            ui.removeCallbacks(keyboardGone);
-            ui.postDelayed(keyboardGone, KEYBOARD_GONE_MS);
+            // 键盘也可能是外接屏上的应用弹的，这个窗口看不到它。那时 Back 先到输入法，只收起键盘
+            new Thread(() -> {
+                boolean shown = apps.isKeyboardShown();
+                ui.post(() -> {
+                    if (shown) apps.sendBack();
+                    else openPhoneKeyboard();
+                });
+            }, "xdesk-keyboard").start();
         } else {
             keyView.requestFocus();
             ime.showSoftInput(keyView, 0);
