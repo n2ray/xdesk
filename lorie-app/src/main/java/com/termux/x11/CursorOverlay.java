@@ -46,7 +46,7 @@ final class CursorOverlay {
     private WindowManager windows;
     private ArrowView view;
     private WindowManager.LayoutParams params;
-    private boolean shown, framePending, faint;
+    private boolean shown, framePending, faint, systemStyle;
     private int x, y, margin, attachedWidth, attachedHeight, attachedDensity;
 
     CursorOverlay(Context c) {
@@ -100,6 +100,7 @@ final class CursorOverlay {
         Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " at " + attachedDensity + " dpi");
         view = new ArrowView(dc, size, margin, SystemPointer.load());
         view.setFaint(faint);
+        view.setSystemStyle(systemStyle);
         params = new WindowManager.LayoutParams(window, window, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -108,6 +109,12 @@ final class CursorOverlay {
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         params.setFitInsetsTypes(0);
         params.setTitle("XDesk cursor");
+    }
+
+    /** The cursor shows the input mode: the system's pointer in 触控, our own arrow in 键鼠. Takes effect at once. */
+    void setSystemStyle(boolean on) {
+        systemStyle = on;
+        if (view != null) view.setSystemStyle(on);
     }
 
     /** See CursorPolicy. */
@@ -223,8 +230,8 @@ final class CursorOverlay {
     }
 
     /**
-     * The system's pointer when it can be loaded, otherwise our own slim black arrow with a white outline and a soft
-     * shadow. All sizes come from the cursor size passed in, nothing from density.
+     * Our own slim black arrow with a white outline and a soft shadow, with the tip at the hot spot, or the system's
+     * pointer in 触控 mode, with its own hot spot. All sizes come from the cursor size passed in, nothing from density.
      */
     private static final class ArrowView extends View {
         /** The arrow on a grid of 24 by 24, with the tip at 0,0. */
@@ -238,7 +245,7 @@ final class CursorOverlay {
         private final Path arrow = new Path();
         private final float size, tipX;
         private final SystemPointer pointer;
-        private boolean faint;
+        private boolean faint, systemStyle;
 
         ArrowView(Context c, int size, int margin, SystemPointer pointer) {
             super(c);
@@ -272,6 +279,13 @@ final class CursorOverlay {
             arrow.close();
         }
 
+        void setSystemStyle(boolean on) {
+            if (on && pointer == null && !systemStyle) Log.w(TAG, "no system pointer, using our own arrow");
+            if (systemStyle == on) return;
+            systemStyle = on;
+            invalidate();
+        }
+
         void setFaint(boolean f) {
             if (faint == f) return;
             faint = f;
@@ -285,7 +299,7 @@ final class CursorOverlay {
                 c.drawCircle(tipX + r, r, r, dotEdge);
                 return;
             }
-            if (pointer != null) {
+            if (systemStyle && pointer != null) {
                 pointer.drawable.draw(c);
                 return;
             }

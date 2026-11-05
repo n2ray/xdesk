@@ -243,6 +243,9 @@ final class AppSession {
     }
 
     private void updateCursor() {
+        boolean touch = active && app != null && touchModeFor(app);
+        cursor.setSystemStyle(touch);
+        if (!touch) ui.removeCallbacks(cursorHide);  // 只有触控模式才会自己藏起来
         long now = SystemClock.uptimeMillis();
         cursor.setFaint(!cursorPolicy.fullCursor(now));
         ui.removeCallbacks(cursorTimer);
@@ -700,6 +703,7 @@ final class AppSession {
     /** 顶部按钮和设置卡片改的是同一个值。 */
     void setTouchMode(AppCatalog.App a, boolean on) {
         touchModes.edit().putBoolean(a.packageName, on).apply();
+        updateCursor();
         IInjector i = injector;
         if (i == null || !active || app == null || !app.packageName.equals(a.packageName)) return;
         try {
