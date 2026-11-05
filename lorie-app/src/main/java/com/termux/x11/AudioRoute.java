@@ -14,8 +14,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 用户选的声音输出，进程单例。Termux 桌面的声音由 AudioPlayer 用 setPreferredDevice 指定，不需要 Shizuku；
- * 安卓应用和系统其他声音要由注入服务设系统路由（AudioRouter），会话结束时清除。
+ * 用户选的声音输出，进程单例。Shizuku 在运行时，所有声音（XDesk 自己的桌面声音也算）都靠注入服务设的系统路由
+ * （AudioRouter），会话结束时清除。没有 Shizuku 时只有 AudioPlayer 的 setPreferredDevice，这只是尽力而为：
+ * 实测它没法在接着 HDMI 时把声音拉回手机扬声器。
  */
 final class AudioRoute {
     interface Listener {
@@ -43,6 +44,7 @@ final class AudioRoute {
     private static final String PREFS = "audio_route", PREF_KEY = "device";
     /** 老版本的设置：0 手机，1 外接，2 系统。 */
     private static final int OLD_PHONE = 0, OLD_EXTERNAL = 1;
+    private static final long PENDING_TIMEOUT_MS = 15000;
 
     private static AudioRoute instance;
 
@@ -57,10 +59,13 @@ final class AudioRoute {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private Listener listener;
     private IInjector injector;
-    /** 没选过时桌面按老设置走，系统路由不动。 */
-    private int oldChoice = OLD_PHONE;
     private String appliedKey;
     private boolean wasMissing;
+    /** 注入服务正在启动。这期间不对音轨指定设备，否则会白试几次再报“系统不听”。 */
+    private boolean pending;
+    private final Runnable pendingOver = () -> pending = false;
+    /** 注入服务设路由失败过：这个系统版本用不了，退回 setPreferredDevice。 */
+    private boolean systemFailed;
 
     private AudioRoute(Context c) {
         audio = c.getSystemService(AudioManager.class);
@@ -75,8 +80,17 @@ final class AudioRoute {
         listener = l;
     }
 
-    void setOldChoice(int old) {
-        oldChoice = old;
+    /** 老版本明确选过的，算作这个设置的值。 */
+    void migrateOldChoice(int old) {
+        if (prefs.contains(PREF_KEY)) return;
+        String key = old == OLD_PHONE ? AudioDeviceInfo.TYPE_BUILTIN_SPEAKER + "|" : old == OLD_EXTERNAL ? AudioDeviceInfo.TYPE_HDMI + "|" : KEY_SYSTEM;
+        prefs.edit().putString(PREF_KEY, key).apply();
+    }
+
+    void setPending(boolean p) {
+        pending = p;
+        ui.removeCallbacks(pendingOver);
+        if (p) ui.postDelayed(pendingOver, PENDING_TIMEOUT_MS);
     }
 
     private void devicesChanged() {
@@ -155,18 +169,9 @@ final class AudioRoute {
         return out;
     }
 
-    /** 用户明确选过的；null 是没选过。 */
-    private String chosenKey() {
-        return prefs.getString(PREF_KEY, null);
-    }
-
-    /** 对话框里该勾哪项。 */
+    /** 所有模式共用这一个设置。没选过就是系统默认。 */
     String selectedKey() {
-        String k = chosenKey();
-        if (k != null) return k;
-        if (oldChoice == OLD_PHONE) return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER + "|";
-        if (oldChoice == OLD_EXTERNAL) return AudioDeviceInfo.TYPE_HDMI + "|";
-        return KEY_SYSTEM;
+        return prefs.getString(PREF_KEY, KEY_SYSTEM);
     }
 
     private static int typeOf(String key) {
@@ -221,6 +226,7 @@ final class AudioRoute {
     void select(String key) {
         prefs.edit().putString(PREF_KEY, key).apply();
         wasMissing = isMissing();
+        appliedKey = null;  // 再选一次也要真的设一次，比如清掉别的进程留下的
         syncSystem();
         if (listener != null) listener.onOutputsChanged();
     }
@@ -229,6 +235,8 @@ final class AudioRoute {
     void attachInjector(IInjector i) {
         injector = i;
         appliedKey = null;
+        systemFailed = false;
+        setPending(false);
         syncSystem();
     }
 
@@ -236,18 +244,29 @@ final class AudioRoute {
     void detachInjector() {
         injector = null;
         appliedKey = null;
+        setPending(false);
     }
 
+    /** 系统路由在管声音，不用再对单个音轨指定设备。 */
     boolean coversSystem() {
-        return injector != null;
+        return (injector != null || pending) && !systemFailed;
     }
 
-    /** 只有用户明确选过才动系统路由；没选过的人不会发现自己的蓝牙耳机被改掉。 */
+    /** AudioPlayer 试了几次系统都不理。从播放线程调用。 */
+    void reportNotHonoured() {
+        ui.post(() -> {
+            if (listener != null) listener.onAudioMessage("系统没有听 XDesk 的，接着 HDMI 时可能指定不了输出。运行 Shizuku 后再试");
+        });
+    }
+
+    /**
+     * 不分模式：注入服务在就照设置来，切换桌面和应用时它一直在，设置也就一直有效。选了系统默认或选的设备不在了就清除，
+     * 这也能清掉以前的进程留下的。会话结束时注入服务退出前自己清（InjectorService.shutdown），下次会话再设。
+     */
     private void syncSystem() {
         final IInjector i = injector;
-        final String chosen = chosenKey();
-        if (i == null || chosen == null) return;
-        final Output o = chosen.isEmpty() ? null : selectedOutput();
+        if (i == null) return;
+        final Output o = selectedOutput();
         final String want = o != null ? o.key : KEY_SYSTEM;
         if (want.equals(appliedKey)) return;
         appliedKey = want;
@@ -258,10 +277,11 @@ final class AudioRoute {
             } catch (RemoteException e) {
                 error = "注入服务断开了";
             }
-            if (error == null) return;
+            final boolean failed = error != null;
             final String message = "无法切换系统声音：" + error;
             ui.post(() -> {
-                if (listener != null) listener.onAudioMessage(message);
+                systemFailed = failed;
+                if (failed && listener != null) listener.onAudioMessage(message);
             });
         });
     }

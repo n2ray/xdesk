@@ -33,6 +33,8 @@ final class ChooserView extends LinearLayout {
         void onDockToggle(String key);
         /** 盖在会话上时点了关闭。 */
         void onChooserClose();
+        /** 声音输出，和设置里、触摸板界面上是同一个设置。 */
+        void onChooseOutput();
     }
 
     private static final String RECENT_SESSION = "t:", RECENT_APP = "a:";
@@ -65,7 +67,7 @@ final class ChooserView extends LinearLayout {
     }
 
     private final Host host;
-    private final TextView banner, close;
+    private final TextView banner, close, output;
     private final EditText search;
     private final DockBar dock;
     private final Adapter adapter = new Adapter();
@@ -94,6 +96,12 @@ final class ChooserView extends LinearLayout {
         title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         head.addView(title, new LayoutParams(0, -2, 1));
+        output = Style.button(c, "", Style.SURFACE_RAISED, 13, 16);
+        output.setPadding(Style.dp(c, 12), Style.dp(c, 6), Style.dp(c, 12), Style.dp(c, 6));
+        output.setOnClickListener(v -> host.onChooseOutput());
+        LayoutParams op = new LayoutParams(-2, -2);
+        op.rightMargin = Style.dp(c, 6);
+        head.addView(output, op);
         close = Style.button(c, "回到触摸板", Style.SURFACE_RAISED, 13, 16);
         close.setPadding(Style.dp(c, 12), Style.dp(c, 6), Style.dp(c, 12), Style.dp(c, 6));
         close.setOnClickListener(v -> host.onChooserClose());
@@ -155,6 +163,10 @@ final class ChooserView extends LinearLayout {
     /** 盖在运行中的会话上时才有关闭按钮。 */
     void setOverSession(boolean over) {
         close.setVisibility(over ? VISIBLE : GONE);
+    }
+
+    void setOutputLabel(String label) {
+        output.setText(label);
     }
 
     void clearSearch() {

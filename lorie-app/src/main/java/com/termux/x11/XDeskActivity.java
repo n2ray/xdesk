@@ -255,6 +255,7 @@ public class XDeskActivity extends Activity {
         @Override public void onShizukuChanged() {
             if (pendingApp != null) startApp(pendingApp);
             else apps.reconnect();
+            if (session.isActive()) apps.connectForAudio();
             if (apps.isActive()) updateStatus();
         }
         @Override public void onAppStarted() {
@@ -300,6 +301,7 @@ public class XDeskActivity extends Activity {
             saveDock(dock);
         }
         @Override public void onChooserClose() { closeChooserOverSession(); }
+        @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionChosen(final String name) {
             if (externalDisplay() == null) {
                 needDisplayNotice();
@@ -391,7 +393,7 @@ public class XDeskActivity extends Activity {
         apps = AppSession.get(this);
         catalog = AppCatalog.get(this);
         audioRoute = AudioRoute.get(this);
-        audioRoute.setOldChoice(prefs.getInt(PREF_OUTPUT, 0));
+        if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
         setContentView(buildUi());
@@ -893,7 +895,9 @@ public class XDeskActivity extends Activity {
     // --- 设置 ---
 
     private void updateAudioChip() {
-        if (audioChip != null) audioChip.setText("声音·" + audioRoute.shortLabel());
+        String label = "声音·" + audioRoute.shortLabel();
+        if (audioChip != null) audioChip.setText(label);
+        if (chooser != null) chooser.setOutputLabel(label);
     }
 
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
@@ -918,9 +922,9 @@ public class XDeskActivity extends Activity {
         title.setTextSize(18);
         head.addView(title);
         TextView note = new TextView(this);
-        note.setText((audioRoute.coversSystem()
-            ? "Termux 桌面、安卓应用和其他媒体声音都走这里，XDesk 返回选择界面后恢复。"
-            : "现在只影响 Termux 桌面的声音。安卓应用的声音要在运行时通过 Shizuku 才能切换。")
+        note.setText((apps.shizukuState() == AppSession.SHIZUKU_READY
+            ? "所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。回到选择界面或退出后手机恢复正常，下次会话再按这里的选择。"
+            : "Shizuku 没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。")
             + "\n只是把输出指向这个设备，音质和蓝牙编码没法确认。");
         note.setTextColor(Style.TEXT_DIM);
         note.setTextSize(13);
@@ -1178,6 +1182,7 @@ public class XDeskActivity extends Activity {
         chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
         keyView.releasePointerCapture();
+        updateAudioChip();
         refreshChooser();
     }
 
@@ -1477,6 +1482,7 @@ public class XDeskActivity extends Activity {
         placeX11(d.getDisplayId());
         applySize(d);
         session.attach();
+        apps.connectForAudio();
         client = session.input();
         updateCapture();
     }
@@ -1657,6 +1663,7 @@ public class XDeskActivity extends Activity {
                 @Override public void onClick(DialogInterface dialog, int which) {
                     client = null;
                     session.stop();
+                    if (apps.isActive() || apps.hasInjector()) apps.stop();
                     MainActivity m = MainActivity.getInstance("");
                     if (m != null) m.finishAndRemoveTask();
                     finishAndRemoveTask();

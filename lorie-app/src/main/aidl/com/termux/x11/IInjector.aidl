@@ -38,4 +38,6 @@ interface IInjector {
     oneway void setEnabled(boolean enabled) = 17;
     /** Prefer this device for media on the whole system, type < 0 clears it. Returns null or the error. */
     String setAudioOutput(int type, String address) = 18;
+    /** Connect without an app, for the sound route alone. Reads no input devices. */
+    void attach(IInjectorListener listener) = 19;
 }

@@ -156,17 +156,8 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public String configure(IInjectorListener l, final int displayId, final int width, final int height, final String pkg, float speed) {
         if (injector == null) return injectorError;
-        listener = l;
+        attach(l);
         mouseSpeed = speed;
-        try {
-            // Backup for daemon(false): whatever happens to the app, nothing stays grabbed
-            l.asBinder().linkToDeath(() -> {
-                audio.clear();
-                System.exit(0);
-            }, 0);
-        } catch (RemoteException e) {
-            System.exit(0);
-        }
         enabled = true;
         inSession = false;
         packageName = pkg;
@@ -189,6 +180,19 @@ public class InjectorService extends IInjector.Stub {
             }
         }
         return null;
+    }
+
+    @Override public void attach(IInjectorListener l) {
+        listener = l;
+        try {
+            // Backup for daemon(false): whatever happens to the app, nothing stays grabbed or routed
+            l.asBinder().linkToDeath(() -> {
+                audio.clear(false);
+                System.exit(0);
+            }, 0);
+        } catch (RemoteException e) {
+            System.exit(0);
+        }
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
@@ -339,7 +343,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public String setAudioOutput(int type, String address) {
-        return type < 0 ? audio.clear() : audio.set(type, address);
+        return type < 0 ? audio.clear(true) : audio.set(type, address);
     }
 
     /** Ask once a second whether the current app is in a session, see AppInputProfile. Only for apps that need it. */
@@ -382,7 +386,7 @@ public class InjectorService extends IInjector.Stub {
             r.setGrabbed(false);
             r.shutdown();
         }
-        String left = audio.clear();
+        String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
         enabled = false;
         listener = null;

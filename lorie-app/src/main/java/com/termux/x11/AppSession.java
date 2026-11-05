@@ -57,6 +57,8 @@ final class AppSession {
     /** 接管过键鼠又切去了 Termux 桌面：切回来时接着接管。用户没要过就不会自己接管。 */
     private boolean forwardOnReturn;
     private boolean alwaysShowCursor;
+    /** Termux 桌面也要靠注入服务选声音输出：只为这个连上，不读键鼠。 */
+    private boolean audioBinding;
     private Listener listener;
     private boolean active, forwarding, started;
     private int deviceCount;
@@ -106,9 +108,24 @@ final class AppSession {
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             ui.removeCallbacks(bindTimeout);
-            if (!active || binder == null || !binder.pingBinder()) return;
-            injector = IInjector.Stub.asInterface(binder);
-            new Thread(AppSession.this::prepare, "xdesk-app-start").start();
+            boolean audioOnly = !active && audioBinding;
+            audioBinding = false;
+            if ((!active && !audioOnly) || binder == null || !binder.pingBinder()) return;
+            final IInjector i = IInjector.Stub.asInterface(binder);
+            injector = i;
+            if (audioOnly) {
+                new Thread(() -> {
+                    try {
+                        i.attach(fromInjector);
+                        i.setEnabled(false);
+                        ui.post(() -> audioRoute.attachInjector(i));
+                    } catch (RemoteException e) {
+                        Log.w(TAG, "audio only", e);
+                    }
+                }, "xdesk-audio-connect").start();
+            } else {
+                new Thread(AppSession.this::prepare, "xdesk-app-start").start();
+            }
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             lostInjector();
@@ -256,6 +273,7 @@ final class AppSession {
         cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
         updateCursor();
+        if (injector == null) audioRoute.setPending(true);
         Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label);
         context.startForegroundService(keepAlive);
         if (injector != null) {
@@ -378,6 +396,20 @@ final class AppSession {
             return;
         }
         if (listener != null) listener.onAppStateChanged();
+    }
+
+    /** Shizuku 就绪就连上，声音输出才选得准。没有就算了：Termux 桌面不需要 Shizuku，也不弹授权。 */
+    void connectForAudio() {
+        if (injector != null || audioBinding || active || shizukuState() != SHIZUKU_READY) return;
+        audioBinding = true;
+        audioRoute.setPending(true);
+        try {
+            Shizuku.bindUserService(serviceArgs(), connection);
+        } catch (RuntimeException e) {
+            audioBinding = false;
+            audioRoute.setPending(false);
+            Log.w(TAG, "audio only bind", e);
+        }
     }
 
     /** After Shizuku came back. */
@@ -525,6 +557,7 @@ final class AppSession {
         ui.removeCallbacks(bindTimeout);
         ui.removeCallbacks(cursorTimer);
         forwardOnReturn = false;
+        audioBinding = false;
         audioRoute.detachInjector();
         boolean desktopActive = DesktopSession.get(context).isActive();
         active = false;

@@ -10,7 +10,7 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
-/** 从本机端口取 PCM（48k 16 位立体声）播放，输出设备跟着 AudioRoute，边放边核对。不需要 Shizuku。 */
+/** 从本机端口取 PCM（48k 16 位立体声）播放。输出设备见 AudioRoute：有系统路由就跟着它，没有才对音轨指定设备。 */
 final class AudioPlayer {
     private static final String TAG = "XDesk";
     private static final int RATE = 48000;
@@ -24,7 +24,10 @@ final class AudioPlayer {
     private final int port;
     private volatile boolean running = true;
     private final AudioRoute route;
-    private boolean hasPreferred;
+    private static final int NO_DEVICE = -1;
+    /** 没有 Shizuku 时系统可能一直不理（实测接着 HDMI 时指定手机扬声器就是这样），试这么多次就停。 */
+    private static final int MAX_REROUTES = 5;
+    private int preferredId = NO_DEVICE, reroutes, loggedRoute = NO_DEVICE;
     private long lastRouteCheck;
     private volatile AudioTrack track;
     private volatile Socket socket;
@@ -46,25 +49,38 @@ final class AudioPlayer {
         if (s != null) try { s.close(); } catch (IOException ignored) { }
     }
 
-    /** 系统可能不理会启动前设的首选设备，所以边放边核对实际路由，不对就重设。 */
+    /** 系统可能不理会启动前设的首选设备，所以边放边核对实际路由，不对就重设几次。 */
     private void checkRoute(AudioTrack t) {
         long now = System.currentTimeMillis();
         if (now - lastRouteCheck < ROUTE_CHECK_MS) return;
         lastRouteCheck = now;
-        AudioDeviceInfo want = route.playerDevice();
-        if (want == null) {
-            // 选了系统默认，或选的设备不在了
-            if (hasPreferred) t.setPreferredDevice(null);
-            hasPreferred = false;
+        AudioDeviceInfo actual = t.getRoutedDevice();
+        int actualId = actual != null ? actual.getId() : NO_DEVICE;
+        if (actualId != loggedRoute) {
+            loggedRoute = actualId;
+            Log.i(TAG, "audio routed to type " + (actual != null ? actual.getType() : NO_DEVICE));
+        }
+        AudioDeviceInfo want = route.coversSystem() ? null : route.playerDevice();
+        int wantId = want != null ? want.getId() : NO_DEVICE;
+        if (wantId != preferredId) {
+            preferredId = wantId;
+            reroutes = 0;
+            t.setPreferredDevice(want);
             return;
         }
-        hasPreferred = true;
-        AudioDeviceInfo actual = t.getRoutedDevice();
-        if ((actual == null || actual.getId() != want.getId())) {
-            Log.i(TAG, "reroute audio to " + want.getType());
-            t.setPreferredDevice(null);
-            t.setPreferredDevice(want);
+        if (want == null || actualId == wantId) {
+            reroutes = 0;
+            return;
         }
+        if (reroutes > MAX_REROUTES) return;
+        if (++reroutes > MAX_REROUTES) {
+            Log.w(TAG, "audio stays on type " + (actual != null ? actual.getType() : NO_DEVICE) + ", wanted " + want.getType() + ", giving up");
+            route.reportNotHonoured();
+            return;
+        }
+        Log.i(TAG, "reroute audio to " + want.getType());
+        t.setPreferredDevice(null);
+        t.setPreferredDevice(want);
     }
 
     private AudioTrack newTrack() {
@@ -82,8 +98,8 @@ final class AudioPlayer {
             .setBufferSizeInBytes(Math.max(min, 2 * CHUNK))
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build();
-        AudioDeviceInfo want = route.playerDevice();
-        hasPreferred = want != null;
+        AudioDeviceInfo want = route.coversSystem() ? null : route.playerDevice();
+        preferredId = want != null ? want.getId() : NO_DEVICE;
         t.setPreferredDevice(want);
         t.play();
         return t;

@@ -92,7 +92,7 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop
 - Android apps full screen on the display, with Shizuku
-- Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. Without Shizuku this covers desktop audio only. With an Android app running, it also sets the system's preferred media device through Shizuku, and clears it when you return to the chooser. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, a reboot probably does
+- Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With Shizuku running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without Shizuku it is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
 
