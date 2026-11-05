@@ -43,7 +43,8 @@ public class InjectorService extends IInjector.Stub {
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
     private volatile boolean hotkeyAllowed = true;
-    private int repeatingKey = -1;
+    /** Counts key presses, so a timer from an earlier press of the same key stops. */
+    private int repeatPress;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private volatile boolean enabled = true, watchSession, inSession;
@@ -211,15 +212,15 @@ public class InjectorService extends IInjector.Stub {
      * key held repeats, as on a keyboard. The held state ends it, so releaseAll does too.
      */
     private void startRepeat(final int code) {
-        repeatingKey = code;
-        if (injector.repeats(code)) scheduleRepeat(code, KEY_REPEAT_DELAY_MS);
+        int press = ++repeatPress;
+        if (injector.repeats(code)) scheduleRepeat(code, press, KEY_REPEAT_DELAY_MS);
     }
 
-    private void scheduleRepeat(final int code, long delayMs) {
+    private void scheduleRepeat(final int code, final int press, long delayMs) {
         worker.schedule(() -> post(() -> {
-            if (repeatingKey != code || !injector.repeats(code)) return;
+            if (press != repeatPress || !injector.repeats(code)) return;
             injector.key(code, 2);
-            scheduleRepeat(code, KEY_REPEAT_MS);
+            scheduleRepeat(code, press, KEY_REPEAT_MS);
         }), delayMs, TimeUnit.MILLISECONDS);
     }
 
