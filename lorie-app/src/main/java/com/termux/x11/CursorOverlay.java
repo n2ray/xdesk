@@ -29,7 +29,7 @@ final class CursorOverlay {
     private static final float SIZE_OF_HEIGHT = 32f / 1508f;
     private static final int MIN_SIZE = 16;
     /** The faint cursor, next to a remote machine's own cursor: this part of the cursor's size wide, this opaque (0 to 1). */
-    private static final float FAINT_DOT_OF_SIZE = 0.25f, FAINT_OPACITY = 0.45f;
+    private static final float FAINT_DOT_OF_SIZE = 0.25f, FAINT_OPACITY = 0.25f;
     /** Room around the arrow for its outline and shadow, as a part of the cursor's size. */
     private static final float MARGIN_OF_SIZE = 0.15f;
     /**
