@@ -86,8 +86,9 @@ final class InputInjector {
     private int display, width, height, buttons, meta;
     private float x, y, nudge;
     private long downTime;
-    /** Hover method only: the press in progress goes to the app's own UI, see button(). */
-    private boolean realPress, menuOpen;
+    /** Hover method only: a button that is down but not sent yet, and where it went down, see hoverMethodButton(). */
+    private int pendingButton;
+    private float pendingX, pendingY;
 
     /** Hidden APIs: fine here, because a process started through app_process has no hidden API restrictions. */
     InputInjector(CursorListener cursor) throws ReflectiveOperationException {
@@ -153,13 +154,17 @@ final class InputInjector {
     }
 
     private boolean inPress() {
-        return buttons != 0 && (!profile.hoverButtons || realPress);
+        return buttons != 0 && !profile.hoverButtons;
     }
 
     /** Pixels on the display, already scaled by the caller. */
-    void moveBy(float dx, float dy) throws ReflectiveOperationException {
+    void moveBy(float dx, float dy) throws ReflectiveOperationException, InterruptedException {
         x = Math.max(0, Math.min(width - 1, x + dx));
         y = Math.max(0, Math.min(height - 1, y + dy));
+        if (pendingButton != 0) {
+            float slop = width / 320f;
+            if (Math.abs(x - pendingX) > slop || Math.abs(y - pendingY) > slop) startPendingDrag();
+        }
         mouse(inPress() ? MotionEvent.ACTION_MOVE : MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
         cursor.onCursor((int) x, (int) y);
     }
@@ -170,9 +175,12 @@ final class InputInjector {
 
     /** @param bit a MotionEvent.BUTTON_* value */
     void button(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
+        if (profile.hoverButtons) {
+            hoverMethodButton(bit, down);
+            return;
+        }
         if (down == ((buttons & bit) != 0)) return;
-        if (profile.hoverButtons) hoverMethodButton(bit, down);
-        else normalButton(bit, down);
+        normalButton(bit, down);
     }
 
     /** What Android itself sends for a mouse. Generic apps expect this. */
@@ -198,46 +206,64 @@ final class InputInjector {
     }
 
     /**
-     * RustDesk's remote picture. An Android ACTION_DOWN becomes both a mouse and a touch pointer in Flutter. The touch
-     * sets RustDesk's isPhysicalMouse to false and every move during the press is lost, so dragging fails. Changing the
-     * device id or adding HOVER_EXIT does not help. So everything, button changes included, goes as ACTION_HOVER_MOVE
-     * with buttonState set: RustDesk's _getMouseEvent treats a change of buttons as a press or release.
-     * ACTION_BUTTON_PRESS/RELEASE reach Flutter as hovers and break the press, so they are not sent on this path.
+     * RustDesk. A press only goes out once it is clear what it is, because no single method works for everything:
      *
-     * RustDesk's own UI (toolbar and its menus) is the exception: it needs real DOWN/UP and hover clicks do nothing.
-     * Real presses go to the bottom part of the display, and to the click right after a toolbar click, because a menu
-     * is open then and covers the remote picture. This is a heuristic. Known weakness: a toolbar click that opens no
-     * menu makes the next click go to RustDesk instead of the remote machine.
+     * A real ACTION_DOWN becomes both a mouse and a touch pointer in Flutter. The touch sets RustDesk's isPhysicalMouse
+     * to false and every move during the press is lost, so a real press cannot drag. Changing the device id or adding
+     * HOVER_EXIT does not help. But hover clicks do nothing in RustDesk's own UI (its home page, toolbar and menus), and
+     * only the remote picture understands them.
+     *
+     * So a press with no movement is sent as a real DOWN and UP on release, which both understand, and the next hover
+     * turns physical mouse mode back on. A press that moves goes as ACTION_HOVER_MOVE with buttonState set, which
+     * RustDesk's _getMouseEvent treats as press and release. Dragging only works on the remote picture, and a long press
+     * without movement is not seen until release.
      */
     private void hoverMethodButton(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
-        float toolbarTop = height * (1f - profile.toolbarFraction);
-        if (down && buttons == 0) realPress = y >= toolbarTop || menuOpen;
-        if (realPress) {
-            if (down) {
-                boolean first = buttons == 0;
-                if (first) {
-                    downTime = SystemClock.uptimeMillis();
-                    nudge = 0f;
-                }
-                buttons |= bit;
-                mouse(first ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_MOVE, 0, 0, 0);
-            } else {
-                buttons &= ~bit;
-                if (buttons == 0) {
-                    mouse(MotionEvent.ACTION_UP, 0, 0, 0);
-                    menuOpen = y >= toolbarTop;
-                    realPress = false;
-                    Thread.sleep(30);
-                    mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
-                } else {
-                    mouse(MotionEvent.ACTION_MOVE, 0, 0, 0);
-                }
+        if (down) {
+            if (pendingButton == bit || (buttons & bit) != 0) return;
+            if (pendingButton == 0 && buttons == 0) {
+                pendingButton = bit;
+                pendingX = x;
+                pendingY = y;
+                return;
             }
-            return;
+            startPendingDrag();
+            hoverButton(bit, true);
+        } else if (pendingButton == bit) {
+            pendingButton = 0;
+            nudge = 0f;
+            downTime = SystemClock.uptimeMillis();
+            buttons |= bit;
+            mouse(MotionEvent.ACTION_DOWN, 0, 0, 0);
+            Thread.sleep(40);
+            buttons &= ~bit;
+            mouse(MotionEvent.ACTION_UP, 0, 0, 0);
+            Thread.sleep(30);
+            mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
+        } else if ((buttons & bit) != 0) {
+            hoverButton(bit, false);
         }
-        // Flutter's LocationNeedsUpdate drops a hover whose position has not changed, along with its button change,
-        // so a click without movement would vanish: move one pixel on each change. Android also merges hovers within
-        // a frame and keeps the first one's buttons, so each change gets its own frame.
+    }
+
+    /** Send the waiting press where it happened, so a drag starts on what was under the cursor. */
+    private void startPendingDrag() throws ReflectiveOperationException, InterruptedException {
+        if (pendingButton == 0) return;
+        int bit = pendingButton;
+        pendingButton = 0;
+        float nowX = x, nowY = y;
+        x = pendingX;
+        y = pendingY;
+        hoverButton(bit, true);
+        x = nowX;
+        y = nowY;
+    }
+
+    /**
+     * Flutter's LocationNeedsUpdate drops a hover whose position has not changed, along with its button change, so move
+     * one pixel on each change. Android also merges hovers within a frame and keeps the first one's buttons, so each
+     * change gets its own frame. ACTION_BUTTON_PRESS/RELEASE reach Flutter as hovers and break the press: not sent here.
+     */
+    private void hoverButton(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
         Thread.sleep(20);
         if (down) buttons |= bit;
         else buttons &= ~bit;
@@ -317,6 +343,7 @@ final class InputInjector {
 
     /** Release every held key and button. Runs when physical input goes back to the phone and when stopping. */
     void releaseAll() throws ReflectiveOperationException, InterruptedException {
+        pendingButton = 0;  // a click that never finished, do not fire it now
         for (Integer code : new ArrayList<>(held)) key(code, 0);
         for (int bit : ALL_BUTTONS) button(bit, false);
     }
