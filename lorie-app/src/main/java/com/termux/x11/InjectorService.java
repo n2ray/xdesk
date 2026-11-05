@@ -1,5 +1,7 @@
 package com.termux.x11;
 
+import android.os.Binder;
+import android.os.Parcel;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -10,14 +12,18 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Shizuku user service: a process of this APK's code that runs as the shell user (uid 2000), which may inject input
- * into other apps and read /dev/input. Normal apps have neither. It dies with the app (daemon(false) and the
- * link-to-death below) and every grab ends with the process, so a crash cannot take the keyboard away for good.
+ * One session of the injector, as the shell user (uid 2000), which may inject input into other apps and read /dev/input.
+ * Normal apps have neither. There are two hosts:
+ * - As a Shizuku user service, this is a whole process of this APK's code. It dies with the app (daemon(false) and the
+ *   link-to-death below) and every grab ends with the process, so a crash cannot take the keyboard away for good.
+ * - In ShellServer, the process stays because starting it again may need Wi-Fi. So everything a session holds is given
+ *   back here when the session ends, and only XDesk's uid may call.
  *
  * All input from all threads goes through one worker, in order, because InputInjector sleeps between button changes.
  */
 public class InjectorService extends IInjector.Stub {
     private static final String TAG = "XDeskInjector";
+    private static final int NO_UID = -1;
     private static final long AM_TIMEOUT_MS = 10000, DUMPSYS_TIMEOUT_MS = 5000, SHUTDOWN_TIMEOUT_MS = 2000;
     /** Time for a focus change to reach the input system before a key is sent. */
     private static final int FOCUS_SETTLE_MS = 60;
@@ -54,6 +60,7 @@ public class InjectorService extends IInjector.Stub {
     private String ownPackage;
     private boolean linked;
     private volatile boolean sessionOver;
+    private final int onlyUid;
 
     private static final int BACK_CHECK_MS = 800;
     private final boolean[] sideButtonIsKey = new boolean[2];
@@ -151,7 +158,14 @@ public class InjectorService extends IInjector.Stub {
         }
     };
 
+    /** Started by name by Shizuku, which also decides who gets the Binder. */
     public InjectorService() {
+        this(NO_UID);
+    }
+
+    /** @param onlyUid the only caller allowed, and the process outlives this session. See ShellServer. */
+    InjectorService(int onlyUid) {
+        this.onlyUid = onlyUid;
         // Grabs end with the process by themselves, the sound route does not
         Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
             Log.e(TAG, "injector crashed", e);
@@ -182,6 +196,11 @@ public class InjectorService extends IInjector.Stub {
         }
         injector = i;
         injectorError = error;
+    }
+
+    @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+        if (onlyUid != NO_UID && Binder.getCallingUid() != onlyUid) throw new SecurityException("not XDesk");
+        return super.onTransact(code, data, reply, flags);
     }
 
     private static int androidButton(int code) {
@@ -281,7 +300,8 @@ public class InjectorService extends IInjector.Stub {
     /**
      * Backup for daemon(false) and for XDesk being killed without onTaskRemoved: whatever happens to the app, nothing
      * stays grabbed, routed or stranded on the external display. Grabs end with this process. Shizuku may kill it first,
-     * so this is best effort.
+     * so this is best effort. In ShellServer the process stays, and shutdown gives the grabs back. A session that is
+     * already over has nothing left to do there, and must not touch the sound route of the next one.
      */
     private synchronized void link(IInjectorListener l) {
         listener = l;
@@ -289,15 +309,20 @@ public class InjectorService extends IInjector.Stub {
         linked = true;
         try {
             l.asBinder().linkToDeath(() -> {
-                String left = audio.clear(false);
-                if (left != null) Log.w(TAG, "audio route not cleared: " + left);
-                // Move first: this way apps do not have to reconfigure on a display they are leaving
-                if (!sessionOver && displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
-                density.clearOurs();
-                System.exit(0);
+                boolean wasOver = sessionOver;
+                if (!wasOver) {
+                    String left = audio.clear(false);
+                    if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+                    // Move first: this way apps do not have to reconfigure on a display they are leaving
+                    if (displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
+                    density.clearOurs();
+                }
+                if (onlyUid == NO_UID) System.exit(0);
+                if (!wasOver) shutdown();
             }, 0);
         } catch (RemoteException e) {
-            System.exit(0);
+            if (onlyUid == NO_UID) System.exit(0);
+            shutdown();
         }
     }
 
@@ -515,7 +540,7 @@ public class InjectorService extends IInjector.Stub {
     private synchronized void startSessionWatcher() {
         if (sessionWatcher != null) return;
         sessionWatcher = new Thread(() -> {
-            while (true) {
+            while (!sessionOver) {
                 boolean now = false;
                 String pkg = packageName;
                 if (enabled && watchSession && pkg != null && AppInputProfile.forPackage(pkg).keepScreenOnMeansRemoteCursor) {
@@ -557,6 +582,7 @@ public class InjectorService extends IInjector.Stub {
         density.clearOurs();
         enabled = false;
         listener = null;
+        stopSessionWatcher();
         if (injector == null) return;
         post(injector::releaseAll);
         worker.shutdown();
@@ -565,8 +591,13 @@ public class InjectorService extends IInjector.Stub {
         } catch (InterruptedException ignored) { }
     }
 
+    private synchronized void stopSessionWatcher() {
+        if (sessionWatcher != null) sessionWatcher.interrupt();
+    }
+
+    /** From Shizuku when it removes the service. Nothing calls this in ShellServer, but it stays only the end of a session. */
     @Override public void destroy() {
         shutdown();
-        System.exit(0);
+        if (onlyUid == NO_UID) System.exit(0);
     }
 }

@@ -1,0 +1,148 @@
+package com.termux.x11;
+
+import android.content.Intent;
+import android.os.Binder;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Parcel;
+import android.os.RemoteException;
+import android.os.SystemClock;
+import android.util.Log;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+/**
+ * The shell-user process for people without Shizuku: ShellActivation runs this through app_process over wireless
+ * debugging. It stays after a session ends and after XDesk dies, because starting it again may need Wi-Fi. Between
+ * sessions it holds nothing: every grab, sound route and density belongs to an InjectorService, which ends with its session.
+ *
+ * This process has more rights than any app, so two doors are closed:
+ * - The Binder only reaches XDesk. It goes out in a broadcast limited to XDesk's package, and XDesk's receiver only
+ *   takes broadcasts from a sender holding BINDER_PERMISSION, which no third party app can get. Nobody else can feed XDesk
+ *   a fake one either.
+ * - Whoever got the Binder anyway can do nothing: this class and InjectorService refuse every transaction whose
+ *   caller is not XDesk's uid, in onTransact, which all IPC goes through.
+ *
+ * A running XDesk asks for the Binder by connecting to a loopback port. Any app can do that, and all it causes is the
+ * same broadcast to XDesk, so the socket reads nothing and carries nothing. A refused connection also tells XDesk straight
+ * away that no server is running.
+ */
+public final class ShellServer extends IShellServer.Stub {
+    static final String ACTION_BINDER = "com.termux.x11.ShellServer.BINDER";
+    static final String EXTRA_BINDER = "binder";
+    /** Held by the shell user and not grantable to apps: signature|installer. Shizuku's provider relies on the same one. */
+    static final String BINDER_PERMISSION = "android.permission.INTERACT_ACROSS_USERS_FULL";
+    static final String NICE_NAME = "xdesk_shell";
+
+    private static final String TAG = "XDeskShell";
+    private static final String WRITE_SECURE_SETTINGS = "android.permission.WRITE_SECURE_SETTINGS";
+    private static final long APK_CHECK_MS = 5000, MIN_RESEND_MS = 500, PM_TIMEOUT_MS = 10000;
+    private static final int KNOCK_BACKLOG = 4;
+
+    private final int appUid, version;
+    private final Intent binderIntent = new Intent(ACTION_BINDER);
+    private InjectorService session;
+    private long lastSent;
+
+    /** Arguments: XDesk's uid, its install version, the loopback port. They come from XDesk over its own adb connection. */
+    public static void main(String[] args) {
+        if (args.length != 3) {
+            Log.e(TAG, "expected uid, version and port");
+            System.exit(2);
+        }
+        if (Looper.getMainLooper() == null) Looper.prepareMainLooper();
+        matchShizukuEnvironment();
+        CmdEntryPoint.ctx = CmdEntryPoint.createContext();
+        ShellServer server = new ShellServer(Integer.parseInt(args[0]), Integer.parseInt(args[1]));
+        server.exitWhenApkGoes(System.getenv("CLASSPATH"));
+        new Thread(() -> server.answerKnocks(Integer.parseInt(args[2])), "xdesk-knock").start();
+        new Thread(ShellServer::grantSecureSettings, "xdesk-grant").start();
+        CmdEntryPoint.sendBroadcast(server.binderIntent);
+        Looper.loop();
+    }
+
+    /** InjectorService was developed inside Shizuku's user service, which has an attached system ActivityThread. */
+    private static void matchShizukuEnvironment() {
+        try {
+            Class.forName("android.app.ActivityThread").getMethod("systemMain").invoke(null);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "no system ActivityThread", e);
+        }
+    }
+
+    private ShellServer(int appUid, int version) {
+        this.appUid = appUid;
+        this.version = version;
+        Bundle bundle = new Bundle();
+        bundle.putBinder(EXTRA_BINDER, this);
+        binderIntent.putExtra(EXTRA_BINDER, bundle);
+        binderIntent.setPackage(BuildConfig.APPLICATION_ID);
+        binderIntent.setFlags(0x00400000 /* FLAG_RECEIVER_FROM_SHELL, as in CmdEntryPoint */);
+    }
+
+    @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+        if (Binder.getCallingUid() != appUid) throw new SecurityException("not XDesk");
+        return super.onTransact(code, data, reply, flags);
+    }
+
+    @Override public int version() {
+        return version;
+    }
+
+    @Override public synchronized IInjector newSession() {
+        if (session != null) session.shutdown();
+        session = new InjectorService(appUid);
+        return session;
+    }
+
+    @Override public void exit() {
+        System.exit(0);
+    }
+
+    private void answerKnocks(int port) {
+        try (ServerSocket socket = new ServerSocket(port, KNOCK_BACKLOG, InetAddress.getByName("127.0.0.1"))) {
+            while (true) {
+                socket.accept().close();
+                long now = SystemClock.uptimeMillis();
+                if (now - lastSent < MIN_RESEND_MS) continue;
+                lastSent = now;
+                CmdEntryPoint.sendBroadcast(binderIntent);
+            }
+        } catch (IOException e) {
+            // XDesk will not find this process after a restart, so it starts a new one and that one kills this one
+            Log.w(TAG, "no knock port", e);
+        }
+    }
+
+    /**
+     * An update or uninstall removes the file this process runs from. XDesk would refuse this version anyway, this is for
+     * when XDesk is not opened again. Only watched if it can be seen at all from here.
+     */
+    private void exitWhenApkGoes(String path) {
+        if (path == null || !new File(path).exists()) {
+            Log.w(TAG, "cannot watch " + path);
+            return;
+        }
+        final File apk = new File(path);
+        final Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!apk.exists()) {
+                    Log.i(TAG, "the APK is gone, exiting");
+                    System.exit(0);
+                }
+                handler.postDelayed(this, APK_CHECK_MS);
+            }
+        }, APK_CHECK_MS);
+    }
+
+    /** Lets XDesk turn wireless debugging on after a reboot. Some systems refuse this, and XDesk then says what to do. */
+    private static void grantSecureSettings() {
+        String[] r = InjectorService.exec(PM_TIMEOUT_MS, "/system/bin/pm", "grant", BuildConfig.APPLICATION_ID, WRITE_SECURE_SETTINGS);
+        if (r[0] != null) Log.w(TAG, "not granted: " + r[0]);
+    }
+}

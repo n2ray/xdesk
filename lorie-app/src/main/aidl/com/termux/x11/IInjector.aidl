@@ -2,7 +2,7 @@ package com.termux.x11;
 
 import com.termux.x11.IInjectorListener;
 
-/** The privileged input process. Runs as the shell user through Shizuku, see InjectorService. */
+/** The privileged input session. Runs as the shell user, through Shizuku or ShellServer, see InjectorService. */
 interface IInjector {
     /** Called by Shizuku when the service is removed. The id is fixed by Shizuku's API. */
     void destroy() = 16777114;
