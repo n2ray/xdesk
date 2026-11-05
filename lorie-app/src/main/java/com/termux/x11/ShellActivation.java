@@ -278,6 +278,9 @@ final class ShellActivation {
         List<Integer> ports = new ArrayList<>();
         if (port > 0) ports.add(port);
         else ports.addAll(openLoopbackPorts());
+        // A scanned port can be the pairing port or another service: its refusal says nothing about our key
+        final boolean found = port > 0;
+        ports.remove(Integer.valueOf(prefs.getInt(PREF_PORT, 0)));
         if (ports.isEmpty()) return "找不到无线调试的端口。到开发者选项里确认无线调试开着，再回到这里。";
 
         String failure = null;
@@ -292,6 +295,11 @@ final class ShellActivation {
                 }
                 failure = "连不上无线调试。";
             } catch (AdbPairingRequiredException | AdbAuthenticationFailedException e) {
+                if (!found) {
+                    Log.i(TAG, "port " + candidate + " refused us, trying the next", e);
+                    failure = "连不上无线调试。";
+                    continue;
+                }
                 Log.w(TAG, "adbd no longer knows this key", e);
                 pairingLost = true;
                 prefs.edit().putBoolean(PREF_PAIRED, false).apply();
