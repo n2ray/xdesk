@@ -77,7 +77,7 @@ public class DesktopService extends Service {
         final android.content.Context app = context.getApplicationContext();
         AppSession apps = AppSession.get(app);
         if (apps.hasAppOnDisplay() && !apps.hasInjector()) {
-            android.widget.Toast.makeText(app, "注入服务没有运行（Shizuku 停了？），外接屏上的应用没能移回手机", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(app, "注入服务没有运行，外接屏上的应用没能移回手机", android.widget.Toast.LENGTH_LONG).show();
         }
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
         int external = -1;

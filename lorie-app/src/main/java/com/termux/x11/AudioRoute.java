@@ -255,7 +255,7 @@ final class AudioRoute {
     /** AudioPlayer 试了几次系统都不理。从播放线程调用。 */
     void reportNotHonoured() {
         ui.post(() -> {
-            if (listener != null) listener.onAudioMessage("系统没有听 XDesk 的，接着 HDMI 时可能指定不了输出。运行 Shizuku 后再试");
+            if (listener != null) listener.onAudioMessage("系统没有听 XDesk 的，接着 HDMI 时可能指定不了输出。注入服务运行后再试");
         });
     }
 

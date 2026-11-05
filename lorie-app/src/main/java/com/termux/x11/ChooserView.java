@@ -320,7 +320,7 @@ final class ChooserView extends LinearLayout {
 
         ArrayList<Row> appRows = new ArrayList<>();
         for (AppCatalog.App a : apps) if (!searching || a.matches(query)) appRows.add(appRow(a));
-        if (!appRows.isEmpty()) rows.add(header("安卓应用（需要 Shizuku）"));
+        if (!appRows.isEmpty()) rows.add(header("安卓应用"));
         if (apps.isEmpty()) {
             Row loading = new Row();
             loading.title = "正在读取应用列表…";

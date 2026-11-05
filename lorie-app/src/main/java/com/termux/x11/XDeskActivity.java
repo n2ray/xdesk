@@ -113,7 +113,7 @@ public class XDeskActivity extends Activity {
     /** 这次接上的桌面环境名，只当显示器时不知道。 */
     private String desktopName;
     private int lastOrientation;
-    private TextView setupTitle, setupMessage, setupAction, setupBack;
+    private TextView setupTitle, setupMessage, setupAction, setupSecond, setupBack;
     private ProgressBar setupProgress;
     private TextView statusText, diagText;
     private Style.IconButton audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn, backBtn;
@@ -128,6 +128,13 @@ public class XDeskActivity extends Activity {
     private boolean needsPlacement;
     /** 选了这个安卓应用，还差权限或 Shizuku。回到前台或 Shizuku 有变化时接着走。 */
     private AppCatalog.App pendingApp;
+    /** 正开着的激活页。 */
+    private ActivationPage activation;
+    /** 用户在激活页选了 Shizuku：这次不再回到激活页。 */
+    private boolean shizukuScreens;
+    /** 点了配对，先要通知权限。 */
+    private boolean pairingAfterPermission;
+    private String shownShellProblem;
     /** launchDesktop 等 RUN_COMMAND 权限时记着选的是什么。 */
     private String pendingSession;
     private boolean pendingReplace;
@@ -287,9 +294,16 @@ public class XDeskActivity extends Activity {
     };
 
     private final AppSession.Listener appListener = new AppSession.Listener() {
-        @Override public void onShizukuChanged() {
-            if (pendingApp != null) startApp(pendingApp);
-            else apps.reconnect();
+        @Override public void onInjectorSourceChanged() {
+            if (activation != null && activation.isShowing()) activation.refresh();
+            if (pendingApp != null) {
+                startApp(pendingApp);
+            } else {
+                // 配对时外接屏断开了，要启动的应用已经取消
+                if (activation != null && apps.injectorReady()) backToChooser();
+                apps.reconnect();
+                showShellProblem();
+            }
             if (session.isActive()) apps.connectForAudio();
             if (apps.isActive()) updateStatus();
         }
@@ -448,6 +462,7 @@ public class XDeskActivity extends Activity {
         super.onResume();
         resumed = true;
         ensureDashboard();
+        apps.activateIfPaired();
         // 从系统设置或 Shizuku 授权回来、或装好缺的 App 回来时接着走
         if (pendingApp != null) {
             startApp(pendingApp);
@@ -591,6 +606,13 @@ public class XDeskActivity extends Activity {
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2);
         ap.topMargin = dp(28);
         s.addView(setupAction, ap);
+
+        setupSecond = Style.button(this, "", Style.SURFACE_RAISED, 14, 24);
+        setupSecond.setPadding(dp(28), dp(10), dp(28), dp(10));
+        setupSecond.setVisibility(View.GONE);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
+        sp.topMargin = dp(12);
+        s.addView(setupSecond, sp);
 
         setupBack = Style.button(this, "回到启动器", Style.SURFACE_RAISED, 14, 24);
         setupBack.setPadding(dp(28), dp(10), dp(28), dp(10));
@@ -1113,7 +1135,7 @@ public class XDeskActivity extends Activity {
         if (apps.hasInjector() && apps.hasDisplay() && apps.app() == null) {
             setStatus(Style.WARN, "外接屏上没有应用了，选一个");
         } else if (!apps.hasInjector()) {
-            setStatus(Style.DANGER, "注入服务断开了，确认 Shizuku 还在运行");
+            setStatus(Style.DANGER, apps.usesShell() ? "注入服务断开了，打开无线调试后回到 XDesk" : "注入服务断开了，确认 Shizuku 还在运行");
         } else if (!apps.hasDisplay()) {
             setStatus(Style.WARN, "外接屏已断开，插回后 " + apps.label() + " 自动回去");
         } else if (apps.isForwarding() && apps.deviceCount() == 0) {
@@ -1149,6 +1171,14 @@ public class XDeskActivity extends Activity {
             setupAction.setText(action);
             setupAction.setOnClickListener(onAction);
         }
+        setupSecond.setVisibility(View.GONE);
+    }
+
+    /** 紧接着 showSetup 调用：多一个次要的选择。 */
+    private void addSetupChoice(String action, View.OnClickListener onAction) {
+        setupSecond.setText(action);
+        setupSecond.setOnClickListener(onAction);
+        setupSecond.setVisibility(View.VISIBLE);
     }
 
     private void showRunning() {
@@ -1227,9 +1257,9 @@ public class XDeskActivity extends Activity {
             labels[i + 1] = o.label;
             if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1;
         }
-        String note = (apps.shizukuState() == AppSession.SHIZUKU_READY
+        String note = (apps.injectorReady()
             ? "所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。结束 XDesk 后手机恢复正常，下次再按这里的选择。"
-            : "Shizuku 没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。")
+            : "注入服务没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。")
             + "\n只是把输出指向这个设备，音质和蓝牙编码没法确认。";
         outputDialog = ui().choice("声音从哪里播放", note, labels, checked, which -> {
             audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
@@ -1265,7 +1295,7 @@ public class XDeskActivity extends Activity {
     private void addDensitySetting(SettingsUi s, LinearLayout card) {
         if (!apps.canSetDensity()) {
             String why = session.isActive() ? "Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值"
-                : apps.shizukuState() != AppSession.SHIZUKU_READY ? "需要 Shizuku" : "外接屏上有安卓应用时才能改";
+                : !apps.injectorReady() ? "需要注入服务" : "外接屏上有安卓应用时才能改";
             s.infoRow(card, "界面大小", why, null);
             return;
         }
@@ -1761,6 +1791,8 @@ public class XDeskActivity extends Activity {
      */
     private void backToChooser() {
         pendingApp = null;
+        shizukuScreens = false;
+        closeActivation();
         pendingSession = null;
         ui.removeCallbacks(connectTimeout);
         if (apps.isActive() && !apps.isStarted()) {
@@ -1838,7 +1870,7 @@ public class XDeskActivity extends Activity {
 
     // --- 安卓应用 ---
 
-    /** 权限和 Shizuku 都就绪才启动。缺什么说什么，弄好了回来会接着走（onResume、onShizukuChanged）。 */
+    /** 权限和注入服务都就绪才启动。缺什么说什么，弄好了回来会接着走（onResume、onInjectorSourceChanged）。 */
     private void startApp(final AppCatalog.App app) {
         if (apps.isStopping()) {
             showSetup("正在启动 " + app.label, "等上一个注入服务结束。", true, null, null);
@@ -1854,9 +1886,110 @@ public class XDeskActivity extends Activity {
             return;
         }
         pendingApp = app;
+        if (!apps.injectorReady()) {
+            if (apps.shell().supported() && !shizukuScreens) showActivation(app);
+            else showShizukuSetup();
+        } else if (!Settings.canDrawOverlays(this)) {
+            closeActivation();
+            showSetup("需要悬浮窗权限", "安卓自己的光标只留在手机屏上，\nXDesk 要在外接屏上画一个光标。\n\n允许后回到这里，会自动继续。", false, "打开设置", new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                }
+            });
+        } else {
+            closeActivation();
+            pendingApp = null;
+            shizukuScreens = false;
+            rememberRecent(ChooserView.recentKey(app));
+            showSetup("正在启动 " + app.label, "正在连接注入服务。", true, null, null);
+            leaveDesktop();
+            apps.start(app, d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false));
+        }
+    }
+
+    /** 没有 Shizuku 也行：XDesk 自己通过无线调试启动注入服务。 */
+    private void showActivation(AppCatalog.App app) {
+        final ShellActivation shell = apps.shell();
+        if (!shell.isPaired() || shell.isPairing()) {
+            if (activation == null || !activation.isShowing()) openActivation();
+            return;
+        }
+        closeActivation();
+        if (shell.problem() == null) shell.start();
+        if (shell.isStarting()) {
+            showSetup("正在启动 " + app.label, "正在启动注入服务。", true, null, null);
+            return;
+        }
+        showSetup("还差一步", String.valueOf(shell.problem()), false, "打开无线调试设置", new View.OnClickListener() {
+            @Override public void onClick(View v) { openWirelessSettings(); }
+        });
+        addSetupChoice("重新配对", new View.OnClickListener() {
+            @Override public void onClick(View v) { shell.forgetPairing(); }
+        });
+    }
+
+    private void openActivation() {
+        showSetup("激活注入服务", "", false, null, null);
+        activation = new ActivationPage(this, ui(), apps.shell(), apps.shizukuInstalled(), new ActivationPage.Actions() {
+            @Override public void openPairingSettings() { beginPairing(); }
+            @Override public void useShizuku() {
+                shizukuScreens = true;
+                closeActivation();
+                if (pendingApp != null) startApp(pendingApp);
+            }
+            @Override public void cancelled() {
+                activation = null;
+                backToChooser();
+            }
+        });
+    }
+
+    private void closeActivation() {
+        if (activation != null) activation.close();
+        activation = null;
+    }
+
+    /** 配对框开着时才有配对码，所以先把找端口的服务开起来，用户在系统设置里也能从通知输入。 */
+    private void beginPairing() {
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pairingAfterPermission = true;
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+            return;
+        }
+        startPairingService();
+    }
+
+    private void startPairingService() {
+        try {
+            startForegroundService(PairingService.startIntent(this));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "pairing service", e);  // 页面里的输入框不靠它
+        }
+        openWirelessSettings();
+    }
+
+    private void openWirelessSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).putExtra(":settings:fragment_args_key", "toggle_adb_wireless"));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "打不开开发者选项，到系统设置里找一下。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** 选择界面上说一声还差什么，比如重启后无线调试关了。 */
+    private void showShellProblem() {
+        String problem = apps.shizukuState() == AppSession.SHIZUKU_READY ? null : apps.shell().problem();
+        if (problem != null) chooser.setNotice(problem);
+        else if (shownShellProblem != null) chooser.setNotice(null);
+        shownShellProblem = problem;
+    }
+
+    /** 用户选了 Shizuku，或者系统太旧用不了无线调试。 */
+    private void showShizukuSetup() {
         int shizuku = apps.shizukuState();
         if (shizuku == AppSession.SHIZUKU_NOT_INSTALLED) {
-            showSetup("需要 Shizuku", "安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
+            String why = apps.shell().supported() ? "" : "这台手机的安卓版本没有无线调试，只能用 Shizuku。\n";
+            showSetup("需要 Shizuku", why + "安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
                 @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
             });
         } else if (shizuku == AppSession.SHIZUKU_NOT_RUNNING) {
@@ -1883,18 +2016,6 @@ public class XDeskActivity extends Activity {
                     @Override public void onClick(View v) { apps.requestPermission(); }
                 });
             }
-        } else if (!Settings.canDrawOverlays(this)) {
-            showSetup("需要悬浮窗权限", "安卓自己的光标只留在手机屏上，\nXDesk 要在外接屏上画一个光标。\n\n允许后回到这里，会自动继续。", false, "打开设置", new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-                }
-            });
-        } else {
-            pendingApp = null;
-            rememberRecent(ChooserView.recentKey(app));
-            showSetup("正在启动 " + app.label, "正在连接注入服务。", true, null, null);
-            leaveDesktop();
-            apps.start(app, d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false));
         }
     }
 
@@ -1991,6 +2112,11 @@ public class XDeskActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int r, String[] p, int[] g) {
+        if (r == REQ_NOTIFICATIONS && pairingAfterPermission) {
+            pairingAfterPermission = false;
+            startPairingService();
+            return;
+        }
         if (r == REQ_LIST_SESSIONS) {
             refreshTermux();
             return;

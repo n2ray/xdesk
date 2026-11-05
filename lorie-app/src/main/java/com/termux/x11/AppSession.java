@@ -23,8 +23,8 @@ import rikka.shizuku.Shizuku;
  */
 final class AppSession {
     interface Listener {
-        /** Shizuku appeared, went away or answered the permission request. */
-        void onShizukuChanged();
+        /** Shizuku or the built-in server appeared, went away or changed state, or Shizuku answered the permission request. */
+        void onInjectorSourceChanged();
         void onAppStarted();
         void onAppFailed(String message);
         /** Forwarding, connection or display changed, redraw the status. */
@@ -88,6 +88,10 @@ final class AppSession {
     private float mouseSpeed = 1f;
     private volatile IInjector injector;
     private Shizuku.UserServiceArgs args;
+    /** Without Shizuku the injector comes from here. */
+    private final ShellActivation shell;
+    /** Where the current or last injector came from. */
+    private boolean viaShell;
 
     private final IInjectorListener.Stub fromInjector = new IInjectorListener.Stub() {
         @Override public void onCursor(final int x, final int y) {
@@ -177,7 +181,7 @@ final class AppSession {
 
     private final Runnable rebind = this::rebindInjector;
 
-    private final Runnable bindTimeout = () -> fail("注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
+    private final Runnable bindTimeout = () -> fail(viaShell ? "注入服务没有回应，再试一次。" : "注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
 
     private final InputSink input = new InputSink() {
         @Override public void move(int dx, int dy) {
@@ -231,10 +235,12 @@ final class AppSession {
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
         fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
-        Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
-        Shizuku.addBinderDeadListener(this::shizukuChanged);
+        shell = ShellActivation.get(c);
+        shell.setListener(this::sourceChanged);
+        Shizuku.addBinderReceivedListenerSticky(this::sourceChanged);
+        Shizuku.addBinderDeadListener(this::sourceChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
-            if (code == PERMISSION_REQUEST) shizukuChanged();
+            if (code == PERMISSION_REQUEST) sourceChanged();
         });
     }
 
@@ -259,9 +265,9 @@ final class AppSession {
         if (next >= 0) ui.postDelayed(cursorTimer, next + 1);
     }
 
-    private void shizukuChanged() {
+    private void sourceChanged() {
         ui.post(() -> {
-            if (listener != null) listener.onShizukuChanged();
+            if (listener != null) listener.onInjectorSourceChanged();
         });
     }
 
@@ -291,6 +297,16 @@ final class AppSession {
     /** 正在外接屏上的应用。 */
     AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
+    ShellActivation shell() { return shell; }
+    /** The current or last injector came from the built-in server, not Shizuku. */
+    boolean usesShell() { return viaShell; }
+    /** One of the two sources can give an injector right now. */
+    boolean injectorReady() { return shizukuState() == SHIZUKU_READY || shell.isRunning(); }
+
+    /** XDesk came to the front: with Shizuku there is nothing to do, otherwise start the built-in server if it can be. */
+    void activateIfPaired() {
+        if (shizukuState() != SHIZUKU_READY) shell.retry();
+    }
 
     int shizukuState() {
         try {
@@ -301,6 +317,10 @@ final class AppSession {
             Log.w(TAG, "Shizuku state", e);
             return SHIZUKU_NOT_RUNNING;
         }
+    }
+
+    boolean shizukuInstalled() {
+        return installed();
     }
 
     private boolean installed() {
@@ -357,24 +377,26 @@ final class AppSession {
         }
         ui.postDelayed(bindTimeout, BIND_TIMEOUT_MS);
         try {
-            Shizuku.bindUserService(serviceArgs(), connection);
+            connectInjector();
         } catch (RuntimeException e) {
             fail("无法启动注入服务：" + e.getMessage());
         }
     }
 
+    /** Answers on connection, whichever source gives the injector. Shizuku first when it can be used. */
+    private void connectInjector() {
+        viaShell = shizukuState() != SHIZUKU_READY;
+        if (viaShell) shell.openSession(connection);
+        else Shizuku.bindUserService(serviceArgs(), connection);
+    }
+
     private Shizuku.UserServiceArgs serviceArgs() {
         if (args == null) {
-            // Tied to the APK's install time, so an update never talks to an old injector.
-            int version = 1;
-            try {
-                version = (int) (context.getPackageManager().getPackageInfo(context.getPackageName(), 0).lastUpdateTime / 1000);
-            } catch (PackageManager.NameNotFoundException ignored) { }
             args = new Shizuku.UserServiceArgs(new ComponentName(context.getPackageName(), InjectorService.class.getName()))
                 .daemon(false)
                 .processNameSuffix("injector")
                 .debuggable(false)
-                .version(version);
+                .version(ShellActivation.installVersion(context));
         }
         return args;
     }
@@ -464,7 +486,7 @@ final class AppSession {
         if (listener != null) listener.onAppFailed(message);
     }
 
-    /** The service died: Shizuku was stopped or the process was killed. Grabs ended with it. */
+    /** The service died: Shizuku or the built-in server was stopped or the process was killed. Grabs ended with it. */
     private void lostInjector() {
         injector = null;
         audioRoute.detachInjector();
@@ -481,13 +503,13 @@ final class AppSession {
         if (listener != null) listener.onAppStateChanged();
     }
 
-    /** Shizuku 就绪就连上，声音输出才选得准。没有就算了：Termux 桌面不需要 Shizuku，也不弹授权。 */
+    /** Shizuku 或内置服务就绪就连上，声音输出才选得准。没有就算了：Termux 桌面不需要它们，也不弹授权。 */
     void connectForAudio() {
-        if (injector != null || audioBinding || active || stopping || shizukuState() != SHIZUKU_READY) return;
+        if (injector != null || audioBinding || active || stopping || !injectorReady()) return;
         audioBinding = true;
         audioRoute.setPending(true);
         try {
-            Shizuku.bindUserService(serviceArgs(), connection);
+            connectInjector();
         } catch (RuntimeException e) {
             audioBinding = false;
             audioRoute.setPending(false);
@@ -496,15 +518,18 @@ final class AppSession {
     }
 
     private void rebindInjector() {
-        if (active) reconnect();
-        else if (DesktopSession.get(context).isActive()) connectForAudio();
+        if (active) {
+            // The built-in server died. Comes back through onInjectorSourceChanged if it can start again
+            if (!injectorReady()) shell.retry();
+            reconnect();
+        } else if (DesktopSession.get(context).isActive()) connectForAudio();
     }
 
-    /** After Shizuku came back. */
+    /** After Shizuku or the built-in server came back. */
     void reconnect() {
-        if (!active || injector != null || shizukuState() != SHIZUKU_READY) return;
+        if (!active || injector != null || !injectorReady()) return;
         try {
-            Shizuku.bindUserService(serviceArgs(), connection);
+            connectInjector();
         } catch (RuntimeException e) {
             Log.w(TAG, "rebind", e);
         }
@@ -987,6 +1012,9 @@ final class AppSession {
         final IInjector i = injector;
         injector = null;
         final Shizuku.UserServiceArgs a = args;
+        final boolean shellSession = viaShell;
+        // The built-in server stays for the next session, so its death is no longer about this one
+        if (shellSession) shell.closeSession();
         new Thread(() -> {
             try {
                 if (i != null && moveFrom >= 0) {
@@ -1000,7 +1028,7 @@ final class AppSession {
                 if (i != null) i.shutdown();
             } catch (RemoteException ignored) { }
             try {
-                if (a != null && Shizuku.pingBinder()) Shizuku.unbindUserService(a, connection, true);
+                if (!shellSession && a != null && Shizuku.pingBinder()) Shizuku.unbindUserService(a, connection, true);
             } catch (RuntimeException e) {
                 Log.w(TAG, "unbind", e);
             }
