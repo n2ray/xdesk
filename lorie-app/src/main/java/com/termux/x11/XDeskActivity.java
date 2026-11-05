@@ -474,6 +474,7 @@ public class XDeskActivity extends Activity {
         if (cover.isShown()) {
             forwardingBeforeCover = apps.isForwarding();
             if (forwardingBeforeCover) apps.setForwarding(false);
+            apps.setHotkeyAllowed(false);
         }
     }
 
@@ -485,6 +486,7 @@ public class XDeskActivity extends Activity {
     private void removeCover() {
         if (!cover.isShown()) return;
         cover.hide();
+        apps.setHotkeyAllowed(true);
         if (forwardingBeforeCover) apps.setForwarding(true);
         forwardingBeforeCover = false;
         if (phonePassive) apps.focusExternal();

@@ -41,6 +41,7 @@ final class DashboardView extends FrameLayout {
     private long brightSince;
     private String lastInput;
     private int sizedW = -1, sizedH = -1;
+    private final boolean showInput;
     private boolean started;
 
     private final BroadcastReceiver timeChanged = new BroadcastReceiver() {
@@ -64,8 +65,9 @@ final class DashboardView extends FrameLayout {
         }
     };
 
-    DashboardView(Context c, String hintText) {
+    DashboardView(Context c, String hintText, boolean showInput) {
         super(c);
+        this.showInput = showInput;
         setBackgroundColor(Color.BLACK);
         column = new LinearLayout(c);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -132,7 +134,12 @@ final class DashboardView extends FrameLayout {
             if (state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL) s.append(" 充电中");
             s.append("   ·   ");
         }
-        s.append("声音：").append(AudioRoute.get(c).shortLabel()).append("   ·   ");
+        s.append("声音：").append(AudioRoute.get(c).shortLabel());
+        if (!showInput) {
+            status.setText(s);
+            return;
+        }
+        s.append("   ·   ");
         AppSession apps = AppSession.get(c);
         String input = apps.isForwarding() ? "键鼠在外接屏，Ctrl+Alt+M 交还手机"
             : apps.hasInjector() ? "键鼠在手机，Ctrl+Alt+M 接管" : "键鼠在手机";

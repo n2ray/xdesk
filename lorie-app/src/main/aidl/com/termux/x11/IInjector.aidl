@@ -54,6 +54,8 @@ interface IInjector {
     oneway void touchFrame(int action, in int[] ids, in float[] offsetX, in float[] offsetY) = 27;
     /** Give input focus to the external display. */
     oneway void focusExternal() = 28;
+    /** Ctrl+Alt+M. Off while the external display is covered: input taken back would go to an app nobody can see. */
+    oneway void setHotkeyAllowed(boolean allowed) = 29;
     /** Android Back to the app on the external display. */
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */

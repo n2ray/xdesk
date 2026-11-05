@@ -39,7 +39,7 @@ public class DashboardActivity extends Activity {
         }
         instance = new WeakReference<>(this);
         getWindow().setDecorFitsSystemWindows(false);
-        view = new DashboardView(this, "在手机上选择一个应用");
+        view = new DashboardView(this, "在手机上选择一个应用", true);
         setContentView(view);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
     }

@@ -834,6 +834,13 @@ final class AppSession {
     }
 
 
+    void setHotkeyAllowed(boolean allowed) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.setHotkeyAllowed(allowed);
+        } catch (RemoteException ignored) { }
+    }
+
     void focusExternal() {
         IInjector i = injector;
         try {

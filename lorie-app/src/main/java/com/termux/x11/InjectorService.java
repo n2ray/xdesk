@@ -41,6 +41,7 @@ public class InjectorService extends IInjector.Stub {
     private volatile float mouseSpeed = 1f;
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
+    private volatile boolean hotkeyAllowed = true;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private volatile boolean enabled = true, watchSession, inSession;
@@ -462,11 +463,20 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void setEnabled(boolean on) {
         enabled = on;
+        applyHotkey();
+    }
+
+    @Override public void setHotkeyAllowed(boolean allowed) {
+        hotkeyAllowed = allowed;
+        applyHotkey();
+    }
+
+    private void applyHotkey() {
         EvdevReader r;
         synchronized (this) {
             r = reader;
         }
-        if (r != null) r.setHotkeyEnabled(on);
+        if (r != null) r.setHotkeyEnabled(enabled && hotkeyAllowed);
     }
 
     @Override public String setAudioOutput(int type, String address) {
