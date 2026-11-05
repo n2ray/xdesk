@@ -80,7 +80,9 @@ public final class ShellServer extends IShellServer.Stub {
         bundle.putBinder(EXTRA_BINDER, this);
         binderIntent.putExtra(EXTRA_BINDER, bundle);
         binderIntent.setPackage(BuildConfig.APPLICATION_ID);
-        binderIntent.setFlags(0x00400000 /* FLAG_RECEIVER_FROM_SHELL, as in CmdEntryPoint */);
+        // FLAG_RECEIVER_FROM_SHELL as in CmdEntryPoint. Foreground: while XDesk waits in the background, during pairing in
+        // Settings, HyperOS held a normal broadcast back for 20 s
+        binderIntent.setFlags(0x00400000 | Intent.FLAG_RECEIVER_FOREGROUND);
     }
 
     @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {

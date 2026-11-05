@@ -130,6 +130,10 @@ public class XDeskActivity extends Activity {
     private AppCatalog.App pendingApp;
     /** 正开着的激活页。 */
     private ActivationPage activation;
+    /** 从启动器的激活提示进来、还没完成：启动好了要回到启动器。 */
+    private boolean activationFlow;
+    /** 用户刚点了要启动：showActivation 这时才重试注入服务。 */
+    private boolean retryRequested;
     /** 用户在激活页选了 Shizuku：这次不再回到激活页。 */
     private boolean shizukuScreens;
     /** 点了配对，先要通知权限。 */
@@ -295,10 +299,24 @@ public class XDeskActivity extends Activity {
 
     private final AppSession.Listener appListener = new AppSession.Listener() {
         @Override public void onInjectorSourceChanged() {
-            if (activation != null && activation.isShowing()) activation.refresh();
+            ShellActivation shell = apps.shell();
+            // 配对成功了：配对页不再有用，改成显示启动的进度或问题
+            boolean pairedNow = activation != null && activation.isShowing() && shell.isPaired() && !shell.isPairing();
+            if (pairedNow) closeActivation();
+            else if (activation != null && activation.isShowing()) activation.refresh();
             updateActivationPrompt();
             if (pendingApp != null) {
                 startApp(pendingApp);
+            } else if (pairedNow || activationFlow) {
+                // 从启动器的提示进来的：好了就回启动器，没好就留在进度或问题上
+                if (apps.injectorReady()) {
+                    activationFlow = false;
+                    backToChooser();
+                } else {
+                    activationFlow = true;
+                    showActivation(null);
+                }
+                apps.reconnect();
             } else {
                 // 配对时外接屏断开了，要启动的应用已经取消
                 if (activation != null && apps.injectorReady()) backToChooser();
@@ -1663,6 +1681,7 @@ public class XDeskActivity extends Activity {
             apps.switchTo(a);
             showRunning();
         } else {
+            retryRequested = true;
             startApp(a);
         }
     }
@@ -1792,6 +1811,7 @@ public class XDeskActivity extends Activity {
      * 结束会话只有 endXDesk 和从最近任务划掉。
      */
     private void backToChooser() {
+        activationFlow = false;
         pendingApp = null;
         shizukuScreens = false;
         closeActivation();
@@ -1920,7 +1940,11 @@ public class XDeskActivity extends Activity {
         else if (shell.isStarting()) text = "正在启动注入服务…";
         else text = "注入服务没有运行 · 去启动";
         chooser.setActivation(text, () -> {
-            if (apps.shell().supported()) showActivation(null);
+            if (apps.shell().supported()) {
+                retryRequested = true;
+                activationFlow = true;
+                showActivation(null);
+            }
             else showShizukuSetup();
         });
     }
@@ -1936,7 +1960,9 @@ public class XDeskActivity extends Activity {
             return;
         }
         closeActivation();
-        if (shell.problem() == null) shell.start();
+        // 用户点了才再试，上次失败了也一样。状态变化引起的刷新不重试，否则失败会接着失败地循环
+        if (retryRequested && !shell.isRunning() && !shell.isStarting()) shell.retry();
+        retryRequested = false;
         if (shell.isStarting()) {
             showSetup(app != null ? "正在启动 " + app.label : "正在启动注入服务", "正在启动注入服务。", true, null, null);
             return;

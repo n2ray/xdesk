@@ -54,7 +54,7 @@ final class ShellActivation {
     /** How long a running server gets to answer a knock. */
     private static final long ANSWER_WAIT_MS = 1500;
     /** app_process loading this APK without compiled code takes a while. */
-    private static final long SERVER_START_WAIT_MS = 15000, KNOCK_EVERY_MS = 1000;
+    private static final long SERVER_START_WAIT_MS = 30000, KNOCK_EVERY_MS = 1000;
     private static final long SHELL_COMMAND_WAIT_MS = 8000, SHELL_POLL_MS = 50;
     private static final long SETTING_SETTLE_MS = 1500, FIND_PORT_MS = 4000, FIND_PORT_AFTER_ENABLE_MS = 8000;
     private static final int SCAN_FIRST_PORT = 30000, SCAN_LAST_PORT = 60999, SCAN_THREADS = 16, SCAN_TIMEOUT_MS = 100, SCAN_MAX_TRIES = 4;
