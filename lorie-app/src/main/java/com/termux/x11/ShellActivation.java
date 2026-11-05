@@ -414,14 +414,15 @@ final class ShellActivation {
 
     /**
      * Started so that it outlives this connection. adbd only ends the shell it started. The server is a child of a
-     * subshell that exits, setsid gives it its own session, and with stdio on /dev/null it has no link to the stream. Toybox
+     * subshell that exits, setsid gives it its own session, and with stdio on /dev/null it has no link to the stream. The marker comes only once the server runs: the stream closes
+     * right after it, and with it the shell's session, which used to end a server that had not reached setsid yet. Toybox
      * has setsid and pkill. pkill without -f compares process names, so it does not hit this shell.
      */
     private void launchServer(ShellAdb a, int knockPort) throws IOException, InterruptedException {
         String apk = context.getApplicationInfo().sourceDir;
         String command = "pkill " + ShellServer.NICE_NAME + "; (CLASSPATH='" + apk + "' setsid app_process / --nice-name=" + ShellServer.NICE_NAME
             + " " + ShellServer.class.getName() + " " + context.getApplicationInfo().uid + " " + version + " " + knockPort
-            + " </dev/null >/dev/null 2>&1 &); echo " + STARTED_MARKER;
+            + " </dev/null >/dev/null 2>&1 &); sleep 1; pidof " + ShellServer.NICE_NAME + " >/dev/null && echo " + STARTED_MARKER;
         AdbStream stream = a.openStream("shell:" + command);
         StringBuilder out = new StringBuilder();
         byte[] buffer = new byte[256];
