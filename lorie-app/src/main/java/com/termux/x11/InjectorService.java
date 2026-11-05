@@ -41,8 +41,6 @@ public class InjectorService extends IInjector.Stub {
     private volatile float mouseSpeed = 1f;
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
-    /** The phone window holds focus for its on-screen keyboard. */
-    private boolean phoneKeyboard;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private volatile boolean enabled = true, watchSession, inSession;
@@ -290,11 +288,10 @@ public class InjectorService extends IInjector.Stub {
         return r[0] == null && r[1].contains("mInputShown=true");
     }
 
-    @Override public void focusDisplay(final boolean external) {
+    @Override public void focusExternal() {
         post(() -> {
-            injector.focus(external ? injector.displayId() : android.view.Display.DEFAULT_DISPLAY);
-            phoneKeyboard = !external;
-            focusStale = !external;
+            injector.focus(injector.displayId());
+            focusStale = false;
         });
     }
 
@@ -358,18 +355,14 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /**
-     * The phone's keyboard lives on the phone and needs focus there, the keys need focus on the external display.
-     * Swap for each delivery and swap back, or the input method would lose its window.
+     * The phone window does not take focus during an app session, but a dialog or the launcher may have moved it.
      */
     private void fromPhone(final Task t) {
         post(() -> {
             injector.focus(injector.displayId());
             Thread.sleep(FOCUS_SETTLE_MS);
+            focusStale = false;
             t.run();
-            Thread.sleep(FOCUS_SETTLE_MS);
-            if (!phoneKeyboard) return;
-            injector.focus(android.view.Display.DEFAULT_DISPLAY);
-            focusStale = true;
         });
     }
 

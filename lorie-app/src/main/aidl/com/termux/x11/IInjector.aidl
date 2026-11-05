@@ -52,8 +52,8 @@ interface IInjector {
     String closeApp(String packageName) = 25;
     /** 触控 mode: two or more fingers, placed around the cursor. Offsets are pixels on the display, ids stay with a finger. */
     oneway void touchFrame(int action, in int[] ids, in float[] offsetX, in float[] offsetY) = 27;
-    /** Give input focus to the external display, or to the phone so its keyboard has a window to serve. */
-    oneway void focusDisplay(boolean external) = 28;
+    /** Give input focus to the external display. */
+    oneway void focusExternal() = 28;
     /** Whether the on-screen keyboard is up, for any app. */
     boolean isKeyboardShown() = 29;
     /** Android Back to the app on the external display. */

@@ -843,10 +843,10 @@ final class AppSession {
         }
     }
 
-    void focusDisplay(boolean external) {
+    void focusExternal() {
         IInjector i = injector;
         try {
-            if (i != null) i.focusDisplay(external);
+            if (i != null) i.focusExternal();
         } catch (RemoteException ignored) { }
     }
 
