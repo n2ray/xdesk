@@ -78,6 +78,7 @@ public class XDeskActivity extends Activity {
     private static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
+    private static final long KEYBOARD_GONE_MS = 1500;
     private static final long DIM_AFTER_MS = 60000;
     private static final float DIM_BRIGHTNESS = 0.01f;
 
@@ -91,7 +92,7 @@ public class XDeskActivity extends Activity {
     private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
     private Style.IconButton keysHandle;
     private DirectTouchView directTouch;
-    private boolean keysExpanded, keyboardOpen;
+    private boolean keysExpanded, keyboardOpen, keyboardWanted, phonePassive;
     /** 触控区铺满整个手机屏，系统栏隐藏。 */
     private boolean padFullscreen;
     /** 这个显示器已经放过仪表盘了，放不上去也别一直试。 */
@@ -208,7 +209,6 @@ public class XDeskActivity extends Activity {
             Display forDashboard = displays.getDisplay(id);
             if (forDashboard != null && id != Display.DEFAULT_DISPLAY) {
                 startDashboard(forDashboard);
-                apps.applyImePolicyAsync(id);
             }
             if (apps.isActive()) {
                 Display added = displays.getDisplay(id);
@@ -481,6 +481,7 @@ public class XDeskActivity extends Activity {
             if (padFullscreen) applyImmersive();
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
+            if (keyboardWanted) ime.showSoftInput(keyView, 0);
             updateCapture();
         }
     }
@@ -727,6 +728,7 @@ public class XDeskActivity extends Activity {
 
     /** 只有控制界面在最前面时才全屏，启动器和设置屏都要看得到系统栏。 */
     private void applyFullscreen() {
+        updatePhoneFocus();
         boolean running = (apps.isActive() && apps.isStarted()) || session.isActive();
         boolean want = running && chooser != null && chooser.getVisibility() != View.VISIBLE
             && setupScreen.getVisibility() != View.VISIBLE && prefs.getBoolean(PREF_FULL_PAD, false);
@@ -878,6 +880,8 @@ public class XDeskActivity extends Activity {
         boolean open = w != null && w.isVisible(WindowInsets.Type.ime());
         if (open != keyboardOpen) {
             keyboardOpen = open;
+            ui.removeCallbacks(keyboardGone);
+            if (!open && keyboardWanted) ui.postDelayed(keyboardGone, KEYBOARD_GONE_MS);
             applyKeysVisibility();
         }
         if (topBar == null) return;
@@ -965,10 +969,48 @@ public class XDeskActivity extends Activity {
         return b;
     }
 
+    /**
+     * 外接屏上跑着应用时，手机窗口不拿焦点。摸手机屏会把焦点从外接屏抢过来，外接屏上的应用因此清掉选中的文字、收起键盘。
+     * 不拿焦点时触摸照常收到。启动器的搜索框和键盘按钮要焦点，那时才放开。
+     */
+    private void updatePhoneFocus() {
+        if (chooser == null || setupScreen == null) return;
+        boolean passive = apps.isActive() && !keyboardWanted && chooser.getVisibility() != View.VISIBLE
+            && setupScreen.getVisibility() != View.VISIBLE;
+        if (passive == phonePassive) return;
+        phonePassive = passive;
+        if (passive) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            apps.focusDisplay(true);
+        } else {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        }
+    }
+
+    /** 打字时焦点来回换，键盘的状态会闪一下，所以等一会还是收着才算收起。 */
+    private final Runnable keyboardGone = new Runnable() {
+        @Override public void run() {
+            if (keyboardOpen || !keyboardWanted) return;
+            keyboardWanted = false;
+            updatePhoneFocus();
+        }
+    };
+
     private void toggleKeyboard() {
         WindowInsets w = getWindow().getDecorView().getRootWindowInsets();
         if (w != null && w.isVisible(WindowInsets.Type.ime())) {
             ime.hideSoftInputFromWindow(keyView.getWindowToken(), 0);
+            if (keyboardWanted) {
+                keyboardWanted = false;
+                updatePhoneFocus();
+            }
+        } else if (apps.isActive()) {
+            // 窗口拿到焦点后在 onWindowFocusChanged 里弹
+            keyboardWanted = true;
+            updatePhoneFocus();
+            apps.focusDisplay(false);
+            ui.removeCallbacks(keyboardGone);
+            ui.postDelayed(keyboardGone, KEYBOARD_GONE_MS);
         } else {
             keyView.requestFocus();
             ime.showSoftInput(keyView, 0);
@@ -988,6 +1030,7 @@ public class XDeskActivity extends Activity {
 
     /** 桌面的键鼠走 Pointer Capture，没有接管这回事。 */
     private void applyModeToTopBar() {
+        updatePhoneFocus();
         boolean app = apps.isActive();
         forwardBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
@@ -1096,7 +1139,11 @@ public class XDeskActivity extends Activity {
 
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         bumpIdle();
-        if (apps.isActive() && e.getActionMasked() == MotionEvent.ACTION_DOWN) apps.phoneTouched();
+        if (apps.isActive() && e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            apps.phoneTouched();
+            // 设置页这类窗口关掉后，焦点还留在手机屏
+            if (phonePassive) apps.focusDisplay(true);
+        }
         return super.dispatchTouchEvent(e);
     }
 
@@ -1225,7 +1272,6 @@ public class XDeskActivity extends Activity {
 
         LinearLayout external = s.section(c, "外屏");
         addDensitySetting(s, external);
-        s.switchRow(external, "在外屏隐藏输入法弹出", "应用不会自己弹出键盘，需要时用手机上的键盘按钮。需要 Shizuku", apps.isImeHiddenOnDisplay(), on -> apps.setImeHiddenOnDisplay(on));
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(external, "桌面分辨率", "Termux 桌面的 X 分辨率", WIDTH_LABELS[widthIndex()], () -> chooseResolution(resolution[0]));

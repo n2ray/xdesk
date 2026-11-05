@@ -41,9 +41,10 @@ public class InjectorService extends IInjector.Stub {
     private volatile float mouseSpeed = 1f;
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
+    /** The phone window holds focus for its on-screen keyboard. */
+    private boolean phoneKeyboard;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
-    private final ImePolicyOverride imePolicy = new ImePolicyOverride();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
@@ -153,7 +154,6 @@ public class InjectorService extends IInjector.Stub {
             Log.e(TAG, "injector crashed", e);
             audio.clear(false);
             density.clearOurs();
-            imePolicy.restoreAll();
             System.exit(1);
         });
         InputInjector i = null;
@@ -274,7 +274,6 @@ public class InjectorService extends IInjector.Stub {
                 // Move first: this way apps do not have to reconfigure on a display they are leaving
                 if (!sessionOver && displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
                 density.clearOurs();
-                imePolicy.restoreAll();
                 System.exit(0);
             }, 0);
         } catch (RemoteException e) {
@@ -286,8 +285,12 @@ public class InjectorService extends IInjector.Stub {
         return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
     }
 
-    @Override public String setDisplayImeHidden(int display, boolean hidden) {
-        return hidden ? imePolicy.hide(display) : imePolicy.restore(display);
+    @Override public void focusDisplay(final boolean external) {
+        post(() -> {
+            injector.focus(external ? injector.displayId() : android.view.Display.DEFAULT_DISPLAY);
+            phoneKeyboard = !external;
+            focusStale = !external;
+        });
     }
 
     @Override public int displayDefaultDensity(int display) {
@@ -359,6 +362,7 @@ public class InjectorService extends IInjector.Stub {
             Thread.sleep(FOCUS_SETTLE_MS);
             t.run();
             Thread.sleep(FOCUS_SETTLE_MS);
+            if (!phoneKeyboard) return;
             injector.focus(android.view.Display.DEFAULT_DISPLAY);
             focusStale = true;
         });
@@ -519,7 +523,6 @@ public class InjectorService extends IInjector.Stub {
         String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
         density.clearOurs();
-        imePolicy.restoreAll();
         enabled = false;
         listener = null;
         if (injector == null) return;

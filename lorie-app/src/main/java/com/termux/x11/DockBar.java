@@ -35,6 +35,7 @@ final class DockBar extends LinearLayout {
         setGravity(Gravity.CENTER_VERTICAL);
         setFocusable(false);
         previous = new LinearLayout(c);
+        previous.setGravity(Gravity.CENTER_VERTICAL);
         addView(previous, new LayoutParams(-2, -1));
         divider = new View(c);
         divider.setBackgroundColor(Style.SURFACE_RAISED);

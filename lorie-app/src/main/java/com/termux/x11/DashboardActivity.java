@@ -110,15 +110,25 @@ public class DashboardActivity extends Activity {
 
     private View build() {
         FrameLayout root = new FrameLayout(this) {
-            @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
-                float side = Math.min(w, h);
-                clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * CLOCK);
-                date.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * DATE);
-                hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * HINT);
-                status.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * STATUS);
-                hint.setPadding(0, Math.round(side * 0.06f), 0, 0);
-                status.setPadding(0, Math.round(side * 0.04f), 0, 0);
+            // Before measuring the children: set during layout, the new sizes draw inside the old, smaller boxes until
+            // something else asks for a layout
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                int w = MeasureSpec.getSize(widthSpec), h = MeasureSpec.getSize(heightSpec);
+                if (w != sizedW || h != sizedH) {
+                    sizedW = w;
+                    sizedH = h;
+                    float side = Math.min(w, h);
+                    clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * CLOCK);
+                    date.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * DATE);
+                    hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * HINT);
+                    status.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * STATUS);
+                    hint.setPadding(0, Math.round(side * 0.06f), 0, 0);
+                    status.setPadding(0, Math.round(side * 0.04f), 0, 0);
+                }
+                super.onMeasure(widthSpec, heightSpec);
             }
+
+            private int sizedW = -1, sizedH = -1;
         };
         root.setBackgroundColor(Color.BLACK);
         column = new LinearLayout(this);
