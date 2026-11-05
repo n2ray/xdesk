@@ -18,7 +18,7 @@ final class DensityOverride {
 
     private final HashSet<Integer> ours = new HashSet<>();
 
-    private static Object windowManager() throws ReflectiveOperationException {
+    static Object windowManager() throws ReflectiveOperationException {
         Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "window");
         return Class.forName("android.view.IWindowManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
     }

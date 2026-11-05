@@ -43,6 +43,7 @@ public class InjectorService extends IInjector.Stub {
     private volatile boolean focusStale;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
+    private final ImePolicyOverride imePolicy = new ImePolicyOverride();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
@@ -152,6 +153,7 @@ public class InjectorService extends IInjector.Stub {
             Log.e(TAG, "injector crashed", e);
             audio.clear(false);
             density.clearOurs();
+            imePolicy.restoreAll();
             System.exit(1);
         });
         InputInjector i = null;
@@ -272,6 +274,7 @@ public class InjectorService extends IInjector.Stub {
                 // Move first: this way apps do not have to reconfigure on a display they are leaving
                 if (!sessionOver && displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
                 density.clearOurs();
+                imePolicy.restoreAll();
                 System.exit(0);
             }, 0);
         } catch (RemoteException e) {
@@ -281,6 +284,10 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public String setDisplayDensity(int display, int dpi) {
         return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
+    }
+
+    @Override public String setDisplayImeHidden(int display, boolean hidden) {
+        return hidden ? imePolicy.hide(display) : imePolicy.restore(display);
     }
 
     @Override public int displayDefaultDensity(int display) {
@@ -512,6 +519,7 @@ public class InjectorService extends IInjector.Stub {
         String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
         density.clearOurs();
+        imePolicy.restoreAll();
         enabled = false;
         listener = null;
         if (injector == null) return;

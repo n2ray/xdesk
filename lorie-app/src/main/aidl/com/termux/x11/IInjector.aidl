@@ -52,6 +52,8 @@ interface IInjector {
     String closeApp(String packageName) = 25;
     /** 触控 mode: two or more fingers, placed around the cursor. Offsets are pixels on the display, ids stay with a finger. */
     oneway void touchFrame(int action, in int[] ids, in float[] offsetX, in float[] offsetY) = 27;
+    /** Stop apps raising the keyboard on this display, or put back what was there. Returns null or the error. */
+    String setDisplayImeHidden(int displayId, boolean hidden) = 28;
     /** Android Back to the app on the external display. */
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */

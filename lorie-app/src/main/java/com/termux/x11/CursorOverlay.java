@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
+import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.graphics.Point;
@@ -98,7 +99,7 @@ final class CursorOverlay {
         margin = Math.round(size * MARGIN_OF_SIZE);
         int window = size + 2 * margin;
         Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " at " + attachedDensity + " dpi");
-        view = new ArrowView(dc, size, margin, SystemPointer.load());
+        view = new ArrowView(dc, size, margin, SystemPointer.load(size));
         view.setFaint(faint);
         view.setSystemStyle(systemStyle);
         params = new WindowManager.LayoutParams(window, window, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -166,17 +167,18 @@ final class CursorOverlay {
     private static final class SystemPointer {
         /** Used when the hot spot cannot be read: the tip is near the top left, inset from the corner. */
         private static final float FALLBACK_HOT = 0.25f;
-        final Drawable drawable;
+        final Bitmap bitmap;
         /** Hot spot as a part of the drawable's size. */
         final float hotX, hotY;
 
-        private SystemPointer(Drawable d, float x, float y) {
-            drawable = d;
+        private SystemPointer(Bitmap b, float x, float y) {
+            bitmap = b;
             hotX = x;
             hotY = y;
         }
 
-        static SystemPointer load() {
+        /** @param size the cursor's size in pixels */
+        static SystemPointer load(int size) {
             Resources res = Resources.getSystem();
             for (String name : new String[]{"pointer_arrow_vector", "pointer_arrow"}) {
                 try {
@@ -185,13 +187,40 @@ final class CursorOverlay {
                     Drawable d = res.getDrawable(id, null).mutate();
                     float widthDp = d.getIntrinsicWidth() / res.getDisplayMetrics().density;
                     float[] hot = readHotSpot(res, widthDp);
+                    Bitmap b = rasterise(d, size);
+                    if (b == null) {
+                        Log.w(TAG, "system pointer " + name + " drew nothing");
+                        continue;
+                    }
                     Log.i(TAG, "cursor from " + name + ", hot spot " + hot[0] + "," + hot[1]);
-                    return new SystemPointer(d, hot[0], hot[1]);
+                    return new SystemPointer(b, hot[0], hot[1]);
                 } catch (RuntimeException e) {
                     Log.i(TAG, "no system pointer " + name + ": " + e);
                 }
             }
             return null;
+        }
+
+        /**
+         * Draw it once at its own size and scale the picture. Drawn directly with a small or offset box, this drawable was
+         * seen to produce nothing at all on the phone, a blank cursor with no error. Null when the result has no pixels,
+         * so that can never reach the screen.
+         */
+        private static Bitmap rasterise(Drawable d, int size) {
+            int w = d.getIntrinsicWidth(), h = d.getIntrinsicHeight();
+            if (w <= 0 || h <= 0) return null;
+            Bitmap full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, w, h);
+            d.draw(new Canvas(full));
+            Bitmap scaled = Bitmap.createScaledBitmap(full, size, size, true);
+            return hasPixels(scaled) ? scaled : null;
+        }
+
+        private static boolean hasPixels(Bitmap b) {
+            int[] pixels = new int[b.getWidth() * b.getHeight()];
+            b.getPixels(pixels, 0, b.getWidth(), 0, 0, b.getWidth(), b.getHeight());
+            for (int p : pixels) if (Color.alpha(p) != 0) return true;
+            return false;
         }
 
         /** From the `pointer-icon` resource, whose hotSpotX and hotSpotY are dimensions. */
@@ -245,6 +274,7 @@ final class CursorOverlay {
         private final Path arrow = new Path();
         private final float size, tipX;
         private final SystemPointer pointer;
+        private float pointerLeft, pointerTop;
         private boolean faint, systemStyle;
 
         ArrowView(Context c, int size, int margin, SystemPointer pointer) {
@@ -252,8 +282,8 @@ final class CursorOverlay {
             this.pointer = pointer;
             if (pointer != null) {
                 // Its hot spot goes on the window's top row, so what little is drawn above the tip is cut off
-                int left = Math.round(margin - pointer.hotX * size), top = Math.round(-pointer.hotY * size);
-                pointer.drawable.setBounds(left, top, left + size, top + size);
+                pointerLeft = margin - pointer.hotX * size;
+                pointerTop = -pointer.hotY * size;
             }
             this.size = size;
             tipX = margin;
@@ -300,7 +330,7 @@ final class CursorOverlay {
                 return;
             }
             if (systemStyle && pointer != null) {
-                pointer.drawable.draw(c);
+                c.drawBitmap(pointer.bitmap, pointerLeft, pointerTop, null);
                 return;
             }
             c.drawPath(arrow, outline);

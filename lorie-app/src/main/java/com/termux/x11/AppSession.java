@@ -64,6 +64,7 @@ final class AppSession {
     private boolean alwaysShowCursor;
     /** Termux 桌面也要靠注入服务选声音输出：只为这个连上，不读键鼠。 */
     private boolean audioBinding;
+    private final android.content.SharedPreferences imePrefs;
     private int lastCursorX, lastCursorY;
     /** 切去 Termux 桌面时应用的任务留在了外接屏上。 */
     private boolean appBehindDesktop;
@@ -154,6 +155,7 @@ final class AppSession {
                         i.attach(fromInjector, context.getPackageName());
                         i.setEnabled(false);
                         ui.post(() -> audioRoute.attachInjector(i));
+                        applyImePolicy(i, externalDisplayId());
                     } catch (RemoteException e) {
                         Log.w(TAG, "audio only", e);
                     }
@@ -224,6 +226,7 @@ final class AppSession {
         audioRoute = AudioRoute.get(c);
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
+        imePrefs = c.getSharedPreferences("display_ime", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
@@ -391,6 +394,7 @@ final class AppSession {
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> audioRoute.attachInjector(i));
             loadDensity(i, d);
+            applyImePolicy(i, d.getDisplayId());
             // 启动之前设，冷启动时应用一开始就是对的大小。桌面窗口这时还在前面，它声明了自己处理 density，不会重建
             applyDensityFor(i, d, app);
             launch(i, d);
@@ -587,6 +591,41 @@ final class AppSession {
         // The name is less exact, but better than not remembering
         densityKey = unique != null ? unique : "name:" + d.getName();
         defaultDensity = i.displayDefaultDensity(d.getDisplayId());
+    }
+
+    boolean isImeHiddenOnDisplay() {
+        return imePrefs.getBoolean("hidden", true);
+    }
+
+    /** 在外屏隐藏输入法弹出。设置里的开关，默认开着。 */
+    void setImeHiddenOnDisplay(boolean hidden) {
+        imePrefs.edit().putBoolean("hidden", hidden).apply();
+        applyImePolicyAsync(externalDisplayId());
+    }
+
+    /** 显示器的 id 插拔后会变，所以换了显示器要再设一次。 */
+    void applyImePolicyAsync(final int displayId) {
+        final IInjector i = injector;
+        if (i == null || displayId < 0) return;
+        new Thread(() -> applyImePolicy(i, displayId), "xdesk-ime-policy").start();
+    }
+
+    /** 尽力而为：不行只是应用还能弹键盘。背景线程调用。 */
+    private void applyImePolicy(IInjector i, int displayId) {
+        if (displayId < 0) return;
+        try {
+            String error = i.setDisplayImeHidden(displayId, isImeHiddenOnDisplay());
+            if (error != null) Log.w(TAG, "IME policy: " + error);
+        } catch (RemoteException e) {
+            Log.w(TAG, "IME policy", e);
+        }
+    }
+
+    private int externalDisplayId() {
+        for (Display d : context.getSystemService(android.hardware.display.DisplayManager.class).getDisplays()) {
+            if (d.getDisplayId() != Display.DEFAULT_DISPLAY) return d.getDisplayId();
+        }
+        return -1;
     }
 
     /** 这个应用该用的值：它自己的，否则这台显示器的默认值，都没有是 0。 */

@@ -206,7 +206,10 @@ public class XDeskActivity extends Activity {
             // 放在最底下，所以要先放它，再放应用或桌面窗口
             dashboardTried = Display.INVALID_DISPLAY;
             Display forDashboard = displays.getDisplay(id);
-            if (forDashboard != null && id != Display.DEFAULT_DISPLAY) startDashboard(forDashboard);
+            if (forDashboard != null && id != Display.DEFAULT_DISPLAY) {
+                startDashboard(forDashboard);
+                apps.applyImePolicyAsync(id);
+            }
             if (apps.isActive()) {
                 Display added = displays.getDisplay(id);
                 if (added != null) apps.displayAdded(added);
@@ -1222,6 +1225,7 @@ public class XDeskActivity extends Activity {
 
         LinearLayout external = s.section(c, "外屏");
         addDensitySetting(s, external);
+        s.switchRow(external, "在外屏隐藏输入法弹出", "应用不会自己弹出键盘，需要时用手机上的键盘按钮。需要 Shizuku", apps.isImeHiddenOnDisplay(), on -> apps.setImeHiddenOnDisplay(on));
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(external, "桌面分辨率", "Termux 桌面的 X 分辨率", WIDTH_LABELS[widthIndex()], () -> chooseResolution(resolution[0]));
