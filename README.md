@@ -80,6 +80,8 @@ Tap an app in the chooser to run it full screen on the external display, with th
 
 - **Needs [Shizuku](https://shizuku.rikka.app/).** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user through Shizuku. It reads `/dev/input` and injects events. Termux sessions do not need Shizuku.
 - **Needs the overlay permission,** because Android keeps its own pointer on the phone and XDesk draws a cursor on the display.
+- **Dock and switching.** The chooser has search by name or package. The star on a row adds it to a dock, and long pressing a dock item moves or removes it. The dock stays on the touchpad screen, and one tap switches what is on the display without going back to the chooser. An app that is already running comes to the front with its state. A desktop keeps running behind an app and an app's task stays behind a desktop, as long as Android does not close it. Desktop audio is silent while an app is in front.
+- **Cursor in RustDesk.** During a remote session XDesk's cursor hides over the remote picture and shows over the toolbar, and for a few seconds after a toolbar click so menus can be used. It detects a session from a window flag seen in one version. If that is wrong, turn on the setting to always show the cursor.
 - **Tested on one phone only,** and only with RustDesk.
 - **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
 - **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
@@ -90,7 +92,7 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop
 - Android apps full screen on the display, with Shizuku
-- Audio output you can switch: phone speaker, HDMI, or system default
+- Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. Without Shizuku this covers desktop audio only. With an Android app running, it also sets the system's preferred media device through Shizuku, and clears it when you return to the chooser. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, a reboot probably does
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
 

@@ -30,7 +30,7 @@ final class CursorOverlay {
     private WindowManager windows;
     private View view;
     private WindowManager.LayoutParams params;
-    private boolean shown, framePending;
+    private boolean shown, framePending, suppressed;
     private int x, y;
 
     CursorOverlay(Context c) {
@@ -54,6 +54,7 @@ final class CursorOverlay {
         windows = dc.getSystemService(WindowManager.class);
         int size = Math.round(SIZE_DP * dc.getResources().getDisplayMetrics().density);
         view = new ArrowView(dc);
+        view.setVisibility(suppressed ? View.INVISIBLE : View.VISIBLE);
         params = new WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -62,6 +63,12 @@ final class CursorOverlay {
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         params.setFitInsetsTypes(0);
         params.setTitle("XDesk cursor");
+    }
+
+    /** Keep following the pointer but draw nothing, see CursorPolicy. */
+    void setSuppressed(boolean s) {
+        suppressed = s;
+        if (view != null) view.setVisibility(s ? View.INVISIBLE : View.VISIBLE);
     }
 
     void moveTo(int newX, int newY) {

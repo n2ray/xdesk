@@ -97,12 +97,12 @@ final class DesktopSession {
     }
 
     /** 开始当显示器：放窗口由 Activity 负责，这里不启动任何桌面。 */
-    void attach(int audioOutput) {
+    void attach() {
         serverLost = false;
         recovering = false;
         recoverDelay = RECOVER_FIRST_MS;
         active = true;
-        audio = new AudioPlayer(context, AUDIO_PORT, audioOutput);
+        audio = new AudioPlayer(AUDIO_PORT, AudioRoute.get(context));
         context.startForegroundService(new Intent(context, DesktopService.class));
         // 只影响是否自动恢复，别的 App 发了也无害
         context.registerReceiver(stopped, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);

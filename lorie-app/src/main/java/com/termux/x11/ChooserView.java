@@ -1,78 +1,80 @@
 package com.termux.x11;
 
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
-import android.os.Handler;
-import android.os.Looper;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
-import java.text.Collator;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-/** 打开 App 时看到的界面：选外接屏上运行什么。最近用过的在最前面。没有外接屏时也能看，只是启动不了。 */
+/**
+ * 选外接屏上运行什么：常用（Dock）、搜索、最近使用、全部。没有外接屏时也能看，只是启动不了。
+ * 会话进行中也能盖在触摸板上打开，用来切换到不在 Dock 里的应用。
+ */
 final class ChooserView extends LinearLayout {
-    /** 一个可启动的安卓应用。 */
-    static final class App {
-        final String label, packageName, activityName;
-        final ResolveInfo info;
-
-        App(String label, ResolveInfo info) {
-            this.label = label;
-            this.info = info;
-            packageName = info.activityInfo.packageName;
-            activityName = info.activityInfo.name;
-        }
-
-        String component() {
-            return packageName + "/" + activityName;
-        }
-    }
-
-    interface Host {
+    interface Host extends DockBar.Host {
         void onSessionChosen(String name);
         /** 只当显示器，等用户自己运行 xdesk 命令。 */
         void onAttachChosen();
-        void onAppChosen(App app);
+        void onAppChosen(AppCatalog.App app);
         /** 点了 Termux 那一节的提示行。 */
         void onTermuxHint();
+        /** 点了一行右边的星。 */
+        void onDockToggle(String key);
+        /** 盖在会话上时点了关闭。 */
+        void onChooserClose();
     }
 
     private static final String RECENT_SESSION = "t:", RECENT_APP = "a:";
 
+    static String recentKey(String sessionName) {
+        return RECENT_SESSION + sessionName;
+    }
+
+    static String recentKey(AppCatalog.App a) {
+        return RECENT_APP + a.component();
+    }
+
+    static boolean isAppKey(String key) {
+        return key.startsWith(RECENT_APP);
+    }
+
+    static String componentOf(String appKey) {
+        return appKey.substring(RECENT_APP.length());
+    }
+
+    static String sessionOf(String sessionKey) {
+        return sessionKey.substring(RECENT_SESSION.length());
+    }
+
     private static final class Row {
         boolean header;
-        String title, subtitle;
-        App app;
+        String title, subtitle, key;
+        AppCatalog.App app;
         Runnable action;
     }
 
     private final Host host;
-    private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ExecutorService iconLoader = Executors.newSingleThreadExecutor();
-    private final HashMap<String, Drawable> icons = new HashMap<>();
-    private final TextView banner;
+    private final TextView banner, close;
+    private final EditText search;
+    private final DockBar dock;
     private final Adapter adapter = new Adapter();
     private final ArrayList<Row> rows = new ArrayList<>();
     private List<String> sessions = new ArrayList<>();
-    private String runningSession, defaultSession, termuxHint;
+    private String runningSession, defaultSession, termuxHint, current, query = "";
     private boolean xRunning;
-    private List<App> apps = new ArrayList<>();
-    private List<String> recents = new ArrayList<>();
+    private List<AppCatalog.App> apps = new ArrayList<>();
+    private List<String> recents = new ArrayList<>(), dockKeys = new ArrayList<>();
 
     ChooserView(Context c, Host host) {
         super(c);
@@ -80,20 +82,59 @@ final class ChooserView extends LinearLayout {
         setOrientation(VERTICAL);
         setBackgroundColor(Style.BACKGROUND);
         setClickable(true);  // 挡住下面的触摸板
+        setFocusableInTouchMode(true);  // 别一打开就把焦点给搜索框、弹出键盘
         int pad = Style.dp(c, 12);
         setPadding(pad, pad, pad, 0);
 
+        LinearLayout head = new LinearLayout(c);
+        head.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(c);
         title.setText("外接屏上运行什么？");
         title.setTextColor(Style.TEXT);
         title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        addView(title, new LayoutParams(-1, -2));
+        head.addView(title, new LayoutParams(0, -2, 1));
+        close = Style.button(c, "回到触摸板", Style.SURFACE_RAISED, 13, 16);
+        close.setPadding(Style.dp(c, 12), Style.dp(c, 6), Style.dp(c, 12), Style.dp(c, 6));
+        close.setOnClickListener(v -> host.onChooserClose());
+        close.setVisibility(GONE);
+        head.addView(close, new LayoutParams(-2, -2));
+        addView(head, new LayoutParams(-1, -2));
 
         banner = new TextView(c);
         banner.setTextSize(14);
-        banner.setPadding(0, Style.dp(c, 6), 0, Style.dp(c, 8));
+        banner.setPadding(0, Style.dp(c, 4), 0, Style.dp(c, 6));
         addView(banner, new LayoutParams(-1, -2));
+
+        dock = new DockBar(c, host, true, false);
+        LayoutParams dp = new LayoutParams(-1, Style.dp(c, 62));
+        dp.bottomMargin = Style.dp(c, 6);
+        addView(dock, dp);
+
+        search = new EditText(c);
+        search.setHint("搜索应用名或包名");
+        search.setHintTextColor(Style.TEXT_DIM);
+        search.setTextColor(Style.TEXT);
+        search.setTextSize(15);
+        search.setSingleLine(true);
+        search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        search.setBackground(Style.rounded(c, Style.SURFACE, 12));
+        search.setPadding(Style.dp(c, 12), Style.dp(c, 8), Style.dp(c, 12), Style.dp(c, 8));
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
+            @Override public void afterTextChanged(Editable s) {
+                query = s.toString().trim().toLowerCase();
+                rebuild();
+            }
+        });
+        // 横屏弹出键盘后高度很紧，搜索时把位置留给结果
+        search.setOnFocusChangeListener((v, focused) -> {
+            boolean tight = focused && getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            dock.setVisibility(tight ? GONE : VISIBLE);
+            banner.setVisibility(tight ? GONE : VISIBLE);
+        });
+        addView(search, new LayoutParams(-1, -2));
 
         ListView list = new ListView(c);
         list.setDivider(null);
@@ -111,6 +152,16 @@ final class ChooserView extends LinearLayout {
         banner.setTextColor(connected ? Style.TEXT_DIM : Style.WARN);
     }
 
+    /** 盖在运行中的会话上时才有关闭按钮。 */
+    void setOverSession(boolean over) {
+        close.setVisibility(over ? VISIBLE : GONE);
+    }
+
+    void clearSearch() {
+        if (search.length() > 0) search.setText("");
+        search.clearFocus();
+    }
+
     /** @param hint 列不出环境时的说明，点按见 Host.onTermuxHint；null 表示正常 */
     void setTermux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
         sessions = sessionNames;
@@ -121,7 +172,7 @@ final class ChooserView extends LinearLayout {
         rebuild();
     }
 
-    void setApps(List<App> a) {
+    void setApps(List<AppCatalog.App> a) {
         apps = a;
         rebuild();
     }
@@ -131,12 +182,12 @@ final class ChooserView extends LinearLayout {
         rebuild();
     }
 
-    static String recentKey(String sessionName) {
-        return RECENT_SESSION + sessionName;
-    }
-
-    static String recentKey(App a) {
-        return RECENT_APP + a.component();
+    /** @param currentKey 正在外接屏上的，可以是 null */
+    void setDock(List<String> keys, String currentKey) {
+        dockKeys = keys;
+        current = currentKey;
+        dock.setItems(keys, currentKey);
+        rebuild();
     }
 
     private Row header(String title) {
@@ -148,105 +199,99 @@ final class ChooserView extends LinearLayout {
 
     private Row sessionRow(final String name) {
         Row r = new Row();
+        r.key = recentKey(name);
         r.title = name;
-        if (name.equals(runningSession)) r.subtitle = "正在运行，点按接回";
+        if (r.key.equals(current)) r.subtitle = "正在外接屏上";
+        else if (name.equals(runningSession)) r.subtitle = "正在运行，点按接回";
         else if (name.equals(defaultSession)) r.subtitle = "Termux 桌面（默认）";
         else r.subtitle = "Termux 桌面";
         r.action = () -> host.onSessionChosen(name);
         return r;
     }
 
-    private Row appRow(final App a) {
+    private Row appRow(final AppCatalog.App a) {
         Row r = new Row();
+        r.key = recentKey(a);
         r.title = a.label;
         r.app = a;
+        if (r.key.equals(current)) r.subtitle = "正在外接屏上";
         r.action = () -> host.onAppChosen(a);
         return r;
     }
 
+    private boolean sessionMatches(String name) {
+        return query.isEmpty() || name.toLowerCase().contains(query);
+    }
+
     private void rebuild() {
         rows.clear();
-        ArrayList<Row> recentRows = new ArrayList<>();
-        for (String key : recents) {
-            if (key.startsWith(RECENT_SESSION)) {
-                String name = key.substring(RECENT_SESSION.length());
-                if (sessions.contains(name)) recentRows.add(sessionRow(name));
-            } else {
-                for (App a : apps) {
-                    if (key.equals(recentKey(a))) {
-                        recentRows.add(appRow(a));
-                        break;
+        boolean searching = !query.isEmpty();
+        if (!searching) {
+            ArrayList<Row> recentRows = new ArrayList<>();
+            for (String key : recents) {
+                if (!isAppKey(key)) {
+                    String name = sessionOf(key);
+                    if (sessions.contains(name)) recentRows.add(sessionRow(name));
+                } else {
+                    for (AppCatalog.App a : apps) {
+                        if (key.equals(recentKey(a))) {
+                            recentRows.add(appRow(a));
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if (!recentRows.isEmpty()) {
-            rows.add(header("最近使用"));
-            rows.addAll(recentRows);
+            if (!recentRows.isEmpty()) {
+                rows.add(header("最近使用"));
+                rows.addAll(recentRows);
+            }
         }
 
-        rows.add(header("Termux 桌面"));
-        for (String name : sessions) rows.add(sessionRow(name));
-        if (termuxHint != null) {
-            Row hint = new Row();
-            hint.title = termuxHint;
-            hint.action = host::onTermuxHint;
-            rows.add(hint);
+        ArrayList<Row> termux = new ArrayList<>();
+        for (String name : sessions) if (sessionMatches(name)) termux.add(sessionRow(name));
+        if (!searching) {
+            if (termuxHint != null) {
+                Row hint = new Row();
+                hint.title = termuxHint;
+                hint.action = host::onTermuxHint;
+                termux.add(hint);
+            }
+            Row attach = new Row();
+            if (xRunning && runningSession == null) {
+                attach.title = "接回正在运行的 X 显示";
+                attach.subtitle = "X 服务器正在运行";
+            } else {
+                attach.title = "只当显示器";
+                attach.subtitle = "等 Termux 里的 xdesk 命令连上来";
+            }
+            attach.action = host::onAttachChosen;
+            termux.add(attach);
         }
-        Row attach = new Row();
-        if (xRunning && runningSession == null) {
-            attach.title = "接回正在运行的 X 显示";
-            attach.subtitle = "X 服务器正在运行";
-        } else {
-            attach.title = "只当显示器";
-            attach.subtitle = "等 Termux 里的 xdesk 命令连上来";
+        if (!termux.isEmpty()) {
+            rows.add(header("Termux 桌面"));
+            rows.addAll(termux);
         }
-        attach.action = host::onAttachChosen;
-        rows.add(attach);
 
-        rows.add(header("安卓应用（需要 Shizuku）"));
+        ArrayList<Row> appRows = new ArrayList<>();
+        for (AppCatalog.App a : apps) if (!searching || a.matches(query)) appRows.add(appRow(a));
+        if (!appRows.isEmpty() || !searching) rows.add(header("安卓应用（需要 Shizuku）"));
         if (apps.isEmpty()) {
             Row loading = new Row();
             loading.title = "正在读取应用列表…";
             rows.add(loading);
         }
-        for (App a : apps) rows.add(appRow(a));
-        adapter.notifyDataSetChanged();
-    }
-
-    /** 后台线程读，应用多时很慢。 */
-    static List<App> loadApps(Context c) {
-        PackageManager pm = c.getPackageManager();
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        ArrayList<App> out = new ArrayList<>();
-        for (ResolveInfo ri : pm.queryIntentActivities(launcher, 0)) {
-            if (c.getPackageName().equals(ri.activityInfo.packageName)) continue;
-            out.add(new App(String.valueOf(ri.loadLabel(pm)), ri));
+        rows.addAll(appRows);
+        if (searching && rows.isEmpty()) {
+            Row none = new Row();
+            none.title = "没有找到";
+            rows.add(none);
         }
-        final Collator collator = Collator.getInstance();
-        Collections.sort(out, (a, b) -> collator.compare(a.label, b.label));
-        return out;
-    }
-
-    private void loadIcon(final App a, final ImageView into) {
-        final String key = a.component();
-        Drawable d = icons.get(key);
-        into.setTag(key);
-        into.setImageDrawable(d);
-        if (d != null) return;
-        final PackageManager pm = getContext().getPackageManager();
-        iconLoader.execute(() -> {
-            final Drawable loaded = a.info.loadIcon(pm);
-            ui.post(() -> {
-                icons.put(key, loaded);
-                if (key.equals(into.getTag())) into.setImageDrawable(loaded);
-            });
-        });
+        adapter.notifyDataSetChanged();
     }
 
     private static final class Holder {
         ImageView icon;
-        TextView title, subtitle;
+        TextView title, subtitle, star;
     }
 
     private final class Adapter extends BaseAdapter {
@@ -259,7 +304,7 @@ final class ChooserView extends LinearLayout {
         @Override public int getItemViewType(int i) { return rows.get(i).header ? 0 : 1; }
 
         @Override public View getView(int i, View old, ViewGroup parent) {
-            Row r = rows.get(i);
+            final Row r = rows.get(i);
             Context c = parent.getContext();
             if (r.header) {
                 TextView t = old != null ? (TextView) old : new TextView(c);
@@ -292,6 +337,11 @@ final class ChooserView extends LinearLayout {
                 h.subtitle.setTextSize(13);
                 text.addView(h.subtitle);
                 row.addView(text, new LayoutParams(0, -2, 1));
+                h.star = new TextView(c);
+                h.star.setTextSize(22);
+                h.star.setGravity(Gravity.CENTER);
+                h.star.setFocusable(false);  // 列表项才点得动
+                row.addView(h.star, new LayoutParams(Style.dp(c, 48), Style.dp(c, 48)));
                 row.setTag(h);
                 v = row;
             } else {
@@ -302,10 +352,24 @@ final class ChooserView extends LinearLayout {
             h.subtitle.setVisibility(r.subtitle != null ? VISIBLE : GONE);
             if (r.app != null) {
                 h.icon.setVisibility(VISIBLE);
-                loadIcon(r.app, h.icon);
+                AppCatalog.get(c).showIcon(r.app, h.icon);
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);
+            }
+            if (r.key != null) {
+                boolean docked = dockKeys.contains(r.key);
+                h.star.setVisibility(VISIBLE);
+                h.star.setText(docked ? "★" : "☆");
+                h.star.setTextColor(docked ? Style.WARN : Style.TEXT_DIM);
+                h.star.setContentDescription(docked ? "移出 Dock" : "加入 Dock");
+                h.star.setOnClickListener(view -> {
+                    Style.tick(view);
+                    host.onDockToggle(r.key);
+                });
+            } else {
+                h.star.setVisibility(GONE);
+                h.star.setOnClickListener(null);
             }
             return v;
         }

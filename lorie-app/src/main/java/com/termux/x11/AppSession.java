@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Display;
 import java.lang.reflect.Method;
@@ -51,10 +52,15 @@ final class AppSession {
     private final Context context;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final CursorOverlay cursor;
+    private final CursorPolicy cursorPolicy = new CursorPolicy();
+    private final AudioRoute audioRoute;
+    /** 接管过键鼠又切去了 Termux 桌面：切回来时接着接管。用户没要过就不会自己接管。 */
+    private boolean forwardOnReturn;
+    private boolean alwaysShowCursor;
     private Listener listener;
     private boolean active, forwarding, started;
     private int deviceCount;
-    private ChooserView.App app;
+    private AppCatalog.App app;
     private Display display;
     private float mouseSpeed = 1f;
     private volatile IInjector injector;
@@ -63,7 +69,10 @@ final class AppSession {
     private final IInjectorListener.Stub fromInjector = new IInjectorListener.Stub() {
         @Override public void onCursor(final int x, final int y) {
             ui.post(() -> {
-                if (active) cursor.moveTo(x, y);
+                if (!active) return;
+                cursorPolicy.moved(y);
+                cursor.moveTo(x, y);
+                updateCursor();
             });
         }
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -80,6 +89,18 @@ final class AppSession {
                 if (listener != null) listener.onAppMessage(message);
             });
         }
+        @Override public void onAppInSession(final boolean inSession) {
+            ui.post(() -> {
+                cursorPolicy.setInSession(inSession);
+                updateCursor();
+            });
+        }
+        @Override public void onButtonUp() {
+            ui.post(() -> {
+                cursorPolicy.buttonUp(SystemClock.uptimeMillis());
+                updateCursor();
+            });
+        }
     };
 
     private final ServiceConnection connection = new ServiceConnection() {
@@ -93,6 +114,8 @@ final class AppSession {
             lostInjector();
         }
     };
+
+    private final Runnable cursorTimer = this::updateCursor;
 
     private final Runnable bindTimeout = () -> fail("注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
 
@@ -142,11 +165,20 @@ final class AppSession {
     private AppSession(Context c) {
         context = c;
         cursor = new CursorOverlay(c);
+        audioRoute = AudioRoute.get(c);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
             if (code == PERMISSION_REQUEST) shizukuChanged();
         });
+    }
+
+    private void updateCursor() {
+        long now = SystemClock.uptimeMillis();
+        cursor.setSuppressed(!cursorPolicy.visible(now));
+        ui.removeCallbacks(cursorTimer);
+        long next = cursorPolicy.nextChange(now);
+        if (next >= 0) ui.postDelayed(cursorTimer, next + 1);
     }
 
     private void shizukuChanged() {
@@ -167,6 +199,8 @@ final class AppSession {
     boolean hasDisplay() { return display != null; }
     int deviceCount() { return deviceCount; }
     String label() { return app != null ? app.label : ""; }
+    /** 正在外接屏上的应用。 */
+    AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
 
     int shizukuState() {
@@ -209,16 +243,26 @@ final class AppSession {
     }
 
     /** Start the injector, then the app. Answers on the listener. */
-    void start(ChooserView.App a, Display d, float speed) {
+    void start(AppCatalog.App a, Display d, float speed, boolean alwaysShow) {
         active = true;
         started = false;
         forwarding = false;
         app = a;
         display = d;
         mouseSpeed = speed;
+        alwaysShowCursor = alwaysShow;
+        cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
+        cursorPolicy.setAlwaysShow(alwaysShow);
+        cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
+        updateCursor();
         Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label);
         context.startForegroundService(keepAlive);
+        if (injector != null) {
+            // 从 Termux 桌面切回来，注入服务一直留着，不用再等它启动
+            new Thread(this::prepare, "xdesk-app-start").start();
+            return;
+        }
         ui.postDelayed(bindTimeout, BIND_TIMEOUT_MS);
         try {
             Shizuku.bindUserService(serviceArgs(), connection);
@@ -255,6 +299,9 @@ final class AppSession {
                 ui.post(() -> fail("无法注入输入：" + error));
                 return;
             }
+            i.setEnabled(true);
+            i.setWatchSession(!alwaysShowCursor);
+            ui.post(() -> audioRoute.attachInjector(i));
             launch(i, d);
         } catch (RemoteException e) {
             ui.post(() -> fail("注入服务断开了：" + e.getMessage()));
@@ -273,7 +320,7 @@ final class AppSession {
         String error = i.startApp(app.component(), d.getDisplayId());
         if (error != null) {
             Log.w(TAG, "am start: " + error);
-            error = launchFromApp(d);
+            error = launchFromApp(app, d);
         }
         final String result = error;
         ui.post(() -> {
@@ -283,6 +330,8 @@ final class AppSession {
                 return;
             }
             started = true;
+            if (forwardOnReturn) setForwarding(true);
+            forwardOnReturn = false;
             if (listener != null) listener.onAppStarted();
         });
     }
@@ -291,10 +340,10 @@ final class AppSession {
      * Fallback when the injector cannot start it. setLaunchWindowingMode is hidden and may be refused for a normal
      * app. Without it the system picks the mode, which on a display in desktop mode can be a window.
      */
-    private String launchFromApp(Display d) {
+    private String launchFromApp(AppCatalog.App target, Display d) {
         try {
             Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                .setComponent(ComponentName.unflattenFromString(app.component()))
+                .setComponent(ComponentName.unflattenFromString(target.component()))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
             ActivityOptions o = ActivityOptions.makeBasic();
             o.setLaunchDisplayId(d.getDisplayId());
@@ -320,6 +369,7 @@ final class AppSession {
     /** The service died: Shizuku was stopped or the process was killed. Grabs ended with it. */
     private void lostInjector() {
         injector = null;
+        audioRoute.detachInjector();
         forwarding = false;
         cursor.hide();
         if (!active) return;
@@ -344,6 +394,74 @@ final class AppSession {
         IInjector i = injector;
         try {
             if (i != null) i.setForwarding(on);
+        } catch (RemoteException ignored) { }
+    }
+
+    /**
+     * 切换外接屏上的应用，不回选择界面。已经在运行的应用只是回到前台：am start 用的是桌面点图标同样的 Intent 和标志，
+     * 系统把现有任务拿到前面，不重启。成功后才换输入方式；失败就留在原来的应用上。
+     */
+    void switchTo(final AppCatalog.App a) {
+        final IInjector i = injector;
+        final Display d = display;
+        if (i == null || d == null) return;
+        new Thread(() -> {
+            String error;
+            try {
+                error = i.startApp(a.component(), d.getDisplayId());
+                if (error != null) {
+                    Log.w(TAG, "am start: " + error);
+                    error = launchFromApp(a, d);
+                }
+                if (error == null) i.setApp(a.packageName);
+            } catch (RemoteException e) {
+                error = "注入服务断开了";
+            }
+            final String result = error;
+            ui.post(() -> {
+                if (result != null) {
+                    if (listener != null) listener.onAppMessage("无法切换到 " + a.label + "：" + result);
+                    return;
+                }
+                if (!active) return;
+                app = a;
+                cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
+                updateCursor();
+                context.startForegroundService(new Intent(context, DesktopService.class)
+                    .putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label));
+                if (listener != null) listener.onAppStateChanged();
+            });
+        }, "xdesk-app-switch").start();
+    }
+
+    /**
+     * 外接屏要换成 Termux 桌面。应用的任务留在后面，注入服务也留着（切回来快）。键鼠交还，热键关掉，光标去掉：
+     * 桌面有自己的光标，也通过安卓读同一套键鼠。
+     */
+    void suspend() {
+        if (!active) return;
+        forwardOnReturn = forwarding;
+        ui.removeCallbacks(bindTimeout);
+        ui.removeCallbacks(cursorTimer);
+        setForwarding(false);
+        IInjector i = injector;
+        try {
+            if (i != null) i.setEnabled(false);
+        } catch (RemoteException ignored) { }
+        active = false;
+        started = false;
+        forwarding = false;
+        display = null;
+        cursor.remove();
+    }
+
+    void setAlwaysShowCursor(boolean always) {
+        alwaysShowCursor = always;
+        cursorPolicy.setAlwaysShow(always);
+        updateCursor();
+        IInjector i = injector;
+        try {
+            if (i != null) i.setWatchSession(!always);
         } catch (RemoteException ignored) { }
     }
 
@@ -374,6 +492,7 @@ final class AppSession {
     void displayAdded(Display d) {
         if (!active || !started || display != null) return;
         display = d;
+        cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
         final IInjector i = injector;
         if (i != null) {
@@ -395,14 +514,18 @@ final class AppSession {
         IInjector i = injector;
         if (d == null || i == null || d.getDisplayId() != id) return;
         int[] size = logicalSize(d);
+        cursorPolicy.setHeight(size[1]);
         try {
             i.setDisplay(id, size[0], size[1]);
         } catch (RemoteException ignored) { }
     }
 
-    /** Stop forwarding and remove the cursor. The app itself keeps running, and so does any Termux desktop. */
+    /** Stop forwarding, remove the cursor and clear the sound route. The app itself keeps running, and so does any Termux desktop. */
     void stop() {
         ui.removeCallbacks(bindTimeout);
+        ui.removeCallbacks(cursorTimer);
+        forwardOnReturn = false;
+        audioRoute.detachInjector();
         boolean desktopActive = DesktopSession.get(context).isActive();
         active = false;
         started = false;

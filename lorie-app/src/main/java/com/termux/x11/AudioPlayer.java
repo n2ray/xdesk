@@ -1,10 +1,8 @@
 package com.termux.x11;
 
-import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
-import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.util.Log;
 import java.io.IOException;
@@ -12,10 +10,8 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
-/** 从本机端口取 PCM（48k 16 位立体声）播放，输出设备可随时切换。 */
+/** 从本机端口取 PCM（48k 16 位立体声）播放，输出设备跟着 AudioRoute，边放边核对。不需要 Shizuku。 */
 final class AudioPlayer {
-    static final int OUT_PHONE = 0, OUT_EXTERNAL = 1, OUT_SYSTEM = 2;
-
     private static final String TAG = "XDesk";
     private static final int RATE = 48000;
     private static final long ROUTE_CHECK_MS = 500;
@@ -25,42 +21,22 @@ final class AudioPlayer {
     private static final int MAX_BACKLOG = 200 * BYTES_PER_MS;
     private static final int KEEP_BACKLOG = 40 * BYTES_PER_MS;
 
-    private final AudioManager audio;
     private final int port;
     private volatile boolean running = true;
-    private volatile int output;
+    private final AudioRoute route;
+    private boolean hasPreferred;
     private long lastRouteCheck;
     private volatile AudioTrack track;
     private volatile Socket socket;
     private final Thread thread;
 
-    AudioPlayer(Context c, int port, int output) {
-        audio = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
+    AudioPlayer(int port, AudioRoute route) {
         this.port = port;
-        this.output = output;
+        this.route = route;
         thread = new Thread(new Runnable() {
             @Override public void run() { loop(); }
         }, "xdesk-audio");
         thread.start();
-    }
-
-    /** 返回 false 表示这个设备现在不存在（比如显示器没接），这时走系统默认。 */
-    boolean setOutput(int o) {
-        output = o;
-        AudioDeviceInfo d = device(o);
-        AudioTrack t = track;
-        if (t != null) t.setPreferredDevice(d);
-        return o == OUT_SYSTEM || d != null;
-    }
-
-
-    private AudioDeviceInfo device(int o) {
-        int type = o == OUT_PHONE ? AudioDeviceInfo.TYPE_BUILTIN_SPEAKER : o == OUT_EXTERNAL ? AudioDeviceInfo.TYPE_HDMI : -1;
-        if (type < 0) return null;
-        for (AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
-            if (d.getType() == type) return d;
-        }
-        return null;
     }
 
     void close() {
@@ -75,9 +51,16 @@ final class AudioPlayer {
         long now = System.currentTimeMillis();
         if (now - lastRouteCheck < ROUTE_CHECK_MS) return;
         lastRouteCheck = now;
-        AudioDeviceInfo want = device(output);
+        AudioDeviceInfo want = route.playerDevice();
+        if (want == null) {
+            // 选了系统默认，或选的设备不在了
+            if (hasPreferred) t.setPreferredDevice(null);
+            hasPreferred = false;
+            return;
+        }
+        hasPreferred = true;
         AudioDeviceInfo actual = t.getRoutedDevice();
-        if (want != null && (actual == null || actual.getId() != want.getId())) {
+        if ((actual == null || actual.getId() != want.getId())) {
             Log.i(TAG, "reroute audio to " + want.getType());
             t.setPreferredDevice(null);
             t.setPreferredDevice(want);
@@ -99,7 +82,9 @@ final class AudioPlayer {
             .setBufferSizeInBytes(Math.max(min, 2 * CHUNK))
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build();
-        t.setPreferredDevice(device(output));
+        AudioDeviceInfo want = route.playerDevice();
+        hasPreferred = want != null;
+        t.setPreferredDevice(want);
         t.play();
         return t;
     }

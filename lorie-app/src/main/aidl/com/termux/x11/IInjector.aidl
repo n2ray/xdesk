@@ -30,4 +30,12 @@ interface IInjector {
     String findPresentation(int displayId) = 12;
     /** Release everything that is held. Returns when that is done. */
     void shutdown() = 13;
+
+    /** Another app is now on the display: release what is held, change the input method and refocus. */
+    oneway void setApp(String packageName) = 15;
+    oneway void setWatchSession(boolean watch) = 16;
+    /** False while a Termux desktop is on the display: the hotkey must not grab anything. */
+    oneway void setEnabled(boolean enabled) = 17;
+    /** Prefer this device for media on the whole system, type < 0 clears it. Returns null or the error. */
+    String setAudioOutput(int type, String address) = 18;
 }

@@ -26,6 +26,7 @@ public class InjectorService extends IInjector.Stub {
     /** The touchpad's gain was tuned on a 1920 wide desktop. */
     private static final float PAD_REFERENCE_WIDTH = 1920f;
     private static final float WHEEL_STEP = 1f;
+    private static final long SESSION_POLL_MS = 1000;
     private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276;
 
     private interface Task {
@@ -40,6 +41,11 @@ public class InjectorService extends IInjector.Stub {
     private volatile float mouseSpeed = 1f;
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
+    private final AudioRouter audio = new AudioRouter();
+    private volatile boolean enabled = true, watchSession, inSession;
+    private volatile String packageName;
+    private volatile int displayId = -1;
+    private Thread sessionWatcher;
 
     private final EvdevReader.Sink physical = new EvdevReader.Sink() {
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -79,6 +85,7 @@ public class InjectorService extends IInjector.Stub {
             post(() -> {
                 int bit = androidButton(code);
                 if (bit != 0) injector.button(bit, down);
+                if (!down) notifyButtonUp();
             });
         }
         @Override public void onKey(final int code, final int value) {
@@ -123,7 +130,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     private void post(final Task t) {
-        if (worker.isShutdown()) return;
+        if (worker.isShutdown() || injector == null) return;
         worker.execute(() -> {
             try {
                 t.run();
@@ -131,6 +138,13 @@ public class InjectorService extends IInjector.Stub {
                 Log.w(TAG, "input failed", e);
             }
         });
+    }
+
+    private void notifyButtonUp() {
+        IInjectorListener l = listener;
+        try {
+            if (l != null) l.onButtonUp();
+        } catch (RemoteException ignored) { }
     }
 
     private void message(String s) {
@@ -146,10 +160,17 @@ public class InjectorService extends IInjector.Stub {
         mouseSpeed = speed;
         try {
             // Backup for daemon(false): whatever happens to the app, nothing stays grabbed
-            l.asBinder().linkToDeath(() -> System.exit(0), 0);
+            l.asBinder().linkToDeath(() -> {
+                audio.clear();
+                System.exit(0);
+            }, 0);
         } catch (RemoteException e) {
             System.exit(0);
         }
+        enabled = true;
+        inSession = false;
+        packageName = pkg;
+        this.displayId = displayId;
         post(() -> {
             injector.setProfile(AppInputProfile.forPackage(pkg));
             injector.setDisplay(displayId, width, height);
@@ -171,6 +192,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
+        this.displayId = displayId;
         post(() -> injector.setDisplay(displayId, width, height));
     }
 
@@ -199,7 +221,10 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void button(final int button, final boolean down) {
         final int bit = button == 1 ? MotionEvent.BUTTON_PRIMARY : button == 3 ? MotionEvent.BUTTON_SECONDARY : button == 2 ? MotionEvent.BUTTON_TERTIARY : 0;
-        if (bit != 0) post(() -> injector.button(bit, down));
+        if (bit != 0) post(() -> {
+            injector.button(bit, down);
+            if (!down) notifyButtonUp();
+        });
     }
 
     @Override public void scroll(final int dy, final int dx) {
@@ -250,20 +275,7 @@ public class InjectorService extends IInjector.Stub {
     @Override public String findPresentation(int displayId) {
         String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
         if (r[0] != null) return null;
-        String window = null;
-        boolean onDisplay = false;
-        for (String line : r[1].split("\n")) {
-            String t = line.trim();
-            if (t.startsWith("Window #")) {
-                window = t;
-                onDisplay = false;
-            } else if (t.contains("mDisplayId=" + displayId + " ")) {
-                onDisplay = true;
-            } else if (onDisplay && (t.contains("ty=PRESENTATION") || t.contains("ty=PRIVATE_PRESENTATION"))) {
-                return window;
-            }
-        }
-        return null;
+        return WindowDump.findPresentation(r[1], displayId);
     }
 
     /** Returns {error or null, output}. */
@@ -289,6 +301,77 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    @Override public void setApp(final String pkg) {
+        packageName = pkg;
+        inSession = false;
+        post(() -> {
+            // Everything held belongs to the old app and its input method
+            injector.releaseAll();
+            injector.hoverExit();
+            injector.setProfile(AppInputProfile.forPackage(pkg));
+            EvdevReader r;
+            synchronized (this) {
+                r = reader;
+            }
+            if (r != null && r.isGrabbed()) {
+                injector.take();
+                injector.clearModifiers();
+            } else {
+                injector.focus(injector.displayId());
+            }
+            // The new app may still take a moment to get focus, so look again before the next key
+            focusStale = true;
+        });
+    }
+
+    @Override public void setWatchSession(boolean watch) {
+        watchSession = watch;
+        startSessionWatcher();
+    }
+
+    @Override public void setEnabled(boolean on) {
+        enabled = on;
+        EvdevReader r;
+        synchronized (this) {
+            r = reader;
+        }
+        if (r != null) r.setHotkeyEnabled(on);
+    }
+
+    @Override public String setAudioOutput(int type, String address) {
+        return type < 0 ? audio.clear() : audio.set(type, address);
+    }
+
+    /** Ask once a second whether the current app is in a session, see AppInputProfile. Only for apps that need it. */
+    private synchronized void startSessionWatcher() {
+        if (sessionWatcher != null) return;
+        sessionWatcher = new Thread(() -> {
+            while (true) {
+                boolean now = false;
+                String pkg = packageName;
+                if (enabled && watchSession && pkg != null && AppInputProfile.forPackage(pkg).keepScreenOnMeansRemoteCursor) {
+                    String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
+                    // When the answer is unknown, show the cursor: too many is better than none
+                    now = r[0] == null && WindowDump.hasKeepScreenOn(r[1], pkg, displayId);
+                }
+                if (now != inSession) {
+                    inSession = now;
+                    IInjectorListener l = listener;
+                    try {
+                        if (l != null) l.onAppInSession(now);
+                    } catch (RemoteException ignored) { }
+                }
+                try {
+                    Thread.sleep(SESSION_POLL_MS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+        }, "xdesk-session-watch");
+        sessionWatcher.setDaemon(true);
+        sessionWatcher.start();
+    }
+
     @Override public void shutdown() {
         EvdevReader r;
         synchronized (this) {
@@ -299,6 +382,9 @@ public class InjectorService extends IInjector.Stub {
             r.setGrabbed(false);
             r.shutdown();
         }
+        String left = audio.clear();
+        if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+        enabled = false;
         listener = null;
         if (injector == null) return;
         post(injector::releaseAll);

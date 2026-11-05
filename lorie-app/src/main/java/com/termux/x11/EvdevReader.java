@@ -37,6 +37,8 @@ final class EvdevReader extends Thread {
     private final HashSet<String> skipped = new HashSet<>();
     private boolean grabbed;
     private volatile boolean running = true;
+    /** False while a Termux desktop is on the display: it reads the same mouse and keyboard through Android. */
+    private volatile boolean hotkeyEnabled = true;
     private long lastScan;
     private boolean leftCtrl, rightCtrl, leftAlt, rightAlt, swallowM, waitingForModifiers;
     private int dx, dy, wheel, hwheel;
@@ -45,6 +47,14 @@ final class EvdevReader extends Thread {
         super("xdesk-evdev");
         this.sink = sink;
         setDaemon(true);
+    }
+
+    void setHotkeyEnabled(boolean on) {
+        hotkeyEnabled = on;
+    }
+
+    synchronized boolean isGrabbed() {
+        return grabbed;
     }
 
     void shutdown() {
@@ -193,7 +203,7 @@ final class EvdevReader extends Thread {
         // Ctrl+Alt+M switches. While taking input nothing of it reaches the app. While giving input back, Ctrl and
         // Alt already went out before M showed what they were for: releaseAll lifts them, and the next take clears
         // what the app cached.
-        if (code == KEY_M && value == 1 && ctrl() && alt()) {
+        if (hotkeyEnabled && code == KEY_M && value == 1 && ctrl() && alt()) {
             swallowM = true;
             setGrabbed(!grabbed);
             return;
