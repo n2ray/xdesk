@@ -73,6 +73,7 @@ public class XDeskActivity extends Activity {
     private static final long CONNECT_TIMEOUT_MS = 40000;
     /** 注入服务还在结束时选了应用：等它结束再启动，否则新的会被一起结束。 */
     private static final long STOPPING_RETRY_MS = 200;
+    private static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
     private static final long DIM_AFTER_MS = 60000;
@@ -1032,6 +1033,47 @@ public class XDeskActivity extends Activity {
         parent.addView(s, new LinearLayout.LayoutParams(-1, -2));
     }
 
+    /** 外接屏的界面大小。拖动时只显示数值，松手才设：每次改动应用都要重新布局。 */
+    private void addDensitySetting(LinearLayout parent) {
+        final TextView label = new TextView(this);
+        label.setTextColor(Style.TEXT);
+        label.setTextSize(15);
+        label.setPadding(dp(4), dp(14), dp(4), dp(4));
+        parent.addView(label, new LinearLayout.LayoutParams(-1, -2));
+        if (!apps.canSetDensity()) {
+            String why = session.isActive() ? "Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值"
+                : apps.shizukuState() != AppSession.SHIZUKU_READY ? "需要 Shizuku" : "外接屏上有安卓应用时才能改";
+            label.setText("外接屏界面大小：" + why);
+            label.setTextColor(Style.TEXT_DIM);
+            return;
+        }
+        final int fallback = apps.defaultDensity() > 0 ? apps.defaultDensity() : DENSITY_MAX;
+        final SeekBar bar = new SeekBar(this);
+        bar.setMax(DENSITY_MAX - DENSITY_MIN);
+        int current = apps.savedDensity() > 0 ? apps.savedDensity() : fallback;
+        bar.setProgress(Math.max(DENSITY_MIN, Math.min(DENSITY_MAX, current)) - DENSITY_MIN);
+        label.setText("外接屏界面大小：" + current + " dpi，越小显示的内容越多");
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (user) label.setText("外接屏界面大小：" + (p + DENSITY_MIN) + " dpi，松手后生效");
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) { }
+            @Override public void onStopTrackingTouch(SeekBar s) {
+                int dpi = s.getProgress() + DENSITY_MIN;
+                label.setText("外接屏界面大小：" + dpi + " dpi，越小显示的内容越多");
+                apps.setDensity(dpi);
+            }
+        });
+        parent.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        settingsRow(parent, "恢复显示器默认" + (apps.defaultDensity() > 0 ? "（" + apps.defaultDensity() + " dpi）" : ""), new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                apps.setDensity(0);
+                bar.setProgress(Math.max(DENSITY_MIN, Math.min(DENSITY_MAX, fallback)) - DENSITY_MIN);
+                label.setText("外接屏界面大小：显示器默认" + (apps.defaultDensity() > 0 ? "（" + apps.defaultDensity() + " dpi）" : ""));
+            }
+        });
+    }
+
     private void showSettings() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
@@ -1095,6 +1137,8 @@ public class XDeskActivity extends Activity {
                 @Override public void run() { apps.setAlwaysShowCursor(prefs.getBoolean(PREF_ALWAYS_CURSOR, false)); }
             });
         }
+
+        addDensitySetting(c);
 
         settingsSwitch(c, "闲置 1 分钟调暗手机屏", PREF_DIM, true, new Runnable() {
             @Override public void run() { bumpIdle(); }

@@ -42,6 +42,12 @@ interface IInjector {
     String setAudioOutput(int type, String address) = 18;
     /** Connect without an app, for the sound route alone. Reads no input devices. */
     void attach(IInjectorListener listener, String ownPackage) = 19;
+    /** Interface size of a display. dpi > 0 forces it, 0 always resets it, < 0 resets it if this process set it. Returns null or the error. */
+    String setDisplayDensity(int displayId, int dpi) = 22;
+    /** The display's own density, 0 when unknown. */
+    int displayDefaultDensity(int displayId) = 23;
+    /** Stays the same for a physical display across replugging. Null when unknown. */
+    String displayUniqueId(int displayId) = 24;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
     String returnToPhone(int displayId) = 21;
 }

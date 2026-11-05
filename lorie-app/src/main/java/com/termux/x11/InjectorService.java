@@ -42,6 +42,7 @@ public class InjectorService extends IInjector.Stub {
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
     private final AudioRouter audio = new AudioRouter();
+    private final DensityOverride density = new DensityOverride();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
@@ -108,6 +109,7 @@ public class InjectorService extends IInjector.Stub {
         Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
             Log.e(TAG, "injector crashed", e);
             audio.clear(false);
+            density.clearOurs();
             System.exit(1);
         });
         InputInjector i = null;
@@ -217,12 +219,26 @@ public class InjectorService extends IInjector.Stub {
             l.asBinder().linkToDeath(() -> {
                 String left = audio.clear(false);
                 if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+                // Move first: this way apps do not have to reconfigure on a display they are leaving
                 if (!sessionOver && displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
+                density.clearOurs();
                 System.exit(0);
             }, 0);
         } catch (RemoteException e) {
             System.exit(0);
         }
+    }
+
+    @Override public String setDisplayDensity(int display, int dpi) {
+        return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
+    }
+
+    @Override public int displayDefaultDensity(int display) {
+        return DensityOverride.defaultDensity(display);
+    }
+
+    @Override public String displayUniqueId(int display) {
+        return DensityOverride.uniqueId(display);
     }
 
     @Override public String returnToPhone(int display) {
@@ -428,6 +444,7 @@ public class InjectorService extends IInjector.Stub {
         }
         String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+        density.clearOurs();
         enabled = false;
         listener = null;
         if (injector == null) return;

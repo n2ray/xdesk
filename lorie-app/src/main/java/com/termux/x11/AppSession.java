@@ -63,6 +63,10 @@ final class AppSession {
     /** 切去 Termux 桌面时应用的任务留在了外接屏上。 */
     private boolean appBehindDesktop;
     private boolean stopping;
+    /** 外接屏的界面大小：按物理显示器记住，显示器的 id 插拔后会变。 */
+    private final android.content.SharedPreferences densities;
+    private volatile String densityKey;
+    private volatile int defaultDensity;
     private final android.content.SharedPreferences touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
@@ -191,6 +195,7 @@ final class AppSession {
         cursor = new CursorOverlay(c);
         audioRoute = AudioRoute.get(c);
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
+        densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
@@ -335,7 +340,12 @@ final class AppSession {
             i.setTouchMode(touchModeFor(app));
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> audioRoute.attachInjector(i));
+            loadDensity(i, d);
+            // 桌面窗口在外接屏上时，先把应用放上去挡住它再改，它不用跟着变
+            boolean desktopWindow = !MainActivity.getInstances().isEmpty();
+            if (!desktopWindow) applySavedDensity(i, d);
             launch(i, d);
+            if (desktopWindow) applySavedDensity(i, d);
         } catch (RemoteException e) {
             ui.post(() -> fail("注入服务断开了：" + e.getMessage()));
         }
@@ -505,12 +515,70 @@ final class AppSession {
         IInjector i = injector;
         try {
             if (i != null) i.setEnabled(false);
+            // 桌面有自己的 DPI 设置，外接屏回到默认再放桌面窗口。切回应用时再设
+            if (i != null && display != null) i.setDisplayDensity(display.getDisplayId(), -1);
         } catch (RemoteException ignored) { }
         active = false;
         started = false;
         forwarding = false;
         display = null;
         cursor.remove();
+    }
+
+    private void loadDensity(IInjector i, Display d) throws RemoteException {
+        String unique = i.displayUniqueId(d.getDisplayId());
+        // The name is less exact, but better than not remembering
+        densityKey = unique != null ? unique : "name:" + d.getName();
+        defaultDensity = i.displayDefaultDensity(d.getDisplayId());
+    }
+
+    private void applySavedDensity(IInjector i, Display d) throws RemoteException {
+        String key = densityKey;
+        int saved = key != null ? densities.getInt(key, 0) : 0;
+        if (saved <= 0) return;
+        String error = i.setDisplayDensity(d.getDisplayId(), saved);
+        if (error != null) densityFailed(error);
+    }
+
+    private void densityFailed(String error) {
+        Log.w(TAG, "density: " + error);
+        ui.post(() -> {
+            if (listener != null) listener.onAppMessage("无法改外接屏界面大小：" + error);
+        });
+    }
+
+    /** 滑块能不能用：外接屏上是安卓应用，注入服务在。 */
+    boolean canSetDensity() {
+        return active && started && injector != null && display != null && densityKey != null;
+    }
+
+    /** 显示器自己的 dpi，不知道时是 0。 */
+    int defaultDensity() {
+        return defaultDensity;
+    }
+
+    /** 用户设的值，没设过是 0。 */
+    int savedDensity() {
+        String key = densityKey;
+        return key != null ? densities.getInt(key, 0) : 0;
+    }
+
+    /** 后台做：每次改动应用都要重新布局。 @param dpi 0 回到显示器默认 */
+    void setDensity(final int dpi) {
+        final IInjector i = injector;
+        final Display d = display;
+        final String key = densityKey;
+        if (i == null || d == null || key == null) return;
+        if (dpi > 0) densities.edit().putInt(key, dpi).apply();
+        else densities.edit().remove(key).apply();
+        new Thread(() -> {
+            try {
+                String error = i.setDisplayDensity(d.getDisplayId(), dpi);
+                if (error != null) densityFailed(error);
+            } catch (RemoteException e) {
+                densityFailed("注入服务断开了");
+            }
+        }, "xdesk-density").start();
     }
 
     /** 记在每个包上，默认鼠标。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
@@ -586,6 +654,8 @@ final class AppSession {
                 try {
                     int[] size = logicalSize(d);
                     i.setDisplay(d.getDisplayId(), size[0], size[1]);
+                    loadDensity(i, d);
+                    applySavedDensity(i, d);
                     launch(i, d);
                 } catch (RemoteException e) {
                     Log.w(TAG, "move to new display", e);
