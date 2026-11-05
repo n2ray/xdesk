@@ -36,6 +36,8 @@ interface IInjector {
     oneway void setWatchSession(boolean watch) = 16;
     /** False while a Termux desktop is on the display: the hotkey must not grab anything. */
     oneway void setEnabled(boolean enabled) = 17;
+    /** Left button as a finger, for this app only. Ignored for apps with their own mouse method. */
+    oneway void setTouchMode(boolean on) = 20;
     /** Prefer this device for media on the whole system, type < 0 clears it. Returns null or the error. */
     String setAudioOutput(int type, String address) = 18;
     /** Connect without an app, for the sound route alone. Reads no input devices. */

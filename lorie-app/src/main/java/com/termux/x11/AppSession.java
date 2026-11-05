@@ -59,6 +59,7 @@ final class AppSession {
     private boolean alwaysShowCursor;
     /** Termux 桌面也要靠注入服务选声音输出：只为这个连上，不读键鼠。 */
     private boolean audioBinding;
+    private final android.content.SharedPreferences touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
     private int deviceCount;
@@ -183,6 +184,7 @@ final class AppSession {
         context = c;
         cursor = new CursorOverlay(c);
         audioRoute = AudioRoute.get(c);
+        touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
@@ -318,6 +320,7 @@ final class AppSession {
                 return;
             }
             i.setEnabled(true);
+            i.setTouchMode(touchModeFor(app));
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> audioRoute.attachInjector(i));
             launch(i, d);
@@ -445,7 +448,10 @@ final class AppSession {
                     Log.w(TAG, "am start: " + error);
                     error = launchFromApp(a, d);
                 }
-                if (error == null) i.setApp(a.packageName);
+                if (error == null) {
+                    i.setApp(a.packageName);
+                    i.setTouchMode(touchModeFor(a));
+                }
             } catch (RemoteException e) {
                 error = "注入服务断开了";
             }
@@ -485,6 +491,34 @@ final class AppSession {
         forwarding = false;
         display = null;
         cursor.remove();
+    }
+
+    /** 记在每个包上，默认鼠标。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
+    private boolean touchModeFor(AppCatalog.App a) {
+        return canUseTouchMode(a) && touchModes.getBoolean(a.packageName, false);
+    }
+
+    private static boolean canUseTouchMode(AppCatalog.App a) {
+        return a != null && !AppInputProfile.forPackage(a.packageName).hoverButtons;
+    }
+
+    /** 外接屏上的应用能不能切换。 */
+    boolean canUseTouchMode() {
+        return active && canUseTouchMode(app);
+    }
+
+    boolean isTouchMode() {
+        return active && touchModeFor(app);
+    }
+
+    void toggleTouchMode() {
+        if (!canUseTouchMode()) return;
+        boolean on = !touchModeFor(app);
+        touchModes.edit().putBoolean(app.packageName, on).apply();
+        IInjector i = injector;
+        try {
+            if (i != null) i.setTouchMode(on);
+        } catch (RemoteException ignored) { }
     }
 
     void setAlwaysShowCursor(boolean always) {

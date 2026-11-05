@@ -27,6 +27,8 @@ final class InputInjector {
 
     private static final String TAG = "XDeskInjector";
     private static final int FOCUS_SETTLE_MS = 150;
+    /** Longer than the usual long press timeout of 400 to 500 ms. */
+    private static final long LONG_PRESS_MS = 650;
     private static final HashMap<Integer, Integer> KEYS = new HashMap<>();
     /** Android button bits, in the order they are released. */
     private static final int[] ALL_BUTTONS = {MotionEvent.BUTTON_PRIMARY, MotionEvent.BUTTON_SECONDARY, MotionEvent.BUTTON_TERTIARY,
@@ -89,6 +91,9 @@ final class InputInjector {
     /** Hover method only: a button that is down but not sent yet, and where it went down, see hoverMethodButton(). */
     private int pendingButton;
     private float pendingX, pendingY;
+    /** See setTouchMode. */
+    private boolean touchMode, fingerDown;
+    private int touchDevice;
 
     /** Hidden APIs: fine here, because a process started through app_process has no hidden API restrictions. */
     InputInjector(CursorListener cursor) throws ReflectiveOperationException {
@@ -153,6 +158,67 @@ final class InputInjector {
         e.recycle();
     }
 
+    /**
+     * For apps and pages that only listen to touch, such as a mobile site's video player: the left button is a finger at
+     * the cursor. Moving without a press sends nothing to the app, the cursor only moves on our overlay, so hover effects
+     * do not exist here. The wheel stays a mouse wheel. An app with its own mouse method (RustDesk) never uses this.
+     */
+    void setTouchMode(boolean on) throws ReflectiveOperationException, InterruptedException {
+        releaseAll();
+        hoverExit();
+        touchMode = on;
+    }
+
+    private boolean touching() {
+        return touchMode && !profile.hoverButtons;
+    }
+
+    /** Same device id choice as the system's `input touchscreen`, which is what showed that touch works. */
+    private static int touchDeviceId() {
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d != null && d.supportsSource(InputDevice.SOURCE_TOUCHSCREEN)) return id;
+        }
+        return 0;
+    }
+
+    private void finger(int action) throws ReflectiveOperationException {
+        if (action == MotionEvent.ACTION_DOWN) touchDevice = touchDeviceId();
+        MotionEvent.PointerProperties p = new MotionEvent.PointerProperties();
+        p.id = 0;
+        p.toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords c = new MotionEvent.PointerCoords();
+        c.x = x;
+        c.y = y;
+        c.size = 1f;
+        c.pressure = 1f;
+        long now = SystemClock.uptimeMillis();
+        MotionEvent e = MotionEvent.obtain(downTime, now, action, 1,
+            new MotionEvent.PointerProperties[]{p}, new MotionEvent.PointerCoords[]{c},
+            0, 0, 1f, 1f, touchDevice, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
+        setDisplayMotion.invoke(e, display);
+        send(e);
+        e.recycle();
+    }
+
+    /**
+     * Left is press, drag and release. Right is a long press, because that is what a finger has instead of a right click:
+     * it blocks this thread for the hold time, which only delays input for that moment. Other buttons do nothing.
+     */
+    private void touchButton(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
+        if (bit == MotionEvent.BUTTON_PRIMARY) {
+            if (down == fingerDown) return;
+            fingerDown = down;
+            if (down) downTime = SystemClock.uptimeMillis();
+            finger(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
+        } else if (bit == MotionEvent.BUTTON_SECONDARY && down && !fingerDown) {
+            downTime = SystemClock.uptimeMillis();
+            finger(MotionEvent.ACTION_DOWN);
+            Thread.sleep(LONG_PRESS_MS);
+            finger(MotionEvent.ACTION_UP);
+        }
+    }
+
     private boolean inPress() {
         return buttons != 0 && !profile.hoverButtons;
     }
@@ -161,6 +227,11 @@ final class InputInjector {
     void moveBy(float dx, float dy) throws ReflectiveOperationException, InterruptedException {
         x = Math.max(0, Math.min(width - 1, x + dx));
         y = Math.max(0, Math.min(height - 1, y + dy));
+        if (touching()) {
+            if (fingerDown) finger(MotionEvent.ACTION_MOVE);
+            cursor.onCursor((int) x, (int) y);
+            return;
+        }
         if (pendingButton != 0) {
             float slop = width / 320f;
             if (Math.abs(x - pendingX) > slop || Math.abs(y - pendingY) > slop) startPendingDrag();
@@ -175,6 +246,10 @@ final class InputInjector {
 
     /** @param bit a MotionEvent.BUTTON_* value */
     void button(int bit, boolean down) throws ReflectiveOperationException, InterruptedException {
+        if (touching()) {
+            touchButton(bit, down);
+            return;
+        }
         if (profile.hoverButtons) {
             hoverMethodButton(bit, down);
             return;
@@ -336,20 +411,26 @@ final class InputInjector {
     void take() throws ReflectiveOperationException, InterruptedException {
         focus(display);
         Thread.sleep(FOCUS_SETTLE_MS);
-        if (!profile.hoverButtons) mouse(MotionEvent.ACTION_HOVER_ENTER, 0, 0, 0);
-        mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
+        if (!touching()) {
+            if (!profile.hoverButtons) mouse(MotionEvent.ACTION_HOVER_ENTER, 0, 0, 0);
+            mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
+        }
         cursor.onCursor((int) x, (int) y);
     }
 
     /** Release every held key and button. Runs when physical input goes back to the phone and when stopping. */
     void releaseAll() throws ReflectiveOperationException, InterruptedException {
         pendingButton = 0;  // a click that never finished, do not fire it now
+        if (fingerDown) {
+            fingerDown = false;
+            finger(MotionEvent.ACTION_CANCEL);  // a release would count as a tap
+        }
         for (Integer code : new ArrayList<>(held)) key(code, 0);
         for (int bit : ALL_BUTTONS) button(bit, false);
     }
 
     void hoverExit() throws ReflectiveOperationException {
-        if (!profile.hoverButtons) mouse(MotionEvent.ACTION_HOVER_EXIT, 0, 0, 0);
+        if (!profile.hoverButtons && !touching()) mouse(MotionEvent.ACTION_HOVER_EXIT, 0, 0, 0);
     }
 
     /**

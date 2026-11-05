@@ -94,7 +94,7 @@ public class XDeskActivity extends Activity {
     private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction, setupBack;
     private ProgressBar setupProgress;
-    private TextView statusText, diagText, audioChip, forwardChip;
+    private TextView statusText, diagText, audioChip, forwardChip, touchChip;
     private View statusDot;
     private TouchpadView touchpad;
     private KeyInputView keyView;
@@ -581,6 +581,18 @@ public class XDeskActivity extends Activity {
             }
         });
         top.addView(forwardChip, chipParams(dp(84)));
+        // 只听触摸的应用或网页（比如手机版网站的播放器）：左键当手指。记在每个应用上
+        touchChip = Style.button(this, "", Style.SURFACE_RAISED, 12, 16);
+        touchChip.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Style.tick(v);
+                apps.toggleTouchMode();
+                updateStatus();
+            }
+        });
+        LinearLayout.LayoutParams touchParams = chipParams(dp(56));
+        touchParams.leftMargin = dp(6);
+        top.addView(touchChip, touchParams);
         TextView back = Style.button(this, "返回", Style.SURFACE_RAISED, 12, 16);
         back.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToChooser(); }
@@ -803,10 +815,15 @@ public class XDeskActivity extends Activity {
     private void applyModeToTopBar() {
         boolean app = apps.isActive();
         forwardChip.setVisibility(app ? View.VISIBLE : View.GONE);
+        touchChip.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
     }
 
     private void updateAppStatus() {
         forwardChip.setText(apps.isForwarding() ? "交还键鼠" : "接管键鼠");
+        boolean touch = apps.isTouchMode();
+        touchChip.setText(touch ? "左键=手指" : "左键=鼠标");
+        touchChip.setTextSize(10);
+        touchChip.setBackground(Style.ripple(this, touch ? Style.ACCENT : Style.SURFACE_RAISED, 16));
         forwardChip.setBackground(Style.ripple(this, apps.isForwarding() ? Style.ACCENT : Style.SURFACE_RAISED, 16));
         if (!apps.hasInjector()) {
             setStatus(Style.DANGER, "注入服务断开了，确认 Shizuku 还在运行");

@@ -312,6 +312,7 @@ public class InjectorService extends IInjector.Stub {
             // Everything held belongs to the old app and its input method
             injector.releaseAll();
             injector.hoverExit();
+            injector.setTouchMode(false);  // the app side sets what the new app remembers right after this
             injector.setProfile(AppInputProfile.forPackage(pkg));
             EvdevReader r;
             synchronized (this) {
@@ -326,6 +327,10 @@ public class InjectorService extends IInjector.Stub {
             // The new app may still take a moment to get focus, so look again before the next key
             focusStale = true;
         });
+    }
+
+    @Override public void setTouchMode(final boolean on) {
+        post(() -> injector.setTouchMode(on));
     }
 
     @Override public void setWatchSession(boolean watch) {
