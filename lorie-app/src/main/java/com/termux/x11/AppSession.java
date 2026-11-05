@@ -38,6 +38,7 @@ final class AppSession {
     static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
 
     private static final String TAG = "XDesk";
+    static final int FULLSCREEN_FOLLOW = 0, FULLSCREEN_ON = 1, FULLSCREEN_OFF = 2;
     private static final int PERMISSION_REQUEST = 47131;
     /** Shizuku's first version with user services. */
     private static final int SHIZUKU_MIN_VERSION = 10;
@@ -74,6 +75,7 @@ final class AppSession {
     private volatile int defaultDensity;
     /** 每个应用自己的界面大小，没有就跟随上面的默认值。 */
     private final android.content.SharedPreferences appDensities;
+    private final android.content.SharedPreferences fullscreenPrefs;
     private final Object densityLock = new Object();
     /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
     private int appliedDensity;
@@ -228,6 +230,7 @@ final class AppSession {
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
+        fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
@@ -394,6 +397,7 @@ final class AppSession {
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> audioRoute.attachInjector(i));
             loadDensity(i, d);
+            applyFullscreenFor(i, app);
             // 启动之前设，冷启动时应用一开始就是对的大小。桌面窗口这时还在前面，它声明了自己处理 density，不会重建
             applyDensityFor(i, d, app);
             launch(i, d);
@@ -524,6 +528,7 @@ final class AppSession {
         new Thread(() -> {
             String error;
             try {
+                applyFullscreenFor(i, a);
                 // 启动之前设，这样冷启动的应用一开始就是对的大小。已经在运行的应用切回来也一样
                 applyDensityFor(i, d, a);
                 error = i.startApp(a.component(), d.getDisplayId());
@@ -617,6 +622,49 @@ final class AppSession {
     }
 
     /** 这个应用自己的值，跟随默认时是 0。 */
+    boolean isFullscreenDefault() {
+        return fullscreenPrefs.getBoolean("default", false);
+    }
+
+    /** 下次启动应用时生效：改动会让系统结束应用，不在这里动正在用的那些。 */
+    void setFullscreenDefault(boolean on) {
+        fullscreenPrefs.edit().putBoolean("default", on).apply();
+    }
+
+    int appFullscreen(AppCatalog.App a) {
+        return fullscreenPrefs.getInt("mode_" + a.packageName, FULLSCREEN_FOLLOW);
+    }
+
+    /** 正在外接屏上的应用立刻生效：系统结束它，再打开。 */
+    void setAppFullscreen(final AppCatalog.App a, int mode) {
+        fullscreenPrefs.edit().putInt("mode_" + a.packageName, mode).apply();
+        final IInjector i = injector;
+        final Display d = display;
+        if (i == null || d == null || !active || !started || app == null || !app.packageName.equals(a.packageName)) return;
+        new Thread(() -> {
+            try {
+                if (applyFullscreenFor(i, a)) i.startApp(a.component(), d.getDisplayId());
+            } catch (RemoteException e) {
+                Log.w(TAG, "fullscreen", e);
+            }
+        }, "xdesk-fullscreen").start();
+    }
+
+    /** 启动之前调用。值没变就什么都不做。背景线程。@return 改了，应用已被结束 */
+    private boolean applyFullscreenFor(IInjector i, AppCatalog.App a) throws RemoteException {
+        int mode = appFullscreen(a);
+        boolean want = mode == FULLSCREEN_FOLLOW ? isFullscreenDefault() : mode == FULLSCREEN_ON;
+        String key = "applied_" + a.packageName;
+        if (want == fullscreenPrefs.getBoolean(key, false)) return false;
+        String error = i.setAppFullscreen(a.packageName, want);
+        if (error != null) {
+            Log.w(TAG, "fullscreen " + a.packageName + ": " + error);
+            return false;
+        }
+        fullscreenPrefs.edit().putBoolean(key, want).apply();
+        return true;
+    }
+
     int appDensity(AppCatalog.App a) {
         return a != null ? appDensities.getInt(a.packageName, 0) : 0;
     }

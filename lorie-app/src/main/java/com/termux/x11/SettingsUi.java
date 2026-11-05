@@ -116,6 +116,135 @@ final class SettingsUi {
         return d;
     }
 
+    /** 从底部弹出的面板，顶部有把手。内容太长时可以滚动。 */
+    Dialog bottomSheet(View header, View content) {
+        Dialog d = new Dialog(c, android.R.style.Theme_Material_Dialog_NoActionBar);
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(10), dp(16), dp(20));
+        View handle = new View(c);
+        handle.setBackground(Style.rounded(c, Style.TEXT_DIM, 2));
+        handle.setAlpha(0.5f);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(dp(36), dp(4));
+        hp.gravity = Gravity.CENTER_HORIZONTAL;
+        hp.bottomMargin = dp(14);
+        box.addView(handle, hp);
+        box.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
+        cp.topMargin = dp(14);
+        box.addView(content, cp);
+        ScrollView scroll = new ScrollView(c);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(Style.BACKGROUND);
+        float r = dp(24);
+        bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        scroll.setBackground(bg);
+        scroll.addView(box);
+        d.setContentView(scroll);
+        d.setCanceledOnTouchOutside(true);
+        d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+        d.getWindow().setGravity(Gravity.BOTTOM);
+        d.show();
+        int width = Math.min(dp(SHEET_MAX_WIDTH_DP + 80), c.getResources().getDisplayMetrics().widthPixels);
+        d.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        return d;
+    }
+
+    /** 分组标题，比 section 紧凑，放在面板里。 */
+    TextView groupLabel(LinearLayout parent, String title) {
+        TextView t = Style.label(c, title, Style.TEXT_DIM, Style.TEXT_SMALL);
+        t.setPadding(dp(4), dp(14), 0, dp(6));
+        parent.addView(t);
+        return t;
+    }
+
+    /** 名称在左，紧凑的数字框在右。改了才出现确认键，有值时可以清掉。 */
+    void inlineNumberRow(LinearLayout card, String label, String description, String hint, int value, final int min, final int max,
+                         final IntConsumer onValid, final Runnable onReset) {
+        LinearLayout row = plainRow();
+        row.setMinimumHeight(dp(Style.TARGET + 8));
+        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        final EditText field = new EditText(c);
+        field.setInputType(InputType.TYPE_CLASS_NUMBER);
+        field.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        field.setSingleLine(true);
+        field.setTextColor(Style.TEXT);
+        field.setHintTextColor(Style.TEXT_DIM);
+        field.setTextSize(Style.TEXT_BODY);
+        field.setGravity(Gravity.CENTER);
+        field.setHint(hint);
+        field.setPadding(0, 0, 0, 0);
+        field.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
+        if (value > 0) field.setText(String.valueOf(value));
+        final TextView action = Style.button(c, value > 0 ? "×" : "✓", value > 0 ? Style.SURFACE_RAISED : Style.ACCENT, Style.TEXT_BODY, Style.RADIUS);
+        action.setVisibility(value > 0 ? View.VISIBLE : View.GONE);
+        final int[] saved = {value};
+        final Runnable showAction = () -> {
+            String now = field.getText().toString().trim();
+            boolean changed = !now.equals(saved[0] > 0 ? String.valueOf(saved[0]) : "");
+            if (changed && now.length() > 0) {
+                action.setText("✓");
+                action.setBackground(Style.ripple(c, Style.ACCENT, Style.RADIUS));
+                action.setVisibility(View.VISIBLE);
+            } else if (saved[0] > 0) {
+                action.setText("×");
+                action.setBackground(Style.ripple(c, Style.SURFACE_RAISED, Style.RADIUS));
+                action.setVisibility(View.VISIBLE);
+            } else {
+                action.setVisibility(View.GONE);
+            }
+        };
+        final Runnable confirm = () -> {
+            int n;
+            try {
+                n = Integer.parseInt(field.getText().toString().trim());
+            } catch (NumberFormatException e) {
+                n = -1;
+            }
+            if (n < min || n > max) {
+                field.setTextColor(Style.DANGER);
+                android.widget.Toast.makeText(c, "要在 " + min + " 到 " + max + " 之间", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            field.setTextColor(Style.TEXT);
+            c.getSystemService(InputMethodManager.class).hideSoftInputFromWindow(field.getWindowToken(), 0);
+            field.clearFocus();
+            saved[0] = n;
+            showAction.run();
+            onValid.accept(n);
+        };
+        field.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
+            @Override public void afterTextChanged(android.text.Editable s) {
+                field.setTextColor(Style.TEXT);
+                showAction.run();
+            }
+        });
+        field.setOnEditorActionListener((v, a, event) -> {
+            confirm.run();
+            return true;
+        });
+        action.setOnClickListener(v -> {
+            Style.tick(v);
+            if ("✓".contentEquals(action.getText())) {
+                confirm.run();
+            } else {
+                saved[0] = 0;
+                field.setText("");
+                onReset.run();
+            }
+        });
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(dp(68), dp(Style.TARGET - 8));
+        fp.leftMargin = dp(12);
+        row.addView(field, fp);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(Style.TARGET - 8), dp(Style.TARGET - 8));
+        ap.leftMargin = dp(6);
+        row.addView(action, ap);
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
     /** 选一项：点了就关。 */
     Dialog choice(String title, String note, String[] options, int checked, final IntConsumer onPick) {
         LinearLayout list = new LinearLayout(c);
@@ -266,7 +395,10 @@ final class SettingsUi {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(12), dp(8), dp(12), dp(8));
         box.addView(labels(label, description));
+        // 一条轨道里的选中块，而不是几个分开的按钮
         LinearLayout row = new LinearLayout(c);
+        row.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
+        row.setPadding(dp(3), dp(3), dp(3), dp(3));
         final TextView[] buttons = new TextView[options.length];
         for (int i = 0; i < options.length; i++) {
             final int which = i;
@@ -274,13 +406,12 @@ final class SettingsUi {
             buttons[i].setOnClickListener(v -> {
                 Style.tick(v);
                 for (int k = 0; k < buttons.length; k++) {
-                    buttons[k].setBackground(Style.ripple(c, k == which ? Style.ACCENT : Style.SURFACE_RAISED, Style.RADIUS));
+                    buttons[k].setBackground(Style.ripple(c, k == which ? Style.ACCENT : Style.SURFACE_RAISED, Style.RADIUS - 3));
                 }
                 onPick.accept(which);
             });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(Style.TARGET - 4), 1);
-            if (i > 0) p.leftMargin = dp(6);
-            row.addView(buttons[i], p);
+            buttons[i].setBackground(Style.ripple(c, i == selected ? Style.ACCENT : Style.SURFACE_RAISED, Style.RADIUS - 3));
+            row.addView(buttons[i], new LinearLayout.LayoutParams(0, dp(Style.TARGET - 10), 1));
         }
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = dp(8);

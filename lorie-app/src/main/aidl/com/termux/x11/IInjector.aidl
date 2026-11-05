@@ -56,6 +56,8 @@ interface IInjector {
     oneway void focusExternal() = 28;
     /** Ctrl+Alt+M. Off while the external display is covered: input taken back would go to an app nobody can see. */
     oneway void setHotkeyAllowed(boolean allowed) = 29;
+    /** The large screen rule of Android 16 for this app: it ignores its orientation lock there, not on the phone. The system stops the app. Returns null or the error. */
+    String setAppFullscreen(String packageName, boolean on) = 30;
     /** Android Back to the app on the external display. */
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */

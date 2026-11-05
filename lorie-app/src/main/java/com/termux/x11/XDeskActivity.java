@@ -1321,6 +1321,7 @@ public class XDeskActivity extends Activity {
 
         LinearLayout external = s.section(c, "外屏");
         addDensitySetting(s, external);
+        s.switchRow(external, "应用强制横屏全屏", "忽略竖屏锁定，只在外屏生效。应用下次启动时生效，第一次会重启。可在应用设置里单独改", apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
         s.switchRow(external, "切到其他应用时遮住外屏", "外屏显示时钟，键鼠交给手机。应用继续运行，声音不停", prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
         });
@@ -1502,47 +1503,116 @@ public class XDeskActivity extends Activity {
         final AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
         if (ChooserView.isAppKey(key) && app == null) return;
         final SettingsUi s = ui();
+        final Dialog[] card = new Dialog[1];
+        final String name = app != null ? app.label : ChooserView.sessionOf(key);
+
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        int iconSize = dp(52);
+        if (app != null) {
+            ImageView icon = new ImageView(this);
+            catalog.showIcon(app, icon);
+            head.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
+        } else {
+            TextView tile = Style.label(this, ">_", Style.TEXT, 18);
+            tile.setTypeface(Typeface.MONOSPACE);
+            tile.setGravity(Gravity.CENTER);
+            tile.setBackground(Style.rounded(this, Style.SURFACE_RAISED, 14));
+            head.addView(tile, new LinearLayout.LayoutParams(iconSize, iconSize));
+        }
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        TextView title = Style.label(this, name, Style.TEXT, 18);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(title);
+        boolean onDisplay = key.equals(currentKey());
+        TextView sub = Style.label(this, onDisplay ? "正在外屏上" : app != null ? "安卓应用" : "Linux 桌面",
+            onDisplay ? Style.OK : Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        sub.setPadding(0, dp(2), 0, 0);
+        titles.addView(sub);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
+        tp.leftMargin = dp(12);
+        head.addView(titles, tp);
+        final ImageView star = new ImageView(this);
+        int pad = dp(11);
+        star.setPadding(pad, pad, pad, pad);
+        star.setBackground(Style.ripple(this, Style.SURFACE, Style.RADIUS));
+        star.setContentDescription("我的收藏");
+        head.addView(star, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET)));
+
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        final Dialog[] card = new Dialog[1];
 
-        final boolean docked = savedLines(PREF_DOCK).contains(key);
-        LinearLayout box = s.card(c);
-        s.switchRow(box, "我的收藏", null, docked, on -> {
-            chooserHost.onDockToggle(key);
-            card[0].dismiss();
-            showAppCard(key);
+        // 收藏里的位置：只有在收藏里才显示
+        final LinearLayout order = s.card(c);
+        LinearLayout orderRow = new LinearLayout(this);
+        orderRow.setGravity(Gravity.CENTER_VERTICAL);
+        orderRow.setPadding(dp(12), dp(6), dp(8), dp(6));
+        orderRow.addView(Style.label(this, "收藏里的位置", Style.TEXT, Style.TEXT_BODY), new LinearLayout.LayoutParams(0, -2, 1));
+        TextView left = Style.button(this, "←", Style.SURFACE_RAISED, Style.TEXT_BODY + 1, Style.RADIUS);
+        left.setOnClickListener(v -> {
+            Style.tick(v);
+            moveInDock(key, -1);
         });
-        if (docked) {
-            s.valueRow(box, "在收藏里往左挪", null, "", () -> moveInDock(key, -1));
-            s.valueRow(box, "在收藏里往右挪", null, "", () -> moveInDock(key, 1));
-        }
+        orderRow.addView(left, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET - 8)));
+        TextView right = Style.button(this, "→", Style.SURFACE_RAISED, Style.TEXT_BODY + 1, Style.RADIUS);
+        right.setOnClickListener(v -> {
+            Style.tick(v);
+            moveInDock(key, 1);
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET - 8));
+        rp.leftMargin = dp(6);
+        orderRow.addView(right, rp);
+        order.addView(orderRow, new LinearLayout.LayoutParams(-1, -2));
+
+        final Runnable applyStar = () -> {
+            boolean docked = savedLines(PREF_DOCK).contains(key);
+            star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
+            star.setColorFilter(docked ? Style.WARN : Style.TEXT_DIM);
+            order.setVisibility(docked ? View.VISIBLE : View.GONE);
+        };
+        applyStar.run();
+        star.setOnClickListener(v -> {
+            Style.tick(v);
+            chooserHost.onDockToggle(key);
+            applyStar.run();
+        });
 
         if (app != null) {
             int global = apps.savedDensity() > 0 ? apps.savedDensity() : apps.defaultDensity();
-            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, dp(Style.GAP));
-            c.addView(new View(this), gap);
-            LinearLayout own = s.card(c);
-            s.numberRow(own, "界面大小", DENSITY_MIN + " 到 " + DENSITY_MAX + " dpi，空着就跟随默认",
-                global > 0 ? "默认 " + global : "默认", apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
-                dpi -> apps.setAppDensity(app, dpi), "跟随默认", () -> apps.setAppDensity(app, 0));
+            s.groupLabel(c, "外屏显示");
+            LinearLayout display = s.card(c);
+            s.inlineNumberRow(display, "界面大小", global > 0 ? "dpi，空着跟随默认 " + global : "dpi，空着跟随默认",
+                global > 0 ? String.valueOf(global) : "默认", apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
+                dpi -> apps.setAppDensity(app, dpi), () -> apps.setAppDensity(app, 0));
+            s.segmentedRow(display, "横屏全屏", "默认现在是" + (apps.isFullscreenDefault() ? "开" : "关") + "。改动时应用会重启",
+                new String[]{"跟随默认", "开", "关"}, apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
             if (AppSession.touchModeAllowed(app)) {
-                s.segmentedRow(own, "操作方式", "触控给只听触摸的应用或网页", new String[]{"键鼠", "触控"}, apps.isTouchMode(app) ? 1 : 0, which -> {
+                s.groupLabel(c, "输入");
+                LinearLayout input = s.card(c);
+                s.segmentedRow(input, "操作方式", "触控给只听触摸的应用或网页", new String[]{"键鼠", "触控"}, apps.isTouchMode(app) ? 1 : 0, which -> {
                     apps.setTouchMode(app, which == 1);
                     updateStatus();
                 });
             }
             if (apps.canCloseApps()) {
-                s.dangerRow(c, "关闭这个应用", null, () -> s.confirm("关闭 " + app.label + "？", "未保存的内容可能会丢失。", "关闭", () -> {
-                    card[0].dismiss();
-                    apps.closeApp(app);
-                }));
-            } else {
-                c.addView(new View(this), new LinearLayout.LayoutParams(-1, dp(Style.GAP)));
-                s.infoRow(s.card(c), "关闭这个应用", "会话中才能用（要靠 Shizuku）", null);
+                TextView close = Style.button(this, "关闭这个应用", Style.SURFACE, Style.TEXT_BODY, 16);
+                close.setTextColor(Style.DANGER);
+                close.setOnClickListener(v -> {
+                    Style.tick(v);
+                    s.confirm("关闭 " + app.label + "？", "未保存的内容可能会丢失。", "关闭", () -> {
+                        card[0].dismiss();
+                        apps.closeApp(app);
+                    });
+                });
+                LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
+                cp.topMargin = dp(16);
+                c.addView(close, cp);
             }
         }
-        card[0] = s.sheet(app != null ? app.label : ChooserView.sessionOf(key), null, c);
+        card[0] = s.bottomSheet(head, c);
     }
 
     private void chooseKey(String key) {

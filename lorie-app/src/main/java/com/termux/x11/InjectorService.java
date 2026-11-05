@@ -285,6 +285,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
 
+    @Override public String setAppFullscreen(String packageName, boolean on) {
+        String[] r = on
+            ? exec(AM_TIMEOUT_MS, "/system/bin/am", "compat", "enable", "UNIVERSAL_RESIZABLE_BY_DEFAULT", packageName)
+            : exec(AM_TIMEOUT_MS, "/system/bin/am", "compat", "reset", "UNIVERSAL_RESIZABLE_BY_DEFAULT", packageName);
+        return r[0];
+    }
+
     @Override public void focusExternal() {
         post(() -> {
             injector.focus(injector.displayId());
