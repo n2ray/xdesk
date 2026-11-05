@@ -125,7 +125,10 @@ final class AppSession {
         }
         @Override public void onFingers(final float[] x, final float[] y) {
             ui.post(() -> {
-                if (active) touchDots.show(x, y);
+                if (!active) return;
+                // Overlay windows of one app add up over a point, and together they would block touches
+                if (x.length > 0) cursor.hide();
+                touchDots.show(x, y);
             });
         }
         @Override public void onButtonUp() {
@@ -247,7 +250,7 @@ final class AppSession {
 
     private void updateCursor() {
         boolean touch = active && app != null && touchModeFor(app);
-        cursor.setSystemStyle(touch);
+        cursor.setTouchStyle(touch);
         if (!touch) ui.removeCallbacks(cursorHide);  // 只有触控模式才会自己藏起来
         long now = SystemClock.uptimeMillis();
         cursor.setFaint(!cursorPolicy.fullCursor(now));

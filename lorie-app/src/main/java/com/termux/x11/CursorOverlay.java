@@ -5,11 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.content.res.Resources;
-import android.content.res.XmlResourceParser;
-import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.Drawable;
 import android.graphics.Point;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -37,9 +33,12 @@ final class CursorOverlay {
     /** Room around the arrow for its outline and shadow, as a part of the cursor's size. */
     private static final float MARGIN_OF_SIZE = 0.15f;
     /**
-     * Android refuses touches that pass through another app's overlay, even a non-touchable one, when the point is
-     * inside its frame. So the window starts one row below the point the pointer really is at, and the tip is drawn in
-     * its top row. One axis is enough to keep the point out of the frame, so horizontally the tip is exact.
+     * Android refuses touches that pass through another app's overlay when the point is inside its frame, unless the
+     * window's opacity is at most 0.8. For the 键鼠 arrow the window starts one row below the point the pointer really is
+     * at, and the tip is drawn in its top row. One axis is enough to keep the point out of the frame, so horizontally the
+     * tip is exact. The 触控 arrowhead has a rounded tip with an outline above it, which that would cut off, so its window
+     * holds the point. The window was seen at alpha 0.8 on the phone, so touches should pass, as they do through the finger
+     * dots. Windows of one app add up, so AppSession hides the cursor while the dots are showing.
      */
     private static final int HOTSPOT_OFFSET_Y = 1;
 
@@ -47,7 +46,7 @@ final class CursorOverlay {
     private WindowManager windows;
     private ArrowView view;
     private WindowManager.LayoutParams params;
-    private boolean shown, framePending, faint, systemStyle;
+    private boolean shown, framePending, faint, touchStyle;
     private int x, y, margin, attachedWidth, attachedHeight, attachedDensity;
 
     CursorOverlay(Context c) {
@@ -65,7 +64,7 @@ final class CursorOverlay {
 
     private void place() {
         params.x = x - margin;
-        params.y = y + HOTSPOT_OFFSET_Y;
+        params.y = touchStyle ? y - margin : y + HOTSPOT_OFFSET_Y;
     }
 
     private static int densityOf(Display display) {
@@ -99,9 +98,9 @@ final class CursorOverlay {
         margin = Math.round(size * MARGIN_OF_SIZE);
         int window = size + 2 * margin;
         Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " at " + attachedDensity + " dpi");
-        view = new ArrowView(dc, size, margin, SystemPointer.load(size));
+        view = new ArrowView(dc, size, margin);
         view.setFaint(faint);
-        view.setSystemStyle(systemStyle);
+        view.setTouchStyle(touchStyle);
         params = new WindowManager.LayoutParams(window, window, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -112,10 +111,16 @@ final class CursorOverlay {
         params.setTitle("XDesk cursor");
     }
 
-    /** The cursor shows the input mode: the system's pointer in 触控, our own arrow in 键鼠. Takes effect at once. */
-    void setSystemStyle(boolean on) {
-        systemStyle = on;
-        if (view != null) view.setSystemStyle(on);
+    /** The cursor shows the input mode: a rounded arrowhead in 触控, the arrow with a tail in 键鼠. Takes effect at once. */
+    void setTouchStyle(boolean on) {
+        if (touchStyle == on) return;
+        touchStyle = on;
+        if (view == null) return;
+        view.setTouchStyle(on);
+        if (shown) {
+            place();
+            windows.updateViewLayout(view, params);
+        }
     }
 
     /** See CursorPolicy. */
@@ -161,106 +166,9 @@ final class CursorOverlay {
     }
 
     /**
-     * The phone's own pointer, loaded at run time so nothing of it is copied into this repository. Null when this Android
-     * has none under these names.
-     */
-    private static final class SystemPointer {
-        /** Used when the hot spot cannot be read: the tip is near the top left, inset from the corner. */
-        private static final float FALLBACK_HOT = 0.25f;
-        final Bitmap bitmap;
-        /** Hot spot as a part of the drawable's size. */
-        final float hotX, hotY;
-
-        private SystemPointer(Bitmap b, float x, float y) {
-            bitmap = b;
-            hotX = x;
-            hotY = y;
-        }
-
-        /** @param size the cursor's size in pixels */
-        static SystemPointer load(int size) {
-            Resources res = Resources.getSystem();
-            for (String name : new String[]{"pointer_arrow_vector", "pointer_arrow"}) {
-                try {
-                    int id = res.getIdentifier(name, "drawable", "android");
-                    if (id == 0) continue;
-                    Drawable d = res.getDrawable(id, null).mutate();
-                    float widthDp = d.getIntrinsicWidth() / res.getDisplayMetrics().density;
-                    float[] hot = readHotSpot(res, widthDp);
-                    Bitmap b = rasterise(d, size);
-                    if (b == null) {
-                        Log.w(TAG, "system pointer " + name + " drew nothing");
-                        continue;
-                    }
-                    Log.i(TAG, "cursor from " + name + ", hot spot " + hot[0] + "," + hot[1]);
-                    return new SystemPointer(b, hot[0], hot[1]);
-                } catch (RuntimeException e) {
-                    Log.i(TAG, "no system pointer " + name + ": " + e);
-                }
-            }
-            return null;
-        }
-
-        /**
-         * Draw it once at its own size and scale the picture. Drawn directly with a small or offset box, this drawable was
-         * seen to produce nothing at all on the phone, a blank cursor with no error. Null when the result has no pixels,
-         * so that can never reach the screen.
-         */
-        private static Bitmap rasterise(Drawable d, int size) {
-            int w = d.getIntrinsicWidth(), h = d.getIntrinsicHeight();
-            if (w <= 0 || h <= 0) return null;
-            Bitmap full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            d.setBounds(0, 0, w, h);
-            d.draw(new Canvas(full));
-            Bitmap scaled = Bitmap.createScaledBitmap(full, size, size, true);
-            return hasPixels(scaled) ? scaled : null;
-        }
-
-        private static boolean hasPixels(Bitmap b) {
-            int[] pixels = new int[b.getWidth() * b.getHeight()];
-            b.getPixels(pixels, 0, b.getWidth(), 0, 0, b.getWidth(), b.getHeight());
-            for (int p : pixels) if (Color.alpha(p) != 0) return true;
-            return false;
-        }
-
-        /** From the `pointer-icon` resource, whose hotSpotX and hotSpotY are dimensions. */
-        private static float[] readHotSpot(Resources res, float widthDp) {
-            float[] hot = {FALLBACK_HOT, FALLBACK_HOT};
-            int id = res.getIdentifier("pointer_arrow_icon", "drawable", "android");
-            if (id == 0 || widthDp <= 0) return hot;
-            try (XmlResourceParser p = res.getXml(id)) {
-                int event;
-                while ((event = p.next()) != XmlResourceParser.END_DOCUMENT) {
-                    if (event != XmlResourceParser.START_TAG) continue;
-                    for (int i = 0; i < p.getAttributeCount(); i++) {
-                        String attr = p.getAttributeName(i);
-                        float dp = parseDp(p.getAttributeValue(i));
-                        if (dp < 0) continue;
-                        if ("hotSpotX".equals(attr)) hot[0] = dp / widthDp;
-                        else if ("hotSpotY".equals(attr)) hot[1] = dp / widthDp;
-                    }
-                    break;
-                }
-            } catch (Exception e) {
-                Log.i(TAG, "no pointer hot spot: " + e);
-            }
-            return hot;
-        }
-
-        /** Text such as 6.5dip. Below 0 when it is something else. */
-        private static float parseDp(String value) {
-            if (value == null || !value.endsWith("dip")) return -1;
-            try {
-                return Float.parseFloat(value.substring(0, value.length() - 3));
-            } catch (NumberFormatException e) {
-                return -1;
-            }
-        }
-    }
-
-    /**
-     * Our own slim black arrow with a white outline and a soft shadow, with the tip at the hot spot, or the system's
-     * pointer in 触控 mode, with its own hot spot. All sizes come from the cursor size passed in, nothing from density.
+     * Our own drawings, so they work on any phone: in 键鼠 a slim black arrow with a tail, a thin white outline and a soft
+     * shadow; in 触控 a rounded black arrowhead without a tail, with a thick white outline and a soft shadow. All sizes come
+     * from the cursor size passed in, nothing from density.
      */
     private static final class ArrowView extends View {
         /** The arrow on a grid of 24 by 24, with the tip at 0,0. */
@@ -268,23 +176,25 @@ final class CursorOverlay {
             {0, 0}, {0, 17.5f}, {4, 13.8f}, {6.6f, 19.8f}, {9.2f, 18.7f}, {6.6f, 12.8f}, {12.3f, 12.8f}};
         private static final float GRID = 24, OUTLINE_WIDTH = 1.8f, SHADOW_RADIUS = 1.4f, SHADOW_Y = 0.7f;
         private static final int SHADOW_COLOR = 0x66000000;
+        /**
+         * The 触控 arrowhead on the same grid: a fat triangle with a shallow notch on its lower right side. Its corners
+         * before rounding, and how far along each edge each corner is cut. The outline shows one unit outside the black.
+         */
+        private static final float[][] TOUCH_SHAPE = {{3.9f, 1.9f}, {3.9f, 22f}, {10.4f, 15f}, {20f, 13.9f}};
+        private static final float[] TOUCH_CUTS = {3f, 2.6f, 1f, 3f};
+        /** The visible tip of the black after rounding: where a click lands. */
+        private static final float TOUCH_TIP_X = 4.5f, TOUCH_TIP_Y = 3.1f, TOUCH_OUTLINE_WIDTH = 2f;
 
         private final Paint body = new Paint(Paint.ANTI_ALIAS_FLAG), outline = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG), dotEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path arrow = new Path();
         private final float size, tipX;
-        private final SystemPointer pointer;
-        private float pointerLeft, pointerTop;
-        private boolean faint, systemStyle;
+        private final Path touchArrow = new Path();
+        private final Paint touchOutline = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean faint, touchStyle;
 
-        ArrowView(Context c, int size, int margin, SystemPointer pointer) {
+        ArrowView(Context c, int size, int margin) {
             super(c);
-            this.pointer = pointer;
-            if (pointer != null) {
-                // Its hot spot goes on the window's top row, so what little is drawn above the tip is cut off
-                pointerLeft = margin - pointer.hotX * size;
-                pointerTop = -pointer.hotY * size;
-            }
             this.size = size;
             tipX = margin;
             float s = size / GRID;
@@ -307,12 +217,36 @@ final class CursorOverlay {
             arrow.moveTo(SHAPE[0][0] * s + tipX, SHAPE[0][1] * s);
             for (int i = 1; i < SHAPE.length; i++) arrow.lineTo(SHAPE[i][0] * s + tipX, SHAPE[i][1] * s);
             arrow.close();
+            touchOutline.setColor(Color.WHITE);
+            touchOutline.setStyle(Paint.Style.STROKE);
+            touchOutline.setStrokeJoin(Paint.Join.ROUND);
+            touchOutline.setStrokeWidth(Math.max(2f, TOUCH_OUTLINE_WIDTH * s));
+            touchOutline.setShadowLayer(SHADOW_RADIUS * s, 0, SHADOW_Y * s, SHADOW_COLOR);
+            buildTouchArrow(s, margin - TOUCH_TIP_X * s, margin - TOUCH_TIP_Y * s);
         }
 
-        void setSystemStyle(boolean on) {
-            if (on && pointer == null && !systemStyle) Log.w(TAG, "no system pointer, using our own arrow");
-            if (systemStyle == on) return;
-            systemStyle = on;
+        /** A polygon whose corners are curves: each starts and ends its cut away from the corner. */
+        private void buildTouchArrow(float s, float dx, float dy) {
+            int n = TOUCH_SHAPE.length;
+            for (int i = 0; i < n; i++) {
+                float[] corner = TOUCH_SHAPE[i], before = TOUCH_SHAPE[(i + n - 1) % n], after = TOUCH_SHAPE[(i + 1) % n];
+                float[] in = along(corner, before, TOUCH_CUTS[i]), out = along(corner, after, TOUCH_CUTS[i]);
+                if (i == 0) touchArrow.moveTo(in[0] * s + dx, in[1] * s + dy);
+                else touchArrow.lineTo(in[0] * s + dx, in[1] * s + dy);
+                touchArrow.quadTo(corner[0] * s + dx, corner[1] * s + dy, out[0] * s + dx, out[1] * s + dy);
+            }
+            touchArrow.close();
+        }
+
+        private static float[] along(float[] from, float[] to, float distance) {
+            float ex = to[0] - from[0], ey = to[1] - from[1];
+            float length = (float) Math.hypot(ex, ey);
+            return new float[]{from[0] + ex / length * distance, from[1] + ey / length * distance};
+        }
+
+        void setTouchStyle(boolean on) {
+            if (touchStyle == on) return;
+            touchStyle = on;
             invalidate();
         }
 
@@ -329,8 +263,9 @@ final class CursorOverlay {
                 c.drawCircle(tipX + r, r, r, dotEdge);
                 return;
             }
-            if (systemStyle && pointer != null) {
-                c.drawBitmap(pointer.bitmap, pointerLeft, pointerTop, null);
+            if (touchStyle) {
+                c.drawPath(touchArrow, touchOutline);
+                c.drawPath(touchArrow, body);
                 return;
             }
             c.drawPath(arrow, outline);
