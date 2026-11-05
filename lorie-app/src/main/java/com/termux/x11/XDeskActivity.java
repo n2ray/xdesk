@@ -32,6 +32,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -297,7 +298,7 @@ public class XDeskActivity extends Activity {
 
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
-        @Override public void onDockLongPress(String key) { editDockItem(key); }
+        @Override public void onItemLongPress(String key) { showAppCard(key); }
         @Override public void onDockAll() { openChooserOverSession(); }
         @Override public void onDockToggle(String key) {
             List<String> dock = savedLines(PREF_DOCK);
@@ -830,7 +831,9 @@ public class XDeskActivity extends Activity {
         touchChip.setTextSize(10);
         touchChip.setBackground(Style.ripple(this, touch ? Style.ACCENT : Style.SURFACE_RAISED, 16));
         forwardChip.setBackground(Style.ripple(this, apps.isForwarding() ? Style.ACCENT : Style.SURFACE_RAISED, 16));
-        if (!apps.hasInjector()) {
+        if (apps.hasInjector() && apps.hasDisplay() && apps.app() == null) {
+            setStatus(Style.WARN, "外接屏上的应用已关闭，选一个新的");
+        } else if (!apps.hasInjector()) {
             setStatus(Style.DANGER, "注入服务断开了，确认 Shizuku 还在运行");
         } else if (!apps.hasDisplay()) {
             setStatus(Style.WARN, "外接屏已断开，插回后 " + apps.label() + " 自动回去");
@@ -1033,13 +1036,72 @@ public class XDeskActivity extends Activity {
         parent.addView(s, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    /** 外接屏的界面大小。拖动时只显示数值，松手才设：每次改动应用都要重新布局。 */
-    private void addDensitySetting(LinearLayout parent) {
-        final TextView label = new TextView(this);
+    private boolean densityInRange(int dpi) {
+        return dpi >= DENSITY_MIN && dpi <= DENSITY_MAX;
+    }
+
+    /** 一个数字框加“应用”按钮：确认时才生效，每次改动应用都要重新布局。 */
+    private LinearLayout densityRow(final EditText field, final java.util.function.IntConsumer onValid) {
+        field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        field.setTextColor(Style.TEXT);
+        field.setHintTextColor(Style.TEXT_DIM);
+        field.setTextSize(15);
+        field.setSingleLine(true);
+        field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        final Runnable confirm = new Runnable() {
+            @Override public void run() {
+                int dpi;
+                try {
+                    dpi = Integer.parseInt(field.getText().toString().trim());
+                } catch (NumberFormatException e) {
+                    dpi = -1;
+                }
+                if (!densityInRange(dpi)) {
+                    field.setError(DENSITY_MIN + " 到 " + DENSITY_MAX);
+                    return;
+                }
+                ime.hideSoftInputFromWindow(field.getWindowToken(), 0);
+                field.clearFocus();
+                onValid.accept(dpi);
+            }
+        };
+        field.setOnEditorActionListener((v, action, event) -> {
+            confirm.run();
+            return true;
+        });
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(field, new LinearLayout.LayoutParams(dp(92), -2));
+        TextView apply = Style.button(this, "应用", Style.ACCENT, 13, 14);
+        apply.setOnClickListener(v -> confirm.run());
+        LinearLayout.LayoutParams ap = chipParams(dp(56));
+        ap.leftMargin = dp(8);
+        row.addView(apply, ap);
+        return row;
+    }
+
+    private void addSmallButton(LinearLayout row, String label, View.OnClickListener l) {
+        TextView b = Style.button(this, label, Style.SURFACE_RAISED, 13, 14);
+        b.setPadding(dp(10), 0, dp(10), 0);
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(32));
+        p.leftMargin = dp(8);
+        row.addView(b, p);
+    }
+
+    private TextView settingsLabel(LinearLayout parent, String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
         label.setTextColor(Style.TEXT);
         label.setTextSize(15);
         label.setPadding(dp(4), dp(14), dp(4), dp(4));
         parent.addView(label, new LinearLayout.LayoutParams(-1, -2));
+        return label;
+    }
+
+    /** 外接屏界面大小的默认值。应用可以在长按卡片里有自己的值。 */
+    private void addDensitySetting(LinearLayout parent) {
+        final TextView label = settingsLabel(parent, "");
         if (!apps.canSetDensity()) {
             String why = session.isActive() ? "Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值"
                 : apps.shizukuState() != AppSession.SHIZUKU_READY ? "需要 Shizuku" : "外接屏上有安卓应用时才能改";
@@ -1047,31 +1109,18 @@ public class XDeskActivity extends Activity {
             label.setTextColor(Style.TEXT_DIM);
             return;
         }
-        final int fallback = apps.defaultDensity() > 0 ? apps.defaultDensity() : DENSITY_MAX;
-        final SeekBar bar = new SeekBar(this);
-        bar.setMax(DENSITY_MAX - DENSITY_MIN);
-        int current = apps.savedDensity() > 0 ? apps.savedDensity() : fallback;
-        bar.setProgress(Math.max(DENSITY_MIN, Math.min(DENSITY_MAX, current)) - DENSITY_MIN);
-        label.setText("外接屏界面大小：" + current + " dpi，越小显示的内容越多");
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                if (user) label.setText("外接屏界面大小：" + (p + DENSITY_MIN) + " dpi，松手后生效");
-            }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) {
-                int dpi = s.getProgress() + DENSITY_MIN;
-                label.setText("外接屏界面大小：" + dpi + " dpi，越小显示的内容越多");
-                apps.setDensity(dpi);
-            }
+        final String own = apps.defaultDensity() > 0 ? apps.defaultDensity() + " dpi" : "未知";
+        label.setText("外接屏界面大小（" + DENSITY_MIN + " 到 " + DENSITY_MAX + "，越小内容越多）");
+        final EditText field = new EditText(this);
+        field.setHint(String.valueOf(apps.defaultDensity() > 0 ? apps.defaultDensity() : ""));
+        if (apps.savedDensity() > 0) field.setText(String.valueOf(apps.savedDensity()));
+        LinearLayout row = densityRow(field, dpi -> apps.setDensity(dpi));
+        addSmallButton(row, "恢复显示器默认（" + own + "）", v -> {
+            field.setText("");
+            field.setError(null);
+            apps.setDensity(0);
         });
-        parent.addView(bar, new LinearLayout.LayoutParams(-1, -2));
-        settingsRow(parent, "恢复显示器默认" + (apps.defaultDensity() > 0 ? "（" + apps.defaultDensity() + " dpi）" : ""), new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                apps.setDensity(0);
-                bar.setProgress(Math.max(DENSITY_MIN, Math.min(DENSITY_MAX, fallback)) - DENSITY_MIN);
-                label.setText("外接屏界面大小：显示器默认" + (apps.defaultDensity() > 0 ? "（" + apps.defaultDensity() + " dpi）" : ""));
-            }
-        });
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
     private void showSettings() {
@@ -1296,25 +1345,95 @@ public class XDeskActivity extends Activity {
         refreshDocks();
     }
 
-    /** 长按 Dock 里的一项：挪位置或拿掉。 */
-    private void editDockItem(final String key) {
-        new AlertDialog.Builder(this)
-            .setItems(new String[]{"往左挪", "往右挪", "移出 Dock"}, new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    List<String> dock = savedLines(PREF_DOCK);
-                    int at = dock.indexOf(key);
-                    if (at < 0) return;
-                    if (which == 2) {
-                        dock.remove(at);
-                    } else {
-                        int to = which == 0 ? at - 1 : at + 1;
-                        if (to < 0 || to >= dock.size()) return;
-                        dock.remove(at);
-                        dock.add(to, key);
-                    }
-                    saveDock(dock);
-                }
-            })
+    private void moveInDock(String key, int by) {
+        List<String> dock = savedLines(PREF_DOCK);
+        int at = dock.indexOf(key), to = at + by;
+        if (at < 0 || to < 0 || to >= dock.size()) return;
+        dock.remove(at);
+        dock.add(to, key);
+        saveDock(dock);
+    }
+
+    /** 长按图标打开：这个应用记住的一切都在这里。Termux 环境只有 Dock 这部分。 */
+    private void showAppCard(final String key) {
+        final AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
+        if (ChooserView.isAppKey(key) && app == null) return;
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(20), dp(8), dp(20), dp(8));
+        final AlertDialog[] card = new AlertDialog[1];
+
+        boolean docked = savedLines(PREF_DOCK).contains(key);
+        LinearLayout dockRow = new LinearLayout(this);
+        dockRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView dockLabel = new TextView(this);
+        dockLabel.setText("Dock");
+        dockLabel.setTextColor(Style.TEXT);
+        dockLabel.setTextSize(15);
+        dockRow.addView(dockLabel);
+        addSmallButton(dockRow, docked ? "移出" : "加入", v -> {
+            chooserHost.onDockToggle(key);
+            card[0].dismiss();
+            showAppCard(key);
+        });
+        if (docked) {
+            addSmallButton(dockRow, "往左", v -> moveInDock(key, -1));
+            addSmallButton(dockRow, "往右", v -> moveInDock(key, 1));
+        }
+        LinearLayout.LayoutParams dockParams = new LinearLayout.LayoutParams(-1, -2);
+        dockParams.topMargin = dp(8);
+        c.addView(dockRow, dockParams);
+
+        if (app != null) {
+            int global = apps.savedDensity() > 0 ? apps.savedDensity() : apps.defaultDensity();
+            settingsLabel(c, "界面大小（" + DENSITY_MIN + " 到 " + DENSITY_MAX + "）");
+            final EditText field = new EditText(this);
+            field.setHint(global > 0 ? "默认 " + global : "默认");
+            if (apps.appDensity(app) > 0) field.setText(String.valueOf(apps.appDensity(app)));
+            LinearLayout row = densityRow(field, dpi -> apps.setAppDensity(app, dpi));
+            addSmallButton(row, "跟随默认", v -> {
+                field.setText("");
+                field.setError(null);
+                apps.setAppDensity(app, 0);
+            });
+            c.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+            if (AppSession.touchModeAllowed(app)) {
+                Switch finger = new Switch(this);
+                finger.setText("左键当手指（给只听触摸的应用或网页）");
+                finger.setTextColor(Style.TEXT);
+                finger.setTextSize(15);
+                finger.setPadding(dp(4), dp(14), dp(4), dp(10));
+                finger.setChecked(apps.isTouchMode(app));
+                finger.setOnCheckedChangeListener((b, on) -> {
+                    apps.setTouchMode(app, on);
+                    updateStatus();
+                });
+                c.addView(finger, new LinearLayout.LayoutParams(-1, -2));
+            }
+
+            if (apps.canCloseApps()) {
+                TextView close = settingsRow(c, "关闭这个应用", v -> new AlertDialog.Builder(this)
+                    .setMessage("关闭 " + app.label + "？未保存的内容可能会丢失。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("关闭", (d, w) -> {
+                        card[0].dismiss();
+                        apps.closeApp(app, this::openChooserOverSession);
+                    })
+                    .show());
+                close.setTextColor(Style.DANGER);
+            } else {
+                TextView close = settingsLabel(c, "关闭这个应用：会话中才能用（要靠 Shizuku）");
+                close.setTextColor(Style.TEXT_DIM);
+            }
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(c);
+        card[0] = new AlertDialog.Builder(this)
+            .setTitle(app != null ? app.label : ChooserView.sessionOf(key))
+            .setView(scroll)
+            .setPositiveButton("完成", null)
             .show();
     }
 

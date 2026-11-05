@@ -88,6 +88,34 @@ final class TaskMover {
         }
     }
 
+    /**
+     * Removes the app's tasks like swiping them away from recent tasks. Only when that is not available it force stops
+     * the app, which is harsher but also closes it.
+     */
+    static String closeApp(String pkg) {
+        try {
+            Object atm = taskManager();
+            List<?> infos = (List<?>) atm.getClass().getMethod("getAllRootTaskInfos").invoke(atm);
+            Method remove = atm.getClass().getMethod("removeTask", int.class);
+            for (Object info : infos) {
+                if (belongsTo(info, pkg)) remove.invoke(atm, info.getClass().getField("taskId").getInt(info));
+            }
+            return null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.i(TAG, "removeTask failed, force stopping: " + e);
+        }
+        String[] r = InjectorService.exec(AM_TIMEOUT_MS, "/system/bin/am", "force-stop", pkg);
+        return r[0];
+    }
+
+    private static boolean belongsTo(Object info, String pkg) throws ReflectiveOperationException {
+        for (String name : new String[]{"baseActivity", "topActivity"}) {
+            ComponentName c = (ComponentName) info.getClass().getField(name).get(info);
+            if (c != null && c.getPackageName().equals(pkg)) return true;
+        }
+        return false;
+    }
+
     /** Returns null when everything on the display went to the phone, otherwise what went wrong. */
     static String moveAllToPhone(int display, String ownPackage) {
         Object atm = null;

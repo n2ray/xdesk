@@ -162,6 +162,12 @@ final class ChooserView extends LinearLayout {
             Row r = rows.get(position);
             if (r.action != null) r.action.run();
         });
+        list.setOnItemLongClickListener((parent, view, position, id) -> {
+            Row r = rows.get(position);
+            if (r.key == null) return false;
+            host.onItemLongPress(r.key);
+            return true;
+        });
         addView(list, new LayoutParams(-1, 0, 1));
         setDisplayConnected(false);
     }

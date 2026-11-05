@@ -48,6 +48,8 @@ interface IInjector {
     int displayDefaultDensity(int displayId) = 23;
     /** Stays the same for a physical display across replugging. Null when unknown. */
     String displayUniqueId(int displayId) = 24;
+    /** Close this app's tasks, as swiping them away would. Returns null or the error. */
+    String closeApp(String packageName) = 25;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
     String returnToPhone(int displayId) = 21;
 }

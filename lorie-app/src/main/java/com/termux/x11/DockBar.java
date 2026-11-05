@@ -11,11 +11,12 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.List;
 
-/** 用户自己定的一排应用和 Termux 环境。点一下切换外接屏上的内容，长按调整。不抢键盘焦点。 */
+/** 用户自己定的一排应用和 Termux 环境。点一下切换外接屏上的内容，长按打开设置卡片。不抢键盘焦点。 */
 final class DockBar extends HorizontalScrollView {
     interface Host {
         void onDockTap(String key);
-        void onDockLongPress(String key);
+        /** 长按一个图标，打开它的设置卡片。 */
+        void onItemLongPress(String key);
         /** 点了“全部”。 */
         void onDockAll();
     }
@@ -63,7 +64,7 @@ final class DockBar extends HorizontalScrollView {
                 host.onDockTap(key);
             });
             v.setOnLongClickListener(view -> {
-                host.onDockLongPress(key);
+                host.onItemLongPress(key);
                 return true;
             });
             row.addView(v);

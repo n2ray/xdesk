@@ -241,6 +241,10 @@ public class InjectorService extends IInjector.Stub {
         return DensityOverride.uniqueId(display);
     }
 
+    @Override public String closeApp(String pkg) {
+        return TaskMover.closeApp(pkg);
+    }
+
     @Override public String returnToPhone(int display) {
         return ownPackage == null ? "XDesk 没有连上注入服务" : TaskMover.moveAllToPhone(display, ownPackage);
     }

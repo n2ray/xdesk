@@ -67,6 +67,11 @@ final class AppSession {
     private final android.content.SharedPreferences densities;
     private volatile String densityKey;
     private volatile int defaultDensity;
+    /** 每个应用自己的界面大小，没有就跟随上面的默认值。 */
+    private final android.content.SharedPreferences appDensities;
+    private final Object densityLock = new Object();
+    /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
+    private int appliedDensity;
     private final android.content.SharedPreferences touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
@@ -196,6 +201,7 @@ final class AppSession {
         audioRoute = AudioRoute.get(c);
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
+        appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
         Shizuku.addBinderReceivedListenerSticky(this::shizukuChanged);
         Shizuku.addBinderDeadListener(this::shizukuChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
@@ -341,11 +347,9 @@ final class AppSession {
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> audioRoute.attachInjector(i));
             loadDensity(i, d);
-            // 桌面窗口在外接屏上时，先把应用放上去挡住它再改，它不用跟着变
-            boolean desktopWindow = !MainActivity.getInstances().isEmpty();
-            if (!desktopWindow) applySavedDensity(i, d);
+            // 启动之前设，冷启动时应用一开始就是对的大小。桌面窗口这时还在前面，它声明了自己处理 density，不会重建
+            applyDensityFor(i, d, app);
             launch(i, d);
-            if (desktopWindow) applySavedDensity(i, d);
         } catch (RemoteException e) {
             ui.post(() -> fail("注入服务断开了：" + e.getMessage()));
         }
@@ -413,6 +417,7 @@ final class AppSession {
     private void lostInjector() {
         injector = null;
         audioRoute.detachInjector();
+        forgetDensity(-1);
         forwarding = false;
         cursor.hide();
         // The sound route outlives the process, and only a new injector can set it right and later clear it
@@ -472,6 +477,8 @@ final class AppSession {
         new Thread(() -> {
             String error;
             try {
+                // 启动之前设，这样冷启动的应用一开始就是对的大小。已经在运行的应用切回来也一样
+                applyDensityFor(i, d, a);
                 error = i.startApp(a.component(), d.getDisplayId());
                 if (error != null) {
                     Log.w(TAG, "am start: " + error);
@@ -480,6 +487,8 @@ final class AppSession {
                 if (error == null) {
                     i.setApp(a.packageName);
                     i.setTouchMode(touchModeFor(a));
+                } else {
+                    applyDensityFor(i, d, app);  // 还留在原来的应用上
                 }
             } catch (RemoteException e) {
                 error = "注入服务断开了";
@@ -516,7 +525,10 @@ final class AppSession {
         try {
             if (i != null) i.setEnabled(false);
             // 桌面有自己的 DPI 设置，外接屏回到默认再放桌面窗口。切回应用时再设
-            if (i != null && display != null) i.setDisplayDensity(display.getDisplayId(), -1);
+            if (i != null && display != null) {
+                i.setDisplayDensity(display.getDisplayId(), -1);
+                forgetDensity(0);
+            }
         } catch (RemoteException ignored) { }
         active = false;
         started = false;
@@ -532,12 +544,57 @@ final class AppSession {
         defaultDensity = i.displayDefaultDensity(d.getDisplayId());
     }
 
-    private void applySavedDensity(IInjector i, Display d) throws RemoteException {
-        String key = densityKey;
-        int saved = key != null ? densities.getInt(key, 0) : 0;
-        if (saved <= 0) return;
-        String error = i.setDisplayDensity(d.getDisplayId(), saved);
-        if (error != null) densityFailed(error);
+    /** 这个应用该用的值：它自己的，否则这台显示器的默认值，都没有是 0。 */
+    private int wantedDensity(AppCatalog.App a) {
+        int own = appDensity(a);
+        return own > 0 ? own : savedDensity();
+    }
+
+    /** 值没变就什么都不做：每次改动应用都要重新布局。 */
+    private void applyDensityFor(IInjector i, Display d, AppCatalog.App a) throws RemoteException {
+        synchronized (densityLock) {
+            int want = wantedDensity(a);
+            if (want == appliedDensity) return;
+            // 不知道留着什么时，清除要不看是谁设的
+            String error = i.setDisplayDensity(d.getDisplayId(), want > 0 ? want : appliedDensity < 0 ? 0 : -1);
+            if (error != null) densityFailed(error);
+            else appliedDensity = want;
+        }
+    }
+
+    private void forgetDensity(int value) {
+        synchronized (densityLock) {
+            appliedDensity = value;
+        }
+    }
+
+    /** 这个应用自己的值，跟随默认时是 0。 */
+    int appDensity(AppCatalog.App a) {
+        return a != null ? appDensities.getInt(a.packageName, 0) : 0;
+    }
+
+    /** @param dpi 0 跟随默认 */
+    void setAppDensity(AppCatalog.App a, int dpi) {
+        if (dpi > 0) appDensities.edit().putInt(a.packageName, dpi).apply();
+        else appDensities.edit().remove(a.packageName).apply();
+        if (active && started && app != null && app.packageName.equals(a.packageName)) applyCurrentDensity(false);
+    }
+
+    private void applyCurrentDensity(final boolean forceClear) {
+        final IInjector i = injector;
+        final Display d = display;
+        final AppCatalog.App current = app;
+        if (i == null || d == null) return;
+        new Thread(() -> {
+            try {
+                synchronized (densityLock) {
+                    if (forceClear && wantedDensity(current) == 0) appliedDensity = -1;
+                    applyDensityFor(i, d, current);
+                }
+            } catch (RemoteException e) {
+                densityFailed("注入服务断开了");
+            }
+        }, "xdesk-density").start();
     }
 
     private void densityFailed(String error) {
@@ -563,22 +620,17 @@ final class AppSession {
         return key != null ? densities.getInt(key, 0) : 0;
     }
 
-    /** 后台做：每次改动应用都要重新布局。 @param dpi 0 回到显示器默认 */
-    void setDensity(final int dpi) {
-        final IInjector i = injector;
-        final Display d = display;
-        final String key = densityKey;
-        if (i == null || d == null || key == null) return;
+    /**
+     * 这台显示器的默认值。外接屏上的应用有自己的值时，它不跟着变。
+     *
+     * @param dpi 0 回到显示器自己的，这时也清掉不是我们设的（比如手动 wm density）
+     */
+    void setDensity(int dpi) {
+        String key = densityKey;
+        if (key == null) return;
         if (dpi > 0) densities.edit().putInt(key, dpi).apply();
         else densities.edit().remove(key).apply();
-        new Thread(() -> {
-            try {
-                String error = i.setDisplayDensity(d.getDisplayId(), dpi);
-                if (error != null) densityFailed(error);
-            } catch (RemoteException e) {
-                densityFailed("注入服务断开了");
-            }
-        }, "xdesk-density").start();
+        applyCurrentDensity(dpi == 0);
     }
 
     /** 记在每个包上，默认鼠标。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
@@ -600,13 +652,64 @@ final class AppSession {
     }
 
     void toggleTouchMode() {
-        if (!canUseTouchMode()) return;
-        boolean on = !touchModeFor(app);
-        touchModes.edit().putBoolean(app.packageName, on).apply();
+        if (canUseTouchMode()) setTouchMode(app, !touchModeFor(app));
+    }
+
+    /** 顶部按钮和设置卡片改的是同一个值。 */
+    void setTouchMode(AppCatalog.App a, boolean on) {
+        touchModes.edit().putBoolean(a.packageName, on).apply();
         IInjector i = injector;
+        if (i == null || !active || app == null || !app.packageName.equals(a.packageName)) return;
         try {
-            if (i != null) i.setTouchMode(on);
+            i.setTouchMode(on);
         } catch (RemoteException ignored) { }
+    }
+
+    boolean isTouchMode(AppCatalog.App a) {
+        return touchModeFor(a);
+    }
+
+    static boolean touchModeAllowed(AppCatalog.App a) {
+        return canUseTouchMode(a);
+    }
+
+    /** 关闭应用要靠注入服务。 */
+    boolean canCloseApps() {
+        return injector != null;
+    }
+
+    /**
+     * 关闭一个应用（移除它的任务，和从最近任务划掉一样）。如果它正在外接屏上，外接屏上就没有我们放的应用了，
+     * 输入方式回到普通，界面值回到默认，之后 afterCurrent 让用户选下一个。
+     */
+    void closeApp(final AppCatalog.App a, final Runnable afterCurrent) {
+        final IInjector i = injector;
+        if (i == null) return;
+        new Thread(() -> {
+            String error;
+            try {
+                error = i.closeApp(a.packageName);
+            } catch (RemoteException e) {
+                error = "注入服务断开了";
+            }
+            final String result = error;
+            ui.post(() -> {
+                if (result != null) {
+                    if (listener != null) listener.onAppMessage("无法关闭 " + a.label + "：" + result);
+                    return;
+                }
+                if (!active || app == null || !app.packageName.equals(a.packageName)) return;
+                app = null;
+                try {
+                    i.setApp("");
+                } catch (RemoteException ignored) { }
+                cursorPolicy.setProfile(AppInputProfile.forPackage(null));
+                updateCursor();
+                applyCurrentDensity(false);
+                if (listener != null) listener.onAppStateChanged();
+                afterCurrent.run();
+            });
+        }, "xdesk-app-close").start();
     }
 
     void setAlwaysShowCursor(boolean always) {
@@ -638,6 +741,7 @@ final class AppSession {
     void displayRemoved(int id) {
         if (display == null || display.getDisplayId() != id) return;
         display = null;
+        forgetDensity(0);
         setForwarding(false);
         cursor.remove();
         if (listener != null) listener.onAppStateChanged();
@@ -646,6 +750,7 @@ final class AppSession {
     void displayAdded(Display d) {
         if (!active || !started || display != null) return;
         display = d;
+        forgetDensity(0);
         cursorPolicy.setHeight(logicalSize(d)[1]);
         cursor.attach(d);
         final IInjector i = injector;
@@ -655,8 +760,8 @@ final class AppSession {
                     int[] size = logicalSize(d);
                     i.setDisplay(d.getDisplayId(), size[0], size[1]);
                     loadDensity(i, d);
-                    applySavedDensity(i, d);
-                    launch(i, d);
+                    applyDensityFor(i, d, app);
+                    if (app != null) launch(i, d);
                 } catch (RemoteException e) {
                     Log.w(TAG, "move to new display", e);
                 }
@@ -700,6 +805,7 @@ final class AppSession {
         audioBinding = false;
         appBehindDesktop = false;
         stopping = true;
+        forgetDensity(0);  // the injector clears what it set before it ends
         audioRoute.detachInjector();
         boolean desktopActive = DesktopSession.get(context).isActive();
         active = false;
