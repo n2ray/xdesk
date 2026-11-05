@@ -88,4 +88,7 @@ dependencies {
     // Android apps on the external display: runs the input injector as the shell user
     implementation "dev.rikka.shizuku:api:13.1.5"
     implementation "dev.rikka.shizuku:provider:13.1.5"
+    // The same without Shizuku: pairs with the device's own adbd. Only the hidden Conscrypt call of the pairing needs the bypass
+    implementation "com.github.MuntashirAkon:libadb-android:3.1.1"
+    implementation "org.lsposed.hiddenapibypass:hiddenapibypass:6.1"
 }
