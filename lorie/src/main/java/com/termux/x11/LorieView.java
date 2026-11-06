@@ -66,9 +66,6 @@ public class LorieView extends SurfaceView implements InputStub {
     private boolean clipboardSyncEnabled = false;
     private boolean hardwareKbdScancodesWorkaround = false;
     private final InputMethodManager mIMM = (InputMethodManager)getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-    /** Where floating candidate windows go: this part of the width from the left, at the top. Slightly left of the
-     *  middle, as the IME puts the window's left edge there. */
-    private static final float IME_ANCHOR_X = 0.42f;
     private final MainActivity activity = MainActivity.findActivity(getContext());
     private Callback mCallback;
     private final Point p = new Point();
@@ -285,18 +282,9 @@ public class LorieView extends SurfaceView implements InputStub {
 
         @Override
         public boolean requestCursorUpdates(int cursorUpdateMode) {
-            // X has no text caret to report, so floating candidate windows (e.g. Fcitx5 with a hardware keyboard)
-            // went to the window's top left corner. Put them at the top centre of the desktop instead.
-            int[] onScreen = new int[2];
-            getLocationOnScreen(onScreen);
-            android.graphics.Matrix toScreen = new android.graphics.Matrix();
-            toScreen.setTranslate(onScreen[0], onScreen[1]);
-            float x = getWidth() * IME_ANCHOR_X;
             mIMM.updateCursorAnchorInfo(LorieView.this, new CursorAnchorInfo.Builder()
                     .setComposingText(-1, null)
                     .setSelectionRange(currentPos, currentPos)
-                    .setMatrix(toScreen)
-                    .setInsertionMarkerLocation(x, 0, 0, 0, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION)
                     .build());
             return true;
         }
