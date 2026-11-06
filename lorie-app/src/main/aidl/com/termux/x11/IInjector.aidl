@@ -1,5 +1,6 @@
 package com.termux.x11;
 
+import android.view.Surface;
 import com.termux.x11.IInjectorListener;
 
 /** The privileged input session. Runs as the shell user, through Shizuku or ShellServer, see InjectorService. */
@@ -62,4 +63,13 @@ interface IInjector {
     oneway void sendBack() = 26;
     /** The session ended: move every normal task on this display to the phone, not closed. Returns null or the error. */
     String returnToPhone(int displayId) = 21;
+    /**
+     * A display of this session for apps, shown in a surface of XDesk's: the car's screen, see AppDisplay. Ends with the
+     * session, and apps on it then go to the phone. The surface may be null. Returns the display id, throws when refused.
+     */
+    int createVirtualDisplay(String name, int width, int height, int dpi, in Surface surface) = 31;
+    /** Null detaches: the display and its apps stay, as with the screen off. Returns when done. */
+    void setVirtualDisplaySurface(int displayId, in Surface surface) = 32;
+    /** The car's touch screen: fingers at absolute pixels on the display, in any input mode. Action and ids as in MotionEvent. */
+    oneway void screenTouch(int action, in int[] ids, in float[] x, in float[] y) = 33;
 }

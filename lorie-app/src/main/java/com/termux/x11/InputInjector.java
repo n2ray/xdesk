@@ -105,6 +105,11 @@ final class InputInjector {
     private float anchorX, anchorY;
     private int[] directIds = new int[0];
     private float[] directX = new float[0], directY = new float[0];
+    /** The car's fingers are down, see screenTouch. The last frame, for cancelling. */
+    private boolean screenActive;
+    private long screenDown;
+    private int[] screenIds = new int[0];
+    private float[] screenX = new float[0], screenY = new float[0];
     /** Touch mode: the button holding fingers down, 0 for none. Left is one finger, right is two. */
     private int pressBit;
     private int touchDevice;
@@ -285,19 +290,24 @@ final class InputInjector {
     }
 
     private void directEvent(int action, int count) throws ReflectiveOperationException {
+        fingers(action, downTime, count, directIds, directX, directY);
+    }
+
+    /** The first count pointers of the arrays, in pixels on the display. */
+    private void fingers(int action, long down, int count, int[] ids, float[] xs, float[] ys) throws ReflectiveOperationException {
         MotionEvent.PointerProperties[] props = new MotionEvent.PointerProperties[count];
         MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[count];
         for (int i = 0; i < count; i++) {
             props[i] = new MotionEvent.PointerProperties();
-            props[i].id = directIds[i];
+            props[i].id = ids[i];
             props[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
             coords[i] = new MotionEvent.PointerCoords();
-            coords[i].x = directX[i];
-            coords[i].y = directY[i];
+            coords[i].x = xs[i];
+            coords[i].y = ys[i];
             coords[i].size = 1f;
             coords[i].pressure = 1f;
         }
-        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, count, props, coords,
+        MotionEvent e = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, count, props, coords,
             0, 0, 1f, 1f, touchDevice, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
         setDisplayMotion.invoke(e, display);
         send(e);
@@ -361,9 +371,55 @@ final class InputInjector {
         cursor.onFingers(new float[0], new float[0]);
     }
 
+    /**
+     * The car's touch screen, which shows this display: each finger where it is, already in pixels here, in either input
+     * mode, because the user touches the picture itself. Any other press or the phone's fingers end it, as the newest input.
+     */
+    void screenTouch(int action, int[] ids, float[] xs, float[] ys) throws ReflectiveOperationException {
+        int masked = action & MotionEvent.ACTION_MASK;
+        if (masked == MotionEvent.ACTION_DOWN) {
+            cancelTouch();
+            endSwipe();
+            touchDevice = touchDeviceId();
+            screenDown = SystemClock.uptimeMillis();
+            screenActive = true;
+        }
+        if (!screenActive) return;
+        screenIds = ids;
+        screenX = new float[ids.length];
+        screenY = new float[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            screenX[i] = Math.max(0, Math.min(width - 1, xs[i]));
+            screenY[i] = Math.max(0, Math.min(height - 1, ys[i]));
+        }
+        fingers(action, screenDown, ids.length, screenIds, screenX, screenY);
+        if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) screenActive = false;
+        if (masked == MotionEvent.ACTION_POINTER_UP) dropScreenFinger(action >> MotionEvent.ACTION_POINTER_INDEX_SHIFT);
+    }
+
+    /** A cancel must only name the fingers still down. */
+    private void dropScreenFinger(int index) {
+        int n = screenIds.length - 1;
+        int[] ids = new int[n];
+        float[] xs = new float[n], ys = new float[n];
+        for (int i = 0, j = 0; i <= n; i++) {
+            if (i == index) continue;
+            ids[j] = screenIds[i];
+            xs[j] = screenX[i];
+            ys[j++] = screenY[i];
+        }
+        screenIds = ids;
+        screenX = xs;
+        screenY = ys;
+    }
+
     /** Takes back any fingers a button holds, with no tap: a release would count as one. */
     void cancelTouch() throws ReflectiveOperationException {
         cancelDirect();
+        if (screenActive) {
+            screenActive = false;
+            fingers(MotionEvent.ACTION_CANCEL, screenDown, screenIds.length, screenIds, screenX, screenY);
+        }
         if (pressBit == 0) return;
         int bit = pressBit;
         pressBit = 0;

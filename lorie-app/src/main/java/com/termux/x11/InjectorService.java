@@ -1,12 +1,15 @@
 package com.termux.x11;
 
+import android.hardware.display.VirtualDisplay;
 import android.os.Binder;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.Surface;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.HashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +64,8 @@ public class InjectorService extends IInjector.Stub {
     private boolean linked;
     private volatile boolean sessionOver;
     private final int onlyUid;
+    /** Displays this session made for apps, by id, see AppDisplay. They end with the session. */
+    private final HashMap<Integer, VirtualDisplay> appDisplays = new HashMap<>();
 
     private static final int BACK_CHECK_MS = 800;
     private final boolean[] sideButtonIsKey = new boolean[2];
@@ -424,6 +429,42 @@ public class InjectorService extends IInjector.Stub {
         post(() -> injector.touchFrame(action, ids, x, y));
     }
 
+    @Override public void screenTouch(final int action, final int[] ids, final float[] x, final float[] y) {
+        // The touch takes focus to the display, but a key may come before that has settled
+        if ((action & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_DOWN) focusStale = true;
+        post(() -> injector.screenTouch(action, ids, x, y));
+    }
+
+    @Override public int createVirtualDisplay(String name, int width, int height, int dpi, Surface surface) {
+        VirtualDisplay d = AppDisplay.create(name, width, height, dpi, surface);
+        synchronized (appDisplays) {
+            if (sessionOver) {
+                d.release();
+                throw new IllegalStateException("会话已经结束");
+            }
+            int id = d.getDisplay().getDisplayId();
+            appDisplays.put(id, d);
+            Log.i(TAG, "display " + id + " made, " + width + "x" + height + " " + dpi + " dpi");
+            return id;
+        }
+    }
+
+    @Override public void setVirtualDisplaySurface(int id, Surface surface) {
+        synchronized (appDisplays) {
+            VirtualDisplay d = appDisplays.get(id);
+            if (d == null) throw new IllegalArgumentException("没有显示器 " + id);
+            d.setSurface(surface);
+        }
+    }
+
+    /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
+    private void releaseDisplays() {
+        synchronized (appDisplays) {
+            for (VirtualDisplay d : appDisplays.values()) d.release();
+            appDisplays.clear();
+        }
+    }
+
     @Override public void sendBack() {
         fromPhone(() -> {
             injector.androidKey(android.view.KeyEvent.KEYCODE_BACK);
@@ -567,7 +608,10 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void shutdown() {
-        sessionOver = true;
+        synchronized (appDisplays) {
+            sessionOver = true;
+        }
+        releaseDisplays();
         EvdevReader r;
         synchronized (this) {
             r = reader;
