@@ -12,6 +12,7 @@
 #include <math.h>
 #include <pixman.h>
 #include <stdbool.h>
+#include <linux/dma-buf.h>
 #include <linux/memfd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -40,6 +41,7 @@ struct LorieBuffer {
     int fd;
     size_t size;
     off_t offset;
+    int8_t dmaBufSyncSupport;
 
     GLuint id;
     EGLImage image;
@@ -47,6 +49,65 @@ struct LorieBuffer {
 
     int32_t gpuCopyPending;
 };
+
+enum {
+    DMA_BUF_SYNC_UNKNOWN = 0,
+    DMA_BUF_SYNC_SUPPORTED = 1,
+    DMA_BUF_SYNC_UNSUPPORTED = -1,
+};
+
+// TERMUX_X11_NO_DMABUF_SYNC=1 turns the sync off, only meant for comparing with the old behaviour.
+static bool dmaBufSyncDisabled(void) {
+    static int disabled = -1;
+    if (disabled == -1) {
+        char *env = getenv("TERMUX_X11_NO_DMABUF_SYNC");
+        disabled = env && strcmp(env, "1") == 0;
+    }
+    return disabled;
+}
+
+// DMA_BUF_SYNC_START waits for the fences of the device that renders into the dma-buf (the
+// client's GPU) and invalidates the CPU caches, so the CPU neither reads a frame that is still
+// being rendered nor stale cache lines left from an older frame in the same buffer.
+static bool dmaBufCpuAccessBegin(LorieBuffer *buffer, bool write) {
+    if (!buffer || buffer->desc.type != LORIEBUFFER_FD ||
+        buffer->dmaBufSyncSupport == DMA_BUF_SYNC_UNSUPPORTED || dmaBufSyncDisabled())
+        return false;
+
+    struct dma_buf_sync sync = {
+        .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | (write ? DMA_BUF_SYNC_WRITE : 0),
+    };
+    int ret;
+    do {
+        ret = ioctl(buffer->fd, DMA_BUF_IOCTL_SYNC, &sync);
+    } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
+    if (ret == 0) {
+        buffer->dmaBufSyncSupport = DMA_BUF_SYNC_SUPPORTED;
+        return true;
+    }
+
+    // memfd and ashmem buffers are not dma-bufs, do not try again for them.
+    if (buffer->dmaBufSyncSupport == DMA_BUF_SYNC_UNKNOWN &&
+        (errno == ENOTTY || errno == EINVAL || errno == ENOSYS))
+        buffer->dmaBufSyncSupport = DMA_BUF_SYNC_UNSUPPORTED;
+    return false;
+}
+
+static void dmaBufCpuAccessEnd(LorieBuffer *buffer, bool write) {
+    struct dma_buf_sync sync = {
+        .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | (write ? DMA_BUF_SYNC_WRITE : 0),
+    };
+    ioctl(buffer->fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
+
+__LIBC_HIDDEN__ bool LorieBuffer_cpuAccessBegin(LorieBuffer *buffer, bool write) {
+    return dmaBufCpuAccessBegin(buffer, write);
+}
+
+__LIBC_HIDDEN__ void LorieBuffer_cpuAccessEnd(LorieBuffer *buffer, bool write) {
+    if (buffer)
+        dmaBufCpuAccessEnd(buffer, write);
+}
 
 void LorieBuffer_gpuCopyPendingInc(LorieBuffer* buffer) {
     if (buffer)
@@ -401,6 +462,7 @@ __LIBC_HIDDEN__ void LorieBuffer_recvHandleFromUnixSocket(int socketFd, LorieBuf
 
     read(socketFd, &buffer, sizeof(buffer));
     buffer.image = NULL; // Only for process-local use
+    buffer.dmaBufSyncSupport = DMA_BUF_SYNC_UNKNOWN;
     buffer.locked = false;
     buffer.lockedData = NULL;
     if (buffer.desc.type == LORIEBUFFER_FD) {
@@ -473,8 +535,12 @@ __LIBC_HIDDEN__ void LorieBuffer_bindTexture(LorieBuffer *buffer) {
         return;
 
     glBindTexture(GL_TEXTURE_2D, buffer->id);
-    if (buffer->desc.type == LORIEBUFFER_FD)
+    if (buffer->desc.type == LORIEBUFFER_FD) {
+        bool dmaBufRead = dmaBufCpuAccessBegin(buffer, false);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer->desc.stride, buffer->desc.height, buffer->desc.format == AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM ? GL_BGRA_EXT : GL_RGBA, GL_UNSIGNED_BYTE, buffer->desc.data);
+        if (dmaBufRead)
+            dmaBufCpuAccessEnd(buffer, false);
+    }
 }
 
 __LIBC_HIDDEN__ unsigned int LorieBuffer_getGLTextureId(LorieBuffer *buffer) {
