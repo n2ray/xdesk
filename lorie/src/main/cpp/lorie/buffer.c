@@ -14,8 +14,6 @@
 #include <stdbool.h>
 #include <linux/dma-buf.h>
 #include <linux/memfd.h>
-#include <linux/sync_file.h>
-#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -44,10 +42,6 @@ struct LorieBuffer {
     size_t size;
     off_t offset;
     int8_t dmaBufSyncSupport;
-    // Process-local: the dma-buf behind an AHardwareBuffer, see LorieBuffer_ahbDmaBufSync.
-    int8_t ahbDmaBufLookedUp;
-    int ahbDmaBufFd;
-    size_t ahbDmaBufSize;
 
     GLuint id;
     EGLImage image;
@@ -62,22 +56,12 @@ enum {
     DMA_BUF_SYNC_UNSUPPORTED = -1,
 };
 
-// TERMUX_X11_NO_DMABUF_SYNC=1 turns the sync off, only meant for comparing with the old behaviour.
-static bool dmaBufSyncDisabled(void) {
-    static int disabled = -1;
-    if (disabled == -1) {
-        char *env = getenv("TERMUX_X11_NO_DMABUF_SYNC");
-        disabled = env && strcmp(env, "1") == 0;
-    }
-    return disabled;
-}
-
 // DMA_BUF_SYNC_START waits for the fences of the device that renders into the dma-buf (the
 // client's GPU) and invalidates the CPU caches, so the CPU neither reads a frame that is still
 // being rendered nor stale cache lines left from an older frame in the same buffer.
 static bool dmaBufCpuAccessBegin(LorieBuffer *buffer, bool write) {
     if (!buffer || buffer->desc.type != LORIEBUFFER_FD ||
-        buffer->dmaBufSyncSupport == DMA_BUF_SYNC_UNSUPPORTED || dmaBufSyncDisabled())
+        buffer->dmaBufSyncSupport == DMA_BUF_SYNC_UNSUPPORTED)
         return false;
 
     struct dma_buf_sync sync = {
@@ -106,52 +90,6 @@ static void dmaBufCpuAccessEnd(LorieBuffer *buffer, bool write) {
     ioctl(buffer->fd, DMA_BUF_IOCTL_SYNC, &sync);
 }
 
-#ifndef DMA_BUF_IOCTL_EXPORT_SYNC_FILE
-struct dma_buf_export_sync_file {
-    __u32 flags;
-    __s32 fd;
-};
-#define DMA_BUF_IOCTL_EXPORT_SYNC_FILE _IOWR(DMA_BUF_BASE, 2, struct dma_buf_export_sync_file)
-#endif
-
-// DMA_BUF_SYNC_START can only wait for the client's GPU if the client attached a fence to the
-// dma-buf (Mesa's WSI imports its render fence with DMA_BUF_IOCTL_IMPORT_SYNC_FILE). Without
-// one the ioctl returns at once and the CPU reads whatever the GPU has written so far. Exporting
-// the fences the CPU read would wait for tells which of the two happens: with no fence the
-// kernel hands out its always signalled stub fence.
-__LIBC_HIDDEN__ int LorieBuffer_dmaBufFenceState(LorieBuffer *buffer, char *driver, size_t driverSize) {
-    struct dma_buf_export_sync_file export = { .flags = DMA_BUF_SYNC_READ, .fd = -1 };
-    struct sync_file_info info = {0};
-    struct sync_fence_info fences[4];
-    int state = LORIEBUFFER_FENCE_UNKNOWN;
-
-    if (driver && driverSize)
-        driver[0] = 0;
-    if (!buffer || buffer->desc.type != LORIEBUFFER_FD || buffer->dmaBufSyncSupport != DMA_BUF_SYNC_SUPPORTED)
-        return state;
-    if (ioctl(buffer->fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &export) != 0)
-        return state;
-
-    if (ioctl(export.fd, SYNC_IOC_FILE_INFO, &info) == 0) {
-        state = info.status == 1 ? LORIEBUFFER_FENCE_SIGNALED : LORIEBUFFER_FENCE_PENDING;
-        if (info.num_fences >= 1 && info.num_fences <= 4) {
-            uint32_t n = info.num_fences;
-            memset(&info, 0, sizeof(info));
-            memset(fences, 0, sizeof(fences));
-            info.num_fences = n;
-            info.sync_fence_info = (uint64_t) (uintptr_t) fences;
-            if (ioctl(export.fd, SYNC_IOC_FILE_INFO, &info) == 0) {
-                if (n == 1 && strcmp(fences[0].driver_name, "stub") == 0)
-                    state = LORIEBUFFER_FENCE_NONE;
-                else if (driver && driverSize)
-                    snprintf(driver, driverSize, "%s", fences[0].driver_name);
-            }
-        }
-    }
-    close(export.fd);
-    return state;
-}
-
 __LIBC_HIDDEN__ bool LorieBuffer_cpuAccessBegin(LorieBuffer *buffer, bool write) {
     return dmaBufCpuAccessBegin(buffer, write);
 }
@@ -159,75 +97,6 @@ __LIBC_HIDDEN__ bool LorieBuffer_cpuAccessBegin(LorieBuffer *buffer, bool write)
 __LIBC_HIDDEN__ void LorieBuffer_cpuAccessEnd(LorieBuffer *buffer, bool write) {
     if (buffer)
         dmaBufCpuAccessEnd(buffer, write);
-}
-
-// The public NDK has no way to get the fds of an AHardwareBuffer, but sending it through a socket
-// passes its native handle's fds along. gralloc puts the pixels in a dma-buf among them (others
-// can be metadata), so the biggest dma-buf that can hold the pixels is taken.
-static void ahbDmaBufLookUp(LorieBuffer *buffer) {
-    int sv[2];
-    size_t needed = (size_t) buffer->desc.stride * buffer->desc.height * sizeof(uint32_t);
-
-    buffer->ahbDmaBufLookedUp = 1;
-    buffer->ahbDmaBufFd = -1;
-    buffer->ahbDmaBufSize = 0;
-    if (!buffer->desc.buffer || socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0)
-        return;
-
-    if (__builtin_available(android 26, *)) {
-        if (AHardwareBuffer_sendHandleToUnixSocket(buffer->desc.buffer, sv[0]) == 0) {
-            char data[4096];
-            union {
-                struct cmsghdr align;
-                char buf[CMSG_SPACE(sizeof(int) * 32)];
-            } control;
-            struct iovec iov = { .iov_base = data, .iov_len = sizeof(data) };
-            struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = control.buf, .msg_controllen = sizeof(control.buf) };
-
-            if (recvmsg(sv[1], &msg, MSG_CMSG_CLOEXEC | MSG_DONTWAIT) >= 0) {
-                for (struct cmsghdr *c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
-                    if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
-                        continue;
-                    int n = (int) ((c->cmsg_len - CMSG_LEN(0)) / sizeof(int));
-                    int *fds = (int *) CMSG_DATA(c);
-                    for (int i = 0; i < n; i++) {
-                        char link[64] = {0}, path[32];
-                        off_t size = lseek(fds[i], 0, SEEK_END);
-                        snprintf(path, sizeof(path), "/proc/self/fd/%d", fds[i]);
-                        readlink(path, link, sizeof(link) - 1);
-                        if (strstr(link, "dmabuf") && size > 0 && (size_t) size >= needed && (size_t) size > buffer->ahbDmaBufSize) {
-                            if (buffer->ahbDmaBufFd >= 0)
-                                close(buffer->ahbDmaBufFd);
-                            buffer->ahbDmaBufFd = fds[i];
-                            buffer->ahbDmaBufSize = (size_t) size;
-                        } else
-                            close(fds[i]);
-                    }
-                }
-            }
-        }
-    }
-    close(sv[0]);
-    close(sv[1]);
-}
-
-__LIBC_HIDDEN__ size_t LorieBuffer_ahbDmaBufSize(LorieBuffer *buffer) {
-    if (!buffer || buffer->desc.type != LORIEBUFFER_AHARDWAREBUFFER)
-        return 0;
-    if (!buffer->ahbDmaBufLookedUp)
-        ahbDmaBufLookUp(buffer);
-    return buffer->ahbDmaBufSize;
-}
-
-__LIBC_HIDDEN__ int LorieBuffer_ahbDmaBufSync(LorieBuffer *buffer, uint64_t flags) {
-    struct dma_buf_sync sync = { .flags = flags };
-    int ret;
-    if (!LorieBuffer_ahbDmaBufSize(buffer))
-        return ENOENT;
-    do {
-        ret = ioctl(buffer->ahbDmaBufFd, DMA_BUF_IOCTL_SYNC, &sync);
-    } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
-    return ret == 0 ? 0 : errno;
 }
 
 void LorieBuffer_gpuCopyPendingInc(LorieBuffer* buffer) {
@@ -476,9 +345,6 @@ __LIBC_HIDDEN__ void __LorieBuffer_free(LorieBuffer* buffer) {
     if (buffer->locked)
         LorieBuffer_unlock(buffer);
 
-    if (buffer->ahbDmaBufLookedUp && buffer->ahbDmaBufFd >= 0)
-        close(buffer->ahbDmaBufFd);
-
     if (eglGetCurrentContext())
         glDeleteTextures(1, &buffer->id);
 
@@ -587,9 +453,6 @@ __LIBC_HIDDEN__ void LorieBuffer_recvHandleFromUnixSocket(int socketFd, LorieBuf
     read(socketFd, &buffer, sizeof(buffer));
     buffer.image = NULL; // Only for process-local use
     buffer.dmaBufSyncSupport = DMA_BUF_SYNC_UNKNOWN;
-    buffer.ahbDmaBufLookedUp = 0;
-    buffer.ahbDmaBufFd = -1;
-    buffer.ahbDmaBufSize = 0;
     buffer.locked = false;
     buffer.lockedData = NULL;
     if (buffer.desc.type == LORIEBUFFER_FD) {

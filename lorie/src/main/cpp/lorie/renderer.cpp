@@ -35,7 +35,6 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <linux/futex.h>
-#include <linux/dma-buf.h>
 #include <unistd.h>
 #include "list.h"
 #include "lorie.h"
@@ -1052,65 +1051,6 @@ static float panToCursor(float offset, float cursor, float shown, float total) {
     return fmaxf(0.f, fminf(offset, total - shown));
 }
 
-// Called with the GPU done with the root: counts whether the X server wrote the root while we
-// sampled it, completes the GPU copies and gives the lock back.
-void Renderer::finishRootSampling(uint32_t seqAtSample, uint64_t gpuCopySerial) {
-    if (state->debug.rootWriteSeq != seqAtSample)
-        __atomic_add_fetch(&state->debug.drawsWrittenWhileSampling, 1, __ATOMIC_RELAXED);
-    if (gpuCopySerial) {
-        __atomic_store_n(&state->gpuCopyQueue.completedSerial, gpuCopySerial, __ATOMIC_RELEASE);
-        notifyGpuCopyDone();
-    }
-    state->waitForNextFrame = true;
-    lorie_mutex_unlock(&state->lock, &state->lockingPid);
-}
-
-// Copies the root (its texture already bound) into snapshotTex with the GPU, rows and channels
-// as they are, so snapshotTex is drawn exactly like the root would be.
-bool Renderer::copyRootToSnapshot(LorieBuffer* root) {
-    const LorieBuffer_Desc *desc = LorieBuffer_description(root);
-    // Our own CPU-uploaded LORIEBUFFER_FD texture is stride-wide, see LorieBuffer_attachToGL.
-    int w = desc->type == LORIEBUFFER_FD ? desc->stride : desc->width, h = desc->height;
-    GLint prevViewport[4];
-
-    if (w <= 0 || h <= 0)
-        return false;
-    if (!snapshotTex || w != snapshotW || h != snapshotH) {
-        if (!snapshotTex)
-            glGenTextures(1, &snapshotTex);
-        glBindTexture(GL_TEXTURE_2D, snapshotTex);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        if (!snapshotFbo)
-            glGenFramebuffers(1, &snapshotFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, snapshotFbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, snapshotTex, 0);
-        snapshotOk = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-        snapshotW = w;
-        snapshotH = h;
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glBindTexture(GL_TEXTURE_2D, LorieBuffer_getGLTextureId(root));
-        loge("TERMUX_X11_RENDER_SNAPSHOT: %dx%d snapshot texture %s", w, h, snapshotOk ? "ready" : "incomplete, drawing the root directly");
-    }
-    if (!snapshotOk)
-        return false;
-
-    glGetIntegerv(GL_VIEWPORT, prevViewport);
-    glBindFramebuffer(GL_FRAMEBUFFER, snapshotFbo);
-    glViewport(0, 0, w, h);
-    glDisable(GL_BLEND);
-    // Same mapping as the GPU copies into an FBO above: row 0 of the source lands in row 0.
-    drawRegion(LorieBuffer_getGLTextureId(root), -1.f, 1.f, 1.f, -1.f, 0.f, 0.f, 1.f, 1.f, 0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-    if (!snapshotAnnounced) {
-        snapshotAnnounced = true;
-        loge("TERMUX_X11_RENDER_SNAPSHOT=1: drawing from a copy of the root taken under the lock");
-    }
-    return true;
-}
-
 void Renderer::redrawLocked(bool* waitingForBuffers) {
     float xfactor = 1.f;
     const LorieBuffer_Desc *desc = nullptr;
@@ -1238,29 +1178,8 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
 
     // We should signal X server to not use root window while we actively copy it
     lockServerState(state, connFd());
-    // Diagnostics: did the X server write the root since its CPU caches were last written back,
-    // and is a write going on right now (it should not be, the X server writes under the lock).
-    uint32_t seqAtSample = state->debug.rootWriteSeq;
-    __atomic_add_fetch(&state->debug.draws, 1, __ATOMIC_RELAXED);
-    if (state->debug.rootWriteActive)
-        __atomic_add_fetch(&state->debug.drawsDuringWrite, 1, __ATOMIC_RELAXED);
-    if (seqAtSample != state->debug.rootFlushedSeq)
-        __atomic_add_fetch(&state->debug.drawsUnflushed, 1, __ATOMIC_RELAXED);
-    if (state->rendererRelock) {
+    if (state->rendererRelock)
         syncRootForGpu(buffer);
-        state->debug.rootFlushedSeq = seqAtSample;
-    } else if (state->debug.fallbackRootFlush && desc->type == LORIEBUFFER_AHARDWAREBUFFER) {
-        // Without relock the X server writes its caches back only once per vsync (lorieRedraw),
-        // so writes made after that are still in the CPU caches when we sample. Cleaning the
-        // caches of the dma-buf works from any process, they are physically tagged.
-        int err = LorieBuffer_ahbDmaBufSync(buffer, DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
-        __atomic_add_fetch(&state->debug.rendererFlushes, 1, __ATOMIC_RELAXED);
-        if (err) {
-            __atomic_add_fetch(&state->debug.rendererFlushFailures, 1, __ATOMIC_RELAXED);
-            state->debug.rendererFlushErrno = err;
-        } else
-            state->debug.rootFlushedSeq = seqAtSample;
-    }
     // Share this draw's flush+fence below instead of a separate round trip per frame.
     uint64_t gpuCopySerial = applyPendingGpuCopiesLocked();
     state->drawRequested = FALSE;
@@ -1268,27 +1187,13 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
     LorieBuffer_bindTexture(buffer);
     if (desc->type == LORIEBUFFER_FD)
         xfactor = (float) desc->width/(float) desc->stride;
-
-    // TERMUX_X11_RENDER_SNAPSHOT: copy the root while the X server is blocked, let it go on and
-    // draw from the copy. If tearing stops with this, the X server wrote the root while we sampled it.
-    bool snapshot = state->debug.renderSnapshot && copyRootToSnapshot(buffer);
-    if (snapshot) {
-        __atomic_add_fetch(&state->debug.snapshotDraws, 1, __ATOMIC_RELAXED);
-        fence = eglCreateSyncKHR(egl_display, EGL_SYNC_FENCE_KHR, nullptr);
-        glFlush();
-        waitForFence(egl_display, fence, 0);
-        finishRootSampling(seqAtSample, gpuCopySerial);
-    }
-
-    drawRegion(snapshot ? snapshotTex : 0, -1.f, -1.f, 1.f, 1.f,
+    drawRegion(0, -1.f, -1.f, 1.f, 1.f,
                sourceLeft / (float) desc->width * xfactor, sourceTop / (float) desc->height,
                (sourceLeft + sourceWidth) / (float) desc->width * xfactor,
                (sourceTop + sourceHeight) / (float) desc->height,
                LorieBuffer_isRgba(buffer));
-    if (!snapshot) {
-        fence = eglCreateSyncKHR(egl_display, EGL_SYNC_FENCE_KHR, nullptr);
-        glFlush();
-    }
+    fence = eglCreateSyncKHR(egl_display, EGL_SYNC_FENCE_KHR, nullptr);
+    glFlush();
 
     if (state->cursor.updated) {
         log("Xlorie: updating cursor\n");
@@ -1303,11 +1208,14 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
     drawCursor(sourceWidth, sourceHeight, sourceLeft, sourceTop, cursorX, cursorY);
     glFlush();
 
-    if (!snapshot) {
-        // Wait until root window drawing is finished before giving control back to X server
-        waitForFence(egl_display, fence, 0);
-        finishRootSampling(seqAtSample, gpuCopySerial);
+    // Wait until root window drawing is finished before giving control back to X server
+    waitForFence(egl_display, fence, 0);
+    if (gpuCopySerial) {
+        __atomic_store_n(&state->gpuCopyQueue.completedSerial, gpuCopySerial, __ATOMIC_RELEASE);
+        notifyGpuCopyDone();
     }
+    state->waitForNextFrame = true;
+    lorie_mutex_unlock(&state->lock, &state->lockingPid);
 
     if (eglSwapBuffers(egl_display, sfc) != EGL_TRUE)
         printEglError("Failed to swap buffers", __LINE__);

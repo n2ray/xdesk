@@ -266,30 +266,6 @@ struct lorie_shared_server_state {
         // Signals to renderer to update cursor's texture or its coordinates
         volatile uint8_t updated, moved, visible;
     } cursor;
-
-    /*
-     * Debug switches and counters for finding where the root picture tears (set from the X server's
-     * environment, see OsVendorInit). Sequence numbers only change while `lock` is held, except for
-     * the X server's own writes that do not take it (counted in unlockedRootWrites).
-     */
-    struct {
-        // TERMUX_X11_RENDER_SNAPSHOT=1: copy the root to a private texture under the lock, draw from that.
-        volatile uint8_t renderSnapshot;
-        // Without rendererRelock the renderer cleans the CPU caches of the root's dma-buf itself
-        // before sampling it (TERMUX_X11_FALLBACK_ROOT_FLUSH=0 turns this off).
-        volatile uint8_t fallbackRootFlush;
-        // X server: bumped on every CPU write access to the root, and the number of them in progress.
-        volatile uint32_t rootWriteSeq, rootWriteActive;
-        // rootWriteSeq at the last time the CPU caches of the root were written back.
-        volatile uint32_t rootFlushedSeq;
-        // Renderer: redraws, how many found root writes not written back since the last flush,
-        // how many started while a write was in progress, how many saw the root written while the
-        // GPU sampled it, and its own flushes of the root's dma-buf (attempts, failures, last errno).
-        // The X server logs and resets them every 5 seconds.
-        volatile uint32_t draws, drawsUnflushed, drawsDuringWrite, drawsWrittenWhileSampling;
-        volatile uint32_t rendererFlushes, rendererFlushFailures, snapshotDraws;
-        volatile int32_t rendererFlushErrno;
-    } debug;
 };
 
 #ifdef __cplusplus
@@ -348,13 +324,6 @@ struct Renderer {
 
     // FBO used to blit deferred Present "copy" entries (see lorieTryScheduleGpuCopy) into the root texture.
     GLuint gpuCopyFbo = 0;
-
-    // TERMUX_X11_RENDER_SNAPSHOT: private copy of the root, taken under the lock and drawn after it.
-    GLuint snapshotFbo = 0, snapshotTex = 0;
-    int snapshotW = 0, snapshotH = 0;
-    bool snapshotOk = false, snapshotAnnounced = false;
-    bool copyRootToSnapshot(LorieBuffer* root);
-    void finishRootSampling(uint32_t seqAtSample, uint64_t gpuCopySerial);
 
     GLuint g_texture_program = 0, gv_pos = 0, gv_coords = 0;
     GLuint g_texture_program_bgra = 0, gv_pos_bgra = 0, gv_coords_bgra = 0;
