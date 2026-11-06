@@ -116,6 +116,9 @@ static pthread_cond_t* volatile rendererCond = &rendererCondPlaceholder;
 typedef struct {
     LorieBuffer *buffer;
     bool flipped, wasLocked, imported, gpuOnly;
+    // Number of CPU accesses in progress that started a dma-buf sync, and whether one of them writes.
+    uint8_t dmaBufAccessDepth;
+    bool dmaBufAccessWrite;
     void *locked;
     void *mem;
 } LoriePixmapPriv;
@@ -151,6 +154,8 @@ void OsVendorInit(void) {
         return;
 
     lorieServerDebugEnabled = getenv("TERMUX_X11_DEBUG") != NULL;
+    if (getenv("TERMUX_X11_NO_DMABUF_SYNC") && strcmp(getenv("TERMUX_X11_NO_DMABUF_SYNC"), "1") == 0)
+        log(WARN, "TERMUX_X11_NO_DMABUF_SYNC=1: CPU access to client dma-bufs is not synced, GPU clients may flicker");
 
     if (-1 == (lorieScreen.stateFd = LorieBuffer_createRegion("xserver", sizeof(*lorieScreen.state)))) {
         dprintf(2, "FATAL: Failed to allocate server state.\n");
@@ -608,8 +613,15 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
 
 static uint64_t gpuCopyAttempts = 0, gpuCopyOffloads = 0;
 static uint64_t gpuCopyFallbackRects = 0, gpuCopyFallbackQueueFull = 0, gpuCopyFallbackOther = 0;
+// CPU accesses to imported dma-bufs and how long starting them took (waiting for the client's GPU), see loriePrepareAccess.
+static uint64_t dmaBufSyncs = 0, dmaBufSyncWaits = 0, dmaBufSyncMaxWaitUs = 0;
 
 static CARD32 lorieFramecounter(unused OsTimerPtr timer, unused CARD32 time, unused void *arg) {
+    if (dmaBufSyncs)
+        log(INFO, "dma-buf sync: %llu CPU accesses to client buffers in 5.0 seconds, %llu took 1 ms or more (longest %llu us)",
+            (unsigned long long) dmaBufSyncs, (unsigned long long) dmaBufSyncWaits, (unsigned long long) dmaBufSyncMaxWaitUs);
+    dmaBufSyncs = dmaBufSyncWaits = dmaBufSyncMaxWaitUs = 0;
+
     if (pvfb->state->renderedFrames || gpuCopyAttempts)
         log(INFO, gpuCopyAttempts ? "%d frames in 5.0 seconds = %.1f FPS, %llu/%llu present copies offloaded to GPU (CPU fallback: %llu too many rects, %llu queue full, %llu other)"
                                    : "%d frames in 5.0 seconds = %.1f FPS",
@@ -1226,6 +1238,34 @@ Bool loriePrepareAccess(PixmapPtr pPix, int index) {
     } else
         priv->wasLocked = TRUE;
 
+    // A DRI3 client renders into its dma-buf with the GPU, and Present hands it to us right after
+    // the client submitted the work, not after it finished. Wait for it and sync the CPU caches,
+    // or the CPU copy reads a half rendered frame or stale rows of an older one (flicker).
+    if (priv->buffer && !priv->mem) {
+        bool write = index == EXA_PREPARE_DEST || index == EXA_PREPARE_AUX_DEST;
+        if (priv->dmaBufAccessDepth) {
+            priv->dmaBufAccessDepth++;
+            priv->dmaBufAccessWrite |= write;
+        } else if (LorieBuffer_description(priv->buffer)->type == LORIEBUFFER_FD) {
+            CARD64 start = GetTimeInMicros(), waited;
+            if (LorieBuffer_cpuAccessBegin(priv->buffer, write)) {
+                static Bool announced = FALSE;
+                waited = GetTimeInMicros() - start;
+                if (!announced) {
+                    log(INFO, "DRI3: CPU access to client dma-bufs is synced with DMA_BUF_IOCTL_SYNC");
+                    announced = TRUE;
+                }
+                dmaBufSyncs++;
+                if (waited >= 1000)
+                    dmaBufSyncWaits++;
+                if (waited > dmaBufSyncMaxWaitUs)
+                    dmaBufSyncMaxWaitUs = waited;
+                priv->dmaBufAccessDepth = 1;
+                priv->dmaBufAccessWrite = write;
+            }
+        }
+    }
+
     pPix->devPrivate.ptr = priv->locked ?: priv->mem;
     return TRUE;
 }
@@ -1234,6 +1274,11 @@ void lorieFinishAccess(PixmapPtr pPix, int index) {
     LoriePixmapPriv *priv = exaGetPixmapDriverPrivate(pPix);
     if (lorieNeedsGpuLock(pPix, priv, index) && !lorieKeepLockUntilRequestEnd(pPix, index))
         lorie_mutex_unlock(&pvfb->state->lock, &pvfb->state->lockingPid);
+
+    if (priv->dmaBufAccessDepth && !--priv->dmaBufAccessDepth) {
+        LorieBuffer_cpuAccessEnd(priv->buffer, priv->dmaBufAccessWrite);
+        priv->dmaBufAccessWrite = false;
+    }
 
     if (!priv->wasLocked) {
         LorieBuffer_unlock(priv->buffer);
