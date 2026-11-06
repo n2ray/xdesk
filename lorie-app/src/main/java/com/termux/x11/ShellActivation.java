@@ -12,7 +12,6 @@ import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -108,18 +107,11 @@ final class ShellActivation {
         context = c;
         prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         version = installVersion(c);
-        if (supported()) {
-            c.registerReceiver(binderReceiver, new IntentFilter(ShellServer.ACTION_BINDER), ShellServer.BINDER_PERMISSION, null, Context.RECEIVER_EXPORTED);
-        }
+        c.registerReceiver(binderReceiver, new IntentFilter(ShellServer.ACTION_BINDER), ShellServer.BINDER_PERMISSION, null, Context.RECEIVER_EXPORTED);
     }
 
     void setListener(Runnable l) {
         listener = l;
-    }
-
-    /** Wireless debugging starts at Android 11. */
-    boolean supported() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
     }
 
     boolean isPaired() { return prefs.getBoolean(PREF_PAIRED, false); }
@@ -146,7 +138,7 @@ final class ShellActivation {
 
     /** Main thread. Starts the server if it is paired and none is running. Says what happened through the listener. */
     void start() {
-        if (!supported() || !isPaired() || isRunning() || starting || pairing) return;
+        if (!isPaired() || isRunning() || starting || pairing) return;
         starting = true;
         problem = null;
         worker.execute(this::runStart);

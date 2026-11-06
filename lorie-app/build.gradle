@@ -27,7 +27,7 @@ android {
     ndkVersion termuxX11NdkVersion
     defaultConfig {
         applicationId "io.github.n2ray.xdesk.x11"
-        minSdkVersion 24
+        minSdkVersion 30
         targetSdkVersion 34
         versionCode 15
         versionName termuxX11VersionName

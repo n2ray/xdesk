@@ -1980,7 +1980,7 @@ public class XDeskActivity extends Activity {
         }
         pendingApp = app;
         if (!apps.injectorReady()) {
-            if (apps.shell().supported() && !shizukuScreens) showActivation(app);
+            if (!shizukuScreens) showActivation(app);
             else showShizukuSetup();
         } else if (!Settings.canDrawOverlays(this)) {
             closeActivation();
@@ -2006,17 +2006,13 @@ public class XDeskActivity extends Activity {
         ShellActivation shell = apps.shell();
         String text;
         if (apps.injectorReady()) text = null;
-        else if (!shell.supported()) text = "外屏运行安卓应用需要 Shizuku · 去设置";
         else if (!shell.isPaired()) text = "外屏运行安卓应用要先激活一次 · 去激活";
         else if (shell.isStarting()) text = "正在启动注入服务…";
         else text = "注入服务没有运行 · 去启动";
         chooser.setActivation(text, () -> {
-            if (apps.shell().supported()) {
-                retryRequested = true;
-                activationFlow = true;
-                showActivation(null);
-            }
-            else showShizukuSetup();
+            retryRequested = true;
+            activationFlow = true;
+            showActivation(null);
         });
     }
 
@@ -2107,8 +2103,7 @@ public class XDeskActivity extends Activity {
     private void showShizukuSetup() {
         int shizuku = apps.shizukuState();
         if (shizuku == AppSession.SHIZUKU_NOT_INSTALLED) {
-            String why = apps.shell().supported() ? "" : "这台手机的安卓版本没有无线调试，只能用 Shizuku。\n";
-            showSetup("需要 Shizuku", why + "安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
+            showSetup("需要 Shizuku", "安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
                 @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
             });
         } else if (shizuku == AppSession.SHIZUKU_NOT_RUNNING) {

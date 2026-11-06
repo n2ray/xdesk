@@ -8,8 +8,11 @@ import android.app.RemoteInput;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 import io.github.muntashirakon.adb.android.AdbMdns;
 
@@ -18,7 +21,8 @@ import io.github.muntashirakon.adb.android.AdbMdns;
  * and a field for the code are in a notification. The same idea as Shizuku's AdbPairingService, written again here. HyperOS
  * users have seen that field fail, so XDesk's activation page has one too.
  *
- * A short service, which lasts about 3 minutes and must stop in onTimeout or the app gets an ANR.
+ * A short service, which lasts about 3 minutes and must stop in onTimeout or the app gets an ANR. Before Android 14 the
+ * type means nothing and there is no onTimeout, so it keeps the same limit itself.
  */
 public final class PairingService extends Service {
     private static final String TAG = "XDeskShell";
@@ -28,8 +32,11 @@ public final class PairingService extends Service {
     private static final String EXTRA_PORT = "port", REMOTE_INPUT_CODE = "code";
     private static final int REQUEST_REPLY = 1, REQUEST_STOP = 2;
     private static final int ICON = com.termux.x11.app.R.drawable.xdesk_ic_mono;
+    private static final long OWN_TIMEOUT_MS = 3 * 60 * 1000;
 
     private AdbMdns search;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable ownTimeout = this::timedOut;
 
     static Intent startIntent(Context c) {
         return new Intent(c, PairingService.class).setAction(ACTION_START);
@@ -41,6 +48,7 @@ public final class PairingService extends Service {
         channel.setSound(null, null);
         channel.setShowBadge(false);
         notifications().createNotificationChannel(channel);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) handler.postDelayed(ownTimeout, OWN_TIMEOUT_MS);
     }
 
     private NotificationManager notifications() {
@@ -77,12 +85,17 @@ public final class PairingService extends Service {
     }
 
     @Override public void onTimeout(int startId) {
+        timedOut();
+    }
+
+    private void timedOut() {
         Log.i(TAG, "pairing service timed out");
         notifications().notify(RESULT_NOTIFICATION, message("配对等待超时", "回到 XDesk，再点一次“打开无线调试设置”。"));
         stopSelf();
     }
 
     @Override public void onDestroy() {
+        handler.removeCallbacks(ownTimeout);
         if (search != null) search.stop();
         ShellActivation.get(this).setPairingPort(0);
         super.onDestroy();
