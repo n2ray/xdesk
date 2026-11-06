@@ -74,7 +74,18 @@ start_x() {
     # Same environment handling as the official termux-x11 launcher
     [ -z "${LD_LIBRARY_PATH+x}" ] || export XSTARTUP_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
     [ -z "${LD_PRELOAD+x}" ] || export XSTARTUP_LD_PRELOAD="$LD_PRELOAD"
-    env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
+    # Extra environment for the X server only (e.g. TERMUX_X11_* debug switches), one NAME=value
+    # per line in $CONF/x11-env. The app starts us through RUN_COMMAND, so a shell's env never gets here.
+    local xenv=() line
+    if [ -f "$CONF/x11-env" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+            [A-Za-z_]*=*) xenv+=("$line") ;;
+            esac
+        done <"$CONF/x11-env"
+        [ ${#xenv[@]} -gt 0 ] && log "X server environment from $CONF/x11-env: ${xenv[*]}"
+    fi
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
         -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
         </dev/null >>"$LOG" 2>&1 9>&- &
     for _ in $(seq 40); do
