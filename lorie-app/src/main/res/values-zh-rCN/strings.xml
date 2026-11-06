@@ -255,6 +255,9 @@
     <string name="xd_resolution_note">Termux 桌面的 X 分辨率</string>
     <string name="xd_density">界面大小</string>
     <string name="xd_density_desktop">Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值</string>
+    <string name="xd_density_desktop_range">Termux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小，桌面本身用它自己的 DPI 设置。默认 %3$d</string>
+    <string name="xd_status_desktop_taken">键盘在外接屏：%1$s</string>
+    <string name="xd_take_over_needs_injector">接管要用注入服务：Shizuku 或内置服务</string>
     <string name="xd_density_need_injector">需要注入服务</string>
     <string name="xd_density_need_app">外接屏上有安卓应用时才能改</string>
     <string name="xd_density_range">%1$d 到 %2$d dpi，越小内容越多。显示器默认 %3$s</string>

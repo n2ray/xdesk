@@ -72,4 +72,8 @@ interface IInjector {
     void setVirtualDisplaySurface(int displayId, in Surface surface) = 32;
     /** The car's touch screen: fingers at absolute pixels on the display, in any input mode. Action and ids as in MotionEvent. */
     oneway void screenTouch(int action, in int[] ids, in float[] x, in float[] y) = 33;
+    /** Keyboard focus to the top task of this display, the phone is 0. */
+    oneway void focusDisplay(int displayId) = 34;
+    /** Input method windows on this display (on) or back where they were (off). Put back when the session ends. */
+    oneway void setImeOnDisplay(int displayId, boolean on) = 35;
 }

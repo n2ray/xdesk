@@ -58,7 +58,9 @@ public class XDeskActivity extends Activity {
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
-        PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked";
+        PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density";
+    /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
+    private static final int DESKTOP_DENSITY = 168;
     private static final int MAX_RECENTS = 6;
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
@@ -95,6 +97,8 @@ public class XDeskActivity extends Activity {
     private FrameLayout screens;
     private ExternalCover cover;
     private boolean forwardingBeforeCover;
+    /** The Termux desktop has the keyboard: focus and the input method are on the external display, see setDesktopTaken. */
+    private boolean desktopTaken, takenBeforeCover;
     private View keyboardBtn, comboRow;
     private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
     private Style.IconButton keysHandle;
@@ -287,9 +291,13 @@ public class XDeskActivity extends Activity {
 
     private final DesktopSession.Listener sessionListener = new DesktopSession.Listener() {
         @Override public void onSessionChanged(boolean c) {
+            // 桌面窗口没了，焦点回不去它那里
+            if (!c) setDesktopTaken(false);
             if (c) {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
+                Display shown = desktopDisplay();
+                if (shown != null && !TargetDisplay.isCar(shown)) apps.setDesktopDensity(shown, prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY));
                 bumpIdle();
                 // X 没有画面变化就不刷新，窗口刚接上时会一直黑屏：动一下光标触发重绘
                 session.input().move(1, 0);
@@ -539,6 +547,9 @@ public class XDeskActivity extends Activity {
         if (cover.isShown()) {
             forwardingBeforeCover = apps.isForwarding();
             if (forwardingBeforeCover) apps.setForwarding(false);
+            // 盖着的桌面不该收到打的字
+            takenBeforeCover = desktopTaken;
+            if (takenBeforeCover) setDesktopTaken(false);
             apps.setHotkeyAllowed(false);
         }
     }
@@ -554,7 +565,9 @@ public class XDeskActivity extends Activity {
         apps.setHotkeyAllowed(true);
         if (forwardingBeforeCover) apps.setForwarding(true);
         forwardingBeforeCover = false;
-        if (phonePassive) apps.focusExternal();
+        if (takenBeforeCover && session.isActive()) setDesktopTaken(true);
+        takenBeforeCover = false;
+        if (phonePassive) refocusExternal();
     }
 
     @Override protected void onPause() {
@@ -898,7 +911,10 @@ public class XDeskActivity extends Activity {
         });
         forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_take_over), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
-            @Override public void run() { apps.setForwarding(!apps.isForwarding()); }
+            @Override public void run() {
+                if (apps.isActive()) apps.setForwarding(!apps.isForwarding());
+                else setDesktopTaken(!desktopTaken);
+            }
         });
         launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, getString(R.string.xd_launcher), Style.SURFACE);
         launcherBtn.onTap(new Runnable() {
@@ -1110,16 +1126,48 @@ public class XDeskActivity extends Activity {
      */
     private void updatePhoneFocus() {
         if (chooser == null || setupScreen == null) return;
-        boolean passive = apps.isActive() && chooser.getVisibility() != View.VISIBLE
+        boolean passive = (apps.isActive() || (desktopTaken && session.isActive())) && chooser.getVisibility() != View.VISIBLE
             && setupScreen.getVisibility() != View.VISIBLE;
         if (passive == phonePassive) return;
         phonePassive = passive;
         if (passive) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
-            apps.focusExternal();
+            refocusExternal();
         } else {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         }
+    }
+
+    /** 焦点放回外接屏：应用模式给应用，桌面接管时给桌面窗口。 */
+    private void refocusExternal() {
+        if (apps.isActive()) {
+            apps.focusExternal();
+        } else if (desktopTaken) {
+            Display d = desktopDisplay();
+            if (d != null) apps.focusDisplay(d.getDisplayId());
+        }
+    }
+
+    /**
+     * 桌面的接管：键盘焦点给外接屏上的桌面窗口，有实体键盘时输入法的选词框也在那里。交还：都回手机，选词框在手机上，
+     * 手机的触摸板照常用。要注入服务来移焦点。
+     */
+    private void setDesktopTaken(boolean on) {
+        if (on == desktopTaken) return;
+        Display d = desktopDisplay();
+        if (on && (d == null || !apps.hasInjector())) {
+            Toast.makeText(this, R.string.xd_take_over_needs_injector, Toast.LENGTH_LONG).show();
+            return;
+        }
+        desktopTaken = on;
+        if (d != null) apps.setImeOnDisplay(d.getDisplayId(), on && ImePlacement.hasPhysicalKeyboard());
+        updatePhoneFocus();
+        if (!on) {
+            apps.focusDisplay(Display.DEFAULT_DISPLAY);
+            if (keyView != null) keyView.requestFocus();
+        }
+        updateCapture();
+        updateStatus();
     }
 
     private void toggleKeyboard() {
@@ -1143,11 +1191,17 @@ public class XDeskActivity extends Activity {
         statusDot.setBackground(d);
     }
 
-    /** 桌面的键鼠走 Pointer Capture，没有接管这回事。 */
+    /** 接管在两种模式下都有：应用模式抓实体键鼠，桌面模式把键盘焦点和输入法放到外接屏上。 */
     private void applyModeToTopBar() {
-        updatePhoneFocus();
         boolean app = apps.isActive();
-        forwardBtn.setVisibility(app ? View.VISIBLE : View.GONE);
+        // 应用接手了外接屏：桌面的接管不再有意义，输入法也放回去
+        if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
+        updatePhoneFocus();
+        forwardBtn.setVisibility(app || session.isActive() ? View.VISIBLE : View.GONE);
+        if (!app) {
+            forwardBtn.setLabel(getString(desktopTaken ? R.string.xd_give_back : R.string.xd_take_over));
+            forwardBtn.setActive(desktopTaken);
+        }
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
         keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
@@ -1207,7 +1261,8 @@ public class XDeskActivity extends Activity {
             updateAppStatus();
             return;
         }
-        if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
+        if (session.isConnected() && desktopTaken) setStatus(Style.OK, getString(R.string.xd_status_desktop_taken, desktopName != null ? desktopName : ""));
+        else if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
         else setStatus(Style.WARN, getString(R.string.xd_status_desktop_not_connected));
     }
 
@@ -1269,10 +1324,10 @@ public class XDeskActivity extends Activity {
 
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         bumpIdle();
-        if (apps.isActive() && e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            apps.phoneTouched();
-            // 设置页这类窗口关掉后，焦点还留在手机屏
-            if (phonePassive) apps.focusExternal();
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            if (apps.isActive()) apps.phoneTouched();
+            // 摸手机屏会把焦点拿到手机上，设置页这类窗口关掉后焦点也留在手机屏
+            if (phonePassive) refocusExternal();
         }
         return super.dispatchTouchEvent(e);
     }
@@ -1355,7 +1410,21 @@ public class XDeskActivity extends Activity {
     }
 
     /** 外接屏界面大小的默认值。应用可以在长按卡片里有自己的值。 */
+    /** @param dpi -1 back to DESKTOP_DENSITY */
+    private void setDesktopDensity(int dpi) {
+        if (dpi < 0) prefs.edit().remove(PREF_DESKTOP_DENSITY).apply();
+        else prefs.edit().putInt(PREF_DESKTOP_DENSITY, dpi).apply();
+        Display d = desktopDisplay();
+        if (session.isActive() && d != null && !TargetDisplay.isCar(d)) apps.setDesktopDensity(d, prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY));
+    }
+
     private void addDensitySetting(SettingsUi s, LinearLayout card) {
+        if (session.isActive() && !apps.isActive() && apps.hasInjector()) {
+            s.numberRow(card, getString(R.string.xd_density), getString(R.string.xd_density_desktop_range, DENSITY_MIN, DENSITY_MAX, DESKTOP_DENSITY),
+                "dpi", prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY), DENSITY_MIN, DENSITY_MAX,
+                dpi -> setDesktopDensity(dpi), getString(R.string.xd_reset), () -> setDesktopDensity(-1));
+            return;
+        }
         if (!apps.canSetDensity()) {
             String why = getString(session.isActive() ? R.string.xd_density_desktop
                 : !apps.injectorReady() ? R.string.xd_density_need_injector : R.string.xd_density_need_app);
@@ -1532,7 +1601,7 @@ public class XDeskActivity extends Activity {
         if (keyView == null) return;
         if (hasWindowFocus()) {
             // 只有 Termux 桌面才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机
-            if (session.isActive() && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
+            if (session.isActive() && !desktopTaken && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
             else keyView.releasePointerCapture();
         }
         updateDiag();
@@ -2003,6 +2072,8 @@ public class XDeskActivity extends Activity {
      */
     private void desktopGone() {
         ui.removeCallbacks(connectTimeout);
+        setDesktopTaken(false);
+        apps.desktopEnded();
         releaseLatches();
         client = null;
         session.abandon();

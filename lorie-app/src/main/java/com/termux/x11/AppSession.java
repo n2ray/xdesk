@@ -202,6 +202,7 @@ final class AppSession {
                             if (injector == i) audioRoute.attachInjector(i);
                         });
                         clearLeftDensities(i, Display.INVALID_DISPLAY);
+                        applyDesktopDensity(i);
                     } catch (RemoteException e) {
                         Log.w(TAG, "audio only", e);
                     }
@@ -821,6 +822,53 @@ final class AppSession {
         }
     }
 
+    /** The Termux desktop's display and the density it wants there, see setDesktopDensity. */
+    private Display desktopDisplay;
+    private int desktopDpi;
+
+    /**
+     * Interface size of the display while a Termux desktop is on it, 0 for its own. Only Android's windows there use
+     * it, the input method's candidates above all; X has its own DPI. Applied when the injector is there, which for a
+     * desktop may be a little later.
+     */
+    void setDesktopDensity(Display d, int dpi) {
+        desktopDisplay = d;
+        desktopDpi = dpi;
+        final IInjector i = injector;
+        if (i == null || active) return;
+        new Thread(() -> {
+            try {
+                applyDesktopDensity(i);
+            } catch (RemoteException e) {
+                Log.w(TAG, "desktop density", e);
+            }
+        }, "xdesk-density").start();
+    }
+
+    /** The desktop is gone: nothing to apply later. What was set goes with the injector or the next app. */
+    void desktopEnded() {
+        desktopDisplay = null;
+    }
+
+    /** Background thread. */
+    private void applyDesktopDensity(IInjector i) throws RemoteException {
+        Display d = desktopDisplay;
+        int dpi = desktopDpi;
+        if (d == null || active) return;
+        synchronized (densityLock) {
+            String key = densityKey(i, d);
+            String error = i.setDisplayDensity(d.getDisplayId(), dpi > 0 ? dpi : forcedDensities.contains(key) ? 0 : -1);
+            if (error != null) {
+                Log.w(TAG, "desktop density: " + error);
+                return;
+            }
+            if (dpi > 0) forcedDensities.edit().putBoolean(key, true).apply();
+            else forcedDensities.edit().remove(key).apply();
+            // Not known to the apps: the next one sets its own again
+            appliedDensity = -1;
+        }
+    }
+
     /** 这个应用该用的值：它自己的，否则这台显示器的默认值，都没有是 0。 */
     private int wantedDensity(AppCatalog.App a) {
         int own = appDensity(a);
@@ -1194,6 +1242,22 @@ final class AppSession {
         IInjector i = injector;
         try {
             if (i != null) i.focusExternal();
+        } catch (RemoteException ignored) { }
+    }
+
+    /** Keyboard focus to the top task of this display, the phone is 0. */
+    void focusDisplay(int id) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.focusDisplay(id);
+        } catch (RemoteException ignored) { }
+    }
+
+    /** Candidates and the soft keyboard on this display, or back where they were. */
+    void setImeOnDisplay(int id, boolean on) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.setImeOnDisplay(id, on);
         } catch (RemoteException ignored) { }
     }
 

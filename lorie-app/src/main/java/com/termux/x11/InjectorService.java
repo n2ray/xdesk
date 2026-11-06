@@ -57,6 +57,7 @@ public class InjectorService extends IInjector.Stub {
     private int repeatPress;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
+    private final ImePlacement imes = new ImePlacement();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
@@ -101,9 +102,12 @@ public class InjectorService extends IInjector.Stub {
                 if (on) {
                     injector.take();
                     focusStale = false;
+                    // Candidates for the physical keyboard next to the text, not on the phone
+                    if (ImePlacement.hasPhysicalKeyboard()) imes.place(injector.displayId(), true);
                 } else {
                     injector.releaseAll();
                     injector.hoverExit();
+                    imes.place(injector.displayId(), false);
                 }
                 IInjectorListener l = listener;
                 if (l != null) l.onForwarding(on, devices);
@@ -178,6 +182,7 @@ public class InjectorService extends IInjector.Stub {
         Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
             Log.e(TAG, "injector crashed", e);
             audio.clear(false);
+            imes.restoreAll();
             density.clearOurs();
             System.exit(1);
         });
@@ -340,6 +345,7 @@ public class InjectorService extends IInjector.Stub {
                     if (left != null) Log.w(TAG, "audio route not cleared: " + left);
                     // Move first: this way apps do not have to reconfigure on a display they are leaving
                     if (displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
+                    imes.restoreAll();
                     density.clearOurs();
                 }
                 if (onlyUid == NO_UID) System.exit(0);
@@ -370,6 +376,15 @@ public class InjectorService extends IInjector.Stub {
             injector.focus(injector.displayId());
             focusStale = false;
         });
+    }
+
+    @Override public void focusDisplay(int display) {
+        post(() -> injector.focus(display));
+    }
+
+    @Override public void setImeOnDisplay(int display, boolean on) {
+        if (sessionOver) return;
+        imes.place(display, on);
     }
 
     @Override public int displayDefaultDensity(int display) {
@@ -656,6 +671,7 @@ public class InjectorService extends IInjector.Stub {
         }
         String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+        imes.restoreAll();
         density.clearOurs();
         enabled = false;
         listener = null;
