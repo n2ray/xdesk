@@ -51,7 +51,6 @@ public class XDeskActivity extends Activity {
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
-    static final String CAR_NO_APPS = "车机上暂时只能运行 Linux 桌面，安卓应用还不行";
     private static final String CAR_GONE = "桌面还在运行，在车机上重新打开 XDesk 后自动恢复";
 
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
@@ -1792,16 +1791,16 @@ public class XDeskActivity extends Activity {
     private void updateChooserDisplay() {
         Display d = externalDisplay();
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
-        audioRoute.setCar(TargetDisplay.isCar(d));
+        audioRoute.setCar(onCar());
     }
 
     private void needDisplayNotice() {
         Toast.makeText(this, "先用支持视频输出的 USB-C 线或扩展坞插上显示器", Toast.LENGTH_LONG).show();
     }
 
-    /** 现在用的是车机，不是外接屏：说法和能做的事不同。 */
+    /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。 */
     private boolean onCar() {
-        return TargetDisplay.isCar(externalDisplay());
+        return apps.isActive() ? apps.isOnCar() : TargetDisplay.isCar(externalDisplay());
     }
 
     private List<String> savedLines(String pref) {
@@ -1911,7 +1910,8 @@ public class XDeskActivity extends Activity {
         session.abandon();
         MainActivity m = MainActivity.getInstance("");
         if (m != null) m.finishAndRemoveTask();
-        Display d = TargetDisplay.real(displays);
+        // 应用留在了桌面所在的那种屏上，车机上是它自己的显示器
+        Display d = desktopDisplay();
         if (d != null && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
             showSetup("正在回到 " + apps.label(), "桌面窗口关了，外接屏上还有这个应用。", true, null, null);
             return;
@@ -1976,12 +1976,6 @@ public class XDeskActivity extends Activity {
         if (d == null) {
             pendingApp = null;
             needDisplayNotice();
-            return;
-        }
-        // Android Auto 只让 XDesk 自己的窗口上车机，别的应用会被挡住
-        if (TargetDisplay.isCar(d)) {
-            pendingApp = null;
-            Toast.makeText(this, CAR_NO_APPS, Toast.LENGTH_LONG).show();
             return;
         }
         pendingApp = app;

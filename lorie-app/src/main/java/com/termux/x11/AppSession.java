@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Point;
+import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -14,6 +15,7 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Display;
+import android.view.Surface;
 import java.lang.reflect.Method;
 import rikka.shizuku.Shizuku;
 
@@ -92,6 +94,28 @@ final class AppSession {
     private final ShellActivation shell;
     /** Where the current or last injector came from. */
     private boolean viaShell;
+    /**
+     * 安卓应用在车机上：Android Auto 给 CarActivity 的显示器不让别的应用上去，所以跑在注入服务建的显示器上（AppDisplay），
+     * 画面进 CarActivity 的 SurfaceView。这个显示器跟着注入服务走，切去桌面时也留着。
+     */
+    private boolean onCar;
+    /** 下面三个和 carSurface 由 carLock 保护：建显示器在后台线程，Surface 来去在主线程。 */
+    private int carDisplayId = Display.INVALID_DISPLAY;
+    private int carWidth, carHeight, carDpi;
+    private Surface carSurface;
+    private final Object carLock = new Object();
+
+    private final CarActivity.AppScreen carScreen = new CarActivity.AppScreen() {
+        @Override public void onSurface(Surface s) {
+            attachCarSurface(s);
+        }
+        @Override public void onTouch(int action, int[] ids, float[] x, float[] y) {
+            IInjector i = injector;
+            try {
+                if (active && onCar && i != null) i.screenTouch(action, ids, x, y);
+            } catch (RemoteException ignored) { }
+        }
+    };
 
     private final IInjectorListener.Stub fromInjector = new IInjectorListener.Stub() {
         @Override public void onCursor(final int x, final int y) {
@@ -237,6 +261,7 @@ final class AppSession {
         fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
         shell = ShellActivation.get(c);
         shell.setListener(this::sourceChanged);
+        CarActivity.setAppScreen(carScreen);
         Shizuku.addBinderReceivedListenerSticky(this::sourceChanged);
         Shizuku.addBinderDeadListener(this::sourceChanged);
         Shizuku.addRequestPermissionResultListener((code, result) -> {
@@ -276,6 +301,8 @@ final class AppSession {
     }
 
     boolean isActive() { return active; }
+    /** 应用跑在车机上（在注入服务建的显示器上）。 */
+    boolean isOnCar() { return active && onCar; }
     /** Started and receiving input. */
     boolean isStarted() { return started; }
     /** 桌面窗口没了，外接屏上露出留在后面的应用：接着用它。没有这样的应用返回 false。 */
@@ -358,14 +385,13 @@ final class AppSession {
         forwarding = false;
         appBehindDesktop = false;
         app = a;
-        display = d;
+        onCar = TargetDisplay.isCar(d);
+        display = onCar ? toCar(d) : d;
         mouseSpeed = speed;
         alwaysShowCursor = alwaysShow;
         cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
         cursorPolicy.setAlwaysShow(alwaysShow);
-        cursorPolicy.setHeight(logicalSize(d)[1]);
-        cursor.attach(d);
-        touchDots.attach(d);
+        if (display != null) attachOverlays(display);
         updateCursor();
         if (injector == null) audioRoute.setPending(true);
         Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label);
@@ -380,6 +406,77 @@ final class AppSession {
             connectInjector();
         } catch (RuntimeException e) {
             fail("无法启动注入服务：" + e.getMessage());
+        }
+    }
+
+    private void attachOverlays(Display d) {
+        cursorPolicy.setHeight(logicalSize(d)[1]);
+        cursor.attach(d);
+        touchDots.attach(d);
+    }
+
+    /**
+     * 车机上：CarActivity 改为显示应用的显示器，放到车机屏最前面（桌面窗口可能在它上面）。
+     * @return 已经建好的那个显示器，还没有时是 null，prepare 里再建，大小和 dpi 跟车机屏一样
+     */
+    private Display toCar(Display car) {
+        int id;
+        synchronized (carLock) {
+            if (carDisplayId == Display.INVALID_DISPLAY) {
+                int[] size = logicalSize(car);
+                android.util.DisplayMetrics m = new android.util.DisplayMetrics();
+                car.getRealMetrics(m);
+                carWidth = size[0];
+                carHeight = size[1];
+                carDpi = m.densityDpi;
+            }
+            id = carDisplayId;
+            CarActivity.showApps(carWidth, carHeight);
+        }
+        if (!CarActivity.isShowing()) {
+            try {
+                ActivityOptions o = ActivityOptions.makeBasic();
+                o.setLaunchDisplayId(car.getDisplayId());
+                context.startActivity(new Intent(context, CarActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), o.toBundle());
+            } catch (RuntimeException e) {
+                Log.w(TAG, "car activity to the front", e);
+            }
+        }
+        return id == Display.INVALID_DISPLAY ? null : displays().getDisplay(id);
+    }
+
+    private DisplayManager displays() {
+        return context.getSystemService(DisplayManager.class);
+    }
+
+    /** 后台线程。第一次时建显示器，有 Surface 就同时接上。 */
+    private Display makeCarDisplay(IInjector i) throws RemoteException {
+        int id;
+        synchronized (carLock) {
+            if (carDisplayId == Display.INVALID_DISPLAY) {
+                carDisplayId = i.createVirtualDisplay("XDesk", carWidth, carHeight, carDpi, carSurface);
+                CarActivity.record(context, "XDesk made display=" + carDisplayId + " for apps, " + carWidth + "x" + carHeight
+                    + " " + carDpi + " dpi, surface " + (carSurface != null ? "attached" : "not ready"));
+            }
+            id = carDisplayId;
+        }
+        Display d = displays().getDisplay(id);
+        if (d == null) throw new IllegalStateException("看不到显示器 " + id);
+        return d;
+    }
+
+    /** 主线程，CarActivity 的 Surface 来了或要走了。要走时在这里摘下，返回后它就没了。 */
+    private void attachCarSurface(Surface s) {
+        synchronized (carLock) {
+            carSurface = s;
+            IInjector i = injector;
+            if (i == null || carDisplayId == Display.INVALID_DISPLAY) return;
+            try {
+                i.setVirtualDisplaySurface(carDisplayId, s);
+                CarActivity.record(context, "surface " + (s != null ? "attached to" : "detached from") + " display=" + carDisplayId);
+            } catch (RemoteException | RuntimeException e) {
+                CarActivity.record(context, "surface not " + (s != null ? "attached: " : "detached: ") + e);
+            }
         }
     }
 
@@ -405,10 +502,27 @@ final class AppSession {
     private void prepare() {
         IInjector i = injector;
         Display d = display;
-        if (i == null || d == null) return;
+        if (i == null || (d == null && !onCar)) return;
         try {
-            int[] size = logicalSize(d);
             i.attach(fromInjector, context.getPackageName());
+            if (d == null) {
+                final Display made;
+                try {
+                    made = makeCarDisplay(i);
+                } catch (RuntimeException e) {
+                    // The system refused the display, the reason comes from createVirtualDisplay
+                    CarActivity.record(context, "no display for apps: " + e);
+                    ui.post(() -> fail("无法为车机建显示器：" + e.getMessage()));
+                    return;
+                }
+                d = made;
+                ui.post(() -> {
+                    if (!active || display != null) return;
+                    display = made;
+                    attachOverlays(made);
+                });
+            }
+            int[] size = logicalSize(d);
             String error = i.configure(fromInjector, d.getDisplayId(), size[0], size[1], app.packageName, mouseSpeed);
             if (error != null) {
                 ui.post(() -> fail("无法注入输入：" + error));
@@ -493,6 +607,15 @@ final class AppSession {
         forgetDensity(-1);
         forwarding = false;
         cursor.hide();
+        // The car's display went with the process and its apps to the phone. A new injector makes a new one, see prepare
+        synchronized (carLock) {
+            carDisplayId = Display.INVALID_DISPLAY;
+        }
+        if (onCar && display != null) {
+            display = null;
+            cursor.remove();
+            touchDots.remove();
+        }
         // The sound route outlives the process, and only a new injector can set it right and later clear it
         ui.postDelayed(rebind, REBIND_DELAY_MS);
         if (!active) return;
@@ -613,6 +736,8 @@ final class AppSession {
         display = null;
         cursor.remove();
         touchDots.remove();
+        // 车机上换成桌面窗口：应用留在自己的显示器上，CarActivity 回到仪表盘
+        CarActivity.showApps(0, 0);
     }
 
     private void loadDensity(IInjector i, Display d) throws RemoteException {
@@ -943,9 +1068,7 @@ final class AppSession {
         if (!active || !started || display != null) return;
         display = d;
         forgetDensity(0);
-        cursorPolicy.setHeight(logicalSize(d)[1]);
-        cursor.attach(d);
-        touchDots.attach(d);
+        attachOverlays(d);
         final IInjector i = injector;
         if (i != null) {
             new Thread(() -> {
@@ -976,7 +1099,7 @@ final class AppSession {
         } catch (RemoteException ignored) { }
     }
 
-    /** Stop forwarding, remove the cursor and clear the sound route. The app itself keeps running, and so does any Termux desktop. */
+    /** Stop forwarding, remove the cursor and clear the sound route. The app itself keeps running, and so does any Termux desktop. Apps on the car go to the phone, because their display ends. */
     void stop() {
         stop(-1, null);
     }
@@ -1009,6 +1132,14 @@ final class AppSession {
         display = null;
         cursor.remove();
         touchDots.remove();
+        // The car's display ends with the injector below, so its apps always go back to the phone
+        final int carId;
+        synchronized (carLock) {
+            carId = carDisplayId;
+            carDisplayId = Display.INVALID_DISPLAY;
+        }
+        onCar = false;
+        CarActivity.showApps(0, 0);
         final IInjector i = injector;
         injector = null;
         final Shizuku.UserServiceArgs a = args;
@@ -1017,13 +1148,15 @@ final class AppSession {
         if (shellSession) shell.closeSession();
         new Thread(() -> {
             try {
-                if (i != null && moveFrom >= 0) {
-                    String error = i.returnToPhone(moveFrom);
+                for (int from : new int[]{carId, moveFrom}) {
+                    if (i == null || from < 0) continue;
+                    String error = i.returnToPhone(from);
                     if (error != null) {
                         Log.w(TAG, "tasks not moved back: " + error);
                         ui.post(() -> android.widget.Toast.makeText(context, "有的应用没能移回手机：" + error, android.widget.Toast.LENGTH_LONG).show());
                     }
                 }
+                if (carId >= 0) CarActivity.record(context, "display=" + carId + " for apps ends with the session");
                 // Lifts everything held before the process goes away
                 if (i != null) i.shutdown();
             } catch (RemoteException ignored) { }

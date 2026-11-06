@@ -7,7 +7,12 @@ import android.graphics.Point;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Display;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.View;
 import android.view.WindowInsets;
+import android.widget.FrameLayout;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -16,14 +21,31 @@ import java.util.Locale;
 
 /**
  * Android Auto's entry while parked (CAR_LAUNCHER): the dashboard on the car's screen, and what tells XDesk which display
- * is the car's (see TargetDisplay). A Termux desktop goes on top of it. It also writes what the car's display is and what
- * happens to this activity to car_log.txt in the app's files, to plan the next steps.
+ * is the car's (see TargetDisplay). A Termux desktop goes on top of it. While an Android app session runs on the car it
+ * shows the display the injector made for the apps instead (see AppDisplay), in a SurfaceView, and sends the car's touches
+ * there. It also writes what the car's display is and what happens to this activity to car_log.txt in the app's files,
+ * for testing.
  */
 public class CarActivity extends Activity {
+    /** AppSession, on the main thread. */
+    interface AppScreen {
+        /** The surface to show the apps' display in, null when it goes. Detach before returning: it is released after. */
+        void onSurface(Surface surface);
+        /** A touch on it, action and ids as in MotionEvent, positions in pixels of the apps' display. */
+        void onTouch(int action, int[] ids, float[] x, float[] y);
+    }
+
     private static final String TAG = "XDeskCar";
     private static int displayId = Display.INVALID_DISPLAY;
     private static Runnable listener;
+    private static AppScreen appScreen;
+    /** The size of the apps' display while an app session runs on the car, otherwise 0 and the dashboard shows. */
+    private static int appWidth, appHeight;
+    /** The instance, so that showApps reaches it. */
+    private static CarActivity current;
+    private static boolean started;
     private DashboardView view;
+    private SurfaceView appView;
     /** The display this one told XDesk about. */
     private int shownOn = Display.INVALID_DISPLAY;
 
@@ -37,6 +59,66 @@ public class CarActivity extends Activity {
         listener = l;
     }
 
+    static void setAppScreen(AppScreen s) {
+        appScreen = s;
+    }
+
+    /** Visible on the car's screen, not covered by a desktop. */
+    static boolean isShowing() {
+        return started;
+    }
+
+    /** An Android app session runs on the car in a display of this size, or none with 0. */
+    static void showApps(int width, int height) {
+        appWidth = width;
+        appHeight = height;
+        if (current != null) current.applyMode();
+    }
+
+    /** The SurfaceView has a surface only while visible, so this attaches and detaches through its callbacks. */
+    private void applyMode() {
+        boolean apps = appWidth > 0;
+        // The buffer stays the display's size and the system scales it to the window, so touches scale the other way
+        if (apps) appView.getHolder().setFixedSize(appWidth, appHeight);
+        appView.setVisibility(apps ? View.VISIBLE : View.GONE);
+        // The SurfaceView is drawn behind the window, so nothing may cover it
+        view.setVisibility(apps ? View.GONE : View.VISIBLE);
+    }
+
+    private SurfaceView buildAppView() {
+        SurfaceView v = new SurfaceView(this);
+        v.setVisibility(View.GONE);
+        v.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(SurfaceHolder h) {
+                record("app surface created, display " + appWidth + "x" + appHeight);
+                if (appScreen != null) appScreen.onSurface(h.getSurface());
+            }
+            @Override public void surfaceChanged(SurfaceHolder h, int format, int w, int hh) {
+                record("app surface " + w + "x" + hh + " in a view of " + appView.getWidth() + "x" + appView.getHeight());
+            }
+            @Override public void surfaceDestroyed(SurfaceHolder h) {
+                record("app surface destroyed");
+                if (appScreen != null) appScreen.onSurface(null);
+            }
+        });
+        v.setOnTouchListener((touched, e) -> {
+            AppScreen s = appScreen;
+            if (s == null || appWidth <= 0 || touched.getWidth() <= 0 || touched.getHeight() <= 0) return true;
+            float sx = (float) appWidth / touched.getWidth(), sy = (float) appHeight / touched.getHeight();
+            int n = e.getPointerCount();
+            int[] ids = new int[n];
+            float[] x = new float[n], y = new float[n];
+            for (int i = 0; i < n; i++) {
+                ids[i] = e.getPointerId(i);
+                x[i] = e.getX(i) * sx;
+                y[i] = e.getY(i) * sy;
+            }
+            s.onTouch(e.getAction(), ids, x, y);
+            return true;
+        });
+        return v;
+    }
+
     private void setDisplayId(int id) {
         shownOn = id;
         if (id == displayId) return;
@@ -48,8 +130,14 @@ public class CarActivity extends Activity {
         super.onCreate(b);
         getWindow().setDecorFitsSystemWindows(false);
         view = new DashboardView(this, "车机已连接 · 在手机上用 XDesk 操作", true);
-        setContentView(view);
+        appView = buildAppView();
+        FrameLayout root = new FrameLayout(this);
+        root.addView(appView, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(view, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
+        current = this;
+        applyMode();
         record("onCreate " + describe(getDisplay()) + " density=" + getResources().getConfiguration().densityDpi);
         followDisplay();
     }
@@ -57,6 +145,7 @@ public class CarActivity extends Activity {
     @Override protected void onStart() {
         super.onStart();
         view.start();
+        started = true;
         record("onStart");
     }
 
@@ -72,6 +161,7 @@ public class CarActivity extends Activity {
 
     @Override protected void onStop() {
         view.stop();
+        started = false;
         record("onStop");
         super.onStop();
     }
@@ -79,6 +169,7 @@ public class CarActivity extends Activity {
     @Override protected void onDestroy() {
         record("onDestroy finishing=" + isFinishing());
         if (shownOn == displayId) setDisplayId(Display.INVALID_DISPLAY);
+        if (current == this) current = null;
         super.onDestroy();
     }
 

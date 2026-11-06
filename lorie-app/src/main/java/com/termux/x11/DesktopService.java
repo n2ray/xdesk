@@ -80,7 +80,7 @@ public class DesktopService extends Service {
             android.widget.Toast.makeText(app, "注入服务没有运行，外接屏上的应用没能移回手机", android.widget.Toast.LENGTH_LONG).show();
         }
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
-        // 安卓应用只在外接屏上，车机和 Android Auto 别的显示器上的东西不动
+        // 外接屏上的安卓应用移回手机。车机上的应用在 XDesk 自己的显示器上，AppSession 自己移回；Android Auto 的显示器上的东西不动
         android.view.Display real = TargetDisplay.real(app.getSystemService(android.hardware.display.DisplayManager.class));
         int external = real != null ? real.getDisplayId() : -1;
         AppSession.get(app).endSession(external, () -> {
