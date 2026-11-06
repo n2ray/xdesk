@@ -50,15 +50,16 @@ jobs:
       env:
         XDESK_KEYSTORE_PASSWORD: ${{ secrets.XDESK_KEYSTORE_PASSWORD }}
         XDESK_KEY_ALIAS: ${{ secrets.XDESK_KEY_ALIAS }}
-      run: ./gradlew -PxdeskVersion="$VERSION" assembleStandaloneRelease :shell-loader:buildCompanionPackage
+      run: ./gradlew -PxdeskVersion="$VERSION" assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
     - name: Collect release files
       run: |
         mkdir out
         cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesk.apk
+        cp receiver/build/outputs/apk/release/receiver-release.apk out/xdesk-receiver.apk
         dpkg-deb -x shell-loader/build/outputs/companion/termux-x11-*-all.deb deb
         cp "$(find deb -name loader.apk)" out/loader.apk
         cp xdesk/xdesk out/xdesk
-        (cd out && sha256sum xdesk.apk loader.apk xdesk > SHA256SUMS)
+        (cd out && sha256sum xdesk.apk xdesk-receiver.apk loader.apk xdesk > SHA256SUMS)
         rm -f "$XDESK_KEYSTORE"
     - name: Upload (manual runs)
       if: github.event_name == 'workflow_dispatch'
@@ -75,4 +76,4 @@ jobs:
         # Full releases by default; a tag with a suffix such as v0.3.0-rc1 is a pre-release
         case "$TAG" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
         gh release create "$TAG" $PRE --title "XDesk $TAG" --generate-notes \
-          out/xdesk.apk out/loader.apk out/xdesk out/SHA256SUMS
+          out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/SHA256SUMS
