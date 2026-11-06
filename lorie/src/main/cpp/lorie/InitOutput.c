@@ -20,6 +20,8 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <linux/futex.h>
+#include <linux/dma-buf.h>
+#include <string.h>
 #include <present.h>
 #include <sys/mman.h>
 #include <dri3.h>
@@ -49,6 +51,8 @@ extern void android_shmem_sysv_shm_force(uint8_t enable);
 
 #define unused __attribute__((unused))
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
+// Debug lines that should also land in xdesk.log (the X server's stderr), which can be read without adb.
+#define logBoth(prio, fmt, ...) do { log(prio, fmt, ##__VA_ARGS__); dprintf(2, "LorieNative: " fmt "\n", ##__VA_ARGS__); } while (0)
 
 extern DeviceIntPtr lorieMouse, lorieKeyboard;
 
@@ -147,6 +151,18 @@ static LorieBuffer *lorieEnsureGpuSampleable(PixmapPtr pixmap, int8_t type) {
 
 static Bool lorieServerDebugEnabled = FALSE;
 
+// TERMUX_X11_ROOT_CPU_SYNC=1: bracket every CPU access to the root's AHardwareBuffer with
+// DMA_BUF_IOCTL_SYNC, so the CPU caches are written back before the renderer can take the lock.
+static Bool rootCpuSync = FALSE;
+// X server side tearing diagnostics, logged every 5 seconds with the renderer's counters.
+static uint64_t unlockedRootWrites = 0, rootCpuSyncs = 0, rootCpuSyncFailures = 0;
+static int rootCpuSyncErrno = 0;
+
+static Bool envIs(const char *name, const char *value) {
+    char *v = getenv(name);
+    return v && strcmp(v, value) == 0;
+}
+
 void OsVendorInit(void) {
     pthread_mutexattr_t mutex_attr;
 
@@ -173,6 +189,16 @@ void OsVendorInit(void) {
     pthread_mutex_init(&lorieScreen.state->lock, &mutex_attr);
     pthread_mutex_init(&lorieScreen.state->cursor.lock, &mutex_attr);
     lorieScreen.state->cursor.visible = TRUE;
+
+    rootCpuSync = envIs("TERMUX_X11_ROOT_CPU_SYNC", "1");
+    lorieScreen.state->debug.renderSnapshot = envIs("TERMUX_X11_RENDER_SNAPSHOT", "1");
+    lorieScreen.state->debug.fallbackRootFlush = !envIs("TERMUX_X11_FALLBACK_ROOT_FLUSH", "0");
+    if (lorieScreen.state->debug.renderSnapshot)
+        logBoth(WARN, "TERMUX_X11_RENDER_SNAPSHOT=1: the renderer copies the root under the lock and draws from the copy");
+    if (rootCpuSync)
+        logBoth(WARN, "TERMUX_X11_ROOT_CPU_SYNC=1: every CPU access to the root is bracketed with DMA_BUF_IOCTL_SYNC");
+    if (!lorieScreen.state->debug.fallbackRootFlush)
+        logBoth(WARN, "TERMUX_X11_FALLBACK_ROOT_FLUSH=0: without renderer relock the renderer does not flush the root's CPU caches before sampling");
 
     lorieListenForKnocks(documentTag ? DOCUMENT_PORT_BASE + atoi(display) : PORT, documentTag);
 }
@@ -592,6 +618,7 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
             status = LorieBuffer_lock(priv->buffer, &priv->locked);
             if (status)
                 FatalError("Failed to lock the surface: %d\n", status);
+            pvfb->state->debug.rootFlushedSeq = pvfb->state->debug.rootWriteSeq;
         }
 
         DamageEmpty(pvfb->damage);
@@ -628,6 +655,30 @@ static CARD32 lorieFramecounter(unused OsTimerPtr timer, unused CARD32 time, unu
             (unsigned long long) dmaBufFenceNone, (unsigned long long) dmaBufFenceSignaled, (unsigned long long) dmaBufFencePending,
             dmaBufFenceDriver[0] ? dmaBufFenceDriver : "no fence driver seen",
             dmaBufFenceUnknown ? ", some could not be checked" : "");
+    {
+        // Tearing diagnostics: how the renderer found the root when it started sampling it.
+        typeof(pvfb->state->debug) *d = &pvfb->state->debug;
+        uint32_t draws = __atomic_exchange_n(&d->draws, 0, __ATOMIC_RELAXED);
+        uint32_t unflushed = __atomic_exchange_n(&d->drawsUnflushed, 0, __ATOMIC_RELAXED);
+        uint32_t duringWrite = __atomic_exchange_n(&d->drawsDuringWrite, 0, __ATOMIC_RELAXED);
+        uint32_t writtenWhileSampling = __atomic_exchange_n(&d->drawsWrittenWhileSampling, 0, __ATOMIC_RELAXED);
+        uint32_t flushes = __atomic_exchange_n(&d->rendererFlushes, 0, __ATOMIC_RELAXED);
+        uint32_t flushFailures = __atomic_exchange_n(&d->rendererFlushFailures, 0, __ATOMIC_RELAXED);
+        uint32_t snapshots = __atomic_exchange_n(&d->snapshotDraws, 0, __ATOMIC_RELAXED);
+        if (draws || unlockedRootWrites || rootCpuSyncFailures)
+            logBoth(INFO, "root sampling in 5.0 seconds: %u redraws, %u found CPU writes to the root not yet written back (%s), "
+                          "%u started during a CPU write, %u saw the root written while the GPU sampled it, %u drawn from a snapshot; "
+                          "%llu CPU writes to the root without the lock; renderer dma-buf flushes %u (%u failed%s%s); "
+                          "ROOT_CPU_SYNC %s: %llu syncs, %llu failed%s%s",
+                    draws, unflushed,
+                    pvfb->rendererRelock ? "renderer relock flushes them" : (d->fallbackRootFlush ? "renderer cleans the dma-buf" : "sampled as they are"),
+                    duringWrite, writtenWhileSampling, snapshots,
+                    (unsigned long long) unlockedRootWrites, flushes, flushFailures,
+                    flushFailures ? ", last: " : "", flushFailures ? strerror(d->rendererFlushErrno) : "",
+                    rootCpuSync ? "on" : "off", (unsigned long long) rootCpuSyncs, (unsigned long long) rootCpuSyncFailures,
+                    rootCpuSyncFailures ? ", last: " : "", rootCpuSyncFailures ? strerror(rootCpuSyncErrno) : "");
+        unlockedRootWrites = rootCpuSyncs = rootCpuSyncFailures = 0;
+    }
     dmaBufFenceNone = dmaBufFenceSignaled = dmaBufFencePending = dmaBufFenceUnknown = 0;
     dmaBufSyncs = dmaBufSyncWaits = dmaBufSyncMaxWaitUs = 0;
 
@@ -917,6 +968,12 @@ void InitOutput(ScreenInfo * screen_info, int argc, char **argv) {
     screen_info->numPixmapFormats = ARRAY_SIZE(depths);
 
     rendererTestCapabilities(&pvfb->root.legacyDrawing, &pvfb->gpuPresentDisabled, &pvfb->rendererRelock);
+    logBoth(INFO, "root drawing: %s, renderer %s, Present GPU offload %s",
+            pvfb->root.legacyDrawing ? "legacy (shared memory, uploaded by the renderer)" : "AHardwareBuffer",
+            pvfb->rendererRelock ? "relocks the root under the lock (flushes the CPU caches itself)"
+                                 : (pvfb->state->debug.fallbackRootFlush ? "fallback path (no relock), renderer cleans the root's dma-buf caches before sampling"
+                                                                         : "fallback path (no relock), X flushes once per vsync only"),
+            pvfb->gpuPresentDisabled ? "off" : "on");
     xorgGlxCreateVendor();
     lorieInitClipboard();
 
@@ -1228,13 +1285,32 @@ static inline __always_inline Bool lorieKeepLockUntilRequestEnd(PixmapPtr pPix, 
     return index == EXA_PREPARE_DEST && pScreenPtr->GetScreenPixmap(pScreenPtr) == pPix;
 }
 
+// The pixmap the renderer draws (root window pixmap, normally the screen pixmap too).
+static inline __always_inline Bool lorieIsRootPixmap(PixmapPtr pPix) {
+    return pPix == pScreenPtr->GetScreenPixmap(pScreenPtr) ||
+           (pScreenPtr->root && pScreenPtr->GetWindowPixmap(pScreenPtr->root) == pPix);
+}
+
+static inline __always_inline Bool lorieIsWriteAccess(int index) {
+    return index == EXA_PREPARE_DEST || index == EXA_PREPARE_AUX_DEST;
+}
+
 Bool loriePrepareAccess(PixmapPtr pPix, int index) {
     LoriePixmapPriv *priv = exaGetPixmapDriverPrivate(pPix);
-    if (lorieNeedsGpuLock(pPix, priv, index)) {
+    Bool rootWrite = lorieIsWriteAccess(index) && lorieIsRootPixmap(pPix);
+    Bool locked = lorieNeedsGpuLock(pPix, priv, index);
+    if (locked) {
         if (lorieKeepLockUntilRequestEnd(pPix, index))
             lorieRequestLockTake();
         else
             lorie_mutex_lock(&pvfb->state->lock, &pvfb->state->lockingPid, conn_fd);
+    }
+    if (rootWrite) {
+        // Writes the renderer could sample half done, as they do not take the lock.
+        if (!locked)
+            unlockedRootWrites++;
+        __atomic_add_fetch(&pvfb->state->debug.rootWriteSeq, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&pvfb->state->debug.rootWriteActive, 1, __ATOMIC_RELAXED);
     }
 
     if (!priv->locked && !priv->mem) {
@@ -1283,6 +1359,27 @@ Bool loriePrepareAccess(PixmapPtr pPix, int index) {
                 priv->dmaBufAccessDepth = 1;
                 priv->dmaBufAccessWrite = write;
             }
+        } else if (rootCpuSync && LorieBuffer_description(priv->buffer)->type == LORIEBUFFER_AHARDWAREBUFFER && lorieIsRootPixmap(pPix)) {
+            // Always both directions: START invalidates what the renderer's GPU copies wrote,
+            // END in lorieFinishAccess writes our writes back before the lock is given away.
+            static Bool announced = FALSE;
+            int err = LorieBuffer_ahbDmaBufSync(priv->buffer, DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE);
+            if (!announced) {
+                announced = TRUE;
+                if (err)
+                    logBoth(ERROR, "TERMUX_X11_ROOT_CPU_SYNC: DMA_BUF_IOCTL_SYNC on the root failed (%s), the toggle has no effect", strerror(err));
+                else
+                    logBoth(INFO, "TERMUX_X11_ROOT_CPU_SYNC: root dma-buf found (%zu bytes), CPU accesses are synced",
+                            LorieBuffer_ahbDmaBufSize(priv->buffer));
+            }
+            if (err) {
+                rootCpuSyncFailures++;
+                rootCpuSyncErrno = err;
+            } else {
+                rootCpuSyncs++;
+                priv->dmaBufAccessDepth = 1;
+                priv->dmaBufAccessWrite = true;
+            }
         }
     }
 
@@ -1292,7 +1389,21 @@ Bool loriePrepareAccess(PixmapPtr pPix, int index) {
 
 void lorieFinishAccess(PixmapPtr pPix, int index) {
     LoriePixmapPriv *priv = exaGetPixmapDriverPrivate(pPix);
-    if (lorieNeedsGpuLock(pPix, priv, index) && !lorieKeepLockUntilRequestEnd(pPix, index))
+    Bool unlock = lorieNeedsGpuLock(pPix, priv, index) && !lorieKeepLockUntilRequestEnd(pPix, index);
+
+    if (lorieIsWriteAccess(index) && lorieIsRootPixmap(pPix))
+        __atomic_sub_fetch(&pvfb->state->debug.rootWriteActive, 1, __ATOMIC_RELAXED);
+
+    // TERMUX_X11_ROOT_CPU_SYNC: before giving the lock away, so the renderer never samples CPU
+    // caches that were not written back.
+    if (priv->dmaBufAccessDepth == 1 && LorieBuffer_description(priv->buffer)->type == LORIEBUFFER_AHARDWAREBUFFER) {
+        priv->dmaBufAccessDepth = 0;
+        priv->dmaBufAccessWrite = false;
+        if (LorieBuffer_ahbDmaBufSync(priv->buffer, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE) == 0)
+            pvfb->state->debug.rootFlushedSeq = pvfb->state->debug.rootWriteSeq;
+    }
+
+    if (unlock)
         lorie_mutex_unlock(&pvfb->state->lock, &pvfb->state->lockingPid);
 
     if (priv->dmaBufAccessDepth && !--priv->dmaBufAccessDepth) {

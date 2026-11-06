@@ -44,6 +44,10 @@ struct LorieBuffer {
     size_t size;
     off_t offset;
     int8_t dmaBufSyncSupport;
+    // Process-local: the dma-buf behind an AHardwareBuffer, see LorieBuffer_ahbDmaBufSync.
+    int8_t ahbDmaBufLookedUp;
+    int ahbDmaBufFd;
+    size_t ahbDmaBufSize;
 
     GLuint id;
     EGLImage image;
@@ -155,6 +159,75 @@ __LIBC_HIDDEN__ bool LorieBuffer_cpuAccessBegin(LorieBuffer *buffer, bool write)
 __LIBC_HIDDEN__ void LorieBuffer_cpuAccessEnd(LorieBuffer *buffer, bool write) {
     if (buffer)
         dmaBufCpuAccessEnd(buffer, write);
+}
+
+// The public NDK has no way to get the fds of an AHardwareBuffer, but sending it through a socket
+// passes its native handle's fds along. gralloc puts the pixels in a dma-buf among them (others
+// can be metadata), so the biggest dma-buf that can hold the pixels is taken.
+static void ahbDmaBufLookUp(LorieBuffer *buffer) {
+    int sv[2];
+    size_t needed = (size_t) buffer->desc.stride * buffer->desc.height * sizeof(uint32_t);
+
+    buffer->ahbDmaBufLookedUp = 1;
+    buffer->ahbDmaBufFd = -1;
+    buffer->ahbDmaBufSize = 0;
+    if (!buffer->desc.buffer || socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0)
+        return;
+
+    if (__builtin_available(android 26, *)) {
+        if (AHardwareBuffer_sendHandleToUnixSocket(buffer->desc.buffer, sv[0]) == 0) {
+            char data[4096];
+            union {
+                struct cmsghdr align;
+                char buf[CMSG_SPACE(sizeof(int) * 32)];
+            } control;
+            struct iovec iov = { .iov_base = data, .iov_len = sizeof(data) };
+            struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = control.buf, .msg_controllen = sizeof(control.buf) };
+
+            if (recvmsg(sv[1], &msg, MSG_CMSG_CLOEXEC | MSG_DONTWAIT) >= 0) {
+                for (struct cmsghdr *c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+                    if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
+                        continue;
+                    int n = (int) ((c->cmsg_len - CMSG_LEN(0)) / sizeof(int));
+                    int *fds = (int *) CMSG_DATA(c);
+                    for (int i = 0; i < n; i++) {
+                        char link[64] = {0}, path[32];
+                        off_t size = lseek(fds[i], 0, SEEK_END);
+                        snprintf(path, sizeof(path), "/proc/self/fd/%d", fds[i]);
+                        readlink(path, link, sizeof(link) - 1);
+                        if (strstr(link, "dmabuf") && size > 0 && (size_t) size >= needed && (size_t) size > buffer->ahbDmaBufSize) {
+                            if (buffer->ahbDmaBufFd >= 0)
+                                close(buffer->ahbDmaBufFd);
+                            buffer->ahbDmaBufFd = fds[i];
+                            buffer->ahbDmaBufSize = (size_t) size;
+                        } else
+                            close(fds[i]);
+                    }
+                }
+            }
+        }
+    }
+    close(sv[0]);
+    close(sv[1]);
+}
+
+__LIBC_HIDDEN__ size_t LorieBuffer_ahbDmaBufSize(LorieBuffer *buffer) {
+    if (!buffer || buffer->desc.type != LORIEBUFFER_AHARDWAREBUFFER)
+        return 0;
+    if (!buffer->ahbDmaBufLookedUp)
+        ahbDmaBufLookUp(buffer);
+    return buffer->ahbDmaBufSize;
+}
+
+__LIBC_HIDDEN__ int LorieBuffer_ahbDmaBufSync(LorieBuffer *buffer, uint64_t flags) {
+    struct dma_buf_sync sync = { .flags = flags };
+    int ret;
+    if (!LorieBuffer_ahbDmaBufSize(buffer))
+        return ENOENT;
+    do {
+        ret = ioctl(buffer->ahbDmaBufFd, DMA_BUF_IOCTL_SYNC, &sync);
+    } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
+    return ret == 0 ? 0 : errno;
 }
 
 void LorieBuffer_gpuCopyPendingInc(LorieBuffer* buffer) {
@@ -403,6 +476,9 @@ __LIBC_HIDDEN__ void __LorieBuffer_free(LorieBuffer* buffer) {
     if (buffer->locked)
         LorieBuffer_unlock(buffer);
 
+    if (buffer->ahbDmaBufLookedUp && buffer->ahbDmaBufFd >= 0)
+        close(buffer->ahbDmaBufFd);
+
     if (eglGetCurrentContext())
         glDeleteTextures(1, &buffer->id);
 
@@ -511,6 +587,9 @@ __LIBC_HIDDEN__ void LorieBuffer_recvHandleFromUnixSocket(int socketFd, LorieBuf
     read(socketFd, &buffer, sizeof(buffer));
     buffer.image = NULL; // Only for process-local use
     buffer.dmaBufSyncSupport = DMA_BUF_SYNC_UNKNOWN;
+    buffer.ahbDmaBufLookedUp = 0;
+    buffer.ahbDmaBufFd = -1;
+    buffer.ahbDmaBufSize = 0;
     buffer.locked = false;
     buffer.lockedData = NULL;
     if (buffer.desc.type == LORIEBUFFER_FD) {

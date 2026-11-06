@@ -173,6 +173,22 @@ enum {
 int LorieBuffer_dmaBufFenceState(LorieBuffer* _Nullable buffer, char* _Nullable driver, size_t driverSize);
 
 /**
+ * DMA_BUF_IOCTL_SYNC on the dma-buf behind an AHardwareBuffer backed buffer, for cache
+ * maintenance around CPU access without going through gralloc's lock. The dma-buf is found once
+ * per process by sending the AHardwareBuffer's native handle through a socket pair and taking
+ * its biggest dma-buf fd. Diagnostic and debug toggles only.
+ *
+ * @param flags DMA_BUF_SYNC_* flags
+ * @return 0 on success, an errno value otherwise (ENOENT: no dma-buf found)
+ */
+int LorieBuffer_ahbDmaBufSync(LorieBuffer* _Nullable buffer, uint64_t flags);
+
+/**
+ * Size of the dma-buf LorieBuffer_ahbDmaBufSync uses, 0 if there is none. Looks it up if needed.
+ */
+size_t LorieBuffer_ahbDmaBufSize(LorieBuffer* _Nullable buffer);
+
+/**
  * Unlock the AHardwareBuffer from direct CPU access.
  * See AHardwareBuffer_unlock() description for details
  *
