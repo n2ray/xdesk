@@ -20,6 +20,11 @@ final class AudioPlayer {
     private static final int CHUNK = 20 * BYTES_PER_MS;
     private static final int MAX_BACKLOG = 200 * BYTES_PER_MS;
     private static final int KEEP_BACKLOG = 40 * BYTES_PER_MS;
+    /**
+     * The track holds this much, and starts once PREFILL is written. With the 20 ms of a low latency track, a video
+     * starting in Chromium (decoder setup, page work) made the data late and the first seconds crackled.
+     */
+    private static final int TRACK_BUFFER = 100 * BYTES_PER_MS, PREFILL = 40 * BYTES_PER_MS;
 
     private final int port;
     private volatile boolean running = true;
@@ -95,13 +100,11 @@ final class AudioPlayer {
                 .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .build())
-            .setBufferSizeInBytes(Math.max(min, 2 * CHUNK))
-            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            .setBufferSizeInBytes(Math.max(min, TRACK_BUFFER))
             .build();
         AudioDeviceInfo want = route.coversSystem() ? null : route.playerDevice();
         preferredId = want != null ? want.getId() : NO_DEVICE;
         t.setPreferredDevice(want);
-        t.play();
         return t;
     }
 
@@ -118,6 +121,7 @@ final class AudioPlayer {
                 track = t;
                 try {
                     int have = 0, n;
+                    int written = 0, underruns = 0;
                     while (running && (n = in.read(buf, have, buf.length - have)) >= 0) {
                         have += n;
                         int whole = have - have % FRAME;
@@ -128,6 +132,13 @@ final class AudioPlayer {
                             in.skip(drop - drop % FRAME);  // 只丢整数帧，左右声道才不会错位
                         }
                         t.write(buf, 0, whole);
+                        if (written < PREFILL) {
+                            written += whole;
+                            if (written >= PREFILL) t.play();
+                        } else if (t.getUnderrunCount() != underruns) {
+                            underruns = t.getUnderrunCount();
+                            Log.i(TAG, "audio underruns: " + underruns);
+                        }
                         checkRoute(t);
                         System.arraycopy(buf, whole, buf, 0, have - whole);
                         have -= whole;
