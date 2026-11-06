@@ -8,7 +8,7 @@ REPO=n2ray/xdesk
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
 
 missing=
-for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux sha256sum:coreutils; do
+for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux setsid:util-linux sha256sum:coreutils pgrep:procps; do
     command -v "${pair%%:*}" >/dev/null || missing="$missing ${pair##*:}"
 done
 if [ -n "$missing" ]; then
@@ -35,7 +35,6 @@ mkdir -p "$(dirname "$LOADER")"
 [ ! -e "$LOADER" ] || rm -f "${LOADER:?}"
 cp "$TMP/loader.apk" "$LOADER"
 chmod 400 "$LOADER"   # Android refuses to load a writable dex
-if [ -d /sdcard/Termux/xdesk/dist ]; then cp -f "$LOADER" /sdcard/Termux/xdesk/dist/loader.apk; fi
 
 APK=$HOME/xdesk.apk
 if touch /sdcard/Download/.xdesk-test 2>/dev/null; then
@@ -51,8 +50,7 @@ cat <<DONE
 Done. Next:
  1. Install the app: $APK
     Open it from a file manager, or if that fails: adb install -r xdesk.apk
- 2. Plug in a display and open XDesk.
- 3. Run: xdesk start
+ 2. Plug in a display, open the XDesk app and choose a desktop.
 
 No desktop yet? For example: pkg install xfce4 xfce4-terminal && xdesk setup
 DONE
