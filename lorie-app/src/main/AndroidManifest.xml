@@ -20,9 +20,9 @@
         </intent>
     </queries>
     <application
-        android:icon="@mipmap/lorie_ic_launcher"
+        android:icon="@mipmap/xdesk_icon"
         android:label="@string/lorie_app_name"
-        android:roundIcon="@mipmap/lorie_ic_launcher_round"
+        android:roundIcon="@mipmap/xdesk_icon"
         android:supportsRtl="true"
         android:theme="@style/LorieAppTheme"
         android:hardwareAccelerated="true"
@@ -88,7 +88,8 @@
              车机是 Android Auto 建的虚拟显示器，别的应用要往上面放 Activity，系统要求它 allowEmbedded。
              allowEmbedded 也让别的应用能把它放进自己的显示器，所以它只留在 TargetDisplay.allowsDesktop 认的显示器上 -->
         <activity android:name="com.termux.x11.MainActivity" android:excludeFromRecents="true" android:allowEmbedded="true"
-            android:exported="false" tools:node="merge" tools:replace="android:exported">
+            android:exported="false" android:icon="@mipmap/xdesk_icon" android:roundIcon="@mipmap/xdesk_icon"
+            tools:node="merge" tools:replace="android:exported,android:icon,android:roundIcon">
             <intent-filter tools:node="removeAll" />
         </activity>
     </application>
