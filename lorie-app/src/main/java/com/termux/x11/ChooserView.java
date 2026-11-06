@@ -142,8 +142,8 @@ final class ChooserView extends LinearLayout {
 
         favouritesLabel = sectionLabel(c.getString(R.string.xd_chooser_favourites));
         addView(favouritesLabel, new LayoutParams(-1, -2));
-        dock = new DockBar(c, host, true, true);
-        addView(dock, new LayoutParams(-1, Style.dp(c, 62)));
+        dock = new DockBar(c, host, true);
+        addView(dock, new LayoutParams(-1, Style.dp(c, Style.TARGET + 4)));
 
         addView(sectionLabel(c.getString(R.string.xd_chooser_all_apps)), new LayoutParams(-1, -2));
         FrameLayout searchBox = new FrameLayout(c);

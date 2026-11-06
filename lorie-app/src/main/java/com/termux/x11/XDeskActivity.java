@@ -61,6 +61,8 @@ public class XDeskActivity extends Activity {
         PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density";
     /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
     private static final int DESKTOP_DENSITY = 168;
+    /** IME this tall (part of the window) is a soft keyboard; less is the candidate bar of a physical keyboard. */
+    private static final float SOFT_KEYBOARD_PART = 0.25f;
     private static final int MAX_RECENTS = 6;
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
@@ -130,6 +132,8 @@ public class XDeskActivity extends Activity {
     private TextView setupTitle, setupMessage, setupAction, setupSecond, setupBack;
     private ProgressBar setupProgress;
     private TextView statusText, diagText;
+    /** Holds the status dot and text: shown only for warnings and errors, the buttons already say the rest. */
+    private View statusRow;
     private Style.IconButton audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn, backBtn;
     private View statusDot;
     private TouchpadView touchpad;
@@ -707,7 +711,7 @@ public class XDeskActivity extends Activity {
         statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         statusText.setPadding(dp(8), 0, dp(8), 0);
         buildTopButtons();
-        runningDock = new DockBar(this, chooserHost, !landscape, false);
+        runningDock = new DockBar(this, chooserHost, false);
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
@@ -716,6 +720,7 @@ public class XDeskActivity extends Activity {
             topBar = top;
             top.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
             top.addView(statusText, new LinearLayout.LayoutParams(dp(128), -2));
+            statusRow = null;
             top.addView(runningDock, new LinearLayout.LayoutParams(0, dp(Style.TARGET), 1));
             addTopButtons(top, false);
             root.addView(top, new LinearLayout.LayoutParams(-1, -2));
@@ -727,6 +732,7 @@ public class XDeskActivity extends Activity {
             status.setPadding(dp(4), dp(2), 0, dp(4));
             status.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
             status.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1));
+            statusRow = status;
             root.addView(status, new LinearLayout.LayoutParams(-1, -2));
             addTopButtons(top, true);
             root.addView(top, new LinearLayout.LayoutParams(-1, -2));
@@ -738,7 +744,7 @@ public class XDeskActivity extends Activity {
         applyDiagVisibility();
 
         if (!landscape) {
-            LinearLayout.LayoutParams dock = new LinearLayout.LayoutParams(-1, dp(62));
+            LinearLayout.LayoutParams dock = new LinearLayout.LayoutParams(-1, dp(Style.TARGET + 4));
             dock.topMargin = dp(4);
             root.addView(runningDock, dock);
         }
@@ -1018,7 +1024,9 @@ public class XDeskActivity extends Activity {
     /** 键盘弹出：展开功能键。横屏高度很紧，再收起顶部一行。 */
     private void fitToKeyboard() {
         WindowInsets w = screens.getRootWindowInsets();
-        boolean open = w != null && w.isVisible(WindowInsets.Type.ime());
+        // 实体键盘打字时输入法只露出一条候选栏，也算 IME 可见：那时顶部一行留着，否则收起后就一直回不来
+        boolean open = w != null && w.isVisible(WindowInsets.Type.ime())
+            && w.getInsets(WindowInsets.Type.ime()).bottom >= getWindow().getDecorView().getHeight() * SOFT_KEYBOARD_PART;
         if (open != keyboardOpen) {
             keyboardOpen = open;
             applyKeysVisibility();
@@ -1187,6 +1195,11 @@ public class XDeskActivity extends Activity {
     private void setStatus(int color, String s) {
         Log.i(TAG, s);
         statusText.setText(s);
+        // 正常时不显示：应用图标和按钮已经说明了在用什么、键鼠在哪
+        int v = color == Style.OK ? View.GONE : View.VISIBLE;
+        statusText.setVisibility(v);
+        statusDot.setVisibility(v);
+        if (statusRow != null) statusRow.setVisibility(v);
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
         d.setColor(color);

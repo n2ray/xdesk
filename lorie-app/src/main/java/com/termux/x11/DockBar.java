@@ -2,7 +2,6 @@ package com.termux.x11;
 
 import android.content.Context;
 import android.graphics.Typeface;
-import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.HorizontalScrollView;
@@ -13,7 +12,7 @@ import com.termux.x11.app.R;
 import java.util.List;
 
 /**
- * 启动器和控制界面共用的一行：先是当前应用（高亮）和上一个应用，方便来回切换，然后一条竖线，后面是收藏，可以横向滚动。这两个也可能在
+ * 启动器和控制界面共用的一行：先是当前应用（高亮）和上一个应用，方便来回切换，然后一条竖线，后面是收藏，可以横向滚动。只有图标，名字在无障碍说明里。这两个也可能在
  * 收藏里，两边都显示。两个都没有时连竖线一起隐藏。点一下切换外接屏上的内容，长按打开设置卡片。不抢键盘焦点。
  */
 final class DockBar extends LinearLayout {
@@ -24,14 +23,13 @@ final class DockBar extends LinearLayout {
     }
 
     private final Host host;
-    private final boolean showLabels, hintWhenEmpty;
+    private final boolean hintWhenEmpty;
     private final LinearLayout previous, row;
     private final View divider;
 
-    DockBar(Context c, Host host, boolean showLabels, boolean hintWhenEmpty) {
+    DockBar(Context c, Host host, boolean hintWhenEmpty) {
         super(c);
         this.host = host;
-        this.showLabels = showLabels;
         this.hintWhenEmpty = hintWhenEmpty;
         setGravity(Gravity.CENTER_VERTICAL);
         setFocusable(false);
@@ -122,13 +120,6 @@ final class DockBar extends LinearLayout {
             tile.setGravity(Gravity.CENTER);
             tile.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
             box.addView(tile, new LayoutParams(size, size));
-        }
-        if (showLabels) {
-            TextView t = Style.label(c, label, Style.TEXT, Style.TEXT_TINY);
-            t.setSingleLine(true);
-            t.setEllipsize(TextUtils.TruncateAt.END);
-            t.setGravity(Gravity.CENTER);
-            box.addView(t, new LayoutParams(dp(52), -2));
         }
         LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);
