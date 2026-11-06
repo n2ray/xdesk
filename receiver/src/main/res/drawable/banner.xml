@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leanback launcher banner (320x180): the XDesk mark on its background; the launcher shows the label below -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp" android:height="180dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:pathData="M0,0h320v180h-320z" android:fillColor="#11151C" />
+    <group android:translateX="124" android:translateY="54" android:scaleX="2" android:scaleY="2">
+        <group android:translateX="-36" android:translateY="-36">
+            <path android:pathData="M36,72L44.6,63.4M63.4,44.6L72,36"
+                android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
+            <path android:pathData="M36,36L72,72"
+                android:strokeColor="#FFFFFF" android:strokeWidth="11" android:strokeLineCap="round" />
+        </group>
+    </group>
+</vector>

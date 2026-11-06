@@ -1,0 +1,36 @@
+apply plugin: 'com.android.application'
+apply from: '../lorie/version.gradle'
+
+android {
+    namespace 'io.github.n2ray.xdesk.receiver'
+    compileSdkVersion 34
+    defaultConfig {
+        applicationId "io.github.n2ray.xdesk.receiver"
+        // Old projectors and TV boxes run Android 7 or earlier
+        minSdkVersion 21
+        targetSdkVersion 34
+        // Same version as XDesk itself, from -PxdeskVersion (see lorie/version.gradle)
+        versionCode xdeskVersionCode
+        versionName xdeskVersionName
+    }
+
+    // The private release key comes from CI secrets only, as for lorie-app
+    if (System.getenv('XDESK_KEYSTORE')) {
+        signingConfigs.create('release') {
+            storeFile file(System.getenv('XDESK_KEYSTORE'))
+            storeType 'PKCS12'
+            keyAlias System.getenv('XDESK_KEY_ALIAS')
+            storePassword System.getenv('XDESK_KEYSTORE_PASSWORD')
+            keyPassword System.getenv('XDESK_KEYSTORE_PASSWORD')
+        }
+    }
+
+    compileOptions.sourceCompatibility JavaVersion.VERSION_1_8
+    compileOptions.targetCompatibility JavaVersion.VERSION_1_8
+    buildTypes.release {
+        signingConfig signingConfigs.findByName('release')
+        minifyEnabled true
+        shrinkResources true
+        proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+    }
+}
