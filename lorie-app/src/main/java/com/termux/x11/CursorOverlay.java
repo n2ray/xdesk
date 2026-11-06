@@ -46,7 +46,7 @@ final class CursorOverlay {
     private WindowManager windows;
     private ArrowView view;
     private WindowManager.LayoutParams params;
-    private boolean shown, framePending, faint, touchStyle;
+    private boolean shown, framePending, moved, faint, touchStyle;
     private int x, y, margin, attachedWidth, attachedHeight, attachedDensity;
 
     CursorOverlay(Context c) {
@@ -56,7 +56,8 @@ final class CursorOverlay {
     private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
         @Override public void doFrame(long time) {
             framePending = false;
-            if (!shown) return;
+            if (!shown || !moved) return;
+            moved = false;
             place();
             windows.updateViewLayout(view, params);
         }
@@ -143,10 +144,15 @@ final class CursorOverlay {
             }
             return;
         }
-        // Movement can arrive faster than the screen refreshes, one window update per frame is enough
+        // The first move in a frame goes to the window at once: waiting for the next frame added a frame of lag that
+        // felt like drag. Further moves in that frame wait for it, one window update per frame is enough
         if (!framePending) {
             framePending = true;
+            place();
+            windows.updateViewLayout(view, params);
             Choreographer.getInstance().postFrameCallback(frame);
+        } else {
+            moved = true;
         }
     }
 
