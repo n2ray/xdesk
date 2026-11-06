@@ -358,8 +358,7 @@ final class SettingsUi {
     TextView valueRow(LinearLayout card, String label, String description, String value, final Runnable onTap) {
         LinearLayout row = pressableRow();
         row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView v = Style.label(c, value, Style.TEXT_DIM, Style.TEXT_SMALL + 2);
-        v.setPadding(dp(8), 0, 0, 0);
+        TextView v = valueText(value);
         row.addView(v);
         row.setOnClickListener(view -> {
             Style.tick(view);
@@ -369,11 +368,20 @@ final class SettingsUi {
         return v;
     }
 
+    /** 右边的值：长的（英文的分辨率名）换行，不把左边的名称挤窄。 */
+    private TextView valueText(String value) {
+        TextView v = Style.label(c, value, Style.TEXT_DIM, Style.TEXT_SMALL + 2);
+        v.setPadding(dp(8), 0, 0, 0);
+        v.setMaxWidth(dp(140));
+        v.setGravity(Gravity.END);
+        return v;
+    }
+
     /** 只显示，点不了。 */
     void infoRow(LinearLayout card, String label, String description, String value) {
         LinearLayout row = plainRow();
         row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
-        if (value != null) row.addView(Style.label(c, value, Style.TEXT_DIM, Style.TEXT_SMALL + 2));
+        if (value != null) row.addView(valueText(value));
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
