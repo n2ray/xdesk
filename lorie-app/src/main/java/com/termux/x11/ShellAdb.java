@@ -31,12 +31,14 @@ final class ShellAdb extends AbsAdbConnectionManager {
     private static final String DEVICE_NAME = "XDesk";
     private static final int KEY_BITS = 2048;
     private static final long TIMEOUT_MS = 5000;
+    /** The protocol version libadb speaks follows this. */
+    static final int API = Build.VERSION.SDK_INT;
 
     private final PrivateKey privateKey;
     private final Certificate certificate;
 
     ShellAdb(Context context) throws GeneralSecurityException, IOException {
-        setApi(Build.VERSION.SDK_INT);
+        setApi(API);
         setTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS);
         setThrowOnUnauthorised(true);
         File keyFile = new File(context.getNoBackupFilesDir(), "adb_key"), certFile = new File(context.getNoBackupFilesDir(), "adb_cert");

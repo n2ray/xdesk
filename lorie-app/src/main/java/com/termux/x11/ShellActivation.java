@@ -1,4 +1,5 @@
-package com.termux.x11;
+    void start() {
+        if (stoppedByUser || !isPaired() || isRunning() || starting || pairing) return;package com.termux.x11;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
@@ -22,11 +23,11 @@ import android.util.Log;
 import io.github.muntashirakon.adb.AdbAuthenticationFailedException;
 import io.github.muntashirakon.adb.AdbPairingRequiredException;
 import io.github.muntashirakon.adb.AdbStream;
+import io.github.muntashirakon.adb.AdbTlsProbe;
 import io.github.muntashirakon.adb.android.AdbMdns;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -39,17 +40,23 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass;
 
 /**
  * Gets an injector without Shizuku: pairs with this device's own adbd once, then starts ShellServer as the shell user
- * whenever XDesk opens and none is running. Only ever writes adb_wifi_enabled. It leaves adb_enabled and
- * adb_allowed_connection_time alone: changing those would affect every paired device, and the user did not choose that.
+ * whenever XDesk opens and none is running. Only ever writes adb_wifi_enabled, and turns it off again when it was XDesk
+ * that turned it on. It leaves adb_enabled and adb_allowed_connection_time alone: changing those would affect every
+ * paired device, and the user did not choose that.
  */
 final class ShellActivation {
     private static final String TAG = "XDeskShell";
     private static final String PREFS = "shell_activation", PREF_PAIRED = "paired", PREF_PORT = "knock_port";
+    /** adbd's certificate when it last started the server, and the boot it was in: adbd makes a new key when it starts. */
+    private static final String PREF_ADBD = "adbd_cert", PREF_ADBD_BOOT = "adbd_cert_boot";
+    /** XDesk turned wireless debugging on and has not turned it off again yet. Kept in case the app dies in between. */
+    private static final String PREF_WIRELESS_OURS = "wireless_enabled_by_xdesk";
     private static final String SETTING_WIRELESS = "adb_wifi_enabled";
     private static final String LOOPBACK = "127.0.0.1";
     private static final String STARTED_MARKER = "xdesk_started";
     private static final String CONSCRYPT_PREFIX = "Lcom/android/org/conscrypt/";
     private static final int KNOCK_TIMEOUT_MS = 300;
+    private static final int PROBE_TIMEOUT_MS = 2000;
     /** How long a running server gets to answer a knock. */
     private static final long ANSWER_WAIT_MS = 1500;
     /** app_process loading this APK without compiled code takes a while. */
@@ -84,6 +91,8 @@ final class ShellActivation {
     private final Object serverChanged = new Object();
     private volatile IShellServer server;
     private volatile boolean starting, pairing, pairingLost;
+    /** The user stopped the server in the settings: only a request of theirs starts it again, see startByUser. */
+    private volatile boolean stoppedByUser;
     private volatile String problem;
     private volatile int pairingPort;
     private Runnable listener;
@@ -99,7 +108,8 @@ final class ShellActivation {
         @Override public void onReceive(Context c, Intent intent) {
             Bundle bundle = intent.getBundleExtra(ShellServer.EXTRA_BINDER);
             final IBinder binder = bundle != null ? bundle.getBinder(ShellServer.EXTRA_BINDER) : null;
-            if (binder != null) new Thread(() -> adopt(binder), "xdesk-shell-adopt").start();
+            final int port = intent.getIntExtra(ShellServer.EXTRA_PORT, 0);
+            if (binder != null) new Thread(() -> adopt(binder, port), "xdesk-shell-adopt").start();
         }
     };
 
@@ -115,7 +125,8 @@ final class ShellActivation {
     }
 
     boolean isPaired() { return prefs.getBoolean(PREF_PAIRED, false); }
-    boolean isRunning() { return server != null; }
+    /** Not any more once the user stopped it, even before it is gone. */
+    boolean isRunning() { return server != null && !stoppedByUser; }
     boolean isStarting() { return starting; }
     boolean isPairing() { return pairing; }
     /** adbd no longer accepted our key, which is why pairing is asked for again. */
@@ -150,6 +161,32 @@ final class ShellActivation {
         start();
     }
 
+    /** Main thread. The user asked for it: also after they stopped the server. */
+    void startByUser() {
+        stoppedByUser = false;
+        retry();
+    }
+
+    boolean isStoppedByUser() { return stoppedByUser; }
+
+    /**
+     * Main thread. Ends the server, and XDesk does not start it again by itself until the user asks, see startByUser. The
+     * server ends its session first, so nothing stays grabbed or routed. Its death comes through lost() as any other.
+     */
+    void stopServer() {
+        stoppedByUser = true;
+        problem = null;
+        final IShellServer s = server;
+        if (s != null) new Thread(() -> {
+            try {
+                s.exit();
+            } catch (RemoteException expected) {
+                // exit() never answers
+            }
+        }, "xdesk-shell-exit").start();
+        changed();
+    }
+
     /**
      * Main thread.
      *
@@ -159,6 +196,7 @@ final class ShellActivation {
     void pair(final int port, final String code, final Consumer<String> done) {
         if (pairing) return;
         pairing = true;
+        stoppedByUser = false;
         changed();
         worker.execute(() -> {
             final String error = runPair(port, code);
@@ -206,8 +244,12 @@ final class ShellActivation {
         });
     }
 
-    /** Any thread. Takes the server's Binder, or ends a server from an earlier install. */
-    private void adopt(final IBinder binder) {
+    /**
+     * Any thread. Takes the server's Binder, or ends a server from an earlier install.
+     *
+     * @param port where the server answers knocks, 0 when it did not say. It picks the port itself, so no app can take it first
+     */
+    private void adopt(final IBinder binder, int port) {
         IShellServer current = server;
         if (current != null && current.asBinder() == binder) return;
         final IShellServer s = IShellServer.Stub.asInterface(binder);
@@ -221,6 +263,7 @@ final class ShellActivation {
         } catch (RemoteException e) {
             return;  // an exit() always ends up here too
         }
+        if (port > 0) prefs.edit().putInt(PREF_PORT, port).apply();
         server = s;
         problem = null;
         synchronized (serverChanged) {
@@ -249,6 +292,8 @@ final class ShellActivation {
             result = tryStart();
         } catch (InterruptedException e) {
             result = "启动被打断了，再试一次。";
+        } finally {
+            restoreWireless();
         }
         starting = false;
         if (!isRunning()) problem = result;
@@ -258,7 +303,11 @@ final class ShellActivation {
     /** Returns what the user should know when there is still no server, or null. */
     private String tryStart() throws InterruptedException {
         int oldPort = prefs.getInt(PREF_PORT, 0);
-        if (oldPort > 0 && knock(oldPort) && awaitServer(oldPort, ANSWER_WAIT_MS)) return null;
+        if (oldPort > 0) {
+            if (knock(oldPort) && awaitServer(oldPort, ANSWER_WAIT_MS)) return null;
+            // No server of ours there: it ended, or something else has the port now
+            prefs.edit().remove(PREF_PORT).apply();
+        }
 
         boolean justEnabled = false;
         if (!wirelessOn()) {
@@ -272,24 +321,41 @@ final class ShellActivation {
         else ports.addAll(openLoopbackPorts());
         // A scanned port can be the pairing port or another service: its refusal says nothing about our key
         final boolean found = port > 0;
-        ports.remove(Integer.valueOf(prefs.getInt(PREF_PORT, 0)));
+        ports.remove(Integer.valueOf(oldPort));
         if (ports.isEmpty()) return "找不到无线调试的端口。到开发者选项里确认无线调试开着，再回到这里。";
 
         String failure = null;
         for (int candidate : ports.subList(0, Math.min(ports.size(), SCAN_MAX_TRIES))) {
+            // Any app can listen on a port here or announce one over mDNS, so first make sure this is adbd asking for TLS
+            String identity;
+            try {
+                identity = AdbTlsProbe.serverIdentity(LOOPBACK, candidate, ShellAdb.API, PROBE_TIMEOUT_MS);
+            } catch (IOException e) {
+                Log.i(TAG, "port " + candidate + " is not adbd over TLS: " + e.getMessage());
+                failure = "连不上无线调试。";
+                continue;
+            }
             try {
                 ShellAdb a = adb();
                 a.disconnect();
                 if (a.connect(LOOPBACK, candidate)) {
-                    int knockPort = newKnockPort();
-                    launchServer(a, knockPort);
-                    return awaitServer(knockPort, SERVER_START_WAIT_MS) ? null : "注入服务启动了但没有回应，再试一次。";
+                    launchServer(a);
+                    if (!awaitServer(0, SERVER_START_WAIT_MS)) return "注入服务启动了但没有回应，再试一次。";
+                    // Only adbd can start a server that reaches XDesk, see ShellServer
+                    rememberAdbd(identity);
+                    return null;
                 }
                 failure = "连不上无线调试。";
             } catch (AdbPairingRequiredException | AdbAuthenticationFailedException e) {
                 if (!found) {
                     Log.i(TAG, "port " + candidate + " refused us, trying the next", e);
                     failure = "连不上无线调试。";
+                    continue;
+                }
+                if (!isKnownAdbd(identity)) {
+                    // adbd started again with a new key, or this is not adbd at all: not enough to forget the pairing
+                    Log.w(TAG, "refused by a port that is not the adbd XDesk knows from this boot", e);
+                    failure = "无线调试拒绝了 XDesk。如果在开发者选项里撤销过授权，到 XDesk 的设置里点「重新配对」。";
                     continue;
                 }
                 Log.w(TAG, "adbd no longer knows this key", e);
@@ -304,6 +370,23 @@ final class ShellActivation {
             }
         }
         return failure;
+    }
+
+    /**
+     * adbd makes a new key each time it starts, at the latest on every boot, so its certificate is only known within one
+     * boot. Not known yet in this boot counts as known: the pairing would otherwise never be found lost.
+     */
+    private boolean isKnownAdbd(String identity) {
+        if (prefs.getInt(PREF_ADBD_BOOT, -1) != bootCount()) return true;
+        return identity.equals(prefs.getString(PREF_ADBD, identity));
+    }
+
+    private void rememberAdbd(String identity) {
+        prefs.edit().putString(PREF_ADBD, identity).putInt(PREF_ADBD_BOOT, bootCount()).apply();
+    }
+
+    private int bootCount() {
+        return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
 
     private ShellAdb adb() throws java.security.GeneralSecurityException, IOException {
@@ -349,6 +432,20 @@ final class ShellActivation {
         }
     }
 
+    /**
+     * Wireless debugging lets every computer paired with this phone in over the network, so it goes off again once the
+     * server runs, or the start failed, when XDesk was the one that turned it on. The server does not need it any more.
+     */
+    private void restoreWireless() {
+        if (!prefs.getBoolean(PREF_WIRELESS_OURS, false)) return;
+        try {
+            Settings.Global.putInt(context.getContentResolver(), SETTING_WIRELESS, 0);
+            prefs.edit().remove(PREF_WIRELESS_OURS).apply();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "cannot turn wireless debugging off again", e);
+        }
+    }
+
     /** Returns null when it is on now, otherwise what the user has to do. */
     private String turnWirelessOn() throws InterruptedException {
         if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
@@ -360,6 +457,7 @@ final class ShellActivation {
         ContentResolver cr = context.getContentResolver();
         try {
             Settings.Global.putInt(cr, SETTING_WIRELESS, 1);
+            prefs.edit().putBoolean(PREF_WIRELESS_OURS, true).apply();
         } catch (RuntimeException e) {
             Log.w(TAG, "cannot write the setting", e);
             return "无线调试没有打开。到开发者选项里打开它（要连着 Wi-Fi），回到这里会自动继续。";
@@ -404,24 +502,16 @@ final class ShellActivation {
         }
     }
 
-    private int newKnockPort() throws IOException {
-        try (ServerSocket s = new ServerSocket(0)) {
-            int port = s.getLocalPort();
-            prefs.edit().putInt(PREF_PORT, port).apply();
-            return port;
-        }
-    }
-
     /**
      * Started so that it outlives this connection. adbd only ends the shell it started. The server is a child of a
      * subshell that exits, setsid gives it its own session, and with stdio on /dev/null it has no link to the stream. The marker comes only once the server runs: the stream closes
      * right after it, and with it the shell's session, which used to end a server that had not reached setsid yet. Toybox
      * has setsid and pkill. pkill without -f compares process names, so it does not hit this shell.
      */
-    private void launchServer(ShellAdb a, int knockPort) throws IOException, InterruptedException {
+    private void launchServer(ShellAdb a) throws IOException, InterruptedException {
         String apk = context.getApplicationInfo().sourceDir;
         String command = "pkill " + ShellServer.NICE_NAME + "; (CLASSPATH='" + apk + "' setsid app_process / --nice-name=" + ShellServer.NICE_NAME
-            + " " + ShellServer.class.getName() + " " + context.getApplicationInfo().uid + " " + version + " " + knockPort
+            + " " + ShellServer.class.getName() + " " + context.getApplicationInfo().uid + " " + version
             + " </dev/null >/dev/null 2>&1 &); sleep 1; pidof " + ShellServer.NICE_NAME + " >/dev/null && echo " + STARTED_MARKER;
         AdbStream stream = a.openStream("shell:" + command);
         StringBuilder out = new StringBuilder();
@@ -453,7 +543,7 @@ final class ShellActivation {
         }
     }
 
-    /** Knocks again now and then in case a broadcast went missing. */
+    /** Knocks again now and then in case a broadcast went missing. @param port 0 for a new server, which picks its own */
     private boolean awaitServer(int port, long timeoutMs) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (!isRunning()) {
@@ -462,7 +552,7 @@ final class ShellActivation {
             synchronized (serverChanged) {
                 if (!isRunning()) serverChanged.wait(Math.min(left, KNOCK_EVERY_MS));
             }
-            if (!isRunning()) knock(port);
+            if (!isRunning() && port > 0) knock(port);
         }
         return true;
     }

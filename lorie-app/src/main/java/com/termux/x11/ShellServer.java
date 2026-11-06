@@ -28,11 +28,12 @@ import java.net.ServerSocket;
  *
  * A running XDesk asks for the Binder by connecting to a loopback port. Any app can do that, and all it causes is the
  * same broadcast to XDesk, so the socket reads nothing and carries nothing. A refused connection also tells XDesk straight
- * away that no server is running.
+ * away that no server is running. The kernel picks the port and the broadcast says which, so no app can take it first
+ * and answer in the server's place.
  */
 public final class ShellServer extends IShellServer.Stub {
     static final String ACTION_BINDER = "com.termux.x11.ShellServer.BINDER";
-    static final String EXTRA_BINDER = "binder";
+    static final String EXTRA_BINDER = "binder", EXTRA_PORT = "port";
     /** Held by the shell user and not grantable to apps: signature|installer. Shizuku's provider relies on the same one. */
     static final String BINDER_PERMISSION = "android.permission.INTERACT_ACROSS_USERS_FULL";
     static final String NICE_NAME = "xdesk_shell";
@@ -40,6 +41,8 @@ public final class ShellServer extends IShellServer.Stub {
     private static final String TAG = "XDeskShell";
     private static final String WRITE_SECURE_SETTINGS = "android.permission.WRITE_SECURE_SETTINGS";
     private static final long APK_CHECK_MS = 5000, MIN_RESEND_MS = 500, PM_TIMEOUT_MS = 10000;
+    /** A new server cannot be knocked at before XDesk knows its port, so it sends its Binder a few times by itself. */
+    private static final long[] FIRST_SENDS_MS = {2000, 5000, 10000};
     private static final int KNOCK_BACKLOG = 4;
 
     private final int appUid, version;
@@ -47,10 +50,10 @@ public final class ShellServer extends IShellServer.Stub {
     private InjectorService session;
     private long lastSent;
 
-    /** Arguments: XDesk's uid, its install version, the loopback port. They come from XDesk over its own adb connection. */
+    /** Arguments: XDesk's uid and its install version. They come from XDesk over its own adb connection. */
     public static void main(String[] args) {
-        if (args.length != 3) {
-            Log.e(TAG, "expected uid, version and port");
+        if (args.length != 2) {
+            Log.e(TAG, "expected uid and version");
             System.exit(2);
         }
         if (Looper.getMainLooper() == null) Looper.prepareMainLooper();
@@ -58,9 +61,11 @@ public final class ShellServer extends IShellServer.Stub {
         CmdEntryPoint.ctx = CmdEntryPoint.createContext();
         ShellServer server = new ShellServer(Integer.parseInt(args[0]), Integer.parseInt(args[1]));
         server.exitWhenApkGoes(System.getenv("CLASSPATH"));
-        new Thread(() -> server.answerKnocks(Integer.parseInt(args[2])), "xdesk-knock").start();
+        server.listenForKnocks();
         new Thread(ShellServer::grantSecureSettings, "xdesk-grant").start();
         server.sendBinder();
+        Handler handler = new Handler(Looper.getMainLooper());
+        for (long ms : FIRST_SENDS_MS) handler.postDelayed(server::sendBinder, ms);
         Looper.loop();
     }
 
@@ -100,7 +105,11 @@ public final class ShellServer extends IShellServer.Stub {
         return session;
     }
 
+    /** Gives back what the session holds first: the sound route and the density outlive this process. */
     @Override public void exit() {
+        synchronized (this) {
+            if (session != null) session.shutdown();
+        }
         System.exit(0);
     }
 
@@ -113,19 +122,30 @@ public final class ShellServer extends IShellServer.Stub {
         }
     }
 
-    private void answerKnocks(int port) {
-        try (ServerSocket socket = new ServerSocket(port, KNOCK_BACKLOG, InetAddress.getByName("127.0.0.1"))) {
-            while (true) {
-                socket.accept().close();
-                long now = SystemClock.uptimeMillis();
-                if (now - lastSent < MIN_RESEND_MS) continue;
-                lastSent = now;
-                sendBinder();
-            }
+    /** On a port the kernel picks, before the first broadcast, which carries it. */
+    private void listenForKnocks() {
+        final ServerSocket socket;
+        try {
+            socket = new ServerSocket(0, KNOCK_BACKLOG, InetAddress.getByName("127.0.0.1"));
         } catch (IOException e) {
             // XDesk will not find this process after a restart, so it starts a new one and that one kills this one
             Log.w(TAG, "no knock port", e);
+            return;
         }
+        binderIntent.putExtra(EXTRA_PORT, socket.getLocalPort());
+        new Thread(() -> {
+            try {
+                while (true) {
+                    socket.accept().close();
+                    long now = SystemClock.uptimeMillis();
+                    if (now - lastSent < MIN_RESEND_MS) continue;
+                    lastSent = now;
+                    sendBinder();
+                }
+            } catch (IOException e) {
+                Log.w(TAG, "knock port closed", e);
+            }
+        }, "xdesk-knock").start();
     }
 
     /**

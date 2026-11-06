@@ -133,9 +133,11 @@ Agreed after the second round. XDesk's job is putting apps on the big screen, wi
 Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privileged injector. When Shizuku is running and has allowed XDesk, it is used as before. Otherwise XDesk pairs once with the device's own adbd over wireless debugging (libadb-android, API 30+) and starts `ShellServer` through `app_process`. That process stays between sessions, because starting it again may need Wi-Fi, and each session is one `InjectorService`, which gives back what it holds when it ends or when the app dies. `AppSession` only sees an `IInjector`.
 
 - Only XDesk can get the Binder (a package-limited broadcast to a receiver requiring `INTERACT_ACROSS_USERS_FULL`) and only XDesk's uid can call it (`onTransact`).
-- A running XDesk asks for the Binder by connecting to a loopback port. That connection carries nothing.
+- A running XDesk asks for the Binder by connecting to a loopback port. That connection carries nothing. The server binds the port the kernel picks and names it in its broadcast, so no app can take it first, and XDesk forgets a saved port that does not answer.
+- Before libadb connects, XDesk checks that the port is adbd asking for TLS (`AdbTlsProbe`): libadb trusts any certificate and would sign an old style AUTH token. adbd makes a new key whenever it starts, so its certificate is remembered per boot, from the last start of the server. A refusal from a port with another certificate in that boot does not count as the pairing being lost.
 - A server exits when its APK goes away, and XDesk ends a server with another install's version.
-- XDesk only ever writes `adb_wifi_enabled`, never `adb_enabled` or `adb_allowed_connection_time`, has no boot receiver and does not use `adb tcpip`.
+- 停止内置服务 in the settings ends the server, its session first. XDesk then starts it again only when the user asks: an Android app, or 去启动.
+- XDesk only ever writes `adb_wifi_enabled` (and writes 0 back after a start when it was XDesk that turned it on), never `adb_enabled` or `adb_allowed_connection_time`, has no boot receiver and does not use `adb tcpip`.
 
 # Android Auto (parked)
 
