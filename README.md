@@ -111,7 +111,7 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
-- Android Auto, parked only (experimental): XDesk appears among the car's apps and shows a clock on the car's screen. From the phone you can run a Linux desktop there, sized to the car's screen, with the phone as touchpad and keyboard, and its sound plays in the car. Android apps cannot go on the car yet. With an external display also connected, the external display is used
+- Android Auto, parked only (experimental): XDesk appears among the car's apps and shows a clock on the car's screen. From the phone you can run a Linux desktop there, sized to the car's screen, with the phone as touchpad and keyboard, and its sound plays in the car. Android apps (YouTube, Chrome and others) run there too, on a display XDesk makes for them, and the car's touch screen works on them. With an external display also connected, the external display is used
 
 It installs next to the official Termux:X11 and does not touch it. Do not run both at once, since both use display `:1`.
 
@@ -159,7 +159,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 ## Limitations
 
 - Android apps need activation through wireless debugging or Shizuku, and only one full screen app or desktop can use the display at a time. Moving between them goes through the chooser
-- Android Auto: only while parked, and only a Linux desktop. When Android Auto closes XDesk or disconnects, the desktop keeps running without its window
+- Android Auto: only while parked. When Android Auto closes XDesk or disconnects, the desktop keeps running without its window, and Android apps keep running and come back when XDesk is opened on the car again. DRM video (some streaming apps) may be black on the car. Android apps on the car need activation, as on an external display, and go back to the phone when the session ends
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
 - Tested on a single phone, the European Xiaomi 15 Ultra
 
