@@ -209,9 +209,31 @@ public class LorieApp extends Application {
             activity.disconnectService();
     }
 
+    /**
+     * Exported, because the X server's ACTION_START comes from Termux's app_process. Anything else would let any app
+     * close the desktop window (ACTION_STOP) or run a user action (ACTION_CUSTOM), even when named explicitly, so it
+     * is dropped here. ACTION_START is checked against the X server's socket, see MainActivity.tryConnect.
+     */
     public static class Receiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (!ACTION_START.equals(intent.getAction())) {
+                Log.w("LorieApp", "Ignored " + intent.getAction() + " from outside the app");
+                return;
+            }
+            ((LorieApp) context.getApplicationContext()).onBroadcastReceive(intent);
+        }
+    }
+
+    /**
+     * Not exported: only this app's own broadcasts reach it, ACTION_PREFERENCES_CHANGED from the preferences and
+     * ACTION_CUSTOM from the notification's PendingIntents. ACTION_STOP has no sender here, so no filter lists it.
+     */
+    public static class LocalReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (ACTION_START.equals(intent.getAction()))  // the exported Receiver checks those
+                return;
             ((LorieApp) context.getApplicationContext()).onBroadcastReceive(intent);
         }
     }

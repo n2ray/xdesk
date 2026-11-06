@@ -79,10 +79,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Exported only for the X server's ACTION_START, which comes from Termux. The receiver drops anything else -->
         <receiver android:name=".LorieApp$Receiver" android:exported="true" tools:ignore="ExportedReceiver" android:enabled="true">
             <intent-filter>
                 <action android:name="com.termux.x11.CmdEntryPoint.ACTION_START" />
-                <action android:name="com.termux.x11.ACTION_STOP" />
+            </intent-filter>
+        </receiver>
+        <!-- The app's own broadcasts: preferences changed, and the notification's actions -->
+        <receiver android:name=".LorieApp$LocalReceiver" android:exported="false" android:enabled="true">
+            <intent-filter>
                 <action android:name="com.termux.x11.ACTION_PREFERENCES_CHANGED" />
                 <action android:name="com.termux.x11.ACTION_CUSTOM" />
             </intent-filter>
