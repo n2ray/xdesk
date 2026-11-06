@@ -84,8 +84,11 @@ JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_grab(JNIEnv *env, jclass cls, j
 JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_poll(JNIEnv *env, jclass cls, jintArray fds, jint count, jintArray out, jint timeoutMs) {
     struct pollfd p[MAX_DEVICES];
     jint in[MAX_DEVICES];
+    if (count < 0) count = 0;
     if (count > MAX_DEVICES) count = MAX_DEVICES;
+    // Throws ArrayIndexOutOfBoundsException if fds is shorter than count, leaving in[] unset.
     (*env)->GetIntArrayRegion(env, fds, 0, count, in);
+    if ((*env)->ExceptionCheck(env)) return -EINVAL;
     for (int i = 0; i < count; i++) {
         p[i].fd = in[i];
         p[i].events = POLLIN;
