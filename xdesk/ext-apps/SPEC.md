@@ -136,3 +136,12 @@ Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privi
 - A running XDesk asks for the Binder by connecting to a loopback port. That connection carries nothing.
 - A server exits when its APK goes away, and XDesk ends a server with another install's version.
 - XDesk only ever writes `adb_wifi_enabled`, never `adb_enabled` or `adb_allowed_connection_time`, has no boot receiver and does not use `adb tcpip`.
+
+# Android Auto (parked)
+
+`CarActivity` is XDesk's entry in Android Auto (`CAR_LAUNCHER`; Android Auto only lists games as parked apps, hence `appCategory="game"`). Android Auto makes a virtual display just for it, owned by its own package, with a new id on every connection. Its other displays (maps, toolbars, its dashboard) are virtual displays too.
+
+- **Which display.** `TargetDisplay` alone decides: a real external display (not the phone, not virtual) wins, otherwise the car's display, which is the one `CarActivity` reports it is on. Every other display is ignored, also in the display listener. While a desktop runs, it stays on the kind of display it is on: a display of the other kind arriving does not move it. When its display is gone, a newly plugged external display takes it as before, and the car takes it back when `CarActivity` returns.
+- **On the car** only a Linux desktop runs for now: `MainActivity` goes on top of `CarActivity`, sized to the car's display, and `CarActivity` shows again when it ends. Android Auto's virtual device blocks other packages' activities (they become `BlockedAppStreamingActivity`), so Android apps say they are not available on the car. Launching on a virtual display owned by another app needs `allowEmbedded` on `MainActivity`. There is no `DashboardActivity` (`CarActivity` is the dashboard) and no cover overlay on the car.
+- **Car gone** (Android Auto disconnects or closes `CarActivity`): X and the desktop keep running, as when an external display is unplugged, and the phone says so.
+- `CarActivity` logs its lifecycle and XDesk placing a desktop on it to `files/car_log.txt`, for testing.
