@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Point;
 import android.os.Bundle;
@@ -14,12 +15,34 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * Android Auto's entry while parked (CAR_LAUNCHER): the dashboard on the car's screen. A first step that also writes
- * what the car's display is and what happens to this activity to car_log.txt in the app's files, to plan the next steps.
+ * Android Auto's entry while parked (CAR_LAUNCHER): the dashboard on the car's screen, and what tells XDesk which display
+ * is the car's (see TargetDisplay). A Termux desktop goes on top of it. It also writes what the car's display is and what
+ * happens to this activity to car_log.txt in the app's files, to plan the next steps.
  */
 public class CarActivity extends Activity {
     private static final String TAG = "XDeskCar";
+    private static int displayId = Display.INVALID_DISPLAY;
+    private static Runnable listener;
     private DashboardView view;
+    /** The display this one told XDesk about. */
+    private int shownOn = Display.INVALID_DISPLAY;
+
+    /** The car's display, or INVALID_DISPLAY when this activity is not on one. */
+    static int displayId() {
+        return displayId;
+    }
+
+    /** Runs on the main thread when the car's display comes or goes. */
+    static void setListener(Runnable l) {
+        listener = l;
+    }
+
+    private void setDisplayId(int id) {
+        shownOn = id;
+        if (id == displayId) return;
+        displayId = id;
+        if (listener != null) listener.run();
+    }
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -28,6 +51,7 @@ public class CarActivity extends Activity {
         setContentView(view);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
         record("onCreate " + describe(getDisplay()) + " density=" + getResources().getConfiguration().densityDpi);
+        followDisplay();
     }
 
     @Override protected void onStart() {
@@ -54,12 +78,25 @@ public class CarActivity extends Activity {
 
     @Override protected void onDestroy() {
         record("onDestroy finishing=" + isFinishing());
+        if (shownOn == displayId) setDisplayId(Display.INVALID_DISPLAY);
         super.onDestroy();
     }
 
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         record("config " + c.screenWidthDp + "x" + c.screenHeightDp + "dp " + c.densityDpi + "dpi " + describe(getDisplay()));
+        followDisplay();
+    }
+
+    /** On the phone it has no purpose. The system may move it there when Android Auto's display goes away. */
+    private void followDisplay() {
+        Display d = getDisplay();
+        if (d == null || d.getDisplayId() == Display.DEFAULT_DISPLAY) {
+            setDisplayId(Display.INVALID_DISPLAY);
+            if (!isFinishing()) finishAndRemoveTask();
+            return;
+        }
+        setDisplayId(d.getDisplayId());
     }
 
     @Override public void onWindowFocusChanged(boolean focus) {
@@ -84,9 +121,14 @@ public class CarActivity extends Activity {
     }
 
     private void record(String what) {
+        record(this, what);
+    }
+
+    /** Also for XDesk's phone side, which shares this log. */
+    static void record(Context c, String what) {
         String line = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT).format(new Date()) + " " + what;
         Log.w(TAG, line);
-        try (FileWriter w = new FileWriter(new java.io.File(getFilesDir(), "car_log.txt"), true)) {
+        try (FileWriter w = new FileWriter(new java.io.File(c.getFilesDir(), "car_log.txt"), true)) {
             w.write(line + "\n");
         } catch (IOException e) {
             Log.w(TAG, "log", e);

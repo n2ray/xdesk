@@ -85,6 +85,7 @@ final class ChooserView extends LinearLayout {
     private final ArrayList<Row> rows = new ArrayList<>();
     private List<String> sessions = new ArrayList<>();
     private String runningSession, defaultSession, termuxHint, current, query = "";
+    private boolean onCar;
     private boolean xRunning;
     private List<AppCatalog.App> apps = new ArrayList<>();
     private List<String> dockKeys = new ArrayList<>();
@@ -196,7 +197,7 @@ final class ChooserView extends LinearLayout {
             return true;
         });
         addView(list, new LayoutParams(-1, 0, 1));
-        setDisplayConnected(false);
+        setDisplayConnected(false, false);
     }
 
     private TextView sectionLabel(String text) {
@@ -211,10 +212,14 @@ final class ChooserView extends LinearLayout {
         dock.setVisibility(searching ? GONE : VISIBLE);
     }
 
-    void setDisplayConnected(boolean connected) {
-        banner.setText("没有外接屏。可以先看看，插上显示器后才能启动。");
-        banner.setTextColor(Style.WARN);
-        banner.setVisibility(connected ? GONE : VISIBLE);
+    /** @param car 用的是车机：只能运行 Linux 桌面 */
+    void setDisplayConnected(boolean connected, boolean car) {
+        banner.setText(!connected ? "没有外接屏。可以先看看，插上显示器后才能启动。" : XDeskActivity.CAR_NO_APPS);
+        banner.setTextColor(!connected ? Style.WARN : Style.TEXT_DIM);
+        banner.setVisibility(connected && !car ? GONE : VISIBLE);
+        if (car == onCar) return;
+        onCar = car;
+        rebuild();
     }
 
     /** 盖在运行中的会话上时才有回到触摸板。 */
@@ -288,7 +293,7 @@ final class ChooserView extends LinearLayout {
         r.isSession = true;
         r.sessionName = name;
         r.running = name.equals(runningSession);
-        if (r.key.equals(current)) r.subtitle = "正在外接屏上";
+        if (r.key.equals(current)) r.subtitle = onCar ? "正在车机上" : "正在外接屏上";
         else if (r.running) r.subtitle = "正在运行，点按接回";
         else if (name.equals(defaultSession)) r.subtitle = "默认";
         r.action = () -> host.onSessionChosen(name);

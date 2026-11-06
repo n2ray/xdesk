@@ -51,6 +51,8 @@ public class XDeskActivity extends Activity {
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
+    static final String CAR_NO_APPS = "车机上暂时只能运行 Linux 桌面，安卓应用还不行";
+    private static final String CAR_GONE = "桌面还在运行，在车机上重新打开 XDesk 后自动恢复";
 
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
@@ -102,6 +104,12 @@ public class XDeskActivity extends Activity {
     private boolean padFullscreen;
     /** 这个显示器已经放过仪表盘了，放不上去也别一直试。 */
     private int dashboardTried = Display.INVALID_DISPLAY;
+    /** 认得的外接屏。拔掉时系统已经查不到它是什么屏了，只能靠记下的 id 认出来。 */
+    private final java.util.Set<Integer> realDisplays = new java.util.HashSet<Integer>();
+    /** 上次知道的车机显示器，没有是 INVALID_DISPLAY。 */
+    private int carSeen = Display.INVALID_DISPLAY;
+    /** 桌面放在了车机上。会话进行中不因为另一种屏接上就挪走。会话在进程里，界面重建后也要知道，所以是 static。 */
+    private static boolean desktopOnCar;
     private ChooserView chooser;
     private AppSession apps;
     private AppCatalog catalog;
@@ -220,15 +228,17 @@ public class XDeskActivity extends Activity {
 
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override public void onDisplayAdded(int id) {
+            // 只管外接屏。车机的显示器要等 CarActivity 起来才认得出（carChanged），Android Auto 别的显示器都不管
+            Display added = displays.getDisplay(id);
+            if (!TargetDisplay.isReal(added)) return;
+            realDisplays.add(id);
+            // 桌面在车机上：外接屏后来接上也不挪
+            if (session.isActive() && desktopOnCar && TargetDisplay.car(displays) != null) return;
             // 放在最底下，所以要先放它，再放应用或桌面窗口
             dashboardTried = Display.INVALID_DISPLAY;
-            Display forDashboard = displays.getDisplay(id);
-            if (forDashboard != null && id != Display.DEFAULT_DISPLAY) {
-                startDashboard(forDashboard);
-            }
+            startDashboard(added);
             if (apps.isActive()) {
-                Display added = displays.getDisplay(id);
-                if (added != null) apps.displayAdded(added);
+                apps.displayAdded(added);
                 return;
             }
             if (!session.isActive()) {
@@ -236,13 +246,18 @@ public class XDeskActivity extends Activity {
                 return;
             }
             // 可能换了显示器：按新尺寸算分辨率，再把桌面放回去
-            Display d = displays.getDisplay(id);
-            if (d != null) applySize(d);
+            desktopOnCar = false;
+            applySize(added);
             placeX11(id);
             needsPlacement = !resumed;
             updateStatus();
         }
         @Override public void onDisplayRemoved(int id) {
+            if (id == carSeen) {
+                carChanged();
+                return;
+            }
+            if (!realDisplays.remove(id)) return;
             removeCover();
             // 不收的话系统会把它挪到手机屏上
             DashboardActivity.closeIfAlive();
@@ -253,7 +268,8 @@ public class XDeskActivity extends Activity {
                 refocusSelf();
                 return;
             }
-            if (!session.isActive()) {
+            // 桌面在车机上时拔掉外接屏，桌面不受影响
+            if (!session.isActive() || desktopOnCar) {
                 updateChooserDisplay();
                 return;
             }
@@ -277,7 +293,14 @@ public class XDeskActivity extends Activity {
                 session.input().move(1, 0);
                 session.input().move(-1, 0);
             }
-            if (!c) showWaiting();
+            // 车机断开时系统可能直接关掉桌面窗口：X 还在，等车机回来
+            if (!c && desktopOnCar && TargetDisplay.car(displays) == null) {
+                showSetup("车机已断开", CAR_GONE, false, "回到启动器", new View.OnClickListener() {
+                    @Override public void onClick(View v) { backToChooser(); }
+                });
+            } else if (!c) {
+                showWaiting();
+            }
             updateStatus();
         }
         @Override public void onDesktopStopped(boolean byUser) {
@@ -472,6 +495,10 @@ public class XDeskActivity extends Activity {
         apps.setListener(appListener);
         audioRoute.setListener(audioListener);
         displays.registerDisplayListener(displayListener, ui);
+        for (Display d : displays.getDisplays()) if (TargetDisplay.isReal(d)) realDisplays.add(d.getDisplayId());
+        Display car = TargetDisplay.car(displays);
+        if (car != null) carSeen = car.getDisplayId();
+        CarActivity.setListener(this::carChanged);
         inputs.registerInputDeviceListener(deviceListener, ui);
         tryStart();
         ensureDashboard();
@@ -492,7 +519,7 @@ public class XDeskActivity extends Activity {
             if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
             return;
         }
-        Display d = externalDisplay();
+        Display d = desktopDisplay();
         if (needsPlacement && d != null) {
             needsPlacement = false;
             placeX11(d.getDisplayId());
@@ -500,11 +527,11 @@ public class XDeskActivity extends Activity {
         }
     }
 
-    /** 手机切到别的应用、或者锁屏：外接屏上的内容盖起来，键鼠交给手机。回来时都恢复。 */
+    /** 手机切到别的应用、或者锁屏：外接屏上的内容盖起来，键鼠交给手机。回来时都恢复。车机上不盖：Android Auto 的屏上未必能放悬浮窗。 */
     @Override protected void onStop() {
         super.onStop();
         Display d = externalDisplay();
-        if (d == null || !prefs.getBoolean(PREF_COVER, true) || !(apps.isActive() || session.isActive())) return;
+        if (d == null || TargetDisplay.isCar(d) || !prefs.getBoolean(PREF_COVER, true) || !(apps.isActive() || session.isActive())) return;
         cover.show(d);
         if (cover.isShown()) {
             forwardingBeforeCover = apps.isForwarding();
@@ -535,6 +562,7 @@ public class XDeskActivity extends Activity {
     @Override protected void onDestroy() {
         cover.hide();
         displays.unregisterDisplayListener(displayListener);
+        CarActivity.setListener(null);
         inputs.unregisterInputDeviceListener(deviceListener);
         ui.removeCallbacksAndMessages(null);
         session.setListener(null);
@@ -1173,7 +1201,7 @@ public class XDeskActivity extends Activity {
             updateAppStatus();
             return;
         }
-        if (session.isConnected()) setStatus(Style.OK, desktopName != null ? "外接屏上：" + desktopName : "桌面已连接");
+        if (session.isConnected()) setStatus(Style.OK, desktopName != null ? (onCar() ? "车机上：" : "外接屏上：") + desktopName : "桌面已连接");
         else setStatus(Style.WARN, "桌面未连接");
     }
 
@@ -1448,11 +1476,41 @@ public class XDeskActivity extends Activity {
 
     // --- 会话 ---
 
+    /** 现在用哪个屏：外接屏优先，没有就是车机（TargetDisplay）。运行中的桌面所在的屏还在，就一直是它。 */
     private Display externalDisplay() {
-        for (Display d : displays.getDisplays()) {
-            if (d.getDisplayId() != Display.DEFAULT_DISPLAY) return d;
+        if (session.isActive()) {
+            Display on = desktopDisplay();
+            if (on != null) return on;
         }
-        return null;
+        return TargetDisplay.find(displays);
+    }
+
+    /** 运行中的桌面放在的那种屏，断开了是 null。 */
+    private Display desktopDisplay() {
+        return desktopOnCar ? TargetDisplay.car(displays) : TargetDisplay.real(displays);
+    }
+
+    /** 车机来了或走了（CarActivity 起来、关掉，或者它的显示器没了）。外接屏优先，桌面在外接屏上时车机怎样都不管。 */
+    private void carChanged() {
+        Display car = TargetDisplay.car(displays);
+        int id = car != null ? car.getDisplayId() : Display.INVALID_DISPLAY;
+        if (id == carSeen) return;
+        carSeen = id;
+        if (!session.isActive() || !desktopOnCar) {
+            updateChooserDisplay();
+            return;
+        }
+        if (car == null) {
+            // 和拔掉外接屏一样：X 和桌面继续运行
+            setStatus(Style.WARN, "车机已断开。" + CAR_GONE);
+            needsPlacement = true;
+            refocusSelf();
+            return;
+        }
+        applySize(car);
+        placeX11(id);
+        needsPlacement = !resumed;
+        updateStatus();
     }
 
     private boolean installed(String pkg) {
@@ -1578,7 +1636,7 @@ public class XDeskActivity extends Activity {
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(title);
         boolean onDisplay = key.equals(currentKey());
-        TextView sub = Style.label(this, onDisplay ? "正在外屏上" : app != null ? "安卓应用" : "Linux 桌面",
+        TextView sub = Style.label(this, onDisplay ? (onCar() ? "正在车机上" : "正在外屏上") : app != null ? "安卓应用" : "Linux 桌面",
             onDisplay ? Style.OK : Style.TEXT_DIM, Style.TEXT_SMALL + 1);
         sub.setPadding(0, dp(2), 0, 0);
         titles.addView(sub);
@@ -1726,11 +1784,17 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateChooserDisplay() {
-        chooser.setDisplayConnected(externalDisplay() != null);
+        Display d = externalDisplay();
+        chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
     }
 
     private void needDisplayNotice() {
         Toast.makeText(this, "先用支持视频输出的 USB-C 线或扩展坞插上显示器", Toast.LENGTH_LONG).show();
+    }
+
+    /** 现在用的是车机，不是外接屏：说法和能做的事不同。 */
+    private boolean onCar() {
+        return TargetDisplay.isCar(externalDisplay());
     }
 
     private List<String> savedLines(String pref) {
@@ -1840,7 +1904,7 @@ public class XDeskActivity extends Activity {
         session.abandon();
         MainActivity m = MainActivity.getInstance("");
         if (m != null) m.finishAndRemoveTask();
-        Display d = externalDisplay();
+        Display d = TargetDisplay.real(displays);
         if (d != null && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
             showSetup("正在回到 " + apps.label(), "桌面窗口关了，外接屏上还有这个应用。", true, null, null);
             return;
@@ -1865,10 +1929,10 @@ public class XDeskActivity extends Activity {
 
     // --- 外接屏仪表盘 ---
 
-    /** XDesk 开着又有外接屏时，它就在最底下。外接屏上已有应用或桌面时不放，否则它会盖住它们。 */
+    /** XDesk 开着又有外接屏时，它就在最底下。外接屏上已有应用或桌面时不放，否则它会盖住它们。车机上 CarActivity 就是仪表盘。 */
     private void ensureDashboard() {
         Display d = externalDisplay();
-        if (d == null || apps.hasAppOnDisplay() || session.isActive()) return;
+        if (d == null || TargetDisplay.isCar(d) || apps.hasAppOnDisplay() || session.isActive()) return;
         if (dashboardTried == d.getDisplayId()) return;
         startDashboard(d);
     }
@@ -1905,6 +1969,12 @@ public class XDeskActivity extends Activity {
         if (d == null) {
             pendingApp = null;
             needDisplayNotice();
+            return;
+        }
+        // Android Auto 只让 XDesk 自己的窗口上车机，别的应用会被挡住
+        if (TargetDisplay.isCar(d)) {
+            pendingApp = null;
+            Toast.makeText(this, CAR_NO_APPS, Toast.LENGTH_LONG).show();
             return;
         }
         pendingApp = app;
@@ -2088,6 +2158,8 @@ public class XDeskActivity extends Activity {
     /** XDesk 只当显示器：放好窗口就等桌面连上来，桌面怎么起由用户决定。 */
     private void attachDisplay(Display d) {
         apps.suspend();
+        desktopOnCar = TargetDisplay.isCar(d);
+        if (desktopOnCar) CarActivity.record(this, "XDesk puts the desktop on display=" + d.getDisplayId() + " size=" + desktopSize(d));
         placeX11(d.getDisplayId());
         applySize(d);
         session.attach();
@@ -2237,7 +2309,7 @@ public class XDeskActivity extends Activity {
             o.setLaunchDisplayId(displayId);
             startActivity(i, o.toBundle());
         } catch (RuntimeException e) {
-            setStatus(Style.DANGER, "无法把桌面放到外屏: " + e.getMessage());
+            setStatus(Style.DANGER, (displayId == CarActivity.displayId() ? "无法把桌面放到车机: " : "无法把桌面放到外屏: ") + e.getMessage());
             return;
         }
         // 放置后焦点在 X11 上，拿回来，键盘和抓取鼠标才归 App

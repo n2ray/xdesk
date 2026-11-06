@@ -82,8 +82,9 @@
             android:enabled="true"
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-        <!-- 图标和任务列表都只留 XDesk：桌面窗口由 XDeskActivity 打开 -->
-        <activity android:name="com.termux.x11.MainActivity" android:excludeFromRecents="true" tools:node="merge">
+        <!-- 图标和任务列表都只留 XDesk：桌面窗口由 XDeskActivity 打开。
+             车机是 Android Auto 建的虚拟显示器，别的应用要往上面放 Activity，系统要求它 allowEmbedded -->
+        <activity android:name="com.termux.x11.MainActivity" android:excludeFromRecents="true" android:allowEmbedded="true" tools:node="merge">
             <intent-filter tools:node="removeAll" />
         </activity>
     </application>
