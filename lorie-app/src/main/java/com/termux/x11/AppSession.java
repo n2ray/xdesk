@@ -5,9 +5,11 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -17,6 +19,9 @@ import android.util.Log;
 import android.view.Display;
 import android.view.Surface;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import rikka.shizuku.Shizuku;
 
 /**
@@ -41,6 +46,8 @@ final class AppSession {
 
     private static final String TAG = "XDesk";
     static final int FULLSCREEN_FOLLOW = 0, FULLSCREEN_ON = 1, FULLSCREEN_OFF = 2;
+    /** In fullscreenPrefs: what XDesk set in the system for a package. */
+    private static final String APPLIED = "applied_";
     private static final int PERMISSION_REQUEST = 47131;
     /** Shizuku's first version with user services. */
     private static final int SHIZUKU_MIN_VERSION = 10;
@@ -881,16 +888,75 @@ final class AppSession {
 
     /** 启动之前调用。值没变就什么都不做。背景线程。@return 改了，应用已被结束 */
     private boolean applyFullscreenFor(IInjector i, AppCatalog.App a) throws RemoteException {
+        if (!fullscreenSupported()) return false;
         int mode = appFullscreen(a);
         boolean want = mode == FULLSCREEN_FOLLOW ? isFullscreenDefault() : mode == FULLSCREEN_ON;
-        String key = "applied_" + a.packageName;
+        String key = APPLIED + a.packageName;
         if (want == fullscreenPrefs.getBoolean(key, false)) return false;
         String error = i.setAppFullscreen(a.packageName, want);
         if (error != null) {
             Log.w(TAG, "fullscreen " + a.packageName + ": " + error);
+            ui.post(() -> {
+                if (listener != null) listener.onAppMessage("无法给 " + a.label + " 设横屏全屏：" + error);
+            });
             return false;
         }
         fullscreenPrefs.edit().putBoolean(key, want).apply();
+        return true;
+    }
+
+    /** UNIVERSAL_RESIZABLE_BY_DEFAULT 是 Android 16 的大屏规则，之前的系统没有。 */
+    static boolean fullscreenSupported() {
+        return Build.VERSION.SDK_INT >= 36;
+    }
+
+    /**
+     * 恢复所有应用：去掉 XDesk 设过的横屏全屏，默认和每个应用的选择都回到关。系统会结束改动的应用，外接屏上的那个再打开。
+     * 结果从 listener 说。
+     *
+     * @return false 没有注入服务，什么都没改
+     */
+    boolean resetFullscreen() {
+        final IInjector i = injector;
+        if (i == null) return false;
+        final List<String> changed = new ArrayList<>();
+        SharedPreferences.Editor edit = fullscreenPrefs.edit();
+        for (Map.Entry<String, ?> e : fullscreenPrefs.getAll().entrySet()) {
+            String key = e.getKey();
+            if (key.startsWith(APPLIED) && Boolean.TRUE.equals(e.getValue())) changed.add(key.substring(APPLIED.length()));
+            else if (!key.startsWith(APPLIED)) edit.remove(key);
+        }
+        edit.apply();
+        final AppCatalog.App shown = active && started ? app : null;
+        final Display d = display;
+        new Thread(() -> {
+            int failed = 0;
+            boolean restart = false;
+            for (String pkg : changed) {
+                try {
+                    String error = i.setAppFullscreen(pkg, false);
+                    if (error != null) {
+                        Log.w(TAG, "fullscreen reset " + pkg + ": " + error);
+                        failed++;
+                        continue;
+                    }
+                } catch (RemoteException e) {
+                    failed++;
+                    continue;
+                }
+                fullscreenPrefs.edit().remove(APPLIED + pkg).apply();
+                restart |= shown != null && shown.packageName.equals(pkg);
+            }
+            try {
+                if (restart && d != null) i.startApp(shown.component(), d.getDisplayId());
+            } catch (RemoteException e) {
+                Log.w(TAG, "fullscreen reset restart", e);
+            }
+            final String result = failed > 0 ? "有 " + failed + " 个应用没能恢复，注入服务连着时再试一次" : "已恢复 " + changed.size() + " 个应用";
+            ui.post(() -> {
+                if (listener != null) listener.onAppMessage(result);
+            });
+        }, "xdesk-fullscreen-reset").start();
         return true;
     }
 

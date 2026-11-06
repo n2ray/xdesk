@@ -1406,8 +1406,16 @@ public class XDeskActivity extends Activity {
 
         LinearLayout external = s.section(c, "外屏");
         addDensitySetting(s, external);
-        s.switchRow(external, "应用强制横屏全屏", "忽略竖屏锁定，只在外屏生效。应用下次启动时生效，第一次会重启。可在应用设置里单独改", apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
-        s.switchRow(external, "切到其他应用时遮住外屏", "外屏显示时钟，键鼠交给手机。应用继续运行，声音不停", prefs.getBoolean(PREF_COVER, true), on -> {
+        if (AppSession.fullscreenSupported()) {
+            s.switchRow(external, "应用强制横屏全屏", "忽略竖屏锁定，在外屏和其他大屏上都生效，手机屏不受影响。应用下次启动时生效，第一次会重启。可在应用设置里单独改", apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
+            s.valueRow(external, "恢复所有应用", "去掉 XDesk 给应用设过的横屏全屏", "", () ->
+                s.confirm("恢复所有应用？", "XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。", "恢复", () -> {
+                    if (!apps.resetFullscreen()) Toast.makeText(this, "要先连上注入服务：运行一次安卓应用后再试", Toast.LENGTH_LONG).show();
+                }));
+        }
+        String cover = "外屏显示时钟，键鼠交给手机。应用继续运行，声音不停";
+        if (!Settings.canDrawOverlays(this)) cover += "。没有悬浮窗权限，现在不会遮住";
+        s.switchRow(external, "切到其他应用或锁屏时遮住外屏", cover, prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
         });
         if (!appMode) {
@@ -1759,8 +1767,10 @@ public class XDeskActivity extends Activity {
             s.inlineNumberRow(display, "界面大小", global > 0 ? "dpi，空着跟随默认 " + global : "dpi，空着跟随默认",
                 global > 0 ? String.valueOf(global) : "默认", apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
                 dpi -> apps.setAppDensity(app, dpi), () -> apps.setAppDensity(app, 0));
-            s.segmentedRow(display, "横屏全屏", "默认现在是" + (apps.isFullscreenDefault() ? "开" : "关") + "。改动时应用会重启",
-                new String[]{"跟随默认", "开", "关"}, apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
+            if (AppSession.fullscreenSupported()) {
+                s.segmentedRow(display, "横屏全屏", "默认现在是" + (apps.isFullscreenDefault() ? "开" : "关") + "。改动时应用会重启",
+                    new String[]{"跟随默认", "开", "关"}, apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
+            }
             if (AppSession.touchModeAllowed(app)) {
                 s.groupLabel(c, "输入");
                 LinearLayout input = s.card(c);
