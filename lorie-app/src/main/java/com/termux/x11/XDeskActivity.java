@@ -1837,6 +1837,10 @@ public class XDeskActivity extends Activity {
                 parseTermuxState(stdout);
                 once.run();
             }
+            @Override public void onFailure(String message) {
+                termuxFailed(message);
+                once.run();
+            }
         });
         if (sent) ui.postDelayed(once, TERMUX_SWITCH_WAIT_MS);
         else once.run();
@@ -1914,9 +1918,16 @@ public class XDeskActivity extends Activity {
         setChooserTermux(savedSessions(), null, runningSession, false, null);
         boolean sent = TermuxCommand.run(this, TERMUX_STATE_COMMAND, new TermuxCommand.Callback() {
             @Override public void onOutput(String stdout) { parseTermuxState(stdout); }
+            @Override public void onFailure(String message) { termuxFailed(message); }
         });
         if (sent) ui.postDelayed(termuxNoReply, TERMUX_REPLY_TIMEOUT_MS);
         else termuxNoReply.run();
+    }
+
+    /** Termux 回了话但没列出来：不用再等超时，直接说为什么。环境用上次的。 */
+    private void termuxFailed(String message) {
+        ui.removeCallbacks(termuxNoReply);
+        setChooserTermux(savedSessions(), null, runningSession, false, message);
     }
 
     /** 解析 xdesk list 和 xdesk status 的输出。 */

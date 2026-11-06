@@ -1,5 +1,6 @@
 package com.termux.x11;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -13,12 +14,19 @@ import android.util.SparseArray;
 final class TermuxCommand {
     interface Callback {
         void onOutput(String stdout);
+        /** Termux 没运行命令，或者命令出错了：要告诉用户的话。 */
+        void onFailure(String message);
     }
 
     private static final String TAG = "XDesk";
     private static final String BASH = "/data/data/com.termux/files/usr/bin/bash";
     static final String EXTRA_ID = "xdesk_command_id";
-    private static final String EXTRA_RESULT = "result", RESULT_STDOUT = "stdout";
+    /** Termux 结果里的键，见 termux-shared 的 PluginResultsService。err 不是 RESULT_OK 时命令没有运行。 */
+    private static final String EXTRA_RESULT = "result", RESULT_STDOUT = "stdout", RESULT_STDERR = "stderr",
+        RESULT_EXIT = "exitCode", RESULT_ERR = "err", RESULT_ERRMSG = "errmsg";
+    /** bash 找不到命令。 */
+    private static final int EXIT_NOT_FOUND = 127;
+    private static final String INSTALL = "curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash";
 
     private static final SparseArray<Callback> PENDING = new SparseArray<>();
     private static int nextId = 1;
@@ -63,6 +71,32 @@ final class TermuxCommand {
         Bundle r = i.getBundleExtra(EXTRA_RESULT);
         if (callback == null || r == null) return;
         final String stdout = r.getString(RESULT_STDOUT, "");
-        new Handler(Looper.getMainLooper()).post(() -> callback.onOutput(stdout));
+        final String failure = failure(r, stdout);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (failure != null) callback.onFailure(failure);
+            else callback.onOutput(stdout);
+        });
+    }
+
+    /** null 是命令正常运行了。装了 xdesk 又有输出时就用输出，退出码不算数。 */
+    private static String failure(Bundle r, String stdout) {
+        String errmsg = r.getString(RESULT_ERRMSG, ""), stderr = r.getString(RESULT_STDERR, "");
+        if (r.getInt(RESULT_ERR, Activity.RESULT_OK) != Activity.RESULT_OK) {
+            Log.w(TAG, "Termux refused the command: " + errmsg);
+            if (errmsg.contains("allow-external-apps")) return "Termux 不让别的应用运行命令。在 Termux 里运行 xdesk enable-app-start 后点这里";
+            return "Termux 没有运行命令：" + firstLine(errmsg);
+        }
+        // 输出里还会有命令之间的 echo，所以先看是不是没装
+        int exit = r.getInt(RESULT_EXIT, 0);
+        if (exit == EXIT_NOT_FOUND || stderr.contains("xdesk: No such file")) return "Termux 里还没有装 xdesk。在 Termux 里运行下面这行，装好后点这里：\n" + INSTALL;
+        if (!stdout.trim().isEmpty()) return null;
+        if (exit != 0 || !stderr.trim().isEmpty()) return "xdesk 出错了（" + exit + "）：" + firstLine(stderr);
+        return null;
+    }
+
+    private static String firstLine(String s) {
+        String t = s.trim();
+        int n = t.indexOf('\n');
+        return n < 0 ? t : t.substring(0, n);
     }
 }
