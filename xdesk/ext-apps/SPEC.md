@@ -1,6 +1,6 @@
 # Android apps on the external display
 
-Status: a prototype works on a Xiaomi 15 Ultra (HyperOS 3, Android 16, no root) with RustDesk 1.5.1 controlling a Mac. This document specifies turning it into a proper XDesk feature. The prototype is in this directory.
+Status: shipped in v0.2.0. It started from a prototype on a Xiaomi 15 Ultra (HyperOS 3, Android 16, no root) with RustDesk 1.5.1 controlling a Mac, and this document specified turning it into a proper XDesk feature. The prototype (`Bridge.java`, `evcap.c` and others) was removed for v0.2.0 and is in the git history before that. Later sections record what was decided after each round, newest last.
 
 ## Goal
 
@@ -124,7 +124,7 @@ Agreed after the second round. XDesk's job is putting apps on the big screen, wi
 
 **Settings** is a full page of grouped rounded cards (显示, 输入, 声音, 外屏, 关于) with values on the right, and its own switches and selectors in the accent colour. 结束 XDesk is last, separate and red. The per-app card uses the same components.
 
-**Keyboard on the display.** By default the display's IME policy is set to hide while the injector runs, so apps do not raise the keyboard there, and the old value returns at the end, also on crash paths. A setting turns it off.
+**Keyboard on the display.** Superseded: setting the display's IME policy to hide disconnects the input method from the whole display, and a saved hide comes back, so it is not used. See "Take over in both modes".
 
 **Orientation** follows the system by default, with a setting to fix it. **Look:** dark, one blue accent, status colour only on small dots, icons for common actions, targets of at least 48 dp.
 
@@ -157,3 +157,17 @@ Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privi
 
 - All UI text is in resources: `lorie-app/src/main/res/values/strings.xml` (English, the default) and `values-zh-rCN/strings.xml` (Simplified Chinese), with names starting `xd_` so they stay clear of lorie's. Java has no UI literals. A sentence with values is a format string with numbered arguments, the same ones in both files.
 - The shell-uid process (InjectorService and what it runs) cannot rely on the app's resources or the user's language. Text it sends for the user is a code from `ShellText` (`#code` or `#code:detail`), which the app process turns into the user's language. Errors it passes on from the system or `am` are shown as they are. Logs are in English.
+
+# Take over in both modes
+
+- **Take over / Give back** is in the top bar for Android apps and Termux desktops alike.
+- **Android apps:** taking over grabs the physical devices as before (Ctrl+Alt+M too).
+- **Desktops:** taking over makes the phone's window not focusable and gives focus to the top task of the desktop's display (`IInjector.focusDisplay`, `focusTopTask`), so a physical keyboard types into `MainActivity` there through Termux:X11. The phone's window can then no longer hold pointer capture, so `MainActivity.setTakeMouse` makes the desktop window capture the mouse whatever the preference says, again each time it gets focus. Touching the phone takes focus away, so focus goes back to the display after each touch. Giving back returns focus to the phone. Covering the display (`onStop`) gives back and takes over again on return.
+- **Input method:** with a physical keyboard, taking over sets the display's IME policy to LOCAL (`ImePlacement`, in the injector), so the candidates show next to the text on the display; for a desktop they are Termux:X11's floating candidates, top left, whose position cannot be set (`CursorAnchorInfo` was tried). The old policy is remembered per display and put back on give back, session end, the session watcher and the crash handler. HIDE is never set, and a saved HIDE is restored as FALLBACK.
+- **Density under a desktop:** the display is forced to 168 dpi while a desktop shows (a setting, not on the car), which sizes Android's windows there, the candidates above all. It is recorded like an app's density, so a session that could not clear it is cleared later, and an app that follows sets its own again.
+- **HyperOS density fallback:** clearing a display's forced density gives it the phone's density (`persist.miui.density_v2`, 600 on the 15 Ultra), not its own. `DensityOverride.clear` therefore checks the base density afterwards and forces the display's initial density when they differ.
+- **Phone dimming:** only touches on the phone count as activity, not physical keys.
+
+# Desktop audio
+
+`AudioPlayer` plays the PulseAudio stream with a 100 ms `AudioTrack` buffer and starts it once 40 ms are written. A low latency track of about 20 ms underran when a video started in Chromium, and the first seconds crackled. Underruns are logged.

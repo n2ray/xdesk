@@ -1,3 +1,5 @@
+| Android apps get no input on Xiaomi | Turn on **USB debugging (Security settings)** in Developer options |
+| Flickering blocks in GPU programs on the car | Turnip's tiled rendering is interrupted by the composition of Android Auto's display. Start them with `TU_DEBUG=sysmem`; for Chromium, `--use-angle=gl --disable-features=Vulkan` is also faster |
 # XDesk
 
 **Put apps on the big screen from an Android phone, with no root.** XDesk runs an Android app full screen on an external display, or a Linux desktop from Termux, proot or chroot. The phone is the control surface: launcher and switcher, touchpad, keyboard and settings. Android apps need wireless debugging once to activate, or Shizuku if you already run it. Linux desktops need neither.
@@ -24,7 +26,7 @@ It installs the `xdesk` command and its loader, looks for desktops you already h
 
 No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
 
-> Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh). The APK is signed with the public test key from upstream, so it is fine for trying out, but anyone can sign an "update" with the same key.
+> Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh). From v0.2.0 the APK is signed with XDesk's own release key. v0.1.x used upstream's public test key, so Android refuses to update it: uninstall the old XDesk first.
 
 ## Requirements
 
@@ -78,7 +80,7 @@ A session that is already running is marked in the launcher. Tapping it reattach
 
 ## Android apps on the display
 
-Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
+Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. With a physical keyboard, taking over also moves the input method's candidates to the display, next to the text, and giving back returns them to the phone. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
 
 - **Activation, with no other app.** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user. It reads `/dev/input` and injects events. XDesk starts it itself through wireless debugging (Android 11 or later). You turn on wireless debugging and enter the pairing code once, in the notification or on XDesk's activation page. Then XDesk starts the service whenever it opens with wireless debugging on. Termux sessions need none of this.
   - Activating needs a Wi-Fi connection: Android switches wireless debugging off without one, and the phone's own hotspot probably does not count. Once the service runs, Wi-Fi can go away.
@@ -93,11 +95,11 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - **Android Back.** The **Back** key sends Back to the app on the display, for apps that rely on the edge swipe, and a mouse's side buttons send Back and Forward. In a RustDesk session the side buttons keep going to RustDesk. If Back leaves no app on the display, the list opens. It also goes to an app that Back uncovers.
 - **Two input modes, per app, and the cursor shows which.** **Mouse & keyboard** has XDesk's black arrow and is keyboard and mouse: the phone's touchpad, buttons and keys, and a physical mouse and keyboard. **Touch** is for apps and pages that only listen to touch, and has a rounded black arrowhead, which hides when still, so you can keep watching the big screen: one finger moves the cursor, a tap is a tap at the cursor, tap then press and slide is a drag, and press and hold is a long press. Two or more fingers, up to five, are real fingers placed around the cursor, with a dot on the display for each, so pinches and swipes pass through. A physical mouse then acts as fingers, left as one, right as two, and the wheel as a swipe. XDesk remembers the mode per app, the default is Mouse & keyboard, and RustDesk stays at Mouse & keyboard.
 - **Full screen touch area.** An icon in the touch area's corner makes it the whole phone screen, with the system bars hidden, and XDesk remembers this. Small translucent corner icons give Back and the keyboard, and leave full screen, as does the phone's Back. In Mouse & keyboard mode the left and right buttons go away, since tap, two-finger tap and hold-to-drag cover them.
-- **Keyboard on the display.** Apps do not raise the on-screen keyboard on the display, and you call it from XDesk. A setting turns this off. It needs the injector service, and the previous behaviour returns when the session ends.
+- **Keyboard.** Apps raise the phone's soft keyboard on the phone. The display's input method setting changes only while you have taken over with a physical keyboard, and is put back when you give back, when the session ends, or when the service dies.
 - **Dashboard.** With XDesk open and a display connected, the display shows a clock and status under whatever runs on it, and that is what appears when an app exits. **End XDesk** removes it, and mirroring returns.
 - **Ending the session.** The display stays as it is until you end XDesk with **End XDesk** (in the settings), or by swiping it away from recent tasks. Then apps on the display move back to the phone, not closed, the display returns to mirroring, input is released, and the sound route and interface size are reset. A Termux desktop keeps running without its window, and the launcher shows it as running. Moving apps needs the injector service. Without it they stay on the display, and XDesk says so. Going to the launcher or to the home screen ends nothing: taken input stays taken, and Ctrl+Alt+M still works.
 - **XDesk never restarts a desktop by itself.** If the X server stops, the launcher says so and the session can be started again with a tap.
-- **Interface size of the display.** A number in settings sets the default density from 120 to 220 dpi while an Android app is on the display, remembered per physical display. An app can have its own number on its card, which applies before it starts and whenever you switch to it. Density only changes when the value differs, because apps reconfigure. The cursor keeps its size, set from the display's height. It is reset when the session ends, so mirroring is normal again. A desktop has its own DPI setting, so the display goes back to its default while a desktop is showing. It needs the injector service.
+- **Interface size of the display.** A number in settings sets the default density from 120 to 220 dpi while an Android app is on the display, remembered per physical display. An app can have its own number on its card, which applies before it starts and whenever you switch to it. Density only changes when the value differs, because apps reconfigure. The cursor keeps its size, set from the display's height. It is reset when the session ends, so mirroring is normal again. While a Termux desktop is showing, the display uses a separate number, 168 dpi by default and set in the same place. It only sizes Android's windows there, such as the input method's candidates; the desktop has its own DPI setting. On HyperOS a cleared density falls back to the phone's own, so XDesk sets the display's own value instead. It needs the injector service.
 - **Tested on one phone only,** and only with RustDesk.
 - **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
 - **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
@@ -106,7 +108,7 @@ Tap an app in the chooser to run it full screen on the external display, with th
 
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
-- Physical mouse and keyboard, forwarded to the desktop
+- Physical mouse and keyboard, forwarded to the desktop. **Take over** in the top bar gives the desktop window the keyboard and mouse directly, so a physical keyboard's input method candidates show on the display; **Give back** returns them to the phone. Taking over needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
@@ -165,7 +167,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 ## Building
 
-The default branch is `xdesk`, `master` tracks upstream. Pushes build on GitHub Actions, and tags like `v0.1.0` publish a release.
+The default branch is `xdesk`, `master` tracks upstream. Pushes build on GitHub Actions, and tags like `v0.2.0` publish a release, signed with the key in the repository secrets (see `.github/workflows/release.yml`). `v0.*` releases are marked as pre-releases.
 
 ```sh
 git clone --recursive https://github.com/n2ray/xdesk
