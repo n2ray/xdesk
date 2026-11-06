@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XDesk 接收器</string>
+    <string name="idle_hint">在手机上打开 XDesk，选择这台显示器</string>
+    <string name="idle_address">地址：%1$s</string>
+    <string name="idle_no_network">没有网络连接</string>
+    <string name="idle_port_busy">端口 %1$d 被其他应用占用</string>
+    <string name="idle_options">长按或按菜单键打开选项 · 返回键退出</string>
+    <string name="pairing_title">与 %1$s 配对</string>
+    <string name="pairing_hint">在手机上的 XDesk 里输入这个配对码</string>
+    <string name="pairing_wrong">配对码不对，请重试</string>
+    <string name="connecting">正在连接 %1$s…</string>
+    <string name="cannot_decode">本机无法播放 %1$s 发来的视频（%2$d×%3$d）</string>
+    <string name="menu_rename">重命名这台接收器</string>
+    <string name="menu_forget">忘记已配对的手机</string>
+    <string name="forgotten">已忘记所有配对的手机，下次连接要重新输入配对码。</string>
+    <string name="ok">确定</string>
+    <string name="cancel">取消</string>
+</resources>

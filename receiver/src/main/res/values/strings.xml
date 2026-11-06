@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- English is the default; values-zh-rCN has the same names in Simplified Chinese -->
+<resources>
+    <string name="app_name">XDesk Receiver</string>
+    <string name="idle_hint">Open XDesk on your phone and choose this display</string>
+    <string name="idle_address">Address: %1$s</string>
+    <string name="idle_no_network">No network connection</string>
+    <string name="idle_port_busy">Port %1$d is in use by another app</string>
+    <string name="idle_options">Long-press or press Menu for options · Back exits</string>
+    <string name="pairing_title">Pair with %1$s</string>
+    <string name="pairing_hint">Enter this code in XDesk on the phone</string>
+    <string name="pairing_wrong">Wrong code, try again</string>
+    <string name="connecting">Connecting to %1$s…</string>
+    <string name="cannot_decode">This device cannot play the video from %1$s (%2$d×%3$d)</string>
+    <string name="menu_rename">Rename this receiver</string>
+    <string name="menu_forget">Forget paired phones</string>
+    <string name="forgotten">Paired phones forgotten. They will need a new code.</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+</resources>

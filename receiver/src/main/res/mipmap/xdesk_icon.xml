@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Before Android 8 there are no adaptive icons: the same layers stacked, the foreground cropped to the safe zone -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/xdesk_ic_bg" />
+    <item android:drawable="@drawable/xdesk_ic_fg_legacy" />
+</layer-list>
