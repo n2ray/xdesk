@@ -1,7 +1,4 @@
-                IBinder pendingConnection = pendingConnections.get(tag);
-                boolean sameConnection = binder.equals(activeService) || binder.equals(pendingConnection);
-                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit
-                if (!sameConnection && activeService != null && activeService.isBinderAlive() && verifiedServers.contains(activeService)) {package com.termux.x11;
+package com.termux.x11;
 
 import static android.os.Build.VERSION.SDK_INT;
 import static com.termux.x11.CmdEntryPoint.ACTION_START;
@@ -152,7 +149,8 @@ public class LorieApp extends Application {
                 IBinder activeService = activity != null && activity.service != null ? activity.service.asBinder() : null;
                 IBinder pendingConnection = pendingConnections.get(tag);
                 boolean sameConnection = binder.equals(activeService) || binder.equals(pendingConnection);
-                if (!sameConnection && ((activeService != null && activeService.isBinderAlive()) || (pendingConnection != null && pendingConnection.isBinderAlive()))) {
+                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit
+                if (!sameConnection && activeService != null && activeService.isBinderAlive() && verifiedServers.contains(activeService)) {
                     try {
                         ICmdEntryInterface.Stub.asInterface(binder).reportFatalError("Termux:X11 already has an active X server connection.");
                     } catch (RemoteException ignored) {}

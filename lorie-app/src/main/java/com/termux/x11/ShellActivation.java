@@ -1,5 +1,4 @@
-    void start() {
-        if (stoppedByUser || !isPaired() || isRunning() || starting || pairing) return;package com.termux.x11;
+package com.termux.x11;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
@@ -149,7 +148,7 @@ final class ShellActivation {
 
     /** Main thread. Starts the server if it is paired and none is running. Says what happened through the listener. */
     void start() {
-        if (!isPaired() || isRunning() || starting || pairing) return;
+        if (stoppedByUser || !isPaired() || isRunning() || starting || pairing) return;
         starting = true;
         problem = null;
         worker.execute(this::runStart);
