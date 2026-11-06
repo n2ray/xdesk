@@ -52,13 +52,41 @@ final class DensityOverride {
     synchronized String clear(int display, boolean force) {
         if (display == Display.DEFAULT_DISPLAY) return null;
         if (!ours.remove(display) && !force) return null;
+        String error = null;
         try {
             Object wm = windowManager();
             wm.getClass().getMethod("clearForcedDisplayDensityForUser", int.class, int.class).invoke(wm, display, USER_CURRENT);
-            return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.i(TAG, "clearForcedDisplayDensityForUser failed, trying wm: " + e);
-            return runWm("reset", "-d", String.valueOf(display));
+            error = runWm("reset", "-d", String.valueOf(display));
+        }
+        if (error == null) keepOwnDensity(display);
+        return error;
+    }
+
+    /**
+     * HyperOS gives a cleared external display the phone's density (persist.miui.density_v2, 600 on the 15 Ultra)
+     * instead of its own, so everything on it is huge. Then force its own density, which is what clearing means.
+     */
+    private static void keepOwnDensity(int display) {
+        int own = defaultDensity(display);
+        if (own <= 0) return;
+        int now;
+        try {
+            Object wm = windowManager();
+            now = (Integer) wm.getClass().getMethod("getBaseDisplayDensity", int.class).invoke(wm, display);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.i(TAG, "getBaseDisplayDensity failed: " + e);
+            return;
+        }
+        if (now <= 0 || now == own) return;
+        Log.i(TAG, "display " + display + " fell back to density " + now + " after clearing, setting its own " + own);
+        try {
+            Object wm = windowManager();
+            wm.getClass().getMethod("setForcedDisplayDensityForUser", int.class, int.class, int.class).invoke(wm, display, own, USER_CURRENT);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            String error = runWm(String.valueOf(own), "-d", String.valueOf(display));
+            if (error != null) Log.w(TAG, "cannot restore density on display " + display + ": " + error);
         }
     }
 
