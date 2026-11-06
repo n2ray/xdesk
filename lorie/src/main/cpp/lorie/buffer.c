@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <linux/dma-buf.h>
 #include <linux/memfd.h>
+#include <linux/sync_file.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -98,6 +100,52 @@ static void dmaBufCpuAccessEnd(LorieBuffer *buffer, bool write) {
         .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | (write ? DMA_BUF_SYNC_WRITE : 0),
     };
     ioctl(buffer->fd, DMA_BUF_IOCTL_SYNC, &sync);
+}
+
+#ifndef DMA_BUF_IOCTL_EXPORT_SYNC_FILE
+struct dma_buf_export_sync_file {
+    __u32 flags;
+    __s32 fd;
+};
+#define DMA_BUF_IOCTL_EXPORT_SYNC_FILE _IOWR(DMA_BUF_BASE, 2, struct dma_buf_export_sync_file)
+#endif
+
+// DMA_BUF_SYNC_START can only wait for the client's GPU if the client attached a fence to the
+// dma-buf (Mesa's WSI imports its render fence with DMA_BUF_IOCTL_IMPORT_SYNC_FILE). Without
+// one the ioctl returns at once and the CPU reads whatever the GPU has written so far. Exporting
+// the fences the CPU read would wait for tells which of the two happens: with no fence the
+// kernel hands out its always signalled stub fence.
+__LIBC_HIDDEN__ int LorieBuffer_dmaBufFenceState(LorieBuffer *buffer, char *driver, size_t driverSize) {
+    struct dma_buf_export_sync_file export = { .flags = DMA_BUF_SYNC_READ, .fd = -1 };
+    struct sync_file_info info = {0};
+    struct sync_fence_info fences[4];
+    int state = LORIEBUFFER_FENCE_UNKNOWN;
+
+    if (driver && driverSize)
+        driver[0] = 0;
+    if (!buffer || buffer->desc.type != LORIEBUFFER_FD || buffer->dmaBufSyncSupport != DMA_BUF_SYNC_SUPPORTED)
+        return state;
+    if (ioctl(buffer->fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &export) != 0)
+        return state;
+
+    if (ioctl(export.fd, SYNC_IOC_FILE_INFO, &info) == 0) {
+        state = info.status == 1 ? LORIEBUFFER_FENCE_SIGNALED : LORIEBUFFER_FENCE_PENDING;
+        if (info.num_fences >= 1 && info.num_fences <= 4) {
+            uint32_t n = info.num_fences;
+            memset(&info, 0, sizeof(info));
+            memset(fences, 0, sizeof(fences));
+            info.num_fences = n;
+            info.sync_fence_info = (uint64_t) (uintptr_t) fences;
+            if (ioctl(export.fd, SYNC_IOC_FILE_INFO, &info) == 0) {
+                if (n == 1 && strcmp(fences[0].driver_name, "stub") == 0)
+                    state = LORIEBUFFER_FENCE_NONE;
+                else if (driver && driverSize)
+                    snprintf(driver, driverSize, "%s", fences[0].driver_name);
+            }
+        }
+    }
+    close(export.fd);
+    return state;
 }
 
 __LIBC_HIDDEN__ bool LorieBuffer_cpuAccessBegin(LorieBuffer *buffer, bool write) {

@@ -615,11 +615,20 @@ static uint64_t gpuCopyAttempts = 0, gpuCopyOffloads = 0;
 static uint64_t gpuCopyFallbackRects = 0, gpuCopyFallbackQueueFull = 0, gpuCopyFallbackOther = 0;
 // CPU accesses to imported dma-bufs and how long starting them took (waiting for the client's GPU), see loriePrepareAccess.
 static uint64_t dmaBufSyncs = 0, dmaBufSyncWaits = 0, dmaBufSyncMaxWaitUs = 0;
+// Which fences those CPU reads found on the client's dma-buf, see LorieBuffer_dmaBufFenceState.
+static uint64_t dmaBufFenceNone = 0, dmaBufFenceSignaled = 0, dmaBufFencePending = 0, dmaBufFenceUnknown = 0;
+static char dmaBufFenceDriver[32];
 
 static CARD32 lorieFramecounter(unused OsTimerPtr timer, unused CARD32 time, unused void *arg) {
     if (dmaBufSyncs)
         log(INFO, "dma-buf sync: %llu CPU accesses to client buffers in 5.0 seconds, %llu took 1 ms or more (longest %llu us)",
             (unsigned long long) dmaBufSyncs, (unsigned long long) dmaBufSyncWaits, (unsigned long long) dmaBufSyncMaxWaitUs);
+    if (dmaBufFenceNone || dmaBufFenceSignaled || dmaBufFencePending)
+        log(INFO, "dma-buf fences: of the CPU reads of client buffers, %llu found no fence from the client (nothing to wait for), %llu found it signalled, %llu found it pending (%s)%s",
+            (unsigned long long) dmaBufFenceNone, (unsigned long long) dmaBufFenceSignaled, (unsigned long long) dmaBufFencePending,
+            dmaBufFenceDriver[0] ? dmaBufFenceDriver : "no fence driver seen",
+            dmaBufFenceUnknown ? ", some could not be checked" : "");
+    dmaBufFenceNone = dmaBufFenceSignaled = dmaBufFencePending = dmaBufFenceUnknown = 0;
     dmaBufSyncs = dmaBufSyncWaits = dmaBufSyncMaxWaitUs = 0;
 
     if (pvfb->state->renderedFrames || gpuCopyAttempts)
@@ -1247,6 +1256,17 @@ Bool loriePrepareAccess(PixmapPtr pPix, int index) {
             priv->dmaBufAccessDepth++;
             priv->dmaBufAccessWrite |= write;
         } else if (LorieBuffer_description(priv->buffer)->type == LORIEBUFFER_FD) {
+            if (!write) {
+                char driver[32];
+                switch (LorieBuffer_dmaBufFenceState(priv->buffer, driver, sizeof(driver))) {
+                    case LORIEBUFFER_FENCE_NONE: dmaBufFenceNone++; break;
+                    case LORIEBUFFER_FENCE_SIGNALED: dmaBufFenceSignaled++; break;
+                    case LORIEBUFFER_FENCE_PENDING: dmaBufFencePending++; break;
+                    default: dmaBufFenceUnknown++; break;
+                }
+                if (driver[0])
+                    memcpy(dmaBufFenceDriver, driver, sizeof(dmaBufFenceDriver));
+            }
             CARD64 start = GetTimeInMicros(), waited;
             if (LorieBuffer_cpuAccessBegin(priv->buffer, write)) {
                 static Bool announced = FALSE;

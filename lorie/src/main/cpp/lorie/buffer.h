@@ -156,6 +156,22 @@ int LorieBuffer_lock(LorieBuffer* _Nullable buffer, void* _Nullable * _Nonnull o
 bool LorieBuffer_cpuAccessBegin(LorieBuffer* _Nullable buffer, bool write);
 void LorieBuffer_cpuAccessEnd(LorieBuffer* _Nullable buffer, bool write);
 
+enum {
+    LORIEBUFFER_FENCE_UNKNOWN = -1, // not a dma-buf, or the kernel can not export its fences
+    LORIEBUFFER_FENCE_NONE = 0,     // nothing to wait for: the client attached no fence
+    LORIEBUFFER_FENCE_SIGNALED = 1, // the client's fence is attached and its GPU is done
+    LORIEBUFFER_FENCE_PENDING = 2,  // the client's fence is attached and its GPU is still busy
+};
+
+/**
+ * Which fences a CPU read of a dma-buf backed buffer would wait for. Only meaningful after a
+ * successful LorieBuffer_cpuAccessBegin on the buffer. Diagnostic only.
+ *
+ * @param driver receives the driver name of the first fence, if there is one
+ * @return one of LORIEBUFFER_FENCE_*
+ */
+int LorieBuffer_dmaBufFenceState(LorieBuffer* _Nullable buffer, char* _Nullable driver, size_t driverSize);
+
 /**
  * Unlock the AHardwareBuffer from direct CPU access.
  * See AHardwareBuffer_unlock() description for details
