@@ -152,3 +152,8 @@ Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privi
 - **Sound on the car.** Desktop audio plays on the default media route, which Android Auto takes to the car. While the car is the target, the chosen output is not applied (neither `setPreferredDevice` nor the injector's media role, which is cleared if an earlier session left one) and the output chooser says so. The saved choice is kept and applies again with an external display.
 - **Car gone** (Android Auto disconnects or closes `CarActivity`): X and the desktop keep running, as when an external display is unplugged, and the phone says so.
 - The car's display, XDesk placing a desktop on it, and the apps' display (made, its size and dpi, surface attached and detached) go to logcat (tags `XDeskCar` and `XDesk`). Nothing is written to a file.
+
+# UI text
+
+- All UI text is in resources: `lorie-app/src/main/res/values/strings.xml` (English, the default) and `values-zh-rCN/strings.xml` (Simplified Chinese), with names starting `xd_` so they stay clear of lorie's. Java has no UI literals. A sentence with values is a format string with numbered arguments, the same ones in both files.
+- The shell-uid process (InjectorService and what it runs) cannot rely on the app's resources or the user's language. Text it sends for the user is a code from `ShellText` (`#code` or `#code:detail`), which the app process turns into the user's language. Errors it passes on from the system or `am` are shown as they are. Logs are in English.
