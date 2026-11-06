@@ -6,10 +6,10 @@
     <path android:pathData="M0,0h320v180h-320z" android:fillColor="#11151C" />
     <group android:translateX="124" android:translateY="54" android:scaleX="2" android:scaleY="2">
         <group android:translateX="-36" android:translateY="-36">
-            <path android:pathData="M36,72L44.6,63.4M63.4,44.6L72,36"
-                android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
-            <path android:pathData="M36,36L72,72"
+            <path android:pathData="M36,36L44.6,44.6M63.4,63.4L72,72"
                 android:strokeColor="#FFFFFF" android:strokeWidth="11" android:strokeLineCap="round" />
+            <path android:pathData="M72,36L36,72"
+                android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
         </group>
     </group>
 </vector>

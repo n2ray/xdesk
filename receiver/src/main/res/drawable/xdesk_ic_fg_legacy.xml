@@ -4,9 +4,9 @@
     android:width="48dp" android:height="48dp"
     android:viewportWidth="72" android:viewportHeight="72">
     <group android:translateX="-18" android:translateY="-18">
-        <path android:pathData="M36,72L44.6,63.4M63.4,44.6L72,36"
-            android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
-        <path android:pathData="M36,36L72,72"
+        <path android:pathData="M36,36L44.6,44.6M63.4,63.4L72,72"
             android:strokeColor="#FFFFFF" android:strokeWidth="11" android:strokeLineCap="round" />
+        <path android:pathData="M72,36L36,72"
+            android:strokeColor="#3D7EF5" android:strokeWidth="11" android:strokeLineCap="round" />
     </group>
 </vector>
