@@ -28,7 +28,12 @@ final class DesktopSession {
     private static final long POLL_MS = 500;
     /** 窗口重建时也会短暂断开，断开这么久才算 X 服务器没了。 */
     private static final long SERVER_LOST_MS = 3000;
-    private static final String ACTION_STOPPED = "io.github.n2ray.xdesk.STOPPED";
+    private static final String ACTION_STOPPED = "io.github.n2ray.xdesk.STOPPED", EXTRA_NONCE = "nonce";
+    /**
+     * Any app can send ACTION_STOPPED. xdesk saves this in its run dir, which other apps cannot read, when XDesk
+     * runs it, and xdesk stop sends it back. New for each XDesk process: every command XDesk runs passes the current one.
+     */
+    static final String NONCE = newNonce();
 
     private static DesktopSession instance;
 
@@ -65,9 +70,23 @@ final class DesktopSession {
     /** xdesk stop 广播过来：用户主动结束的，界面不用当成意外。 */
     private final BroadcastReceiver stopped = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            stoppedByUser = true;
+            if (NONCE.equals(i.getStringExtra(EXTRA_NONCE))) stoppedByUser = true;
+            else Log.w(TAG, "ignored " + ACTION_STOPPED + " without the nonce");
         }
     };
+
+    private static String newNonce() {
+        byte[] b = new byte[16];
+        new java.security.SecureRandom().nextBytes(b);
+        StringBuilder s = new StringBuilder();
+        for (byte x : b) s.append(String.format("%02x", x));
+        return s.toString();
+    }
+
+    /** For a bash -c script that runs xdesk: the nonce for its STOPPED broadcast. */
+    static String nonceEnv() {
+        return "export XDESK_NONCE=" + NONCE + "; ";
+    }
 
     private DesktopSession(Context c) {
         context = c;
@@ -88,7 +107,7 @@ final class DesktopSession {
         active = true;
         audio = new AudioPlayer(AUDIO_PORT, AudioRoute.get(context));
         context.startForegroundService(new Intent(context, DesktopService.class));
-        // 只用来区分是不是用户结束的，别的 App 发了也无害
+        // 只用来区分是不是用户结束的。别的 App 发的没有 NONCE，不算
         context.registerReceiver(stopped, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);
         ui.post(poll);
     }
@@ -131,9 +150,12 @@ final class DesktopSession {
     }
 
     private boolean run(String... args) {
-        String[] argv = new String[args.length + 1];
-        argv[0] = SCRIPT;
-        System.arraycopy(args, 0, argv, 1, args.length);
+        // bash -c, so that xdesk gets the nonce in its environment. Arguments stay separate words: "$@"
+        String[] argv = new String[args.length + 3];
+        argv[0] = "-c";
+        argv[1] = nonceEnv() + "exec " + SCRIPT + " \"$@\"";
+        argv[2] = "xdesk";
+        System.arraycopy(args, 0, argv, 3, args.length);
         Intent i = new Intent("com.termux.RUN_COMMAND");
         i.setClassName("com.termux", "com.termux.app.RunCommandService");
         i.putExtra("com.termux.RUN_COMMAND_PATH", BASH);

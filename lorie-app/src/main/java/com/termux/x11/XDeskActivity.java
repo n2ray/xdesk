@@ -49,7 +49,7 @@ public class XDeskActivity extends Activity {
     private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3;
     private static final String PKG_TERMUX = "com.termux";
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
-    private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
+    private static final String TERMUX_STATE_COMMAND = DesktopSession.nonceEnv() + SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
     private static final int NO_DISPLAY = R.string.xd_no_display;
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
