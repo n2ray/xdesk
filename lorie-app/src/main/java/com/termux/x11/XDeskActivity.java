@@ -51,13 +51,16 @@ public class XDeskActivity extends Activity {
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
+    private static final String NO_DISPLAY = "没有找到外接屏。要用支持视频输出（DisplayPort）的 USB-C 口接显示器或扩展坞，或者连上 Android Auto 车机。"
+        + "有的手机的 USB-C 口不能输出视频，这样的手机只能用车机。";
+    private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
     private static final String CAR_GONE = "桌面还在运行，在车机上重新打开 XDesk 后自动恢复";
 
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
-        PREF_FULL_PAD = "pad_fullscreen";
+        PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked";
     private static final int MAX_RECENTS = 6;
     private static final long TERMUX_REPLY_TIMEOUT_MS = 8000;
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
@@ -110,6 +113,8 @@ public class XDeskActivity extends Activity {
     /** 桌面放在了车机上。会话进行中不因为另一种屏接上就挪走。会话在进程里，界面重建后也要知道，所以是 static。 */
     private static boolean desktopOnCar;
     private ChooserView chooser;
+    /** 启动器上的提示现在是 NO_DISPLAY。 */
+    private boolean displayNoticeShown;
     private AppSession apps;
     private AppCatalog catalog;
     private AudioRoute audioRoute;
@@ -1211,6 +1216,7 @@ public class XDeskActivity extends Activity {
     private void showSetup(String title, String message, boolean progress, String action, View.OnClickListener onAction) {
         chooser.setVisibility(View.GONE);
         chooser.setNotice(null);
+        displayNoticeShown = false;
         setupScreen.setVisibility(View.VISIBLE);
         applyFullscreen();
         setupTitle.setText(title);
@@ -1238,6 +1244,7 @@ public class XDeskActivity extends Activity {
         }
         chooser.setVisibility(View.GONE);
         chooser.setNotice(null);
+        displayNoticeShown = false;
         setupScreen.setVisibility(View.GONE);
         applyFullscreen();
         refreshDocks();
@@ -1863,12 +1870,22 @@ public class XDeskActivity extends Activity {
 
     private void updateChooserDisplay() {
         Display d = externalDisplay();
+        if (d != null && displayNoticeShown) {
+            displayNoticeShown = false;
+            chooser.setNotice(null);
+        }
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
         audioRoute.setCar(onCar());
     }
 
+    /** 要外接屏才能做的事：在启动器上一直说着，接上屏为止。 */
     private void needDisplayNotice() {
-        Toast.makeText(this, "先用支持视频输出的 USB-C 线或扩展坞插上显示器", Toast.LENGTH_LONG).show();
+        if (chooser.getVisibility() != View.VISIBLE) {
+            if (apps.isActive() || session.isActive()) openChooserOverSession();
+            else showChooser();
+        }
+        chooser.setNotice(NO_DISPLAY);
+        displayNoticeShown = true;
     }
 
     /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。 */
@@ -2144,11 +2161,19 @@ public class XDeskActivity extends Activity {
         activation = null;
     }
 
+    /** 通知权限只问一次：拒绝过就不再弹，没有通知也能用。@return 问了，结果在 onRequestPermissionsResult */
+    private boolean askNotificationsOnce() {
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            || prefs.getBoolean(PREF_NOTIFICATIONS_ASKED, false)) return false;
+        prefs.edit().putBoolean(PREF_NOTIFICATIONS_ASKED, true).apply();
+        requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+        return true;
+    }
+
     /** 配对框开着时才有配对码，所以先把找端口的服务开起来，用户在系统设置里也能从通知输入。 */
     private void beginPairing() {
-        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (askNotificationsOnce()) {
             pairingAfterPermission = true;
-            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
             return;
         }
         startPairingService();
@@ -2277,7 +2302,9 @@ public class XDeskActivity extends Activity {
      */
     private void launchDesktop(String name, boolean replace) {
         if (!installed(PKG_TERMUX)) {
-            showSetup("缺少组件", "XDesk 需要 Termux。\n装好后回到这里再选一次。", false, null, null);
+            showSetup("缺少组件", "Termux 桌面要用 Termux，从 F-Droid 或 Termux 的 GitHub 页面安装。\n装好后回到这里再选一次。\n\n外接屏上运行安卓应用不需要 Termux。", false,
+                "打开 F-Droid 上的 Termux", v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TERMUX_DOWNLOAD))));
+            addSetupChoice("回到启动器", v -> backToChooser());
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
@@ -2298,9 +2325,7 @@ public class XDeskActivity extends Activity {
             }
             attachDisplay(d);
         }
-        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
-        }
+        askNotificationsOnce();
         showSetup("正在启动桌面", "第一次启动可能要多等一会。", true, null, null);
         if (!session.launch(name, replace)) return;
         // xdesk switch 不断开 X，不会再有“连上了”的通知
