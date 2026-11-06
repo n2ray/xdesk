@@ -7,6 +7,8 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <linux/ashmem.h>
 #include <cerrno>
 #include <jni.h>
 #include <android/looper.h>
@@ -71,6 +73,7 @@ struct LorieViewResources {
     ~LorieViewResources();
     void connect(jint fd);
     int xcallback(int fd, int events);
+    void showServerVersionMismatch();
 };
 
 static jclass FindClassOrDie(JNIEnv *env, const char* name) {
@@ -195,6 +198,43 @@ LorieViewResources::~LorieViewResources() {
     }
 }
 
+// Size of a shared memory region (memfd or ashmem), -1 if it can not be found out.
+static off_t sharedRegionSize(int fd) {
+    struct stat st = {};
+    if (fstat(fd, &st) == 0 && st.st_size > 0)
+        return st.st_size;
+    int size = ioctl(fd, ASHMEM_GET_SIZE, nullptr);
+    return size > 0 ? size : -1;
+}
+
+// The X server and this app do not agree on the shared state: nothing can be drawn until the X
+// server is restarted, so tell the user (a toast, the view itself stays empty).
+void LorieViewResources::showServerVersionMismatch() {
+    static const char message[] = "XDesk: the running X server is from another XDesk version and must be restarted. "
+                                  "Run \"xdesk stop\" in Termux, then start the desktop again.";
+    jclass viewClass = env->FindClass("android/view/View");
+    jclass toastClass = env->FindClass("android/widget/Toast");
+    jmethodID getContext = viewClass ? env->GetMethodID(viewClass, "getContext", "()Landroid/content/Context;") : nullptr;
+    jmethodID makeText = toastClass ? env->GetStaticMethodID(toastClass, "makeText", "(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;") : nullptr;
+    jmethodID show = toastClass ? env->GetMethodID(toastClass, "show", "()V") : nullptr;
+    if (getContext && makeText && show) {
+        jobject context = env->CallObjectMethod(thiz, getContext);
+        jstring text = env->NewStringUTF(message);
+        jobject toast = context && text ? env->CallStaticObjectMethod(toastClass, makeText, context, text, 1 /* LENGTH_LONG */) : nullptr;
+        if (toast)
+            env->CallVoidMethod(toast, show);
+        env->DeleteLocalRef(toast);
+        env->DeleteLocalRef(text);
+        env->DeleteLocalRef(context);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(viewClass);
+    env->DeleteLocalRef(toastClass);
+}
+
 int LorieViewResources::xcallback(int fd, int events) {
     if (events & (ALOOPER_EVENT_ERROR | ALOOPER_EVENT_HANGUP)) {
         ALooper_removeFd(ALooper_forThread(), fd);
@@ -250,10 +290,27 @@ int LorieViewResources::xcallback(int fd, int events) {
                     if (stateFd < 0)
                         break;
 
-                    state = (struct lorie_shared_server_state*) mmap(nullptr, sizeof(*state), PROT_READ|PROT_WRITE, MAP_SHARED, stateFd, 0);
-                    if (!state || state == MAP_FAILED) {
-                        log(ERROR, "Failed to map server state: %s", strerror(errno));
-                        state = nullptr;
+                    // An X server started before the app was updated can share a state laid out
+                    // differently: using it would corrupt the lock and everything after it.
+                    off_t size = sharedRegionSize(stateFd);
+                    if (size >= 0 && (size_t) size < sizeof(*state)) {
+                        log(ERROR, "Server state is %lld bytes, this app expects %zu: the X server is from another XDesk version",
+                            (long long) size, sizeof(*state));
+                        showServerVersionMismatch();
+                    } else {
+                        state = (struct lorie_shared_server_state*) mmap(nullptr, sizeof(*state), PROT_READ|PROT_WRITE, MAP_SHARED, stateFd, 0);
+                        if (!state || state == MAP_FAILED) {
+                            log(ERROR, "Failed to map server state: %s", strerror(errno));
+                            state = nullptr;
+                        } else if (state->magic != LORIE_SHARED_STATE_MAGIC || state->version != LORIE_SHARED_STATE_VERSION ||
+                                   state->size != sizeof(*state)) {
+                            log(ERROR, "Server state has magic %08x version %u size %u, this app expects %08x %u %zu: "
+                                       "the X server is from another XDesk version",
+                                state->magic, state->version, state->size, LORIE_SHARED_STATE_MAGIC, LORIE_SHARED_STATE_VERSION, sizeof(*state));
+                            munmap(state, sizeof(*state));
+                            state = nullptr;
+                            showServerVersionMismatch();
+                        }
                     }
 
                     renderer.setSharedState(state);

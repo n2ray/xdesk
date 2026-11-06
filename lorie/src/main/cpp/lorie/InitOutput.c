@@ -162,10 +162,15 @@ void OsVendorInit(void) {
         _exit(1);
     }
 
-    if (!(lorieScreen.state = mmap(NULL, sizeof(*lorieScreen.state), PROT_READ|PROT_WRITE, MAP_SHARED, lorieScreen.stateFd, 0))) {
+    lorieScreen.state = mmap(NULL, sizeof(*lorieScreen.state), PROT_READ|PROT_WRITE, MAP_SHARED, lorieScreen.stateFd, 0);
+    if (!lorieScreen.state || lorieScreen.state == MAP_FAILED) {
         dprintf(2, "FATAL: Failed to map server state.\n");
         _exit(1);
     }
+    // Lets an app from another XDesk version see that it can not use this state, see lorie.h.
+    lorieScreen.state->magic = LORIE_SHARED_STATE_MAGIC;
+    lorieScreen.state->version = LORIE_SHARED_STATE_VERSION;
+    lorieScreen.state->size = sizeof(*lorieScreen.state);
 
     pthread_mutexattr_init(&mutex_attr);
     pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);

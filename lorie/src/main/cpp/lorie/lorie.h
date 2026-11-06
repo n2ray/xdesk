@@ -200,7 +200,18 @@ typedef struct {
     LorieGpuCopyRect rects[LORIE_GPU_COPY_MAX_RECTS];
 } LorieGpuCopyEntry;
 
+/*
+ * The X server and the app can come from different XDesk versions: an X server started before the
+ * app was updated keeps running the old code. The app checks these before it uses the shared state.
+ * Bump LORIE_SHARED_STATE_VERSION whenever struct lorie_shared_server_state (or anything in it) changes.
+ */
+#define LORIE_SHARED_STATE_MAGIC 0x4b534458u /* "XDSK" */
+#define LORIE_SHARED_STATE_VERSION 1u
+
 struct lorie_shared_server_state {
+    // Set by the X server once the state is mapped: LORIE_SHARED_STATE_MAGIC, _VERSION and sizeof(the state).
+    uint32_t magic, version, size;
+
     /*
      * Renderer and X server are separated into 2 different processes.
      * Root window and cursor content and properties are shared across these 2 processes.
