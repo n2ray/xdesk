@@ -138,7 +138,7 @@ final class TaskMover {
         }
     }
 
-    private static boolean visible(Object info) {
+    static boolean visible(Object info) {
         for (String name : new String[]{"visible", "isVisible"}) {
             try {
                 return info.getClass().getField(name).getBoolean(info);

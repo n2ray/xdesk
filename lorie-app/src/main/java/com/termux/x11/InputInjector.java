@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 
 /**
  * Turns mouse and key input into real Android events on one display. Lives in the shell-user process and must be
@@ -89,6 +90,10 @@ final class InputInjector {
 
     private final Object inputManager;
     private final Method inject, setDisplayMotion, setDisplayKey, setActionButton;
+    /** See resolveFocus. Only the methods this Android version has are set. */
+    private Object taskManager;
+    private Method focusTopTask, rootTasksOnDisplay, setFocusedTask, stacksOnDisplay, setFocusedStack;
+    private boolean focusResolved;
     private final CursorListener cursor;
     private final HashSet<Integer> held = new HashSet<>();
     private AppInputProfile profile = AppInputProfile.forPackage(null);
@@ -678,14 +683,66 @@ final class InputInjector {
      * Failure is not fatal: mouse input is delivered by position and keeps working.
      */
     void focus(int displayId) {
+        if (!focusResolved) resolveFocus();
         try {
             cancelTouch();  // focus is moving: fingers must not stay down behind it
-            Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "activity_task");
-            Object atm = Class.forName("android.app.IActivityTaskManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
-            atm.getClass().getMethod("focusTopTask", int.class).invoke(atm, displayId);
+            if (focusTopTask != null) {
+                focusTopTask.invoke(taskManager, displayId);
+            } else if (rootTasksOnDisplay != null && setFocusedTask != null) {
+                int id = topId((List<?>) rootTasksOnDisplay.invoke(taskManager, displayId), "taskId");
+                if (id >= 0) setFocusedTask.invoke(taskManager, id);
+            } else if (stacksOnDisplay != null && setFocusedStack != null) {
+                int id = topId((List<?>) stacksOnDisplay.invoke(taskManager, displayId), "stackId");
+                if (id >= 0) setFocusedStack.invoke(taskManager, id);
+            }
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.w(TAG, "focus failed", e);
         }
+    }
+
+    /**
+     * Found once, because focus() runs before many keys. focusTopTask is the simple way. Where it is missing, the top
+     * task on the display gets focus by id: setFocusedTask on root tasks, or setFocusedStack on the stacks of Android 11.
+     */
+    private void resolveFocus() {
+        focusResolved = true;
+        try {
+            Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "activity_task");
+            taskManager = Class.forName("android.app.IActivityTaskManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "no activity task manager: keys may not reach the external display", e);
+            return;
+        }
+        Class<?> c = taskManager.getClass();
+        focusTopTask = method(c, "focusTopTask");
+        if (focusTopTask != null) return;
+        rootTasksOnDisplay = method(c, "getAllRootTaskInfosOnDisplay");
+        setFocusedTask = method(c, "setFocusedTask");
+        if (rootTasksOnDisplay != null && setFocusedTask != null) {
+            Log.i(TAG, "no focusTopTask, focusing the top task instead");
+            return;
+        }
+        stacksOnDisplay = method(c, "getAllStackInfosOnDisplay");
+        setFocusedStack = method(c, "setFocusedStack");
+        if (stacksOnDisplay != null && setFocusedStack != null) Log.i(TAG, "no focusTopTask, focusing the top stack instead");
+        else Log.w(TAG, "no way found to focus a display: keys may not reach the external display");
+    }
+
+    /** A method taking one int, or null when this Android version has none of that name. */
+    private static Method method(Class<?> c, String name) {
+        try {
+            return c.getMethod(name, int.class);
+        } catch (NoSuchMethodException e) {
+            return null;
+        }
+    }
+
+    /** The first visible one, the system lists them top first. -1 when there is none. */
+    private static int topId(List<?> infos, String idField) throws ReflectiveOperationException {
+        for (Object info : infos) {
+            if (TaskMover.visible(info)) return info.getClass().getField(idField).getInt(info);
+        }
+        return -1;
     }
 
     int displayId() {
