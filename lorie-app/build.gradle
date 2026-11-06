@@ -29,8 +29,10 @@ android {
         applicationId "io.github.n2ray.xdesk.x11"
         minSdkVersion 30
         targetSdkVersion 34
-        versionCode 15
-        versionName termuxX11VersionName
+        // Releases pass -PxdeskVersion=0.2.0 (from the tag): 0.2.0 becomes versionCode 200. Other builds keep the
+        // upstream-style name with the commit, and a code below every release.
+        versionCode xdeskVersionCode
+        versionName xdeskVersionName
     }
 
     flavorDimensions "uid"
@@ -50,6 +52,17 @@ android {
         storePassword 'xrj45yWGLbsO7W0v'
         keyPassword 'xrj45yWGLbsO7W0v'
     }
+    // The private release key comes from CI secrets only. The test key above is public: anything signed with it
+    // could be installed over XDesk and take its paired adb key, so it must never sign a release.
+    if (System.getenv('XDESK_KEYSTORE')) {
+        signingConfigs.create('release') {
+            storeFile file(System.getenv('XDESK_KEYSTORE'))
+            storeType 'PKCS12'
+            keyAlias System.getenv('XDESK_KEY_ALIAS')
+            storePassword System.getenv('XDESK_KEYSTORE_PASSWORD')
+            keyPassword System.getenv('XDESK_KEYSTORE_PASSWORD')
+        }
+    }
 
     buildFeatures.aidl true
 
@@ -60,6 +73,14 @@ android {
         minifyEnabled true
         shrinkResources true
         proguardFiles 'proguard-rules.pro'
+    }
+    // Not debuggable, signed with the private key, ARM only: no phone that can run XDesk is x86
+    buildTypes.release {
+        signingConfig signingConfigs.findByName('release')
+        minifyEnabled true
+        shrinkResources true
+        proguardFiles 'proguard-rules.pro'
+        ndk.abiFilters 'arm64-v8a', 'armeabi-v7a'
     }
 }
 

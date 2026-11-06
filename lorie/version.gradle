@@ -4,6 +4,19 @@ ext.termuxX11VersionName = {
     "${version}-${commit.length() == 1 ? "nongit" : commit}-${(new Date()).format("dd.MM.yy")}"
 }()
 
+// XDesk's own version. A release passes -PxdeskVersion=X.Y.Z (the tag without "v"); its code is X*10000+Y*100+Z,
+// so 0.2.0 is 200. Other builds show the commit and use code 16: above the old test builds (15), so they still
+// install over them, and below every release.
+
+ext.xdeskVersionName = project.findProperty('xdeskVersion') ?: "dev-${termuxX11VersionName}"
+ext.xdeskVersionCode = {
+    def v = project.findProperty('xdeskVersion')
+    if (!v) return 16
+    def m = (v =~ /^(\d+)\.(\d+)\.(\d+)/)
+    if (!m.find()) throw new GradleException("xdeskVersion must look like 0.2.0, got $v")
+    m.group(1).toInteger() * 10000 + m.group(2).toInteger() * 100 + m.group(3).toInteger()
+}()
+
 // Single source of truth for the NDK version. Anything building :lorie (this repo's own
 // lorie-app, or a host app integrating it) should read this instead of letting AGP pick its
 // own default, otherwise :lorie's CMake config differs between them and its native code gets

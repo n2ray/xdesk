@@ -29,7 +29,7 @@ android {
     defaultConfig {
         minSdkVersion 30
         targetSdkVersion 34
-        buildConfigField "String", "VERSION_NAME", "\"${termuxX11VersionName}\""
+        buildConfigField "String", "VERSION_NAME", "\"${xdeskVersionName}\""
         buildConfigField "String", "COMMIT", "\"" + ("git rev-parse HEAD\n".execute().getText().trim() ?: (System.getenv('CURRENT_COMMIT') ?: "NO_COMMIT")) + "\""
         buildConfigField "String", "APPLICATION_ID", "\"${hostApplicationId}\""
 
