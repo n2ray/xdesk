@@ -13,8 +13,8 @@ import android.view.Display;
  * and its id changes on every connection.
  */
 final class TargetDisplay {
-    /** Display.TYPE_VIRTUAL, hidden. */
-    private static final int TYPE_VIRTUAL = 5;
+    /** Display.TYPE_EXTERNAL, TYPE_WIFI and TYPE_OVERLAY, hidden. */
+    private static final int TYPE_EXTERNAL = 2, TYPE_WIFI = 3, TYPE_OVERLAY = 4;
 
     private TargetDisplay() { }
 
@@ -50,14 +50,18 @@ final class TargetDisplay {
         return target != null && target.getDisplayId() == id;
     }
 
-    /** Not the phone, not the car and not virtual: HDMI or DisplayPort, also wireless and simulated displays. */
+    /**
+     * HDMI or DisplayPort, also wireless and simulated displays. Not the phone, not the car, not virtual, and not a second
+     * built-in screen: a cover screen or the other half of a foldable is TYPE_INTERNAL.
+     */
     static boolean isReal(Display d) {
         if (d == null || d.getDisplayId() == Display.DEFAULT_DISPLAY || isCar(d)) return false;
         try {
-            return (Integer) Display.class.getMethod("getType").invoke(d) != TYPE_VIRTUAL;
+            int type = (Integer) Display.class.getMethod("getType").invoke(d);
+            return type == TYPE_EXTERNAL || type == TYPE_WIFI || type == TYPE_OVERLAY;
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // Type unknown: count it, as XDesk did before it knew about the car
-            return true;
+            // Type unknown: the system marks external displays as meant for presentations, built-in ones not
+            return (d.getFlags() & Display.FLAG_PRESENTATION) != 0;
         }
     }
 }
