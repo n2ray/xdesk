@@ -16,6 +16,7 @@
 #include <linux/memfd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <errno.h>
@@ -56,18 +57,41 @@ enum {
     DMA_BUF_SYNC_UNSUPPORTED = -1,
 };
 
+// How long a CPU access waits for the GPU that renders into a dma-buf before going ahead
+// without DMA_BUF_SYNC_START. Both the X server and the renderer call this while holding the
+// shared lock, so a hung client GPU must not block them for longer than this.
+#define DMA_BUF_SYNC_WAIT_MS 50
+
+static uint32_t dmaBufSyncTimeouts = 0;
+
+__LIBC_HIDDEN__ uint32_t LorieBuffer_dmaBufSyncTimeouts(void) {
+    return __atomic_load_n(&dmaBufSyncTimeouts, __ATOMIC_RELAXED);
+}
+
 // DMA_BUF_SYNC_START waits for the fences of the device that renders into the dma-buf (the
 // client's GPU) and invalidates the CPU caches, so the CPU neither reads a frame that is still
 // being rendered nor stale cache lines left from an older frame in the same buffer.
+// DMA_BUF_IOCTL_SYNC itself waits without a limit, so the fences are waited for with poll()
+// first (POLLIN: the writers are done, POLLOUT: all users are done). If they do not signal in
+// time the access goes ahead unsynced, like it did before the sync was added.
 static bool dmaBufCpuAccessBegin(LorieBuffer *buffer, bool write) {
     if (!buffer || buffer->desc.type != LORIEBUFFER_FD ||
         buffer->dmaBufSyncSupport == DMA_BUF_SYNC_UNSUPPORTED)
         return false;
 
+    struct pollfd pfd = { .fd = buffer->fd, .events = write ? POLLOUT : POLLIN };
+    int ret;
+    do {
+        ret = poll(&pfd, 1, DMA_BUF_SYNC_WAIT_MS);
+    } while (ret == -1 && errno == EINTR);
+    if (ret == 0) {
+        __atomic_add_fetch(&dmaBufSyncTimeouts, 1, __ATOMIC_RELAXED);
+        return false;
+    }
+
     struct dma_buf_sync sync = {
         .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | (write ? DMA_BUF_SYNC_WRITE : 0),
     };
-    int ret;
     do {
         ret = ioctl(buffer->fd, DMA_BUF_IOCTL_SYNC, &sync);
     } while (ret == -1 && (errno == EINTR || errno == EAGAIN));

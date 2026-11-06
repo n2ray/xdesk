@@ -33,6 +33,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <sys/syscall.h>
 #include <linux/futex.h>
 #include <unistd.h>
@@ -1266,6 +1267,24 @@ bool Renderer::shouldWait(bool *waitingForBuffers) {
     return true;
 }
 
+// LorieBuffer_bindTexture gives up waiting for a client GPU after 50 ms instead of blocking the
+// renderer (and the X server, which waits for the lock). Say so, at most once every 10 seconds.
+static void reportDmaBufSyncTimeouts() {
+    static uint32_t reported = 0;
+    static time_t lastReport = 0;
+    uint32_t timeouts = LorieBuffer_dmaBufSyncTimeouts();
+    struct timespec now = {};
+
+    if (timeouts == reported)
+        return;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (lastReport && now.tv_sec - lastReport < 10)
+        return;
+    loge("%u CPU reads of client dma-bufs gave up waiting 50 ms for the client's GPU and were read unsynced", timeouts - reported);
+    reported = timeouts;
+    lastReport = now.tv_sec;
+}
+
 void Renderer::threadLoop() {
     LorieBuffer* buf;
     bool waitingForBuffers = false;
@@ -1320,6 +1339,7 @@ void Renderer::threadLoop() {
             redrawLocked(&waitingForBuffers);
         else if (gpuCopyPending)
             applyPendingGpuCopies();
+        reportDmaBufSyncTimeouts();
 
         pthread_spin_lock(&bufferLock);
         // Remove all buffers which were attached to GL.

@@ -148,13 +148,19 @@ int LorieBuffer_lock(LorieBuffer* _Nullable buffer, void* _Nullable * _Nonnull o
  * Bracket CPU access to a buffer backed by a dma-buf file descriptor (a DRI3 client's buffer).
  * Starting the access waits until the client's GPU finished writing it and syncs the CPU caches,
  * otherwise the CPU reads a frame that is still being rendered or stale cache lines of an older
- * one. Does nothing for other kinds of buffers.
+ * one. The wait is bounded to 50 ms; after that the access goes ahead unsynced (false is
+ * returned and LorieBuffer_dmaBufSyncTimeouts goes up). Does nothing for other kinds of buffers.
  *
  * @param write whether the CPU is going to write to the buffer
  * @return true if the access was started and LorieBuffer_cpuAccessEnd has to be called
  */
 bool LorieBuffer_cpuAccessBegin(LorieBuffer* _Nullable buffer, bool write);
 void LorieBuffer_cpuAccessEnd(LorieBuffer* _Nullable buffer, bool write);
+
+/**
+ * How many CPU accesses in this process gave up waiting for a dma-buf's GPU (never reset).
+ */
+uint32_t LorieBuffer_dmaBufSyncTimeouts(void);
 
 /**
  * Unlock the AHardwareBuffer from direct CPU access.

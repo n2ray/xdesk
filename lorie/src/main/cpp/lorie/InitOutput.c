@@ -614,10 +614,32 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
 static uint64_t gpuCopyAttempts = 0, gpuCopyOffloads = 0;
 static uint64_t gpuCopyFallbackRects = 0, gpuCopyFallbackQueueFull = 0, gpuCopyFallbackOther = 0;
 // CPU accesses to imported dma-bufs and how long starting them took (waiting for the client's GPU), see loriePrepareAccess.
+// Logged every 5 seconds only with TERMUX_X11_DEBUG, long waits are reported by lorieDmaBufSyncWaited.
 static uint64_t dmaBufSyncs = 0, dmaBufSyncWaits = 0, dmaBufSyncMaxWaitUs = 0;
 
+// A CPU access that waited 50 ms for the client's GPU, or gave up waiting (the frame may be
+// copied half rendered): worth a line without debugging on, but at most one every 10 seconds.
+static void lorieDmaBufSyncWaited(CARD64 waitedUs, Bool timedOut) {
+    static CARD64 lastWarnUs = 0;
+    static uint32_t suppressed = 0;
+    CARD64 now;
+
+    if (!timedOut && waitedUs < 50000)
+        return;
+    now = GetTimeInMicros();
+    if (lastWarnUs && now - lastWarnUs < 10000000) {
+        suppressed++;
+        return;
+    }
+    logBoth(WARN, "DRI3: a CPU access to a client dma-buf %s %llu ms for the client's GPU%s (%u more since the last warning, %u timeouts in total)",
+            timedOut ? "gave up after waiting" : "waited", (unsigned long long) (waitedUs / 1000),
+            timedOut ? ", copied it unsynced" : "", suppressed, LorieBuffer_dmaBufSyncTimeouts());
+    lastWarnUs = now;
+    suppressed = 0;
+}
+
 static CARD32 lorieFramecounter(unused OsTimerPtr timer, unused CARD32 time, unused void *arg) {
-    if (dmaBufSyncs)
+    if (dmaBufSyncs && lorieServerDebugEnabled)
         log(INFO, "dma-buf sync: %llu CPU accesses to client buffers in 5.0 seconds, %llu took 1 ms or more (longest %llu us)",
             (unsigned long long) dmaBufSyncs, (unsigned long long) dmaBufSyncWaits, (unsigned long long) dmaBufSyncMaxWaitUs);
     dmaBufSyncs = dmaBufSyncWaits = dmaBufSyncMaxWaitUs = 0;
@@ -1253,9 +1275,12 @@ Bool loriePrepareAccess(PixmapPtr pPix, int index) {
             priv->dmaBufAccessWrite |= write;
         } else if (LorieBuffer_description(priv->buffer)->type == LORIEBUFFER_FD) {
             CARD64 start = GetTimeInMicros(), waited;
-            if (LorieBuffer_cpuAccessBegin(priv->buffer, write)) {
+            uint32_t timeouts = LorieBuffer_dmaBufSyncTimeouts();
+            Bool synced = LorieBuffer_cpuAccessBegin(priv->buffer, write);
+            waited = GetTimeInMicros() - start;
+            lorieDmaBufSyncWaited(waited, LorieBuffer_dmaBufSyncTimeouts() != timeouts);
+            if (synced) {
                 static Bool announced = FALSE;
-                waited = GetTimeInMicros() - start;
                 if (!announced) {
                     log(INFO, "DRI3: CPU access to client dma-bufs is synced with DMA_BUF_IOCTL_SYNC");
                     announced = TRUE;
