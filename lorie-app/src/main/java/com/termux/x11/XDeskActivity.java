@@ -1160,6 +1160,8 @@ public class XDeskActivity extends Activity {
             return;
         }
         desktopTaken = on;
+        // 手机窗口没了焦点就抓不住鼠标，这时由外接屏上的桌面窗口来抓
+        MainActivity.setTakeMouse(on);
         if (d != null) apps.setImeOnDisplay(d.getDisplayId(), on && ImePlacement.hasPhysicalKeyboard());
         updatePhoneFocus();
         if (!on) {

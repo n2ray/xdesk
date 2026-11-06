@@ -429,10 +429,13 @@ public class TouchInputHandler {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && view.hasPointerCapture();
     }
 
+    /** XDesk took over: capture whatever the preference says, see MainActivity.setTakeMouse. */
+    public boolean forcedCapture;
+
     public void setCapturingEnabled(boolean enabled) {
         enabled &= mActivity.getLorieView().connected();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (mInjector.pointerCapture && enabled)
+            if ((mInjector.pointerCapture || forcedCapture) && enabled)
                 mActivity.getLorieView().requestPointerCapture();
             else
                 mActivity.getLorieView().releasePointerCapture();
@@ -490,7 +493,7 @@ public class TouchInputHandler {
 
         mActivity.getRealMetrics(mMetrics);
 
-        if (!p.pointerCapture.get() && hasPointerCapture(mActivity.getLorieView()))
+        if (!p.pointerCapture.get() && !forcedCapture && hasPointerCapture(mActivity.getLorieView()))
             mActivity.getLorieView().releasePointerCapture();
 
         keyIntercepting = !mInjector.pauseKeyInterceptingWithEsc || hasPointerCapture(mActivity.getLorieView());

@@ -356,6 +356,7 @@ public class MainActivity extends AppCompatActivity {
         View lorieParent = (View) lorieView.getParent();
 
         mInputHandler = new TouchInputHandler(this, new InputEventSender(this, lorieView));
+        mInputHandler.forcedCapture = takeMouse;
         mLorieKeyListener = (v, k, e) -> {
             InputDevice dev = e.getDevice();
             boolean result = mInputHandler.sendKeyEvent(e);
@@ -1086,6 +1087,10 @@ public class MainActivity extends AppCompatActivity {
         super.onWindowFocusChanged(hasFocus);
         KeyInterceptor.recheck();
 
+        // Pointer capture ends with focus, and only a focused window can ask for it
+        if (hasFocus && takeMouse)
+            setCapturingEnabled(true);
+
         // The system bars come back when the window loses focus.
         if (hasFocus && !redirected) {
             applyImmersiveMode();
@@ -1340,6 +1345,23 @@ public class MainActivity extends AppCompatActivity {
     public void getRealMetrics(DisplayMetrics m) {
         if (getLorieView() != null && getLorieView().getDisplay() != null)
             getLorieView().getDisplay().getRealMetrics(m);
+    }
+
+    /**
+     * XDesk took over the keyboard for the desktop: focus is on this window, on the external display, and the phone's
+     * window cannot hold the mouse any more. This window then captures it, whatever the preference says.
+     */
+    private static boolean takeMouse;
+
+    public static void setTakeMouse(boolean on) {
+        takeMouse = on;
+        for (WeakReference<MainActivity> ref : instances.values()) {
+            MainActivity a = ref.get();
+            if (a == null || a.mInputHandler == null)
+                continue;
+            a.mInputHandler.forcedCapture = on;
+            a.setCapturingEnabled(on && a.hasWindowFocus());
+        }
     }
 
     public void setCapturingEnabled(boolean enabled) {
