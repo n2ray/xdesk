@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 public class InjectorService extends IInjector.Stub {
     private static final String TAG = "XDeskInjector";
     private static final int NO_UID = -1;
+    private static final String OVER = "会话已经结束";
     private static final long AM_TIMEOUT_MS = 10000, DUMPSYS_TIMEOUT_MS = 5000, SHUTDOWN_TIMEOUT_MS = 2000;
     /** Time for a focus change to reach the input system before a key is sent. */
     private static final int FOCUS_SETTLE_MS = 60;
@@ -63,6 +64,8 @@ public class InjectorService extends IInjector.Stub {
     private String ownPackage;
     private boolean linked;
     private volatile boolean sessionOver;
+    /** Said once per session that the system refuses injection, see refused. */
+    private volatile boolean toldInjectionRefused;
     private final int onlyUid;
     /** Displays this session made for apps, by id, see AppDisplay. They end with the session. */
     private final HashMap<Integer, VirtualDisplay> appDisplays = new HashMap<>();
@@ -219,13 +222,27 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    /** Input and other work of a session that is still on. */
     private void post(final Task t) {
+        if (!sessionOver) enqueue(t);
+    }
+
+    /** injectInputEvent throws SecurityException when the system does not let the shell user inject, as MIUI does by default. */
+    private static boolean refused(Exception e) {
+        return e instanceof SecurityException || (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() instanceof SecurityException);
+    }
+
+    private void enqueue(final Task t) {
         if (worker.isShutdown() || injector == null) return;
         worker.execute(() -> {
             try {
                 t.run();
             } catch (Exception e) {
                 Log.w(TAG, "input failed", e);
+                if (!toldInjectionRefused && refused(e)) {
+                    toldInjectionRefused = true;
+                    message("系统拒绝了注入的输入。小米/红米手机需要在开发者选项里打开「USB 调试（安全设置）」。");
+                }
             }
         });
     }
@@ -271,6 +288,7 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public String configure(IInjectorListener l, final int displayId, final int width, final int height, final String pkg, float speed) {
         if (injector == null) return injectorError;
+        if (sessionOver) return OVER;
         link(l);
         mouseSpeed = speed;
         enabled = true;
@@ -281,8 +299,9 @@ public class InjectorService extends IInjector.Stub {
             injector.setProfile(AppInputProfile.forPackage(pkg));
             injector.setDisplay(displayId, width, height);
         });
+        // shutdown sets sessionOver before it takes the reader under this lock, so a reader made here is always shut down
         synchronized (this) {
-            if (reader == null) {
+            if (reader == null && !sessionOver) {
                 try {
                     reader = new EvdevReader(physical);
                     Evdev.close(-1);  // does nothing, but a failed library load shows here and not in the reader thread
@@ -298,6 +317,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void attach(IInjectorListener l, String ownPackage) {
+        if (sessionOver) return;
         this.ownPackage = ownPackage;
         link(l);
     }
@@ -332,11 +352,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public String setDisplayDensity(int display, int dpi) {
+        if (sessionOver) return OVER;
         return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
     }
 
 
     @Override public String setAppFullscreen(String packageName, boolean on) {
+        if (sessionOver) return OVER;
         String[] r = on
             ? exec(AM_TIMEOUT_MS, "/system/bin/am", "compat", "enable", "UNIVERSAL_RESIZABLE_BY_DEFAULT", packageName)
             : exec(AM_TIMEOUT_MS, "/system/bin/am", "compat", "reset", "UNIVERSAL_RESIZABLE_BY_DEFAULT", packageName);
@@ -359,6 +381,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public String closeApp(String pkg) {
+        if (sessionOver) return OVER;
         return TaskMover.closeApp(pkg);
     }
 
@@ -367,11 +390,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
+        if (sessionOver) return;
         this.displayId = displayId;
         post(() -> injector.setDisplay(displayId, width, height));
     }
 
     @Override public void setForwarding(boolean on) {
+        if (sessionOver) return;
         EvdevReader r;
         synchronized (this) {
             r = reader;
@@ -436,11 +461,12 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public int createVirtualDisplay(String name, int width, int height, int dpi, Surface surface) {
+        if (sessionOver) throw new IllegalStateException(OVER);
         VirtualDisplay d = AppDisplay.create(name, width, height, dpi, surface);
         synchronized (appDisplays) {
             if (sessionOver) {
                 d.release();
-                throw new IllegalStateException("会话已经结束");
+                throw new IllegalStateException(OVER);
             }
             int id = d.getDisplay().getDisplayId();
             appDisplays.put(id, d);
@@ -487,6 +513,7 @@ public class InjectorService extends IInjector.Stub {
 
     /** am start is what the prototype was tested with. Windowing mode 1 is full screen. */
     @Override public String startApp(String component, int displayId) {
+        if (sessionOver) return OVER;
         String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--display", String.valueOf(displayId), "--windowingMode", "1",
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", "0x10200000", "-n", component);
         if (r[0] != null) return r[0];
@@ -551,16 +578,21 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void setWatchSession(boolean watch) {
+        if (sessionOver) return;
         watchSession = watch;
         startSessionWatcher();
     }
 
     @Override public void setEnabled(boolean on) {
+        if (sessionOver) return;
         enabled = on;
         applyHotkey();
+        // A Termux desktop takes the display: nothing the app had held, from the phone or the hotkey, may stay down
+        if (!on) post(() -> injector.releaseAll());
     }
 
     @Override public void setHotkeyAllowed(boolean allowed) {
+        if (sessionOver) return;
         hotkeyAllowed = allowed;
         applyHotkey();
     }
@@ -574,6 +606,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public String setAudioOutput(int type, String address) {
+        if (sessionOver) return OVER;
         return type < 0 ? audio.clear(true) : audio.set(type, address);
     }
 
@@ -628,7 +661,7 @@ public class InjectorService extends IInjector.Stub {
         listener = null;
         stopSessionWatcher();
         if (injector == null) return;
-        post(injector::releaseAll);
+        enqueue(injector::releaseAll);
         worker.shutdown();
         try {
             worker.awaitTermination(SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);

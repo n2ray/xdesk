@@ -561,7 +561,8 @@ public class XDeskActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        cover.hide();
+        // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
+        removeCover();
         displays.unregisterDisplayListener(displayListener);
         CarActivity.setListener(null);
         inputs.unregisterInputDeviceListener(deviceListener);
@@ -2195,6 +2196,8 @@ public class XDeskActivity extends Activity {
     /** 把外接屏让给安卓应用。桌面窗口留在后面，桌面继续运行，切回来直接放到前面；这期间桌面没有声音。 */
     private void leaveDesktop() {
         if (!session.isActive()) return;
+        // 锁定的修饰键是按在桌面上的，换到应用之前在桌面上松开
+        releaseLatches();
         ui.removeCallbacks(connectTimeout);
         session.abandon();
         updateCapture();
@@ -2212,6 +2215,8 @@ public class XDeskActivity extends Activity {
 
     /** XDesk 只当显示器：放好窗口就等桌面连上来，桌面怎么起由用户决定。 */
     private void attachDisplay(Display d) {
+        // 锁定的修饰键是按在应用上的，换成桌面之前松开
+        releaseLatches();
         apps.suspend();
         desktopOnCar = TargetDisplay.isCar(d);
         audioRoute.setCar(desktopOnCar);

@@ -138,9 +138,13 @@ final class InputInjector {
         profile = p;
     }
 
-    /** Use the logical size: a 2560x1440 monitor reports 2560x1508 on the phone this was tested on. */
-    void setDisplay(int id, int w, int h) {
+    /**
+     * Use the logical size: a 2560x1440 monitor reports 2560x1508 on the phone this was tested on. On another display
+     * what is held goes up first, on the old one: it would otherwise stay down there.
+     */
+    void setDisplay(int id, int w, int h) throws ReflectiveOperationException, InterruptedException {
         boolean first = width == 0;
+        if (!first && id != display) releaseAll();
         display = id;
         width = w;
         height = h;

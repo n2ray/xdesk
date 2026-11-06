@@ -77,6 +77,8 @@ final class AppSession {
     private volatile int defaultDensity;
     /** 每个应用自己的界面大小，没有就跟随上面的默认值。 */
     private final android.content.SharedPreferences appDensities;
+    /** Displays, by density key, where XDesk forced a density that may still be set, see clearLeftDensities. */
+    private final android.content.SharedPreferences forcedDensities;
     private final android.content.SharedPreferences fullscreenPrefs;
     private final Object densityLock = new Object();
     /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
@@ -84,6 +86,8 @@ final class AppSession {
     private final android.content.SharedPreferences touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
+    /** Counts start and stop, so that work from a session that has ended since does nothing, see current. */
+    private volatile int generation;
     private int deviceCount;
     private AppCatalog.App app;
     private Display display;
@@ -186,13 +190,17 @@ final class AppSession {
                     try {
                         i.attach(fromInjector, context.getPackageName());
                         i.setEnabled(false);
-                        ui.post(() -> audioRoute.attachInjector(i));
+                        ui.post(() -> {
+                            if (injector == i) audioRoute.attachInjector(i);
+                        });
+                        clearLeftDensities(i, Display.INVALID_DISPLAY);
                     } catch (RemoteException e) {
                         Log.w(TAG, "audio only", e);
                     }
                 }, "xdesk-audio-connect").start();
             } else {
-                new Thread(AppSession.this::prepare, "xdesk-app-start").start();
+                final int gen = generation;
+                new Thread(() -> prepare(gen), "xdesk-app-start").start();
             }
         }
         @Override public void onServiceDisconnected(ComponentName name) {
@@ -258,6 +266,7 @@ final class AppSession {
         touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
+        forcedDensities = c.getSharedPreferences("density_forced", Context.MODE_PRIVATE);
         fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
         shell = ShellActivation.get(c);
         shell.setListener(this::sourceChanged);
@@ -386,6 +395,7 @@ final class AppSession {
 
     /** Start the injector, then the app. Answers on the listener. */
     void start(AppCatalog.App a, Display d, float speed, boolean alwaysShow) {
+        generation++;
         active = true;
         started = false;
         forwarding = false;
@@ -404,7 +414,8 @@ final class AppSession {
         context.startForegroundService(keepAlive);
         if (injector != null) {
             // 从 Termux 桌面切回来，注入服务一直留着，不用再等它启动
-            new Thread(this::prepare, "xdesk-app-start").start();
+            final int gen = generation;
+            new Thread(() -> prepare(gen), "xdesk-app-start").start();
             return;
         }
         ui.postDelayed(bindTimeout, BIND_TIMEOUT_MS);
@@ -504,11 +515,18 @@ final class AppSession {
         return args;
     }
 
-    /** Background thread: the calls below can take a moment. */
-    private void prepare() {
+    /** This injector still belongs to the session that was started with this generation: stop() may have come since. */
+    private boolean current(IInjector i, int gen) {
+        return injector == i && generation == gen;
+    }
+
+    /** Background thread: the calls below can take a moment. Each step first checks that the session is still the same. */
+    private void prepare(final int gen) {
         IInjector i = injector;
         Display d = display;
-        if (i == null || (d == null && !onCar)) return;
+        // Null when the app on the display went away and the injector came back after that: there is nothing to start
+        final AppCatalog.App a = app;
+        if (i == null || (d == null && !onCar) || !current(i, gen)) return;
         try {
             i.attach(fromInjector, context.getPackageName());
             if (d == null) {
@@ -518,55 +536,67 @@ final class AppSession {
                 } catch (RuntimeException e) {
                     // The system refused the display, the reason comes from createVirtualDisplay
                     Log.w(TAG, "no display for apps on the car", e);
-                    ui.post(() -> fail("无法为车机建显示器：" + e.getMessage()));
+                    failIfCurrent(gen, "无法为车机建显示器：" + e.getMessage());
                     return;
                 }
                 d = made;
                 ui.post(() -> {
-                    if (!active || display != null) return;
+                    if (!active || display != null || generation != gen) return;
                     display = made;
                     attachOverlays(made);
                 });
             }
+            if (!current(i, gen)) return;
             int[] size = logicalSize(d);
-            String error = i.configure(fromInjector, d.getDisplayId(), size[0], size[1], app.packageName, mouseSpeed);
+            String error = i.configure(fromInjector, d.getDisplayId(), size[0], size[1], a != null ? a.packageName : null, mouseSpeed);
             if (error != null) {
-                ui.post(() -> fail("无法注入输入：" + error));
+                failIfCurrent(gen, "无法注入输入：" + error);
                 return;
             }
+            if (!current(i, gen)) return;
             i.setEnabled(true);
-            i.setTouchMode(touchModeFor(app));
+            i.setTouchMode(touchModeFor(a));
             i.setWatchSession(!alwaysShowCursor);
-            ui.post(() -> audioRoute.attachInjector(i));
+            ui.post(() -> {
+                if (current(i, gen)) audioRoute.attachInjector(i);
+            });
             loadDensity(i, d);
-            applyFullscreenFor(i, app);
+            clearLeftDensities(i, d.getDisplayId());
+            if (!current(i, gen)) return;
+            if (a != null) applyFullscreenFor(i, a);
             // 启动之前设，冷启动时应用一开始就是对的大小。桌面窗口这时还在前面，它声明了自己处理 density，不会重建
-            applyDensityFor(i, d, app);
-            launch(i, d);
+            applyDensityFor(i, d, a);
+            if (a != null && current(i, gen)) launch(i, d, a, gen);
         } catch (RemoteException e) {
-            ui.post(() -> fail("注入服务断开了：" + e.getMessage()));
+            failIfCurrent(gen, "注入服务断开了：" + e.getMessage());
         }
     }
 
-    private void launch(IInjector i, Display d) throws RemoteException {
+    private void failIfCurrent(final int gen, final String message) {
+        ui.post(() -> {
+            if (generation == gen) fail(message);
+        });
+    }
+
+    private void launch(IInjector i, Display d, final AppCatalog.App a, final int gen) throws RemoteException {
         // Another app's Presentation window would cover what we start. Say so, and leave that app alone.
         String presenting = i.findPresentation(d.getDisplayId());
         if (presenting != null) {
             Log.i(TAG, "presentation on the external display: " + presenting);
             ui.post(() -> {
-                if (listener != null) listener.onAppMessage("外接屏上已有别的应用在显示内容，它可能盖住 " + label());
+                if (listener != null) listener.onAppMessage("外接屏上已有别的应用在显示内容，它可能盖住 " + a.label);
             });
         }
-        String error = i.startApp(app.component(), d.getDisplayId());
+        String error = i.startApp(a.component(), d.getDisplayId());
         if (error != null) {
             Log.w(TAG, "am start: " + error);
-            error = launchFromApp(app, d);
+            error = launchFromApp(a, d);
         }
         final String result = error;
         ui.post(() -> {
-            if (!active) return;
+            if (!active || generation != gen) return;
             if (result != null) {
-                fail("无法启动 " + label() + "：" + result);
+                fail("无法启动 " + a.label + "：" + result);
                 return;
             }
             started = true;
@@ -732,7 +762,7 @@ final class AppSession {
             if (i != null) i.setEnabled(false);
             // 桌面有自己的 DPI 设置，外接屏回到默认再放桌面窗口。切回应用时再设
             if (i != null && display != null) {
-                i.setDisplayDensity(display.getDisplayId(), -1);
+                clearDensity(i, display, densityKey);
                 forgetDensity(0);
             }
         } catch (RemoteException ignored) { }
@@ -747,10 +777,36 @@ final class AppSession {
     }
 
     private void loadDensity(IInjector i, Display d) throws RemoteException {
+        densityKey = densityKey(i, d);
+        defaultDensity = i.displayDefaultDensity(d.getDisplayId());
+        // Set by a session that could not clear it: this time clear it whatever this process knows, see applyDensityFor
+        if (!onCar && forcedDensities.contains(densityKey)) forgetDensity(-1);
+    }
+
+    private static String densityKey(IInjector i, Display d) throws RemoteException {
         String unique = i.displayUniqueId(d.getDisplayId());
         // The name is less exact, but better than not remembering
-        densityKey = unique != null ? unique : "name:" + d.getName();
-        defaultDensity = i.displayDefaultDensity(d.getDisplayId());
+        return unique != null ? unique : "name:" + d.getName();
+    }
+
+    /**
+     * The system keeps a forced density across replugging and reboots, keyed by the display. A session that ended with
+     * its display unplugged, or with its injector dead, could not clear it, so the display keeps it until XDesk sees it
+     * again. Background thread.
+     *
+     * @param skip the display the caller sets itself, or INVALID_DISPLAY
+     */
+    private void clearLeftDensities(IInjector i, int skip) throws RemoteException {
+        if (forcedDensities.getAll().isEmpty()) return;
+        for (Display d : displays().getDisplays()) {
+            int id = d.getDisplayId();
+            if (id == Display.DEFAULT_DISPLAY || id == skip) continue;
+            String key = densityKey(i, d);
+            if (!forcedDensities.contains(key)) continue;
+            String error = i.setDisplayDensity(id, 0);
+            if (error == null) forcedDensities.edit().remove(key).apply();
+            else Log.w(TAG, "density left on display " + id + ": " + error);
+        }
     }
 
     /** 这个应用该用的值：它自己的，否则这台显示器的默认值，都没有是 0。 */
@@ -766,9 +822,26 @@ final class AppSession {
             if (want == appliedDensity) return;
             // 不知道留着什么时，清除要不看是谁设的
             String error = i.setDisplayDensity(d.getDisplayId(), want > 0 ? want : appliedDensity < 0 ? 0 : -1);
-            if (error != null) densityFailed(error);
-            else appliedDensity = want;
+            if (error != null) {
+                densityFailed(error);
+                return;
+            }
+            appliedDensity = want;
+            String key = densityKey;
+            // The car's display is new each time and ends with the session
+            if (key != null && !onCar) {
+                if (want > 0) forcedDensities.edit().putBoolean(key, true).apply();
+                else forcedDensities.edit().remove(key).apply();
+            }
         }
+    }
+
+    /** Back to the display's own density, also when an earlier session left one. */
+    private void clearDensity(IInjector i, Display d, String key) throws RemoteException {
+        boolean left = key != null && forcedDensities.contains(key);
+        String error = i.setDisplayDensity(d.getDisplayId(), left ? 0 : -1);
+        if (error != null) Log.w(TAG, "density not cleared: " + error);
+        else if (left) forcedDensities.edit().remove(key).apply();
     }
 
     private void forgetDensity(int value) {
@@ -1077,13 +1150,16 @@ final class AppSession {
         attachOverlays(d);
         final IInjector i = injector;
         if (i != null) {
+            final AppCatalog.App a = app;
+            final int gen = generation;
             new Thread(() -> {
                 try {
                     int[] size = logicalSize(d);
                     i.setDisplay(d.getDisplayId(), size[0], size[1]);
                     loadDensity(i, d);
-                    applyDensityFor(i, d, app);
-                    if (app != null) launch(i, d);
+                    clearLeftDensities(i, d.getDisplayId());
+                    applyDensityFor(i, d, a);
+                    if (a != null) launch(i, d, a, gen);
                 } catch (RemoteException e) {
                     Log.w(TAG, "move to new display", e);
                 }
@@ -1129,7 +1205,13 @@ final class AppSession {
         audioBinding = false;
         appBehindDesktop = false;
         stopping = true;
-        forgetDensity(0);  // the injector clears what it set before it ends
+        generation++;
+        // Cleared below. Unknown stays unknown: a dead injector may have left a value, which only a forced clear removes
+        synchronized (densityLock) {
+            if (appliedDensity > 0) appliedDensity = 0;
+        }
+        final Display shown = onCar ? null : display;
+        final String shownKey = densityKey;
         audioRoute.detachInjector();
         boolean desktopActive = DesktopSession.get(context).isActive();
         active = false;
@@ -1163,6 +1245,8 @@ final class AppSession {
                     }
                 }
                 if (carId >= 0) Log.i(TAG, "display=" + carId + " for apps ends with the session");
+                // The injector would clear what it set too, but only here does XDesk learn that it worked
+                if (i != null && shown != null) clearDensity(i, shown, shownKey);
                 // Lifts everything held before the process goes away
                 if (i != null) i.shutdown();
             } catch (RemoteException ignored) { }
