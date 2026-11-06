@@ -85,6 +85,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.IntPredicate;
 
 @Keep @SuppressLint("ApplySharedPref")
 @SuppressWarnings({"deprecation", "unused"})
@@ -145,6 +146,23 @@ public class MainActivity extends AppCompatActivity {
     private static final Map<String, WeakReference<MainActivity>> instances = new HashMap<>();
     private String tag = "";
     private boolean redirected;
+
+    /**
+     * Set by the host app: the displays this window may show on. A window anywhere else closes, so that another app
+     * cannot embed it on a display of its own and read the desktop. Null allows every display.
+     */
+    public static IntPredicate displayAllowed;
+
+    /** Closes the window when it is on a display the host app does not allow. Returns false then. */
+    private boolean onAllowedDisplay() {
+        Display d = getDisplay();
+        IntPredicate allowed = displayAllowed;
+        if (allowed == null || (d != null && allowed.test(d.getDisplayId())))
+            return true;
+        Log.w("MainActivity", "closing, not allowed on display " + (d != null ? d.getDisplayId() : "null"));
+        finish();
+        return false;
+    }
 
     /** Redirects a tagged intent that landed on plain MainActivity to MainActivityTagged. Returns the parsed tag, or null if it relaunched. */
     private String relaunchAsTaggedIfNeeded(Intent intent, boolean finishSelf) {
@@ -299,7 +317,7 @@ public class MainActivity extends AppCompatActivity {
 
         app = (LorieApp) getApplication();
 
-        String parsedTag = relaunchAsTaggedIfNeeded(getIntent(), true);
+        String parsedTag = onAllowedDisplay() ? relaunchAsTaggedIfNeeded(getIntent(), true) : null;
         if (parsedTag == null) {
             redirected = true;
             return;
@@ -1015,7 +1033,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        if (redirected)
+        // Moving to another display comes here, the window handles that change itself
+        if (redirected || !onAllowedDisplay())
             return;
 
         if (newConfig.orientation != orientation)

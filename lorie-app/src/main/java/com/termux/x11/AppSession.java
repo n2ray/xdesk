@@ -301,6 +301,12 @@ final class AppSession {
     }
 
     boolean isActive() { return active; }
+    /** 注入服务为车机上的应用建的显示器，没有是 INVALID_DISPLAY。 */
+    int appDisplayId() {
+        synchronized (carLock) {
+            return carDisplayId;
+        }
+    }
     /** 应用跑在车机上（在注入服务建的显示器上）。 */
     boolean isOnCar() { return active && onCar; }
     /** Started and receiving input. */

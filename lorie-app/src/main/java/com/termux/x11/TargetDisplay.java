@@ -1,5 +1,6 @@
 package com.termux.x11;
 
+import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.view.Display;
 
@@ -37,6 +38,16 @@ final class TargetDisplay {
 
     static boolean isCar(Display d) {
         return d != null && d.getDisplayId() == CarActivity.displayId();
+    }
+
+    /**
+     * Where the desktop window may be: the phone, where the system moves it when its display goes, the display XDesk uses,
+     * the car's, and the one XDesk made for apps on the car. See MainActivity.displayAllowed.
+     */
+    static boolean allowsDesktop(Context c, int id) {
+        if (id == Display.DEFAULT_DISPLAY || id == CarActivity.displayId() || id == AppSession.get(c).appDisplayId()) return true;
+        Display target = find(c.getSystemService(DisplayManager.class));
+        return target != null && target.getDisplayId() == id;
     }
 
     /** Not the phone, not the car and not virtual: HDMI or DisplayPort, also wireless and simulated displays. */

@@ -498,6 +498,8 @@ public class XDeskActivity extends Activity {
         Display car = TargetDisplay.car(displays);
         if (car != null) carSeen = car.getDisplayId();
         CarActivity.setListener(this::carChanged);
+        final Context app = getApplicationContext();
+        MainActivity.displayAllowed = id -> TargetDisplay.allowsDesktop(app, id);
         inputs.registerInputDeviceListener(deviceListener, ui);
         tryStart();
         ensureDashboard();
