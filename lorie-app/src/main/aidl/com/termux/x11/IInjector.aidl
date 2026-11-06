@@ -1,5 +1,6 @@
 package com.termux.x11;
 
+import android.os.ParcelFileDescriptor;
 import android.view.Surface;
 import com.termux.x11.IInjectorListener;
 
@@ -76,4 +77,6 @@ interface IInjector {
     oneway void focusDisplay(int displayId) = 34;
     /** Input method windows on this display (on) or back where they were (off). Put back when the session ends. */
     oneway void setImeOnDisplay(int displayId, boolean on) = 35;
+    /** The phone's whole sound output as 48 kHz stereo 16-bit PCM, for the wireless display; nothing plays on the phone meanwhile. Close the stream to stop. Throws with the reason. */
+    ParcelFileDescriptor captureOutput() = 36;
 }

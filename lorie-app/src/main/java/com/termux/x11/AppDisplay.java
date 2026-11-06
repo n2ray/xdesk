@@ -56,7 +56,7 @@ final class AppDisplay {
         try {
             Constructor<DisplayManager> c = DisplayManager.class.getDeclaredConstructor(Context.class);
             c.setAccessible(true);
-            DisplayManager dm = c.newInstance(new ShellContext(systemContext()));
+            DisplayManager dm = c.newInstance(shellContext());
             VirtualDisplay d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags());
             if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
             return d;
@@ -70,6 +70,11 @@ final class AppDisplay {
             // SecurityException and others, as text: Binder only carries some exception types
             throw new IllegalStateException(e.toString());
         }
+    }
+
+    /** A context the system takes as the shell package, for services that check the caller's package. */
+    static Context shellContext() throws ReflectiveOperationException {
+        return new ShellContext(systemContext());
     }
 
     /** Both hosts have a system ActivityThread, see ShellServer.matchShizukuEnvironment. */

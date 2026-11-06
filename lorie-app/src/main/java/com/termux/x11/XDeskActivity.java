@@ -18,6 +18,7 @@ import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.net.Uri;
 import android.os.Build;
+import android.text.InputType;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -123,6 +124,7 @@ public class XDeskActivity extends Activity {
     private AppSession apps;
     private AppCatalog catalog;
     private AudioRoute audioRoute;
+    private WirelessDisplay wireless;
     private DockBar runningDock;
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
@@ -401,6 +403,84 @@ public class XDeskActivity extends Activity {
         }
     };
 
+    private final WirelessDisplay.Listener wirelessListener = new WirelessDisplay.Listener() {
+        @Override public void onWirelessChanged() {
+            audioRoute.setWireless(wireless.capturesSound());
+            updateStatus();
+            if (chooser != null && chooser.getVisibility() == View.VISIBLE) updateChooserDisplay();
+        }
+        @Override public void onWirelessDisplay(int id) {
+            // 系统的回调可能在 XDesk 知道这块显示器之前就来了，那时被当成别人的虚拟显示器忽略掉
+            if (!realDisplays.contains(id)) displayListener.onDisplayAdded(id);
+        }
+        @Override public void onWirelessPairing(String receiverName, boolean wrongBefore, WirelessDisplay.Pairing reply) {
+            String note = getString(wrongBefore ? R.string.xd_wireless_code_wrong : R.string.xd_wireless_code_note, receiverName);
+            ui().input(getString(R.string.xd_wireless_pair_title, receiverName), note, "0000", null,
+                InputType.TYPE_CLASS_NUMBER, getString(R.string.xd_wireless_pair), reply::answer, () -> reply.answer(null));
+        }
+        @Override public void onWirelessMessage(String message) {
+            Toast.makeText(XDeskActivity.this, message, Toast.LENGTH_LONG).show();
+        }
+    };
+
+    /** 无线显示：局域网里找到的接收端、手动输入地址，投屏中可以停止。 */
+    private void showWirelessPicker() {
+        final SettingsUi s = ui();
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        final Dialog[] d = new Dialog[1];
+        final WirelessFinder finder = new WirelessFinder(this);
+        if (wireless.isActive()) {
+            s.dangerRow(c, getString(R.string.xd_wireless_stop, wireless.receiverName()), null, () -> {
+                d[0].dismiss();
+                wireless.stop();
+            });
+        }
+        final LinearLayout found = s.card(c);
+        final TextView searching = Style.label(this, getString(R.string.xd_wireless_searching), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        searching.setPadding(dp(12), dp(12), dp(12), dp(12));
+        found.addView(searching);
+        final java.util.Set<String> shown = new java.util.HashSet<>();
+        LinearLayout manual = s.card(c);
+        s.valueRow(manual, getString(R.string.xd_wireless_address), getString(R.string.xd_wireless_address_note), "", () -> {
+            d[0].dismiss();
+            s.input(getString(R.string.xd_wireless_address), getString(R.string.xd_wireless_address_note), "192.168.1.20",
+                wireless.lastAddress(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, getString(R.string.xd_wireless_connect),
+                text -> {
+                    String host = text;
+                    int port = WirelessDisplay.PORT;
+                    int colon = text.lastIndexOf(':');
+                    // host:port, not an IPv6 address without a port
+                    if (colon > 0 && text.indexOf(':') == colon) {
+                        try {
+                            port = Integer.parseInt(text.substring(colon + 1));
+                            host = text.substring(0, colon);
+                        } catch (NumberFormatException ignored) { }
+                    }
+                    startWireless(host, port, null, null);
+                }, null);
+        });
+        d[0] = s.sheet(getString(R.string.xd_wireless), getString(R.string.xd_wireless_picker_note), c);
+        d[0].setOnDismissListener(x -> finder.stop());
+        finder.start(r -> {
+            String key = r.id != null ? r.id : r.host;
+            if (!shown.add(key)) return;
+            searching.setVisibility(View.GONE);
+            s.valueRow(found, r.name, r.host, "", () -> {
+                d[0].dismiss();
+                startWireless(r.host, r.port, r.name, r.id);
+            });
+        });
+    }
+
+    private void startWireless(String host, int port, String name, String id) {
+        if (!apps.injectorReady()) {
+            Toast.makeText(this, R.string.xd_wireless_need_injector, Toast.LENGTH_LONG).show();
+            return;
+        }
+        wireless.start(host, port, name, id);
+    }
+
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
         @Override public void onItemLongPress(String key) { showAppCard(key); }
@@ -500,6 +580,7 @@ public class XDeskActivity extends Activity {
         apps = AppSession.get(this);
         catalog = AppCatalog.get(this);
         audioRoute = AudioRoute.get(this);
+        wireless = WirelessDisplay.get(this);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
@@ -508,6 +589,8 @@ public class XDeskActivity extends Activity {
         session.setListener(sessionListener);
         apps.setListener(appListener);
         audioRoute.setListener(audioListener);
+        wireless.setListener(wirelessListener);
+        audioRoute.setWireless(wireless.capturesSound());
         displays.registerDisplayListener(displayListener, ui);
         for (Display d : displays.getDisplays()) if (TargetDisplay.isReal(d)) realDisplays.add(d.getDisplayId());
         Display car = TargetDisplay.car(displays);
@@ -597,6 +680,7 @@ public class XDeskActivity extends Activity {
         session.setListener(null);
         apps.setListener(null);
         audioRoute.setListener(null);
+        wireless.setListener(null);
         super.onDestroy();
     }
 
@@ -1379,8 +1463,8 @@ public class XDeskActivity extends Activity {
 
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
     private void chooseOutput() {
-        if (audioRoute.isCar()) {
-            Toast.makeText(this, R.string.xd_output_car, Toast.LENGTH_LONG).show();
+        if (audioRoute.isRemote()) {
+            Toast.makeText(this, audioRoute.isWireless() ? R.string.xd_output_wireless : R.string.xd_output_car, Toast.LENGTH_LONG).show();
             return;
         }
         final List<AudioRoute.Output> outputs = audioRoute.outputs();
@@ -1520,6 +1604,11 @@ public class XDeskActivity extends Activity {
         settingsOutputValue = s.valueRow(sound, getString(R.string.xd_output), null, audioRoute.shortLabel(), this::chooseOutput);
 
         LinearLayout external = s.section(c, getString(R.string.xd_section_display));
+        s.valueRow(external, getString(R.string.xd_wireless), getString(R.string.xd_wireless_note),
+            wireless.isActive() ? wireless.receiverName() : getString(R.string.xd_wireless_off), () -> {
+                if (page[0] != null) page[0].dismiss();
+                showWirelessPicker();
+            });
         addDensitySetting(s, external);
         if (AppSession.fullscreenSupported()) {
             s.switchRow(external, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));

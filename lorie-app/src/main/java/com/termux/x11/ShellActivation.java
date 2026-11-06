@@ -220,8 +220,13 @@ final class ShellActivation {
 
     /** Main thread. A new session on the running server, answered on c. Without a server c hears nothing. */
     void openSession(final ServiceConnection c) {
-        final IShellServer s = server;
         sessionUser = c;
+        openExtraSession(c);
+    }
+
+    /** Another session next to the app session, for the wireless display: its end and the server's death are its owner's business. */
+    void openExtraSession(final ServiceConnection c) {
+        final IShellServer s = server;
         if (s == null) return;
         new Thread(() -> {
             try {

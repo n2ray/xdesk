@@ -528,6 +528,39 @@ final class AppSession {
         return args;
     }
 
+    private Shizuku.UserServiceArgs wirelessArgs;
+
+    /**
+     * A second injector for the wireless display, which has to outlive app sessions: stopping an app session shuts its
+     * injector down with its displays. The built-in server first, as another session: it stays up while Shizuku is often
+     * killed in the background. Through Shizuku it is another process (its own tag). Answered on c. Returns whether it
+     * went through Shizuku, or null when no injector can start.
+     */
+    Boolean openWirelessInjector(ServiceConnection c) {
+        if (shell.isRunning()) {
+            shell.openExtraSession(c);
+            return false;
+        }
+        if (shizukuState() == SHIZUKU_READY) {
+            if (wirelessArgs == null) {
+                wirelessArgs = new Shizuku.UserServiceArgs(new ComponentName(context.getPackageName(), InjectorService.class.getName()))
+                    .tag("wireless")
+                    .daemon(false)
+                    .processNameSuffix("wireless")
+                    .debuggable(false)
+                    .version(ShellActivation.installVersion(context));
+            }
+            Shizuku.bindUserService(wirelessArgs, c);
+            return true;
+        }
+        return null;
+    }
+
+    /** After the injector's shutdown. A built-in session needs nothing more. */
+    void closeWirelessInjector(ServiceConnection c, boolean viaShizuku) {
+        if (viaShizuku && wirelessArgs != null && Shizuku.pingBinder()) Shizuku.unbindUserService(wirelessArgs, c, true);
+    }
+
     /** This injector still belongs to the session that was started with this generation: stop() may have come since. */
     private boolean current(IInjector i, int gen) {
         return injector == i && generation == gen;

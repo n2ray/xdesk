@@ -68,7 +68,8 @@ final class AudioRoute {
     /** 注入服务设路由失败过：这个系统版本用不了，退回 setPreferredDevice。 */
     private boolean systemFailed;
     /** 用的是车机：声音走系统默认的媒体输出，Android Auto 把它送到车里。存的选择不变，回到外接屏时再按它来。 */
-    private boolean car;
+    /** On the car or a wireless display: sound goes where that display is, the chosen output does not apply. */
+    private boolean car, wireless;
 
     private final Context context;
 
@@ -209,30 +210,45 @@ final class AudioRoute {
         return k.isEmpty() ? null : match(k, outputs(), OUTPUTS);
     }
 
-    /** 在车机上不按选择来，用系统默认。 */
+    /** 在车机或无线显示上不按选择来，用系统默认。 */
     private Output activeOutput() {
-        return car ? null : selectedOutput();
+        return isRemote() ? null : selectedOutput();
     }
 
     void setCar(boolean c) {
-        if (c == car) return;
+        setRemote(c, wireless);
+    }
+
+    /** The wireless display takes the whole system output, see WirelessDisplay. */
+    void setWireless(boolean w) {
+        setRemote(car, w);
+    }
+
+    private void setRemote(boolean c, boolean w) {
+        if (c == car && w == wireless) return;
         car = c;
+        wireless = w;
         wasMissing = isMissing();
         appliedKey = null;
         syncSystem();
         if (listener != null) listener.onOutputsChanged();
     }
 
-    boolean isCar() {
-        return car;
+    boolean isRemote() {
+        return car || wireless;
+    }
+
+    boolean isWireless() {
+        return wireless;
     }
 
     /** 选了设备但它现在不在。 */
     boolean isMissing() {
-        return !car && !selectedKey().isEmpty() && selectedOutput() == null;
+        return !isRemote() && !selectedKey().isEmpty() && selectedOutput() == null;
     }
 
     String shortLabel() {
+        if (wireless) return context.getString(R.string.xd_audio_short_wireless);
         if (car) return context.getString(R.string.xd_audio_short_car);
         Output o = selectedOutput();
         return o != null ? o.shortLabel : context.getString(R.string.xd_audio_short_system);

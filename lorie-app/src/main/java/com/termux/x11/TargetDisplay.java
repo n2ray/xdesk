@@ -5,7 +5,8 @@ import android.hardware.display.DisplayManager;
 import android.view.Display;
 
 /**
- * Which display XDesk uses, decided only here: a real external display wins, otherwise the car's screen. Every other
+ * Which display XDesk uses, decided only here: the wireless display while XDesk streams one (WirelessDisplay), then a
+ * real external display, otherwise the car's screen. Every other
  * display is ignored, among them Android Auto's own virtual displays (maps, toolbars, the dashboard), screen recording
  * and casting.
  *
@@ -26,6 +27,11 @@ final class TargetDisplay {
 
     /** The first real external display, or null. */
     static Display real(DisplayManager dm) {
+        int wireless = WirelessDisplay.displayId();
+        if (wireless != Display.INVALID_DISPLAY) {
+            Display d = dm.getDisplay(wireless);
+            if (d != null) return d;
+        }
         for (Display d : dm.getDisplays()) if (isReal(d)) return d;
         return null;
     }
@@ -56,6 +62,8 @@ final class TargetDisplay {
      */
     static boolean isReal(Display d) {
         if (d == null || d.getDisplayId() == Display.DEFAULT_DISPLAY || isCar(d)) return false;
+        // XDesk's wireless display is a virtual one, but XDesk uses it as an external display in every way
+        if (d.getDisplayId() == WirelessDisplay.displayId()) return true;
         try {
             int type = (Integer) Display.class.getMethod("getType").invoke(d);
             return type == TYPE_EXTERNAL || type == TYPE_WIFI || type == TYPE_OVERLAY;

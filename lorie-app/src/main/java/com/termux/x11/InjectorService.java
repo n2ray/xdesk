@@ -58,6 +58,7 @@ public class InjectorService extends IInjector.Stub {
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private final ImePlacement imes = new ImePlacement();
+    private final OutputCapture output = new OutputCapture();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
@@ -345,6 +346,7 @@ public class InjectorService extends IInjector.Stub {
                     if (left != null) Log.w(TAG, "audio route not cleared: " + left);
                     // Move first: this way apps do not have to reconfigure on a display they are leaving
                     if (displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
+                    output.stop();
                     imes.restoreAll();
                     density.clearOurs();
                 }
@@ -380,6 +382,11 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void focusDisplay(int display) {
         post(() -> injector.focus(display));
+    }
+
+    @Override public android.os.ParcelFileDescriptor captureOutput() {
+        if (sessionOver) throw new IllegalStateException(OVER);
+        return output.start();
     }
 
     @Override public void setImeOnDisplay(int display, boolean on) {
@@ -671,6 +678,7 @@ public class InjectorService extends IInjector.Stub {
         }
         String left = audio.clear(false);
         if (left != null) Log.w(TAG, "audio route not cleared: " + left);
+        output.stop();
         imes.restoreAll();
         density.clearOurs();
         enabled = false;

@@ -291,6 +291,59 @@ final class SettingsUi {
         return d[0];
     }
 
+    /**
+     * A field and a button. onSubmit gets the trimmed text and the dialog closes; closing it any other way calls
+     * onCancel once, which may be null.
+     */
+    Dialog input(String title, String note, String hint, String value, int inputType, String action,
+                 final Consumer<String> onSubmit, final Runnable onCancel) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        final EditText field = new EditText(c);
+        field.setInputType(inputType);
+        field.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        field.setSingleLine(true);
+        field.setTextColor(Style.TEXT);
+        field.setHintTextColor(Style.TEXT_DIM);
+        field.setTextSize(Style.TEXT_BODY + 2);
+        field.setGravity(Gravity.CENTER);
+        field.setHint(hint);
+        field.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
+        if (value != null) field.setText(value);
+        box.addView(field, new LinearLayout.LayoutParams(-1, dp(Style.TARGET + 4)));
+        LinearLayout row = new LinearLayout(c);
+        row.setGravity(Gravity.END);
+        TextView go = pill(action, Style.ACCENT);
+        row.addView(go, pillParams());
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.topMargin = dp(12);
+        box.addView(row, rp);
+        final Dialog[] d = new Dialog[1];
+        final boolean[] submitted = new boolean[1];
+        final Runnable submit = () -> {
+            String text = field.getText().toString().trim();
+            if (text.isEmpty()) return;
+            submitted[0] = true;
+            d[0].dismiss();
+            onSubmit.accept(text);
+        };
+        go.setOnClickListener(v -> {
+            Style.tick(v);
+            submit.run();
+        });
+        field.setOnEditorActionListener((v, a, e) -> {
+            submit.run();
+            return true;
+        });
+        d[0] = sheet(title, note, box);
+        d[0].setOnDismissListener(x -> {
+            if (!submitted[0] && onCancel != null) onCancel.run();
+        });
+        d[0].getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        field.requestFocus();
+        return d[0];
+    }
+
     private LinearLayout.LayoutParams pillParams() {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(Style.TARGET - 4));
         p.leftMargin = dp(8);
