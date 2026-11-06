@@ -1,7 +1,6 @@
 package com.termux.x11;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Point;
 import android.os.Bundle;
@@ -13,18 +12,12 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
 
 /**
  * Android Auto's entry while parked (CAR_LAUNCHER): the dashboard on the car's screen, and what tells XDesk which display
  * is the car's (see TargetDisplay). A Termux desktop goes on top of it. While an Android app session runs on the car it
  * shows the display the injector made for the apps instead (see AppDisplay), in a SurfaceView, and sends the car's touches
- * there. It also writes what the car's display is and what happens to this activity to car_log.txt in the app's files,
- * for testing.
+ * there. It logs what the car's display is, under XDeskCar.
  */
 public class CarActivity extends Activity {
     /** AppSession, on the main thread. */
@@ -90,14 +83,14 @@ public class CarActivity extends Activity {
         v.setVisibility(View.GONE);
         v.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override public void surfaceCreated(SurfaceHolder h) {
-                record("app surface created, display " + appWidth + "x" + appHeight);
+                Log.d(TAG, "app surface created, display " + appWidth + "x" + appHeight);
                 if (appScreen != null) appScreen.onSurface(h.getSurface());
             }
             @Override public void surfaceChanged(SurfaceHolder h, int format, int w, int hh) {
-                record("app surface " + w + "x" + hh + " in a view of " + appView.getWidth() + "x" + appView.getHeight());
+                Log.d(TAG, "app surface " + w + "x" + hh + " in a view of " + appView.getWidth() + "x" + appView.getHeight());
             }
             @Override public void surfaceDestroyed(SurfaceHolder h) {
-                record("app surface destroyed");
+                Log.d(TAG, "app surface destroyed");
                 if (appScreen != null) appScreen.onSurface(null);
             }
         });
@@ -138,7 +131,7 @@ public class CarActivity extends Activity {
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
         current = this;
         applyMode();
-        record("onCreate " + describe(getDisplay()) + " density=" + getResources().getConfiguration().densityDpi);
+        Log.i(TAG, "onCreate " + describe(getDisplay()) + " density=" + getResources().getConfiguration().densityDpi);
         followDisplay();
     }
 
@@ -146,28 +139,16 @@ public class CarActivity extends Activity {
         super.onStart();
         view.start();
         started = true;
-        record("onStart");
-    }
-
-    @Override protected void onResume() {
-        super.onResume();
-        record("onResume focus=" + hasWindowFocus());
-    }
-
-    @Override protected void onPause() {
-        record("onPause");
-        super.onPause();
     }
 
     @Override protected void onStop() {
         view.stop();
         started = false;
-        record("onStop");
         super.onStop();
     }
 
     @Override protected void onDestroy() {
-        record("onDestroy finishing=" + isFinishing());
+        Log.d(TAG, "onDestroy finishing=" + isFinishing());
         if (shownOn == displayId) setDisplayId(Display.INVALID_DISPLAY);
         if (current == this) current = null;
         super.onDestroy();
@@ -175,7 +156,7 @@ public class CarActivity extends Activity {
 
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
-        record("config " + c.screenWidthDp + "x" + c.screenHeightDp + "dp " + c.densityDpi + "dpi " + describe(getDisplay()));
+        Log.i(TAG, "config " + c.screenWidthDp + "x" + c.screenHeightDp + "dp " + c.densityDpi + "dpi " + describe(getDisplay()));
         followDisplay();
     }
 
@@ -188,11 +169,6 @@ public class CarActivity extends Activity {
             return;
         }
         setDisplayId(d.getDisplayId());
-    }
-
-    @Override public void onWindowFocusChanged(boolean focus) {
-        super.onWindowFocusChanged(focus);
-        record("focus " + focus);
     }
 
     private static String describe(Display d) {
@@ -209,20 +185,5 @@ public class CarActivity extends Activity {
             s.append(" uid=").append(Display.class.getMethod("getOwnerUid").invoke(d));
         } catch (ReflectiveOperationException | RuntimeException ignored) { }
         return s.toString();
-    }
-
-    private void record(String what) {
-        record(this, what);
-    }
-
-    /** Also for XDesk's phone side, which shares this log. */
-    static void record(Context c, String what) {
-        String line = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.ROOT).format(new Date()) + " " + what;
-        Log.w(TAG, line);
-        try (FileWriter w = new FileWriter(new java.io.File(c.getFilesDir(), "car_log.txt"), true)) {
-            w.write(line + "\n");
-        } catch (IOException e) {
-            Log.w(TAG, "log", e);
-        }
     }
 }

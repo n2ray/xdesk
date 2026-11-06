@@ -461,7 +461,7 @@ final class AppSession {
         synchronized (carLock) {
             if (carDisplayId == Display.INVALID_DISPLAY) {
                 carDisplayId = i.createVirtualDisplay("XDesk", carWidth, carHeight, carDpi, carSurface);
-                CarActivity.record(context, "XDesk made display=" + carDisplayId + " for apps, " + carWidth + "x" + carHeight
+                Log.i(TAG, "made display=" + carDisplayId + " for apps, " + carWidth + "x" + carHeight
                     + " " + carDpi + " dpi, surface " + (carSurface != null ? "attached" : "not ready"));
             }
             id = carDisplayId;
@@ -479,9 +479,9 @@ final class AppSession {
             if (i == null || carDisplayId == Display.INVALID_DISPLAY) return;
             try {
                 i.setVirtualDisplaySurface(carDisplayId, s);
-                CarActivity.record(context, "surface " + (s != null ? "attached to" : "detached from") + " display=" + carDisplayId);
+                Log.i(TAG, "car surface " + (s != null ? "attached to" : "detached from") + " display=" + carDisplayId);
             } catch (RemoteException | RuntimeException e) {
-                CarActivity.record(context, "surface not " + (s != null ? "attached: " : "detached: ") + e);
+                Log.w(TAG, "car surface not " + (s != null ? "attached" : "detached"), e);
             }
         }
     }
@@ -517,7 +517,7 @@ final class AppSession {
                     made = makeCarDisplay(i);
                 } catch (RuntimeException e) {
                     // The system refused the display, the reason comes from createVirtualDisplay
-                    CarActivity.record(context, "no display for apps: " + e);
+                    Log.w(TAG, "no display for apps on the car", e);
                     ui.post(() -> fail("无法为车机建显示器：" + e.getMessage()));
                     return;
                 }
@@ -1162,7 +1162,7 @@ final class AppSession {
                         ui.post(() -> android.widget.Toast.makeText(context, "有的应用没能移回手机：" + error, android.widget.Toast.LENGTH_LONG).show());
                     }
                 }
-                if (carId >= 0) CarActivity.record(context, "display=" + carId + " for apps ends with the session");
+                if (carId >= 0) Log.i(TAG, "display=" + carId + " for apps ends with the session");
                 // Lifts everything held before the process goes away
                 if (i != null) i.shutdown();
             } catch (RemoteException ignored) { }

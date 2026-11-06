@@ -2215,7 +2215,7 @@ public class XDeskActivity extends Activity {
         apps.suspend();
         desktopOnCar = TargetDisplay.isCar(d);
         audioRoute.setCar(desktopOnCar);
-        if (desktopOnCar) CarActivity.record(this, "XDesk puts the desktop on display=" + d.getDisplayId() + " size=" + desktopSize(d));
+        if (desktopOnCar) Log.i(TAG, "desktop on the car, display=" + d.getDisplayId() + " size=" + desktopSize(d));
         placeX11(d.getDisplayId());
         applySize(d);
         session.attach();
