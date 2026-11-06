@@ -25,7 +25,7 @@ SESSIONS=$CONF/sessions
 RUN=$PREFIX/tmp/xdesk
 LOG=$PREFIX/tmp/xdesk.log
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
-LOADER_BACKUP=/sdcard/Termux/xdesk/dist/loader.apk
+LOG_MAX=2097152              # xdesk.log is rotated to xdesk.log.1 beyond this many bytes
 # Scripts with #!/bin/... only run through termux-exec, and RUN_COMMAND starts us without it
 TERMUX_EXEC=$PREFIX/lib/libtermux-exec-ld-preload.so
 if [ -z "${LD_PRELOAD:-}" ] && [ -f "$TERMUX_EXEC" ]; then export LD_PRELOAD=$TERMUX_EXEC; fi
@@ -34,27 +34,76 @@ if [ -z "${LD_PRELOAD:-}" ] && [ -f "$TERMUX_EXEC" ]; then export LD_PRELOAD=$TE
 if [ "$(ps -o ni= -p $$ | tr -d ' ')" = 0 ]; then renice -n -10 -p $$ >/dev/null 2>&1; fi
 mkdir -p "$SESSIONS" "$RUN"
 
+# The X server and the sessions keep the log open for appending, so it is copied and truncated in
+# place: renaming it would leave them writing to the old file.
+if [ -f "$LOG" ] && [ "$(wc -c <"$LOG" 2>/dev/null || echo 0)" -gt "$LOG_MAX" ]; then
+    cp -f "$LOG" "$LOG.1" 2>/dev/null && : >"$LOG"
+fi
+
 log() { echo "$(date +%T) $*" >>"$LOG"; }
 say() { echo "$*"; log "$*"; }
 x_up() { DISPLAY=$DPY timeout 2 xrandr >/dev/null 2>&1; }
 x_pid() { pgrep -f '^xdesk-x11 ' | head -1; }
 
+# Whatever holds the X lock file of our display is still alive (another X server, or ours under
+# a name pgrep does not know).
+x_lock_alive() {
+    local p
+    p=$(tr -d ' ' <"$PREFIX/tmp/.X${DPY#:}-lock" 2>/dev/null) || return 1
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+# Commands the X and session commands need, with the Termux package that has them
+need_tools() {
+    local pair missing=""
+    for pair in xrandr:xorg-xrandr flock:util-linux setsid:util-linux timeout:coreutils \
+                seq:coreutils pgrep:procps pkill:procps ps:procps; do
+        command -v "${pair%%:*}" >/dev/null 2>&1 || missing="$missing ${pair##*:}"
+    done
+    [ -z "$missing" ] && return 0
+    # shellcheck disable=SC2086
+    missing=$(printf '%s\n' $missing | sort -u | tr '\n' ' ')
+    say "Missing commands. Install them with: pkg install ${missing% }"
+    exit 1
+}
+
 # Session names become file names
 valid_name() {
     case "$1" in
-    ''|*/*|.*) echo "Invalid session name: '$1'"; return 1 ;;
+    ''|*/*|.*|-*) echo "Invalid session name: '$1'"; return 1 ;;
     esac
 }
 
 ensure_loader() {
     [ -f "$LOADER" ] && return 0
-    if [ -f "$LOADER_BACKUP" ]; then
-        mkdir -p "$(dirname "$LOADER")"
-        cp "$LOADER_BACKUP" "$LOADER" && chmod 400 "$LOADER" && log "loader restored"   # Android refuses a writable dex
-        return 0
-    fi
-    say "Loader not found: $LOADER. Run install.sh again."
+    say "Loader not found: $LOADER. Install XDesk again: curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash"
     return 1
+}
+
+# Extra environment for the X server only, from $CONF/x11-env into the array xenv: one NAME=value
+# per line; "export " and one pair of quotes around the value are allowed, # starts a comment.
+read_x11_env() {
+    local line name value
+    xenv=()
+    [ -f "$CONF/x11-env" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        line=${line#"${line%%[![:space:]]*}"}
+        case "$line" in ''|'#'*) continue ;; esac
+        line=${line#export }
+        if ! [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            log "x11-env: ignored line: $line"
+            continue
+        fi
+        name=${line%%=*}
+        value=${line#*=}
+        case "$value" in
+        \"*\"|\'*\') [ ${#value} -ge 2 ] && value=${value:1:${#value}-2} ;;
+        esac
+        xenv+=("$name=$value")
+    done <"$CONF/x11-env"
+    [ ${#xenv[@]} -gt 0 ] && log "X server environment from $CONF/x11-env: ${xenv[*]}"
+    return 0
 }
 
 # Keep the lock for setup only: background processes must not inherit fd 9 or it is never released
@@ -64,8 +113,21 @@ lock() {
 }
 
 start_x() {
-    x_up && [ -n "$(x_pid)" ] && return 0
-    if x_up; then
+    local up=0 p
+    x_up && up=1
+    p=$(x_pid)
+    if [ -n "$p" ]; then
+        [ $up = 1 ] && return 0
+        # Ours but not answering (still starting, or busy): never remove its socket and start a
+        # second one, wait for it instead.
+        for _ in $(seq 20); do
+            x_up && return 0
+            sleep 0.5
+        done
+        say "The X server (pid $p) is running but does not answer on $DPY. Run: xdesk stop, then start again."
+        return 1
+    fi
+    if [ $up = 1 ] || x_lock_alive; then
         say "Display $DPY is used by another X server (official Termux:X11?). Stop it first."
         return 1
     fi
@@ -74,17 +136,10 @@ start_x() {
     # Same environment handling as the official termux-x11 launcher
     [ -z "${LD_LIBRARY_PATH+x}" ] || export XSTARTUP_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
     [ -z "${LD_PRELOAD+x}" ] || export XSTARTUP_LD_PRELOAD="$LD_PRELOAD"
-    # Extra environment for the X server only (e.g. TERMUX_X11_* debug switches), one NAME=value
-    # per line in $CONF/x11-env. The app starts us through RUN_COMMAND, so a shell's env never gets here.
-    local xenv=() line
-    if [ -f "$CONF/x11-env" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            case "$line" in
-            [A-Za-z_]*=*) xenv+=("$line") ;;
-            esac
-        done <"$CONF/x11-env"
-        [ ${#xenv[@]} -gt 0 ] && log "X server environment from $CONF/x11-env: ${xenv[*]}"
-    fi
+    # Extra environment for the X server only (e.g. TERMUX_X11_* debug switches). The app starts us
+    # through RUN_COMMAND, so a shell's env never gets here.
+    local xenv
+    read_x11_env
     env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
         -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
         </dev/null >>"$LOG" 2>&1 9>&- &
@@ -224,19 +279,23 @@ cmd=${1:-}
 [ $# -gt 0 ] && shift
 case "$cmd" in
 x)
+    need_tools
     lock; start_x && start_audio
     ;;
 run)
     [ $# -gt 0 ] || { usage; exit 2; }
+    need_tools
     lock; start_x && start_audio || exit 1
     wait_for_app
     exec 9>&-
     DISPLAY=$DPY PULSE_SERVER=127.0.0.1 exec "$@"
     ;;
 start)
-    clear_stopped
     name=${1:-$(current)}
     [ -n "$name" ] || { echo "No default session. Run: xdesk setup"; exit 1; }
+    valid_name "$name" || exit 2
+    need_tools
+    clear_stopped
     lock; start_x && start_audio || exit 1
     wait_for_app
     start_session "$name"
@@ -245,12 +304,16 @@ recover)
     [ -e "$RUN/stopped" ] && exit 0
     name=${1:-$(current)}
     [ -n "$name" ] || exit 1
+    valid_name "$name" || exit 2
+    need_tools
     lock; start_x && start_audio || exit 1
     wait_for_app
     start_session "$name"
     ;;
 switch)
     [ $# -eq 1 ] || { usage; exit 2; }
+    valid_name "$1" || exit 2
+    need_tools
     [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
     clear_stopped
     lock; start_x && start_audio || exit 1
@@ -282,6 +345,7 @@ rm)
     ;;
 use)
     [ $# -eq 1 ] || { usage; exit 2; }
+    valid_name "$1" || exit 2
     [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
     echo "$1" >"$CONF/current"
     list
