@@ -16,6 +16,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Canvas;
@@ -30,6 +31,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
+import android.os.Process;
+import android.system.Os;
+import android.system.OsConstants;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -76,6 +80,7 @@ import com.termux.x11.utils.KeyInterceptor;
 import com.termux.x11.utils.TermuxX11ExtraKeys;
 import com.termux.x11.utils.X11ToolbarViewPager;
 
+import java.io.FileDescriptor;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -86,6 +91,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.IntPredicate;
+
+import org.lsposed.hiddenapibypass.HiddenApiBypass;
 
 @Keep @SuppressLint("ApplySharedPref")
 @SuppressWarnings({"deprecation", "unused"})
@@ -98,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
     FrameLayout frm;
     TouchInputHandler mInputHandler;
     protected ICmdEntryInterface service = null;
+    private boolean logcatPending;
     public TermuxX11ExtraKeys mExtraKeys;
     private DisplayManager displayManager;
     private boolean showIMEWhileExternalConnected = true;
@@ -727,18 +735,29 @@ public class MainActivity extends AppCompatActivity {
 
     void connectToService(IBinder ibinder) {
         service = ICmdEntryInterface.Stub.asInterface(ibinder);
-        try {
-            if (service != null && service.asBinder().isBinderAlive()) {
-                Log.v("MainActivity", "Extracting logcat fd.");
-                ParcelFileDescriptor logcatOutput = service.getLogcatOutput();
-                if (logcatOutput != null)
-                    getLorieView().startLogcat(logcatOutput.detachFd());
+        // Our logcat goes to the server, so only once its socket shows it is the real one, see tryConnect
+        logcatPending = true;
+        if (service != null && service.asBinder().isBinderAlive())
+            tryConnect();
+    }
 
-                tryConnect();
-            }
-        } catch (Exception e) {
-            Log.e("MainActivity", "Something went wrong while we were establishing connection", e);
+    /**
+     * Anyone can send ACTION_START with a Binder of their own and would then get the keyboard. The socket of the X
+     * connection says which uid made it, and that has to be Termux's, where the X server runs, or this app's own.
+     */
+    private boolean madeByXServer(ParcelFileDescriptor fd) {
+        try {
+            HiddenApiBypass.addHiddenApiExemptions("Landroid/system/Os;", "Landroid/system/StructUcred;");
+            Object cred = Os.class.getMethod("getsockoptUcred", FileDescriptor.class, int.class, int.class)
+                    .invoke(null, fd.getFileDescriptor(), OsConstants.SOL_SOCKET, OsConstants.SO_PEERCRED);
+            int uid = cred.getClass().getField("uid").getInt(cred);
+            if (uid == Process.myUid() || uid == getPackageManager().getPackageUid("com.termux", 0))
+                return true;
+            Log.e("MainActivity", "Refusing an X connection made by uid " + uid);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError | PackageManager.NameNotFoundException e) {
+            Log.e("MainActivity", "Refusing an X connection whose maker is unknown", e);
         }
+        return false;
     }
 
     void disconnectService() {
@@ -762,7 +781,19 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             ParcelFileDescriptor fd = service.getXConnection();
-            if (fd != null) {
+            if (fd != null && !madeByXServer(fd)) {
+                fd.close();
+                service = null;
+                scheduleConnect();
+            } else if (fd != null) {
+                app.verifiedServers.add(service.asBinder());
+                if (logcatPending) {
+                    logcatPending = false;
+                    Log.v("MainActivity", "Extracting logcat fd.");
+                    ParcelFileDescriptor logcatOutput = service.getLogcatOutput();
+                    if (logcatOutput != null)
+                        getLorieView().startLogcat(logcatOutput.detachFd());
+                }
                 Log.v("MainActivity", "Extracting X connection socket.");
                 getLorieView().connect(fd.detachFd());
                 finishStartupDraw();

@@ -50,6 +50,8 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.4.21"
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0'
     implementation 'androidx.preference:preference:1.2.1'
+    // MainActivity reads who made the X connection's socket, see madeByXServer
+    implementation "org.lsposed.hiddenapibypass:hiddenapibypass:6.1"
     compileOnly project(':shell-loader:stub')
 }
 afterEvaluate {

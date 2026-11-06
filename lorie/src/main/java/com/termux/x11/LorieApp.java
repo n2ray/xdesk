@@ -1,4 +1,7 @@
-package com.termux.x11;
+                IBinder pendingConnection = pendingConnections.get(tag);
+                boolean sameConnection = binder.equals(activeService) || binder.equals(pendingConnection);
+                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit
+                if (!sameConnection && activeService != null && activeService.isBinderAlive() && verifiedServers.contains(activeService)) {package com.termux.x11;
 
 import static android.os.Build.VERSION.SDK_INT;
 import static com.termux.x11.CmdEntryPoint.ACTION_START;
@@ -29,8 +32,11 @@ import androidx.core.app.NotificationCompat;
 import com.termux.x11.input.TouchInputHandler;
 
 import java.lang.ref.WeakReference;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 public class LorieApp extends Application {
     public static final int NOTIFICATION_ID = 7892;
@@ -39,6 +45,8 @@ public class LorieApp extends Application {
     public final Prefs secondaryPrefs = new Prefs();
     public NotificationManager notificationManager;
     public final Map<String, IBinder> pendingConnections = new HashMap<>();
+    /** X servers whose socket MainActivity has checked. Only these keep another ACTION_START out, see onBroadcastReceive. */
+    public final Set<IBinder> verifiedServers = Collections.newSetFromMap(new WeakHashMap<>());
 
     private Notification baseNotification;
 
