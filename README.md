@@ -167,7 +167,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 ## Building
 
-The default branch is `xdesk`, `master` tracks upstream. Pushes build on GitHub Actions, and tags like `v0.2.0` publish a release, signed with the key in the repository secrets (see `.github/workflows/release.yml`). `v0.*` releases are marked as pre-releases.
+The default branch is `xdesk`, `master` tracks upstream. Pushes build on GitHub Actions, and tags like `v0.2.0` publish a release, signed with the key in the repository secrets (see `.github/workflows/release.yml`). A tag with a suffix, such as `v0.3.0-rc1`, publishes a pre-release.
 
 ```sh
 git clone --recursive https://github.com/n2ray/xdesk

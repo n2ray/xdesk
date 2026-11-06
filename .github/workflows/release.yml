@@ -72,6 +72,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ github.ref_name }}
       run: |
-        case "$TAG" in v0.*) PRE=--prerelease ;; *) PRE= ;; esac
+        # Full releases by default; a tag with a suffix such as v0.3.0-rc1 is a pre-release
+        case "$TAG" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
         gh release create "$TAG" $PRE --title "XDesk $TAG" --generate-notes \
           out/xdesk.apk out/loader.apk out/xdesk out/SHA256SUMS

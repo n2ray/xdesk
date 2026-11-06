@@ -167,7 +167,7 @@ xdesk enable-app-start
 
 ## 构建
 
-默认分支是 `xdesk`，`master` 跟随上游。推送后由 GitHub Actions 构建，`v0.2.0` 这样的标签会发布 Release，用仓库 secrets 里的密钥签名（见 `.github/workflows/release.yml`）。`v0.*` 发布为预发布版本。
+默认分支是 `xdesk`，`master` 跟随上游。推送后由 GitHub Actions 构建，`v0.2.0` 这样的标签会发布 Release，用仓库 secrets 里的密钥签名（见 `.github/workflows/release.yml`）。带后缀的标签（如 `v0.3.0-rc1`）发布为预发布版本。
 
 ```sh
 git clone --recursive https://github.com/n2ray/xdesk
