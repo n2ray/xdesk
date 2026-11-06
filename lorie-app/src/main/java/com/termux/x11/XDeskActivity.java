@@ -1420,6 +1420,27 @@ public class XDeskActivity extends Activity {
             prefs.edit().putBoolean(PREF_DIAG, on).apply();
             applyDiagVisibility();
         });
+        final ShellActivation shell = apps.shell();
+        if (shell.isPaired() || shell.isRunning()) {
+            s.infoRow(about, "内置注入服务", "没有 Shizuku 时，安卓应用的键鼠靠它", shellState(shell));
+            if (shell.isRunning()) {
+                s.valueRow(about, "停止内置服务", "XDesk 不再自己启动它，下次运行安卓应用时再启动", "", () ->
+                    s.confirm("停止内置服务？", "用它运行的安卓应用回到手机（不关闭），键鼠和声音恢复正常。", "停止", () -> {
+                        page[0].dismiss();
+                        stopShellServer(null);
+                    }));
+            }
+            s.valueRow(about, "重新配对", "在开发者选项里撤销过授权，或一直连不上时用", "", () ->
+                s.confirm("重新配对？", "XDesk 会停止内置服务并忘掉配对，然后带你在无线调试里重新配对。", "重新配对", () -> {
+                    page[0].dismiss();
+                    stopShellServer(() -> {
+                        shell.forgetPairing();
+                        retryRequested = true;
+                        activationFlow = true;
+                        showActivation(null);
+                    });
+                }));
+        }
 
         if (session.isActive()) {
             s.dangerRow(c, "结束 Termux 桌面", "XDesk 不退出", () -> {
@@ -1435,6 +1456,41 @@ public class XDeskActivity extends Activity {
         }
         page[0] = s.page("设置", c);
         page[0].setOnDismissListener(d -> settingsOutputValue = null);
+    }
+
+    private static String shellState(ShellActivation shell) {
+        if (shell.isRunning()) return "运行中";
+        if (shell.isStarting()) return "正在启动";
+        return shell.isPaired() ? "没有运行" : "未配对";
+    }
+
+    /**
+     * 停止内置服务。用它运行的安卓应用先回到手机，和结束 XDesk 时一样；服务结束前也会交还它占着的东西。
+     * @param then 应用移完、服务停下之后在主线程运行，可以是 null
+     */
+    private void stopShellServer(final Runnable then) {
+        final ShellActivation shell = apps.shell();
+        final Runnable stop = () -> {
+            shell.stopServer();
+            if (then != null) then.run();
+        };
+        if (!apps.usesShell() || !apps.hasInjector()) {
+            stop.run();
+            return;
+        }
+        boolean appOnDisplay = apps.isActive();
+        Display real = TargetDisplay.real(displays);
+        if (appOnDisplay) {
+            releaseLatches();
+            client = null;
+        }
+        apps.endSession(appOnDisplay && real != null ? real.getDisplayId() : -1, () -> {
+            stop.run();
+            dashboardTried = Display.INVALID_DISPLAY;
+            ensureDashboard();
+            DesktopService.stopIfIdle(this);
+        });
+        if (appOnDisplay) backToChooser();
     }
 
     private String versionName() {
@@ -2029,14 +2085,15 @@ public class XDeskActivity extends Activity {
             return;
         }
         closeActivation();
-        // 用户点了才再试，上次失败了也一样。状态变化引起的刷新不重试，否则失败会接着失败地循环
-        if (retryRequested && !shell.isRunning() && !shell.isStarting()) shell.retry();
+        // 用户点了才再试，上次失败了也一样。状态变化引起的刷新不重试，否则失败会接着失败地循环。
+        // 用户在设置里停了服务，选了安卓应用就是要它再启动
+        if ((retryRequested || shell.isStoppedByUser()) && !shell.isRunning() && !shell.isStarting()) shell.startByUser();
         retryRequested = false;
         if (shell.isStarting()) {
             showSetup(app != null ? "正在启动 " + app.label : "正在启动注入服务", "正在启动注入服务。", true, null, null);
             return;
         }
-        showSetup("还差一步", String.valueOf(shell.problem()), false, "打开无线调试设置", new View.OnClickListener() {
+        showSetup("还差一步", shell.problem() != null ? shell.problem() : "注入服务没有运行。", false, "打开无线调试设置", new View.OnClickListener() {
             @Override public void onClick(View v) { openWirelessSettings(); }
         });
         addSetupChoice("重新配对", new View.OnClickListener() {
