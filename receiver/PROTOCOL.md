@@ -1,0 +1,92 @@
+# XDesk wireless display protocol, version 1
+
+XDesk on the phone (the sender) streams one of its displays to XDesk Receiver on another device (a phone without
+video output, a projector, a TV box) over the local network. The receiver only shows the picture and plays the sound;
+all input stays on the phone.
+
+## Discovery
+
+- The receiver listens on **TCP port 47140** and registers an mDNS service through `NsdManager`:
+  type `_xdesk-display._tcp`, instance name = the receiver's name (the device name), TXT records `id` (the
+  receiver's id, see below) and `v` (`1`).
+- The phone browses for that type. Where mDNS does not cross the network (another subnet behind NAT), the user types
+  the receiver's address; the receiver shows it on its idle screen.
+- The **phone connects to the receiver**, never the other way: the receiver may sit in a subnet the phone can reach
+  but not the reverse.
+
+## Encoding
+
+Big-endian throughout. A **string** is a u16 byte length followed by that many bytes of UTF-8. Lengths above 1024
+bytes are an error.
+
+## Handshake
+
+1. Phone → receiver, `HELLO`:
+   - 4 bytes magic `XDSK`
+   - u8 version, `1`
+   - string phone id (random, made once per XDesk install, 32 hex characters)
+   - string phone name (shown on the receiver while pairing and streaming)
+   - string token (from an earlier pairing with this receiver, empty if none)
+2. Receiver → phone, `WELCOME`:
+   - u8 status: `0` OK, `1` PAIR (a code is now on the receiver's screen), `2` BUSY (another phone is streaming),
+     `3` VERSION (unsupported version), `4` REFUSED (too many wrong codes)
+   - string receiver id (random, made once per receiver install, 32 hex characters)
+   - string receiver name
+   - only with status OK:
+     - string token: a new token when this connection just paired, otherwise empty (keep the old one)
+     - u16 width, u16 height: the size the receiver wants, in pixels, landscape or portrait as its screen is now,
+       already capped to what its decoder handles (see below), both even
+     - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
+     - u16 refresh rate in frames per second, rounded
+     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265
+3. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
+   with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
+   REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.
+   Either side may close at any time; the user cancelling on the phone closes the socket.
+
+Pairing: the receiver stores phone id → token (32 random bytes as 64 hex characters) and accepts a HELLO whose token
+matches without asking. The phone stores receiver id → token. A HELLO with a wrong or unknown token gets PAIR. The
+receiver offers "Forget paired phones". The token travels unencrypted: it keeps other phones on the same network from
+casting by accident or casually, it is not protection against someone who can read the network.
+
+Any status other than OK and PAIR ends the connection after the WELCOME.
+
+## Messages
+
+After an OK, both sides send framed messages: u8 type, u32 payload length, payload. Payloads above 16 MiB are an error.
+
+Phone → receiver:
+
+| Type | Name | Payload |
+|---|---|---|
+| 1 | VIDEO_FORMAT | u32 codec (`0x68323634` "h264" or `0x68323635` "h265"), u16 width, u16 height. Sent first and again whenever the size changes; the receiver resets its decoder |
+| 2 | VIDEO_FRAME | u64 presentation time in µs, u8 flags (bit 0 codec config, bit 1 key frame), then the encoded data |
+| 3 | AUDIO_FORMAT | u32 sample rate, u8 channels, u8 encoding (`1` = 16-bit little-endian PCM). Version 1 always sends 48000, 2, 1 |
+| 4 | AUDIO_DATA | u64 presentation time in µs, then PCM |
+| 5 | PING | empty |
+| 6 | BYE | empty: the phone stops on purpose; the receiver goes back to its idle screen at once |
+
+Receiver → phone:
+
+| Type | Name | Payload |
+|---|---|---|
+| 5 | PING | empty |
+| 6 | BYE | empty: the user closed the receiver |
+| 7 | SIZE | u16 width, u16 height, u16 density: the receiver's screen changed (rotation, resolution). The phone may follow with a new VIDEO_FORMAT |
+| 8 | KEY_FRAME | empty: the receiver lost sync (decoder reset, dropped data) and needs a key frame |
+
+Each side sends a PING after 2 seconds without sending anything, and treats 6 seconds without receiving anything as a
+lost connection.
+
+## Behaviour
+
+- **Video:** H.264 without B-frames; the receiver decodes with low latency and shows each frame as soon as it is
+  decoded, not by its time stamp. It keeps the picture's aspect ratio, black around it. If the decoder cannot keep up,
+  the receiver may drop frames until the next key frame and send KEY_FRAME.
+- **Size the receiver asks for:** its screen's real size, scaled down to fit the decoder's largest supported size
+  (`MediaCodecInfo.VideoCapabilities`) and at most 1920 on the long side, keeping the aspect ratio, rounded to even.
+- **Audio:** played with `AudioTrack`; when more than 150 ms is queued the receiver drops data to catch up, so sound
+  stays with the picture.
+- **One phone at a time.** A second phone gets BUSY.
+- **Idle screen:** the receiver's name, its address and port, and how to start from XDesk. While pairing, the
+  phone's name and the 4-digit code in large digits. While streaming, only the picture.
