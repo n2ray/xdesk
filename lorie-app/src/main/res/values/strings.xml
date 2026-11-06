@@ -273,6 +273,10 @@
     <string name="xd_resolution">Desktop resolution</string>
     <string name="xd_resolution_note">X resolution of the Termux desktop</string>
     <string name="xd_density">Interface size</string>
+    <string name="xd_language">Language</string>
+    <string name="xd_language_system">System</string>
+    <string name="xd_language_en" translatable="false">English</string>
+    <string name="xd_language_zh" translatable="false">简体中文</string>
     <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
     <string name="xd_density_desktop_range">While a Termux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting. Default %3$d</string>
     <string name="xd_status_desktop_taken">Keyboard on the display: %1$s</string>

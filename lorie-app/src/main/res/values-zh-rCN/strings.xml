@@ -254,6 +254,8 @@
     <string name="xd_resolution">桌面分辨率</string>
     <string name="xd_resolution_note">Termux 桌面的 X 分辨率</string>
     <string name="xd_density">界面大小</string>
+    <string name="xd_language">语言</string>
+    <string name="xd_language_system">跟随系统</string>
     <string name="xd_density_desktop">Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值</string>
     <string name="xd_density_desktop_range">Termux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小，桌面本身用它自己的 DPI 设置。默认 %3$d</string>
     <string name="xd_status_desktop_taken">键盘在外接屏：%1$s</string>

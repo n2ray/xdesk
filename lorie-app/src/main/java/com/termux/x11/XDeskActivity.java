@@ -17,6 +17,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -582,6 +583,13 @@ public class XDeskActivity extends Activity {
     @Override protected void onDestroy() {
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
+        // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
+        if (desktopTaken) {
+            desktopTaken = false;
+            MainActivity.setTakeMouse(false);
+            Display d = desktopDisplay();
+            if (d != null) apps.setImeOnDisplay(d.getDisplayId(), false);
+        }
         displays.unregisterDisplayListener(displayListener);
         CarActivity.setListener(null);
         inputs.unregisterInputDeviceListener(deviceListener);
@@ -1469,6 +1477,20 @@ public class XDeskActivity extends Activity {
             prefs.edit().putBoolean(PREF_DIM, on).apply();
             bumpIdle();
         });
+        // 安卓 13 起才有按应用设语言；更早的只跟随系统。系统应用信息里也能改，两边是同一个设置
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            final android.app.LocaleManager locales = getSystemService(android.app.LocaleManager.class);
+            android.os.LocaleList now = locales.getApplicationLocales();
+            int language = now.isEmpty() ? 0 : "zh".equals(now.get(0).getLanguage()) ? 2 : 1;
+            s.segmentedRow(show, getString(R.string.xd_language), null,
+                new String[]{getString(R.string.xd_language_system), getString(R.string.xd_language_en), getString(R.string.xd_language_zh)},
+                language, which -> {
+                    // 系统接着会重建界面，设置页先关掉
+                    if (page[0] != null) page[0].dismiss();
+                    locales.setApplicationLocales(which == 0 ? android.os.LocaleList.getEmptyLocaleList()
+                        : android.os.LocaleList.forLanguageTags(which == 1 ? "en" : "zh-CN"));
+                });
+        }
 
         LinearLayout input = s.section(c, getString(R.string.xd_section_input));
         s.percentRow(input, getString(R.string.xd_pad_speed), null, Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100), p -> {
