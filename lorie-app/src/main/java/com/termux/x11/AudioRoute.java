@@ -66,6 +66,8 @@ final class AudioRoute {
     private final Runnable pendingOver = () -> pending = false;
     /** 注入服务设路由失败过：这个系统版本用不了，退回 setPreferredDevice。 */
     private boolean systemFailed;
+    /** 用的是车机：声音走系统默认的媒体输出，Android Auto 把它送到车里。存的选择不变，回到外接屏时再按它来。 */
+    private boolean car;
 
     private AudioRoute(Context c) {
         audio = c.getSystemService(AudioManager.class);
@@ -203,19 +205,38 @@ final class AudioRoute {
         return k.isEmpty() ? null : match(k, outputs(), OUTPUTS);
     }
 
+    /** 在车机上不按选择来，用系统默认。 */
+    private Output activeOutput() {
+        return car ? null : selectedOutput();
+    }
+
+    void setCar(boolean c) {
+        if (c == car) return;
+        car = c;
+        wasMissing = isMissing();
+        appliedKey = null;
+        syncSystem();
+        if (listener != null) listener.onOutputsChanged();
+    }
+
+    boolean isCar() {
+        return car;
+    }
+
     /** 选了设备但它现在不在。 */
     boolean isMissing() {
-        return !selectedKey().isEmpty() && selectedOutput() == null;
+        return !car && !selectedKey().isEmpty() && selectedOutput() == null;
     }
 
     String shortLabel() {
+        if (car) return "车机";
         Output o = selectedOutput();
         return o != null ? o.shortLabel : "系统";
     }
 
     /** 给 AudioPlayer：null 表示走系统默认。 */
     AudioDeviceInfo playerDevice() {
-        Output o = selectedOutput();
+        Output o = activeOutput();
         if (o == null) return null;
         for (AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             if (d.getType() == o.type && d.getAddress().equals(o.address)) return d;
@@ -266,7 +287,8 @@ final class AudioRoute {
     private void syncSystem() {
         final IInjector i = injector;
         if (i == null) return;
-        final Output o = selectedOutput();
+        // 车机上清掉以前设的路由，媒体声音才会走 Android Auto
+        final Output o = activeOutput();
         final String want = o != null ? o.key : KEY_SYSTEM;
         if (want.equals(appliedKey)) return;
         appliedKey = want;

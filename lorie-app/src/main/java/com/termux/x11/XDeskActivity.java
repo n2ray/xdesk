@@ -1195,6 +1195,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateStatus() {
+        audioRoute.setCar(onCar());
         applyFullscreen();
         applyModeToTopBar();
         if (apps.isActive()) {
@@ -1293,6 +1294,10 @@ public class XDeskActivity extends Activity {
 
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
     private void chooseOutput() {
+        if (audioRoute.isCar()) {
+            Toast.makeText(this, "车机上声音经 Android Auto 从车里播放，不用选输出", Toast.LENGTH_LONG).show();
+            return;
+        }
         final List<AudioRoute.Output> outputs = audioRoute.outputs();
         String[] labels = new String[outputs.size() + 1];
         labels[0] = "系统默认（不指定）";
@@ -1496,6 +1501,7 @@ public class XDeskActivity extends Activity {
         int id = car != null ? car.getDisplayId() : Display.INVALID_DISPLAY;
         if (id == carSeen) return;
         carSeen = id;
+        audioRoute.setCar(onCar());
         if (!session.isActive() || !desktopOnCar) {
             updateChooserDisplay();
             return;
@@ -1786,6 +1792,7 @@ public class XDeskActivity extends Activity {
     private void updateChooserDisplay() {
         Display d = externalDisplay();
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
+        audioRoute.setCar(TargetDisplay.isCar(d));
     }
 
     private void needDisplayNotice() {
@@ -2159,6 +2166,7 @@ public class XDeskActivity extends Activity {
     private void attachDisplay(Display d) {
         apps.suspend();
         desktopOnCar = TargetDisplay.isCar(d);
+        audioRoute.setCar(desktopOnCar);
         if (desktopOnCar) CarActivity.record(this, "XDesk puts the desktop on display=" + d.getDisplayId() + " size=" + desktopSize(d));
         placeX11(d.getDisplayId());
         applySize(d);
