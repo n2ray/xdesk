@@ -28,14 +28,17 @@ final class EvdevReader extends Thread {
     private static final String DIR = "/dev/input";
     private static final long RESCAN_MS = 2000;
     private static final int POLL_MS = 200, MAX_DEVICES = 32, BUFFER_EVENTS = 256;
-    private static final int REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8, SYN_REPORT = 0;
+    private static final int REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8, SYN_REPORT = 0, SYN_DROPPED = 3;
     private static final int KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_M = 50;
     private static final int FIRST_BUTTON = 256;
 
     private final Sink sink;
     private final HashMap<String, Integer> devices = new HashMap<>();
     private final HashSet<String> skipped = new HashSet<>();
-    private boolean grabbed;
+    /** Devices whose event buffer overflowed: their events are dropped up to the next SYN_REPORT. */
+    private final HashSet<Integer> dropping = new HashSet<>();
+    // Written under the lock (setGrabbed), read without it on this thread for every event.
+    private volatile boolean grabbed;
     private volatile boolean running = true;
     /** False while a Termux desktop is on the display: it reads the same mouse and keyboard through Android. */
     private volatile boolean hotkeyEnabled = true;
@@ -53,7 +56,7 @@ final class EvdevReader extends Thread {
         hotkeyEnabled = on;
     }
 
-    synchronized boolean isGrabbed() {
+    boolean isGrabbed() {
         return grabbed;
     }
 
@@ -63,7 +66,8 @@ final class EvdevReader extends Thread {
 
     /** Any thread: a phone button, or this thread for the hotkey. */
     synchronized void setGrabbed(boolean on) {
-        if (grabbed == on) return;
+        // After shutdown the devices are closed, and nothing would ungrab them again
+        if (!running || grabbed == on) return;
         grabbed = on;
         for (int fd : devices.values()) applyGrab(fd, on);
         sink.onForwarding(on, devices.size());
@@ -116,6 +120,7 @@ final class EvdevReader extends Thread {
         for (java.util.Map.Entry<String, Integer> e : devices.entrySet()) if (e.getValue() == fd) found = e.getKey();
         if (found != null) devices.remove(found);
         Evdev.close(fd);
+        dropping.remove(fd);
         Log.i(TAG, "device gone: " + found);
         // Its keys will never report going up
         leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = false;
@@ -134,6 +139,26 @@ final class EvdevReader extends Thread {
     }
 
     @Override public void run() {
+        try {
+            loop();
+        } finally {
+            closeAll();
+        }
+    }
+
+    /** Ends the grab, so the devices go back to Android, and closes them. */
+    private synchronized void closeAll() {
+        running = false;
+        for (int fd : devices.values()) {
+            if (grabbed) applyGrab(fd, false);
+            Evdev.close(fd);
+        }
+        devices.clear();
+        dropping.clear();
+        grabbed = false;
+    }
+
+    private void loop() {
         int[] out = new int[BUFFER_EVENTS * Evdev.STRIDE];
         while (running) {
             long now = System.currentTimeMillis();
@@ -158,7 +183,7 @@ final class EvdevReader extends Thread {
                     if (gone == null) gone = new ArrayList<>();
                     gone.add(fds[out[at]]);
                 } else {
-                    handle(type, code, value);
+                    handle(fds[out[at]], type, code, value);
                 }
             }
             if (gone != null) for (int fd : gone) removeDevice(fd);
@@ -173,7 +198,15 @@ final class EvdevReader extends Thread {
         return leftAlt || rightAlt;
     }
 
-    private void handle(int type, int code, int value) {
+    private void handle(int fd, int type, int code, int value) {
+        if (type == Evdev.EV_SYN && code == SYN_DROPPED) {
+            dropped(fd);
+            return;
+        }
+        if (!dropping.isEmpty() && dropping.contains(fd)) {
+            if (type == Evdev.EV_SYN && code == SYN_REPORT) dropping.remove(fd);
+            return;
+        }
         if (type == Evdev.EV_KEY) {
             handleKey(code, value);
         } else if (!grabbed) {
@@ -188,6 +221,23 @@ final class EvdevReader extends Thread {
             if (wheel != 0 || hwheel != 0) sink.onWheel(wheel, hwheel);
             dx = dy = wheel = hwheel = 0;
         }
+    }
+
+    /**
+     * The kernel's buffer for a device overflowed and events were lost, among them maybe the release of a key or
+     * button: release everything held, forget the modifiers and drop the rest of the broken report.
+     */
+    private synchronized void dropped(int fd) {
+        Log.w(TAG, "events lost on a device, releasing all keys and buttons");
+        dropping.add(fd);
+        dx = dy = wheel = hwheel = 0;
+        leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = false;
+        if (waitingForModifiers) {
+            waitingForModifiers = false;
+            sink.onModifiersUp();
+        }
+        // Like a device that went away, which releases everything held
+        if (grabbed) sink.onDeviceCount(devices.size(), true);
     }
 
     private void handleKey(int code, int value) {
