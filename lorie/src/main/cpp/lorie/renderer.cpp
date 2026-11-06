@@ -1365,6 +1365,12 @@ void Renderer::threadLoop() {
     glDeleteProgram(g_texture_program);
     glDeleteProgram(g_texture_program_bgra);
     glDeleteTextures(1, &cursor.id);
+    if (gpuCopyFbo)
+        glDeleteFramebuffers(1, &gpuCopyFbo);
+    // The Renderer can be initialised again with a new context, which must not reuse these names.
+    g_texture_program = g_texture_program_bgra = 0;
+    cursor.id = 0;
+    gpuCopyFbo = 0;
     eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (sfc != defaultSfc) // defensive; setWindow(nullptr) already reverts this before onDetachedFromWindow runs
         eglDestroySurface(egl_display, sfc);
