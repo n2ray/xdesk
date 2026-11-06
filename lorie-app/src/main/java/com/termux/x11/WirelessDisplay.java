@@ -468,7 +468,7 @@ final class WirelessDisplay {
             });
             ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
             writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
-            pump(encoder, died);
+            pump(encoder, died, id);
             return died[0];
         } catch (RemoteException e) {
             // The injector died while being set up
@@ -487,11 +487,10 @@ final class WirelessDisplay {
             try {
                 i.asBinder().unlinkToDeath(death, 0);
             } catch (RuntimeException ignored) { }
-            if (!died[0]) {
-                try {
-                    i.shutdown();
-                } catch (RemoteException ignored) { }
-            }
+            // Also when it only lost its display; a dead one just throws
+            try {
+                i.shutdown();
+            } catch (RemoteException | RuntimeException ignored) { }
             final boolean shizuku = viaShizuku[0];
             ui.post(() -> {
                 AppSession.get(context).closeWirelessInjector(connection, shizuku);
@@ -500,9 +499,20 @@ final class WirelessDisplay {
         }
     }
 
-    private void pump(MediaCodec encoder, boolean[] died) throws IOException {
+    private void pump(MediaCodec encoder, boolean[] died, int id) throws IOException {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        android.hardware.display.DisplayManager dm = context.getSystemService(android.hardware.display.DisplayManager.class);
+        long checked = SystemClock.uptimeMillis();
         while (running && !died[0]) {
+            // The injector may be alive with its display gone, as when its session was ended: treat it as dead
+            if (SystemClock.uptimeMillis() - checked > 1000) {
+                checked = SystemClock.uptimeMillis();
+                if (dm.getDisplay(id) == null) {
+                    Log.i(TAG, "display " + id + " is gone");
+                    died[0] = true;
+                    break;
+                }
+            }
             if (keyFrameWanted) {
                 keyFrameWanted = false;
                 Bundle b = new Bundle();

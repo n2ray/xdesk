@@ -221,16 +221,20 @@ final class ShellActivation {
     /** Main thread. A new session on the running server, answered on c. Without a server c hears nothing. */
     void openSession(final ServiceConnection c) {
         sessionUser = c;
-        openExtraSession(c);
+        open(c, false);
     }
 
-    /** Another session next to the app session, for the wireless display: its end and the server's death are its owner's business. */
-    void openExtraSession(final ServiceConnection c) {
+    /** The wireless display's session, next to the app session: its end and the server's death are its owner's business. */
+    void openWirelessSession(final ServiceConnection c) {
+        open(c, true);
+    }
+
+    private void open(final ServiceConnection c, final boolean wireless) {
         final IShellServer s = server;
         if (s == null) return;
         new Thread(() -> {
             try {
-                final IBinder injector = s.newSession().asBinder();
+                final IBinder injector = (wireless ? s.newWirelessSession() : s.newSession()).asBinder();
                 ui.post(() -> c.onServiceConnected(null, injector));
             } catch (RemoteException | RuntimeException e) {
                 Log.w(TAG, "new session", e);

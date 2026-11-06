@@ -10,4 +10,6 @@ interface IShellServer {
     IInjector newSession() = 2;
     /** Ends this process. For a server of another version. */
     void exit() = 3;
+    /** Ends any earlier wireless session and returns an injector for a new one, next to the app session: see WirelessDisplay. */
+    IInjector newWirelessSession() = 4;
 }

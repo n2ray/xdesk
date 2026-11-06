@@ -538,7 +538,7 @@ final class AppSession {
      */
     Boolean openWirelessInjector(ServiceConnection c) {
         if (shell.isRunning()) {
-            shell.openExtraSession(c);
+            shell.openWirelessSession(c);
             return false;
         }
         if (shizukuState() == SHIZUKU_READY) {

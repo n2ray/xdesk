@@ -48,6 +48,8 @@ public final class ShellServer extends IShellServer.Stub {
     private final int appUid, version;
     private final Intent binderIntent = new Intent(ACTION_BINDER);
     private InjectorService session;
+    /** The wireless display's own session, which must survive app sessions starting and ending. */
+    private InjectorService wirelessSession;
     private long lastSent;
 
     /** Arguments: XDesk's uid and its install version. They come from XDesk over its own adb connection. */
@@ -105,10 +107,17 @@ public final class ShellServer extends IShellServer.Stub {
         return session;
     }
 
+    @Override public synchronized IInjector newWirelessSession() {
+        if (wirelessSession != null) wirelessSession.shutdown();
+        wirelessSession = new InjectorService(appUid);
+        return wirelessSession;
+    }
+
     /** Gives back what the session holds first: the sound route and the density outlive this process. */
     @Override public void exit() {
         synchronized (this) {
             if (session != null) session.shutdown();
+            if (wirelessSession != null) wirelessSession.shutdown();
         }
         System.exit(0);
     }
