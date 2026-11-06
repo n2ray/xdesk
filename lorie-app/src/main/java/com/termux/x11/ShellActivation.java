@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Log;
+import com.termux.x11.app.R;
 import io.github.muntashirakon.adb.AdbAuthenticationFailedException;
 import io.github.muntashirakon.adb.AdbPairingRequiredException;
 import io.github.muntashirakon.adb.AdbStream;
@@ -290,7 +291,7 @@ final class ShellActivation {
         try {
             result = tryStart();
         } catch (InterruptedException e) {
-            result = "启动被打断了，再试一次。";
+            result = context.getString(R.string.xd_shell_interrupted);
         } finally {
             restoreWireless();
         }
@@ -321,7 +322,7 @@ final class ShellActivation {
         // A scanned port can be the pairing port or another service: its refusal says nothing about our key
         final boolean found = port > 0;
         ports.remove(Integer.valueOf(oldPort));
-        if (ports.isEmpty()) return "找不到无线调试的端口。到开发者选项里确认无线调试开着，再回到这里。";
+        if (ports.isEmpty()) return context.getString(R.string.xd_shell_no_port);
 
         String failure = null;
         for (int candidate : ports.subList(0, Math.min(ports.size(), SCAN_MAX_TRIES))) {
@@ -331,7 +332,7 @@ final class ShellActivation {
                 identity = AdbTlsProbe.serverIdentity(LOOPBACK, candidate, ShellAdb.API, PROBE_TIMEOUT_MS);
             } catch (IOException e) {
                 Log.i(TAG, "port " + candidate + " is not adbd over TLS: " + e.getMessage());
-                failure = "连不上无线调试。";
+                failure = context.getString(R.string.xd_shell_cannot_connect);
                 continue;
             }
             try {
@@ -339,22 +340,22 @@ final class ShellActivation {
                 a.disconnect();
                 if (a.connect(LOOPBACK, candidate)) {
                     launchServer(a);
-                    if (!awaitServer(0, SERVER_START_WAIT_MS)) return "注入服务启动了但没有回应，再试一次。";
+                    if (!awaitServer(0, SERVER_START_WAIT_MS)) return context.getString(R.string.xd_shell_no_answer);
                     // Only adbd can start a server that reaches XDesk, see ShellServer
                     rememberAdbd(identity);
                     return null;
                 }
-                failure = "连不上无线调试。";
+                failure = context.getString(R.string.xd_shell_cannot_connect);
             } catch (AdbPairingRequiredException | AdbAuthenticationFailedException e) {
                 if (!found) {
                     Log.i(TAG, "port " + candidate + " refused us, trying the next", e);
-                    failure = "连不上无线调试。";
+                    failure = context.getString(R.string.xd_shell_cannot_connect);
                     continue;
                 }
                 if (!isKnownAdbd(identity)) {
                     // adbd started again with a new key, or this is not adbd at all: not enough to forget the pairing
                     Log.w(TAG, "refused by a port that is not the adbd XDesk knows from this boot", e);
-                    failure = "无线调试拒绝了 XDesk。如果在开发者选项里撤销过授权，到 XDesk 的设置里点「重新配对」。";
+                    failure = context.getString(R.string.xd_shell_refused);
                     continue;
                 }
                 Log.w(TAG, "adbd no longer knows this key", e);
@@ -363,7 +364,7 @@ final class ShellActivation {
                 return null;
             } catch (java.security.GeneralSecurityException | IOException | RuntimeException e) {
                 Log.w(TAG, "connect to port " + candidate, e);
-                failure = "连不上无线调试：" + e.getMessage();
+                failure = context.getString(R.string.xd_shell_cannot_connect_detail, e.getMessage());
             } finally {
                 disconnectQuietly();
             }
@@ -413,10 +414,10 @@ final class ShellActivation {
             return null;
         } catch (ConnectException e) {
             Log.w(TAG, "pair", e);
-            return "连不上配对端口。配对框可能已经关了，重新打开它再试。";
+            return context.getString(R.string.xd_shell_pair_port_gone);
         } catch (Exception | LinkageError e) {
             Log.w(TAG, "pair", e);
-            return "配对失败。检查配对码，配对框要一直开着。（" + e.getMessage() + "）";
+            return context.getString(R.string.xd_shell_pair_failed, e.getMessage());
         } finally {
             disconnectQuietly();
         }
@@ -448,10 +449,10 @@ final class ShellActivation {
     /** Returns null when it is on now, otherwise what the user has to do. */
     private String turnWirelessOn() throws InterruptedException {
         if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
-            return "无线调试没有打开。到开发者选项里打开它（要连着 Wi-Fi），回到这里会自动继续。";
+            return context.getString(R.string.xd_shell_wireless_off);
         }
         if (!wifiConnected()) {
-            return "XDesk 可以自己打开无线调试，但要先连上 Wi-Fi。手机自己的热点可能不算。连上后回到这里。";
+            return context.getString(R.string.xd_shell_need_wifi);
         }
         ContentResolver cr = context.getContentResolver();
         try {
@@ -459,12 +460,12 @@ final class ShellActivation {
             prefs.edit().putBoolean(PREF_WIRELESS_OURS, true).apply();
         } catch (RuntimeException e) {
             Log.w(TAG, "cannot write the setting", e);
-            return "无线调试没有打开。到开发者选项里打开它（要连着 Wi-Fi），回到这里会自动继续。";
+            return context.getString(R.string.xd_shell_wireless_off);
         }
         // The system puts it back to 0 when there is no Wi-Fi network, and until the user allows a new network
         Thread.sleep(SETTING_SETTLE_MS);
         if (!wirelessOn()) {
-            return "系统没有让无线调试打开。它要连着 Wi-Fi。如果弹窗问是否允许这个网络，选允许，再回到这里。";
+            return context.getString(R.string.xd_shell_wireless_refused);
         }
         return null;
     }

@@ -35,7 +35,7 @@ final class DensityOverride {
 
     /** Returns null, or what went wrong. Never touches the phone's own screen. */
     synchronized String set(int display, int dpi) {
-        if (display == Display.DEFAULT_DISPLAY) return "不能改手机屏";
+        if (display == Display.DEFAULT_DISPLAY) return ShellText.code(ShellText.PHONE_SCREEN);
         String error = null;
         try {
             Object wm = windowManager();

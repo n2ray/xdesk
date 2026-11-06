@@ -5,6 +5,7 @@ import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.Display;
 import android.view.WindowInsets;
+import com.termux.x11.app.R;
 import java.lang.ref.WeakReference;
 
 /**
@@ -39,7 +40,7 @@ public class DashboardActivity extends Activity {
         }
         instance = new WeakReference<>(this);
         getWindow().setDecorFitsSystemWindows(false);
-        view = new DashboardView(this, "在手机上选择一个应用", true);
+        view = new DashboardView(this, getString(R.string.xd_dash_choose), true);
         setContentView(view);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
     }

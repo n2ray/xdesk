@@ -157,7 +157,7 @@ final class TaskMover {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.i(TAG, "no task list from the system, trying am: " + e);
             String[] r = InjectorService.exec(AM_TIMEOUT_MS, "/system/bin/am", "stack", "list");
-            if (r[0] != null) return "无法列出外接屏上的任务：" + r[0];
+            if (r[0] != null) return ShellText.code(ShellText.NO_TASK_LIST, r[0]);
             ids = parseStackList(r[1], display, ownPackage);
         }
         // Listed top first. Move the bottom one first, so what was in front stays in front on the phone

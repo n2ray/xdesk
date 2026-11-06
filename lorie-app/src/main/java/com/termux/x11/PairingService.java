@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
+import com.termux.x11.app.R;
 import io.github.muntashirakon.adb.android.AdbMdns;
 
 /**
@@ -44,7 +45,7 @@ public final class PairingService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationChannel channel = new NotificationChannel(CHANNEL, "无线调试配对", NotificationManager.IMPORTANCE_HIGH);
+        NotificationChannel channel = new NotificationChannel(CHANNEL, getString(R.string.xd_pair_channel), NotificationManager.IMPORTANCE_HIGH);
         channel.setSound(null, null);
         channel.setShowBadge(false);
         notifications().createNotificationChannel(channel);
@@ -67,7 +68,7 @@ public final class PairingService extends Service {
             CharSequence code = input != null ? input.getCharSequence(REMOTE_INPUT_CODE) : null;
             int port = intent.getIntExtra(EXTRA_PORT, 0);
             if (port > 0 && code != null && code.length() > 0) {
-                shown = message("正在配对", "配对码已经收到。");
+                shown = message(getString(R.string.xd_pair_received_title), getString(R.string.xd_pair_received));
                 pair(port, code.toString().trim());
             } else {
                 shown = port > 0 ? askForCode(port) : searching();
@@ -90,7 +91,7 @@ public final class PairingService extends Service {
 
     private void timedOut() {
         Log.i(TAG, "pairing service timed out");
-        notifications().notify(RESULT_NOTIFICATION, message("配对等待超时", "回到 XDesk，再点一次“打开无线调试设置”。"));
+        notifications().notify(RESULT_NOTIFICATION, message(getString(R.string.xd_pair_timeout_title), getString(R.string.xd_pair_timeout)));
         stopSelf();
     }
 
@@ -118,8 +119,8 @@ public final class PairingService extends Service {
     private void pair(int port, String code) {
         ShellActivation.get(this).pair(port, code, error -> {
             Notification result = error == null
-                ? message("配对成功", "回到 XDesk 就可以继续。")
-                : message("配对失败", error + "\n通知里输不了的话，回到 XDesk 在页面里输入。");
+                ? message(getString(R.string.xd_pair_ok_title), getString(R.string.xd_pair_ok))
+                : message(getString(R.string.xd_pair_failed_title), getString(R.string.xd_pair_failed, error));
             notifications().notify(RESULT_NOTIFICATION, result);
             if (error != null) stopSelf();
         });
@@ -139,9 +140,9 @@ public final class PairingService extends Service {
 
     private Notification searching() {
         PendingIntent stop = PendingIntent.getService(this, REQUEST_STOP, new Intent(this, PairingService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
-        return base("XDesk 正在找配对端口", "打开“无线调试”，点“使用配对码配对设备”。配对框要一直开着。找到后可以在这条通知里输入配对码。输不了的话，用分屏或小窗打开 XDesk，在它的页面里输入。")
+        return base(getString(R.string.xd_pair_searching_title), getString(R.string.xd_pair_searching))
             .setOngoing(true)
-            .addAction(new Notification.Action.Builder(null, "停止", stop).build())
+            .addAction(new Notification.Action.Builder(null, getString(R.string.xd_pair_stop), stop).build())
             .build();
     }
 
@@ -149,10 +150,10 @@ public final class PairingService extends Service {
     private Notification askForCode(int port) {
         Intent reply = new Intent(this, PairingService.class).setAction(ACTION_REPLY).putExtra(EXTRA_PORT, port);
         PendingIntent pending = PendingIntent.getForegroundService(this, REQUEST_REPLY, reply, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        RemoteInput input = new RemoteInput.Builder(REMOTE_INPUT_CODE).setLabel("6 位配对码").build();
-        return base("找到配对端口，输入配对码", "点“输入配对码”，填配对框里的 6 位数字。输不了的话，用分屏或小窗打开 XDesk，在它的页面里输入。")
+        RemoteInput input = new RemoteInput.Builder(REMOTE_INPUT_CODE).setLabel(getString(R.string.xd_act_code_hint)).build();
+        return base(getString(R.string.xd_pair_ask_title), getString(R.string.xd_pair_ask))
             .setOngoing(true)
-            .addAction(new Notification.Action.Builder(null, "输入配对码", pending).addRemoteInput(input).build())
+            .addAction(new Notification.Action.Builder(null, getString(R.string.xd_pair_enter), pending).addRemoteInput(input).build())
             .build();
     }
 }

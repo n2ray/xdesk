@@ -51,10 +51,8 @@ public class XDeskActivity extends Activity {
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     private static final String TERMUX_STATE_COMMAND = SCRIPT + " list; echo ---; " + SCRIPT + " status";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
-    private static final String NO_DISPLAY = "没有找到外接屏。要用支持视频输出（DisplayPort）的 USB-C 口接显示器或扩展坞，或者连上 Android Auto 车机。"
-        + "有的手机的 USB-C 口不能输出视频，这样的手机只能用车机。";
+    private static final int NO_DISPLAY = R.string.xd_no_display;
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
-    private static final String CAR_GONE = "桌面还在运行，在车机上重新打开 XDesk 后自动恢复";
 
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
@@ -67,10 +65,10 @@ public class XDeskActivity extends Activity {
     private static final long TERMUX_SWITCH_WAIT_MS = 3000;
     /** xdesk stop 要等桌面退出，过一会再看状态。 */
     private static final long STOP_REFRESH_MS = 4000;
-    private static final String[] WIDTH_LABELS = {"清晰（显示器原生）", "均衡（1920 宽）", "省电和游戏（1280 宽）"};
+    private static final int[] WIDTH_LABELS = {R.string.xd_width_native, R.string.xd_width_1920, R.string.xd_width_1280};
     private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
     private static final int DEFAULT_WIDTH = 1920;
-    private static final String[] ORIENTATION_LABELS = {"跟随系统", "竖屏", "横屏"};
+    private static final int[] ORIENTATION_LABELS = {R.string.xd_orientation_system, R.string.xd_orientation_portrait, R.string.xd_orientation_landscape};
     /** 存的值，顺序同上。没选过就跟随系统；以前明确选过的不变。 */
     private static final int[] ORIENTATION_VALUES = {2, 1, 0};
     private static final int ORIENTATION_DEFAULT = 2;
@@ -158,7 +156,7 @@ public class XDeskActivity extends Activity {
     private String runningSession;
     private final Runnable termuxNoReply = new Runnable() {
         @Override public void run() {
-            setChooserTermux(savedSessions(), null, runningSession, false, "Termux 没有回应。在 Termux 里运行 xdesk enable-app-start 后再回来");
+            setChooserTermux(savedSessions(), null, runningSession, false, getString(R.string.xd_termux_no_reply));
         }
     };
     private int keyEvents, mouseEvents;
@@ -277,7 +275,7 @@ public class XDeskActivity extends Activity {
                 updateChooserDisplay();
                 return;
             }
-            setStatus(Style.WARN, "外接屏已断开，桌面还在运行，插回后自动恢复");
+            setStatus(Style.WARN, getString(R.string.xd_display_gone_desktop));
             needsPlacement = true;
             // 系统会把桌面窗口挪到手机屏上盖住触摸板，把 App 拉回前面
             refocusSelf();
@@ -299,7 +297,7 @@ public class XDeskActivity extends Activity {
             }
             // 车机断开时系统可能直接关掉桌面窗口：X 还在，等车机回来
             if (!c && desktopOnCar && TargetDisplay.car(displays) == null) {
-                showSetup("车机已断开", CAR_GONE, false, "回到启动器", new View.OnClickListener() {
+                showSetup(getString(R.string.xd_car_gone_title), getString(R.string.xd_car_gone), false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                     @Override public void onClick(View v) { backToChooser(); }
                 });
             } else if (!c) {
@@ -312,13 +310,12 @@ public class XDeskActivity extends Activity {
             runningSession = null;
             desktopName = null;
             desktopGone();
-            String stopped = byUser ? "桌面已结束。" : "桌面意外停止了，不会自动重启。";
+            String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
             Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
-            chooser.setNotice(byUser ? "桌面已结束。点下面的环境可以重新启动。"
-                : "桌面意外停止了（X 服务器退出了），XDesk 不会自动重启。未保存的内容可能已丢失。点下面的环境可以重新启动。");
+            chooser.setNotice(getString(byUser ? R.string.xd_desktop_ended_notice : R.string.xd_desktop_crashed_notice));
         }
         @Override public void onSessionError(String message) {
-            showSetup("无法调用 Termux", message, false, "回到启动器", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_termux_unreachable), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
             });
         }
@@ -359,7 +356,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onAppFailed(String message) {
             client = null;
-            showSetup("无法在外接屏上运行", message, false, "回到启动器", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_cannot_run_on_display), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
             });
         }
@@ -425,7 +422,7 @@ public class XDeskActivity extends Activity {
                     reattach();
                 }
             } else if (runningSession != null) {
-                ui().confirm("切换桌面？", "会结束正在运行的 " + runningSession + "，未保存的内容会丢失。", "切换", new Runnable() {
+                ui().confirm(getString(R.string.xd_switch_desktop_title), getString(R.string.xd_switch_desktop, runningSession), getString(R.string.xd_switch), new Runnable() {
                     @Override public void run() { launchDesktop(name, true); }
                 });
             } else {
@@ -668,7 +665,7 @@ public class XDeskActivity extends Activity {
         sp.topMargin = dp(12);
         s.addView(setupSecond, sp);
 
-        setupBack = Style.button(this, "回到启动器", Style.SURFACE_RAISED, 14, 24);
+        setupBack = Style.button(this, getString(R.string.xd_back_to_launcher), Style.SURFACE_RAISED, 14, 24);
         setupBack.setPadding(dp(28), dp(10), dp(28), dp(10));
         setupBack.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToChooser(); }
@@ -694,6 +691,7 @@ public class XDeskActivity extends Activity {
         statusDot = new View(this);
         statusText = Style.label(this, "", Style.TEXT, Style.TEXT_SMALL + 1);
         statusText.setMaxLines(2);
+        statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         statusText.setPadding(dp(8), 0, dp(8), 0);
         buildTopButtons();
         runningDock = new DockBar(this, chooserHost, !landscape, false);
@@ -733,26 +731,26 @@ public class XDeskActivity extends Activity {
         }
 
         View center = buildTouchArea();
-        backBtn = new Style.IconButton(this, R.drawable.xd_ic_back, "返回 App", Style.SURFACE);
+        backBtn = new Style.IconButton(this, R.drawable.xd_ic_back, getString(R.string.xd_back_app), Style.SURFACE);
         // 安卓的 Back，给外接屏上的应用。手机上它是边缘滑动，有些应用不留返回按钮
         backBtn.onTap(new Runnable() {
             @Override public void run() { apps.sendBack(); }
         });
-        Style.IconButton keyboard = new Style.IconButton(this, R.drawable.xd_ic_keyboard, "键盘", Style.SURFACE);
+        Style.IconButton keyboard = new Style.IconButton(this, R.drawable.xd_ic_keyboard, getString(R.string.xd_keyboard), Style.SURFACE);
         keyboardBtn = keyboard;
         keyboard.onTap(new Runnable() {
             @Override public void run() { toggleKeyboard(); }
         });
         // 不盖在触控区上：触控模式下那里的每个点都对应外接屏
-        keysHandle = new Style.IconButton(this, R.drawable.xd_ic_chevron_down, "功能键", Style.SURFACE);
+        keysHandle = new Style.IconButton(this, R.drawable.xd_ic_chevron_down, getString(R.string.xd_keys), Style.SURFACE);
         keysHandle.onTap(new Runnable() {
             @Override public void run() {
                 keysExpanded = !keysExpanded;
                 applyKeysVisibility();
             }
         });
-        leftButton = mouseButton("左键", 1);
-        rightButton = mouseButton("右键", 3);
+        leftButton = mouseButton(getString(R.string.xd_left_click), 1);
+        rightButton = mouseButton(getString(R.string.xd_right_click), 3);
         int gap = dp(Style.GAP);
         if (landscape) {
             // 左右键在触控区两边，两只手正好够得到。Back 和键盘各在一边的底下
@@ -803,16 +801,16 @@ public class XDeskActivity extends Activity {
         full.setBackgroundColor(Style.BACKGROUND);
         full.addView(center, new FrameLayout.LayoutParams(-1, -1));
         fullscreenBtn.setVisibility(View.GONE);
-        addCornerIcon(full, R.drawable.xd_ic_close, "退出全屏", Gravity.TOP | Gravity.END, new Runnable() {
+        addCornerIcon(full, R.drawable.xd_ic_close, getString(R.string.xd_exit_fullscreen), Gravity.TOP | Gravity.END, new Runnable() {
             @Override public void run() { setFullscreenWanted(false); }
         });
         if (!apps.isActive()) {
-            addCornerIcon(full, R.drawable.xd_ic_keyboard, "键盘", Gravity.BOTTOM | Gravity.END, new Runnable() {
+            addCornerIcon(full, R.drawable.xd_ic_keyboard, getString(R.string.xd_keyboard), Gravity.BOTTOM | Gravity.END, new Runnable() {
                 @Override public void run() { toggleKeyboard(); }
             });
         }
         if (apps.isActive()) {
-            addCornerIcon(full, R.drawable.xd_ic_back, "返回 App", Gravity.TOP | Gravity.START, new Runnable() {
+            addCornerIcon(full, R.drawable.xd_ic_back, getString(R.string.xd_back_app), Gravity.TOP | Gravity.START, new Runnable() {
                 @Override public void run() { apps.sendBack(); }
             });
         }
@@ -891,22 +889,22 @@ public class XDeskActivity extends Activity {
         audioBtn.onTap(new Runnable() {
             @Override public void run() { chooseOutput(); }
         });
-        touchBtn = new Style.IconButton(this, R.drawable.xd_ic_pointer, "键鼠", Style.SURFACE);
+        touchBtn = new Style.IconButton(this, R.drawable.xd_ic_pointer, getString(R.string.xd_mode_mouse_short), Style.SURFACE);
         touchBtn.onTap(new Runnable() {
             @Override public void run() {
                 apps.toggleTouchMode();
                 updateStatus();
             }
         });
-        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, "接管", Style.SURFACE);
+        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_take_over), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
             @Override public void run() { apps.setForwarding(!apps.isForwarding()); }
         });
-        launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, "启动器", Style.SURFACE);
+        launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, getString(R.string.xd_launcher), Style.SURFACE);
         launcherBtn.onTap(new Runnable() {
             @Override public void run() { openChooserOverSession(); }
         });
-        settingsBtn = new Style.IconButton(this, R.drawable.xd_ic_settings, "设置", Style.SURFACE);
+        settingsBtn = new Style.IconButton(this, R.drawable.xd_ic_settings, getString(R.string.xd_settings), Style.SURFACE);
         settingsBtn.onTap(new Runnable() {
             @Override public void run() { showSettings(); }
         });
@@ -942,11 +940,11 @@ public class XDeskActivity extends Activity {
         LinearLayout combos = new LinearLayout(this);
         comboRow = combos;
         combos.setVisibility(View.GONE);
-        combos.addView(keyButton("A 全选", SCAN_A), keyParams());
-        combos.addView(keyButton("X 剪切", SCAN_X), keyParams());
-        combos.addView(keyButton("C 复制", SCAN_C), keyParams());
-        combos.addView(keyButton("V 粘贴", SCAN_V), keyParams());
-        combos.addView(keyButton("Z 撤销", SCAN_Z), keyParams());
+        combos.addView(keyButton(getString(R.string.xd_key_select_all), SCAN_A), keyParams());
+        combos.addView(keyButton(getString(R.string.xd_key_cut), SCAN_X), keyParams());
+        combos.addView(keyButton(getString(R.string.xd_key_copy), SCAN_C), keyParams());
+        combos.addView(keyButton(getString(R.string.xd_key_paste), SCAN_V), keyParams());
+        combos.addView(keyButton(getString(R.string.xd_key_undo), SCAN_Z), keyParams());
         LinearLayout.LayoutParams cr = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
         cr.bottomMargin = dp(Style.GAP);
         area.addView(combos, cr);
@@ -970,7 +968,7 @@ public class XDeskActivity extends Activity {
         // 全屏是触控区自己的事，图标放在它的角上
         Style.IconButton enter = new Style.IconButton(this, R.drawable.xd_ic_fullscreen, "", Style.SURFACE_RAISED);
         enter.setAlpha(0.7f);
-        enter.setContentDescription("触控区全屏");
+        enter.setContentDescription(getString(R.string.xd_fullscreen_pad));
         enter.onTap(new Runnable() {
             @Override public void run() { setFullscreenWanted(true); }
         });
@@ -1180,24 +1178,24 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateAppStatus() {
-        forwardBtn.setLabel(apps.isForwarding() ? "交还" : "接管");
+        forwardBtn.setLabel(getString(apps.isForwarding() ? R.string.xd_give_back : R.string.xd_take_over));
         forwardBtn.setActive(apps.isForwarding());
         boolean touch = apps.isTouchMode();
-        touchBtn.setLabel(touch ? "触控" : "键鼠");
+        touchBtn.setLabel(getString(touch ? R.string.xd_mode_touch : R.string.xd_mode_mouse_short));
         touchBtn.setIcon(touch ? R.drawable.xd_ic_touch : R.drawable.xd_ic_pointer);
         touchBtn.setActive(touch);
         if (apps.hasInjector() && apps.hasDisplay() && apps.app() == null) {
-            setStatus(Style.WARN, "外接屏上没有应用了，选一个");
+            setStatus(Style.WARN, getString(R.string.xd_status_no_app));
         } else if (!apps.hasInjector()) {
-            setStatus(Style.DANGER, apps.usesShell() ? "注入服务断开了，打开无线调试后回到 XDesk" : "注入服务断开了，确认 Shizuku 还在运行");
+            setStatus(Style.DANGER, getString(apps.usesShell() ? R.string.xd_status_injector_gone_shell : R.string.xd_status_injector_gone_shizuku));
         } else if (!apps.hasDisplay()) {
-            setStatus(Style.WARN, "外接屏已断开，插回后 " + apps.label() + " 自动回去");
+            setStatus(Style.WARN, getString(R.string.xd_status_display_gone_app, apps.label()));
         } else if (apps.isForwarding() && apps.deviceCount() == 0) {
-            setStatus(Style.WARN, apps.label() + "：没有外接键鼠，插上后接管");
+            setStatus(Style.WARN, getString(R.string.xd_status_no_devices, apps.label()));
         } else if (apps.isForwarding()) {
-            setStatus(Style.OK, apps.label() + " · 键鼠在外接屏");
+            setStatus(Style.OK, getString(R.string.xd_status_input_display, apps.label()));
         } else {
-            setStatus(Style.OK, apps.label() + " · 键鼠在手机");
+            setStatus(Style.OK, getString(R.string.xd_status_input_phone, apps.label()));
         }
     }
 
@@ -1209,8 +1207,8 @@ public class XDeskActivity extends Activity {
             updateAppStatus();
             return;
         }
-        if (session.isConnected()) setStatus(Style.OK, desktopName != null ? (onCar() ? "车机上：" : "外接屏上：") + desktopName : "桌面已连接");
-        else setStatus(Style.WARN, "桌面未连接");
+        if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
+        else setStatus(Style.WARN, getString(R.string.xd_status_desktop_not_connected));
     }
 
     private void showSetup(String title, String message, boolean progress, String action, View.OnClickListener onAction) {
@@ -1254,8 +1252,8 @@ public class XDeskActivity extends Activity {
 
     private void updateDiag() {
         if (diagText == null || keyView == null || diagText.getVisibility() != View.VISIBLE) return;
-        diagText.setText("焦点" + yn(hasWindowFocus()) + " 键盘视图" + yn(keyView.isFocused()) + " 外接鼠标" + yn(hasExternalMouse())
-            + " 抓取" + yn(captured) + " 按键" + keyEvents + " 鼠标" + mouseEvents);
+        diagText.setText(getString(R.string.xd_diag, yn(hasWindowFocus()), yn(keyView.isFocused()), yn(hasExternalMouse()),
+            yn(captured), keyEvents, mouseEvents));
     }
 
     private static String yn(boolean b) {
@@ -1304,12 +1302,12 @@ public class XDeskActivity extends Activity {
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
     private void chooseOutput() {
         if (audioRoute.isCar()) {
-            Toast.makeText(this, "车机上声音经 Android Auto 从车里播放，不用选输出", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.xd_output_car, Toast.LENGTH_LONG).show();
             return;
         }
         final List<AudioRoute.Output> outputs = audioRoute.outputs();
         String[] labels = new String[outputs.size() + 1];
-        labels[0] = "系统默认（不指定）";
+        labels[0] = getString(R.string.xd_output_system);
         String selected = audioRoute.selectedKey();
         int checked = selected.isEmpty() ? 0 : -1;
         int selectedType = selected.isEmpty() ? -1 : Integer.parseInt(selected.substring(0, selected.indexOf('|')));
@@ -1318,14 +1316,18 @@ public class XDeskActivity extends Activity {
             labels[i + 1] = o.label;
             if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1;
         }
-        String note = (apps.injectorReady()
-            ? "所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。结束 XDesk 后手机恢复正常，下次再按这里的选择。"
-            : "注入服务没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。")
-            + "\n只是把输出指向这个设备，音质和蓝牙编码没法确认。";
-        outputDialog = ui().choice("声音从哪里播放", note, labels, checked, which -> {
+        String note = getString(apps.injectorReady() ? R.string.xd_output_note_shared : R.string.xd_output_note_desktop_only)
+            + "\n" + getString(R.string.xd_output_note_unverified);
+        outputDialog = ui().choice(getString(R.string.xd_output_title), note, labels, checked, which -> {
             audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
-            if (audioRoute.isMissing()) setStatus(Style.WARN, "现在没有这个输出设备，暂时走系统默认");
+            if (audioRoute.isMissing()) setStatus(Style.WARN, getString(R.string.xd_output_missing));
         });
+    }
+
+    private String[] strings(int... ids) {
+        String[] s = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) s[i] = getString(ids[i]);
+        return s;
     }
 
     private SettingsUi ui() {
@@ -1344,7 +1346,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void chooseResolution(final TextView value) {
-        ui().choice("桌面分辨率", null, WIDTH_LABELS, widthIndex(), which -> {
+        ui().choice(getString(R.string.xd_resolution), null, strings(WIDTH_LABELS), widthIndex(), which -> {
             prefs.edit().putInt(PREF_WIDTH, WIDTHS[which]).apply();
             Display d = externalDisplay();
             if (d != null) applySize(d);
@@ -1355,15 +1357,15 @@ public class XDeskActivity extends Activity {
     /** 外接屏界面大小的默认值。应用可以在长按卡片里有自己的值。 */
     private void addDensitySetting(SettingsUi s, LinearLayout card) {
         if (!apps.canSetDensity()) {
-            String why = session.isActive() ? "Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值"
-                : !apps.injectorReady() ? "需要注入服务" : "外接屏上有安卓应用时才能改";
-            s.infoRow(card, "界面大小", why, null);
+            String why = getString(session.isActive() ? R.string.xd_density_desktop
+                : !apps.injectorReady() ? R.string.xd_density_need_injector : R.string.xd_density_need_app);
+            s.infoRow(card, getString(R.string.xd_density), why, null);
             return;
         }
-        String own = apps.defaultDensity() > 0 ? String.valueOf(apps.defaultDensity()) : "未知";
-        s.numberRow(card, "界面大小", DENSITY_MIN + " 到 " + DENSITY_MAX + " dpi，越小内容越多。显示器默认 " + own,
+        String own = apps.defaultDensity() > 0 ? String.valueOf(apps.defaultDensity()) : getString(R.string.xd_unknown);
+        s.numberRow(card, getString(R.string.xd_density), getString(R.string.xd_density_range, DENSITY_MIN, DENSITY_MAX, own),
             apps.defaultDensity() > 0 ? own : "dpi", apps.savedDensity(), DENSITY_MIN, DENSITY_MAX,
-            dpi -> apps.setDensity(dpi), "恢复默认", () -> apps.setDensity(0));
+            dpi -> apps.setDensity(dpi), getString(R.string.xd_reset), () -> apps.setDensity(0));
     }
 
     private void showSettings() {
@@ -1373,81 +1375,80 @@ public class XDeskActivity extends Activity {
         boolean appMode = apps.isActive();
         final Dialog[] page = new Dialog[1];
 
-        LinearLayout show = s.section(c, "显示");
+        LinearLayout show = s.section(c, getString(R.string.xd_section_phone));
         int orientation = 2 - prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT);
-        s.segmentedRow(show, "触控界面方向", null, ORIENTATION_LABELS, orientation, which -> {
+        s.segmentedRow(show, getString(R.string.xd_orientation), null, strings(ORIENTATION_LABELS), orientation, which -> {
             prefs.edit().putInt(PREF_ORIENTATION, ORIENTATION_VALUES[which]).apply();
             applyOrientation();
         });
-        s.switchRow(show, "闲置时调暗手机屏", "1 分钟没碰就调暗，外接屏不受影响", prefs.getBoolean(PREF_DIM, true), on -> {
+        s.switchRow(show, getString(R.string.xd_dim), getString(R.string.xd_dim_note), prefs.getBoolean(PREF_DIM, true), on -> {
             prefs.edit().putBoolean(PREF_DIM, on).apply();
             bumpIdle();
         });
 
-        LinearLayout input = s.section(c, "输入");
-        s.percentRow(input, "触摸板灵敏度", null, Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100), p -> {
+        LinearLayout input = s.section(c, getString(R.string.xd_section_input));
+        s.percentRow(input, getString(R.string.xd_pad_speed), null, Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setSpeed(v);
             directTouch.setSpeed(v);
             prefs.edit().putFloat(PREF_SPEED, v).apply();
         });
-        s.percentRow(input, "双指滚动速度", "键鼠模式的触摸板", Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
+        s.percentRow(input, getString(R.string.xd_scroll_speed), getString(R.string.xd_scroll_speed_note), Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setScrollSpeed(v);
             prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
         });
         if (appMode) {
-            s.percentRow(input, "实体鼠标速度", "100% 按显示器宽度自动算", Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
+            s.percentRow(input, getString(R.string.xd_mouse_speed), getString(R.string.xd_mouse_speed_note), Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
                 float v = p / 100f;
                 prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
                 apps.setMouseSpeed(v);
             });
-            s.switchRow(input, "始终显示 XDesk 光标", "RustDesk 会话里判断错时打开", prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
+            s.switchRow(input, getString(R.string.xd_always_cursor), getString(R.string.xd_always_cursor_note), prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
                 prefs.edit().putBoolean(PREF_ALWAYS_CURSOR, on).apply();
                 apps.setAlwaysShowCursor(on);
             });
         }
 
-        LinearLayout sound = s.section(c, "声音");
-        settingsOutputValue = s.valueRow(sound, "声音输出", null, audioRoute.shortLabel(), this::chooseOutput);
+        LinearLayout sound = s.section(c, getString(R.string.xd_section_sound));
+        settingsOutputValue = s.valueRow(sound, getString(R.string.xd_output), null, audioRoute.shortLabel(), this::chooseOutput);
 
-        LinearLayout external = s.section(c, "外屏");
+        LinearLayout external = s.section(c, getString(R.string.xd_section_display));
         addDensitySetting(s, external);
         if (AppSession.fullscreenSupported()) {
-            s.switchRow(external, "应用强制横屏全屏", "忽略竖屏锁定，在外屏和其他大屏上都生效，手机屏不受影响。应用下次启动时生效，第一次会重启。可在应用设置里单独改", apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
-            s.valueRow(external, "恢复所有应用", "去掉 XDesk 给应用设过的横屏全屏", "", () ->
-                s.confirm("恢复所有应用？", "XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。", "恢复", () -> {
-                    if (!apps.resetFullscreen()) Toast.makeText(this, "要先连上注入服务：运行一次安卓应用后再试", Toast.LENGTH_LONG).show();
+            s.switchRow(external, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
+            s.valueRow(external, getString(R.string.xd_fullscreen_reset), getString(R.string.xd_fullscreen_reset_note), "", () ->
+                s.confirm(getString(R.string.xd_fullscreen_reset_title), getString(R.string.xd_fullscreen_reset_message), getString(R.string.xd_restore), () -> {
+                    if (!apps.resetFullscreen()) Toast.makeText(this, R.string.xd_fullscreen_reset_need_injector, Toast.LENGTH_LONG).show();
                 }));
         }
-        String cover = "外屏显示时钟，键鼠交给手机。应用继续运行，声音不停";
-        if (!Settings.canDrawOverlays(this)) cover += "。没有悬浮窗权限，现在不会遮住";
-        s.switchRow(external, "切到其他应用或锁屏时遮住外屏", cover, prefs.getBoolean(PREF_COVER, true), on -> {
+        String cover = getString(Settings.canDrawOverlays(this) ? R.string.xd_cover_note : R.string.xd_cover_note_no_overlay);
+        s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
         });
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
-            resolution[0] = s.valueRow(external, "桌面分辨率", "Termux 桌面的 X 分辨率", WIDTH_LABELS[widthIndex()], () -> chooseResolution(resolution[0]));
+            resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), getString(WIDTH_LABELS[widthIndex()]), () -> chooseResolution(resolution[0]));
         }
 
-        LinearLayout about = s.section(c, "关于");
+        LinearLayout about = s.section(c, getString(R.string.xd_section_about));
         s.infoRow(about, "XDesk", null, versionName());
-        s.switchRow(about, "显示诊断信息", "在控制界面上显示焦点和事件计数", prefs.getBoolean(PREF_DIAG, false), on -> {
+        s.switchRow(about, getString(R.string.xd_diag_setting), getString(R.string.xd_diag_setting_note), prefs.getBoolean(PREF_DIAG, false), on -> {
             prefs.edit().putBoolean(PREF_DIAG, on).apply();
             applyDiagVisibility();
         });
         final ShellActivation shell = apps.shell();
         if (shell.isPaired() || shell.isRunning()) {
-            s.infoRow(about, "内置注入服务", "没有 Shizuku 时，安卓应用的键鼠靠它", shellState(shell));
+            s.infoRow(about, getString(R.string.xd_builtin), getString(R.string.xd_builtin_note), shellState(shell));
             if (shell.isRunning()) {
-                s.valueRow(about, "停止内置服务", "XDesk 不再自己启动它，下次运行安卓应用时再启动", "", () ->
-                    s.confirm("停止内置服务？", "用它运行的安卓应用回到手机（不关闭），键鼠和声音恢复正常。", "停止", () -> {
+                s.valueRow(about, getString(R.string.xd_builtin_stop), getString(R.string.xd_builtin_stop_note), "", () ->
+                    s.confirm(getString(R.string.xd_builtin_stop_title), getString(R.string.xd_builtin_stop_message), getString(R.string.xd_stop), () -> {
                         page[0].dismiss();
                         stopShellServer(null);
                     }));
             }
-            s.valueRow(about, "重新配对", "在开发者选项里撤销过授权，或一直连不上时用", "", () ->
-                s.confirm("重新配对？", "XDesk 会停止内置服务并忘掉配对，然后带你在无线调试里重新配对。", "重新配对", () -> {
+            s.valueRow(about, getString(R.string.xd_pair_again), getString(R.string.xd_pair_again_note), "", () ->
+                s.confirm(getString(R.string.xd_pair_again_title), getString(R.string.xd_pair_again_message), getString(R.string.xd_pair_again), () -> {
                     page[0].dismiss();
                     stopShellServer(() -> {
                         shell.forgetPairing();
@@ -1459,25 +1460,25 @@ public class XDeskActivity extends Activity {
         }
 
         if (session.isActive()) {
-            s.dangerRow(c, "结束 Termux 桌面", "XDesk 不退出", () -> {
+            s.dangerRow(c, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
                 page[0].dismiss();
                 confirmStop();
             });
         }
         if (DesktopService.isRunning()) {
-            s.dangerRow(c, "结束 XDesk", "应用回到手机，外接屏恢复镜像", () -> {
+            s.dangerRow(c, getString(R.string.xd_end_xdesk), getString(R.string.xd_end_xdesk_note), () -> {
                 page[0].dismiss();
                 confirmEndXDesk();
             });
         }
-        page[0] = s.page("设置", c);
+        page[0] = s.page(getString(R.string.xd_settings), c);
         page[0].setOnDismissListener(d -> settingsOutputValue = null);
     }
 
-    private static String shellState(ShellActivation shell) {
-        if (shell.isRunning()) return "运行中";
-        if (shell.isStarting()) return "正在启动";
-        return shell.isPaired() ? "没有运行" : "未配对";
+    private String shellState(ShellActivation shell) {
+        if (shell.isRunning()) return getString(R.string.xd_builtin_running);
+        if (shell.isStarting()) return getString(R.string.xd_builtin_starting);
+        return getString(shell.isPaired() ? R.string.xd_builtin_not_running : R.string.xd_builtin_not_paired);
     }
 
     /**
@@ -1581,7 +1582,7 @@ public class XDeskActivity extends Activity {
         }
         if (car == null) {
             // 和拔掉外接屏一样：X 和桌面继续运行
-            setStatus(Style.WARN, "车机已断开。" + CAR_GONE);
+            setStatus(Style.WARN, getString(R.string.xd_car_gone_status));
             needsPlacement = true;
             refocusSelf();
             return;
@@ -1607,7 +1608,7 @@ public class XDeskActivity extends Activity {
             attachSession();
         } else if (apps.isActive()) {
             if (apps.isStarted()) attachApp();
-            else showSetup("正在启动", "正在连接注入服务。", true, null, null);
+            else showSetup(getString(R.string.xd_starting), getString(R.string.xd_connecting_injector), true, null, null);
         } else {
             showChooser();
         }
@@ -1715,7 +1716,7 @@ public class XDeskActivity extends Activity {
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(title);
         boolean onDisplay = key.equals(currentKey());
-        TextView sub = Style.label(this, onDisplay ? (onCar() ? "正在车机上" : "正在外屏上") : app != null ? "安卓应用" : "Linux 桌面",
+        TextView sub = Style.label(this, getString(onDisplay ? (onCar() ? R.string.xd_on_car : R.string.xd_card_on_display) : app != null ? R.string.xd_android_app : R.string.xd_linux_desktop),
             onDisplay ? Style.OK : Style.TEXT_DIM, Style.TEXT_SMALL + 1);
         sub.setPadding(0, dp(2), 0, 0);
         titles.addView(sub);
@@ -1726,7 +1727,7 @@ public class XDeskActivity extends Activity {
         int pad = dp(11);
         star.setPadding(pad, pad, pad, pad);
         star.setBackground(Style.ripple(this, Style.SURFACE, Style.RADIUS));
-        star.setContentDescription("我的收藏");
+        star.setContentDescription(getString(R.string.xd_chooser_favourites));
         head.addView(star, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET)));
 
         LinearLayout c = new LinearLayout(this);
@@ -1737,7 +1738,7 @@ public class XDeskActivity extends Activity {
         LinearLayout orderRow = new LinearLayout(this);
         orderRow.setGravity(Gravity.CENTER_VERTICAL);
         orderRow.setPadding(dp(12), dp(6), dp(8), dp(6));
-        orderRow.addView(Style.label(this, "收藏里的位置", Style.TEXT, Style.TEXT_BODY), new LinearLayout.LayoutParams(0, -2, 1));
+        orderRow.addView(Style.label(this, getString(R.string.xd_card_position), Style.TEXT, Style.TEXT_BODY), new LinearLayout.LayoutParams(0, -2, 1));
         TextView left = Style.button(this, "←", Style.SURFACE_RAISED, Style.TEXT_BODY + 1, Style.RADIUS);
         left.setOnClickListener(v -> {
             Style.tick(v);
@@ -1769,29 +1770,29 @@ public class XDeskActivity extends Activity {
 
         if (app != null) {
             int global = apps.savedDensity() > 0 ? apps.savedDensity() : apps.defaultDensity();
-            s.groupLabel(c, "外屏显示");
+            s.groupLabel(c, getString(R.string.xd_card_display));
             LinearLayout display = s.card(c);
-            s.inlineNumberRow(display, "界面大小", global > 0 ? "dpi，空着跟随默认 " + global : "dpi，空着跟随默认",
-                global > 0 ? String.valueOf(global) : "默认", apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
+            s.inlineNumberRow(display, getString(R.string.xd_density), global > 0 ? getString(R.string.xd_card_density_note_value, global) : getString(R.string.xd_card_density_note),
+                global > 0 ? String.valueOf(global) : getString(R.string.xd_chooser_default), apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
                 dpi -> apps.setAppDensity(app, dpi), () -> apps.setAppDensity(app, 0));
             if (AppSession.fullscreenSupported()) {
-                s.segmentedRow(display, "横屏全屏", "默认现在是" + (apps.isFullscreenDefault() ? "开" : "关") + "。改动时应用会重启",
-                    new String[]{"跟随默认", "开", "关"}, apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
+                s.segmentedRow(display, getString(R.string.xd_card_fullscreen), getString(apps.isFullscreenDefault() ? R.string.xd_card_fullscreen_note_on : R.string.xd_card_fullscreen_note_off),
+                    strings(R.string.xd_card_follow_default, R.string.xd_on, R.string.xd_off), apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
             }
             if (AppSession.touchModeAllowed(app)) {
-                s.groupLabel(c, "输入");
+                s.groupLabel(c, getString(R.string.xd_section_input));
                 LinearLayout input = s.card(c);
-                s.segmentedRow(input, "操作方式", "触控给只听触摸的应用或网页", new String[]{"键鼠", "触控"}, apps.isTouchMode(app) ? 1 : 0, which -> {
+                s.segmentedRow(input, getString(R.string.xd_card_mode), getString(R.string.xd_card_mode_note), strings(R.string.xd_mode_mouse, R.string.xd_mode_touch), apps.isTouchMode(app) ? 1 : 0, which -> {
                     apps.setTouchMode(app, which == 1);
                     updateStatus();
                 });
             }
             if (apps.canCloseApps()) {
-                TextView close = Style.button(this, "关闭这个应用", Style.SURFACE, Style.TEXT_BODY, 16);
+                TextView close = Style.button(this, getString(R.string.xd_card_close), Style.SURFACE, Style.TEXT_BODY, 16);
                 close.setTextColor(Style.DANGER);
                 close.setOnClickListener(v -> {
                     Style.tick(v);
-                    s.confirm("关闭 " + app.label + "？", "未保存的内容可能会丢失。", "关闭", () -> {
+                    s.confirm(getString(R.string.xd_card_close_title, app.label), getString(R.string.xd_unsaved_may_be_lost), getString(R.string.xd_close), () -> {
                         card[0].dismiss();
                         apps.closeApp(app);
                     });
@@ -1884,7 +1885,7 @@ public class XDeskActivity extends Activity {
             if (apps.isActive() || session.isActive()) openChooserOverSession();
             else showChooser();
         }
-        chooser.setNotice(NO_DISPLAY);
+        chooser.setNotice(getString(NO_DISPLAY));
         displayNoticeShown = true;
     }
 
@@ -1925,11 +1926,11 @@ public class XDeskActivity extends Activity {
     private void refreshTermux() {
         ui.removeCallbacks(termuxNoReply);
         if (!installed(PKG_TERMUX)) {
-            setChooserTermux(new ArrayList<String>(), null, null, false, "没有安装 Termux，装好后点这里");
+            setChooserTermux(new ArrayList<String>(), null, null, false, getString(R.string.xd_termux_not_installed));
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            setChooserTermux(savedSessions(), null, null, false, "点这里允许 XDesk 读取 Termux 环境");
+            setChooserTermux(savedSessions(), null, null, false, getString(R.string.xd_termux_permission));
             return;
         }
         setChooserTermux(savedSessions(), null, runningSession, false, null);
@@ -1970,7 +1971,7 @@ public class XDeskActivity extends Activity {
             }
         }
         prefs.edit().putString(PREF_SESSIONS, String.join("\n", sessions)).apply();
-        setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? "没有找到环境。在 Termux 里运行 xdesk setup 后点这里" : null);
+        setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? getString(R.string.xd_termux_no_sessions) : null);
     }
 
     /**
@@ -2010,7 +2011,7 @@ public class XDeskActivity extends Activity {
         // 应用留在了桌面所在的那种屏上，车机上是它自己的显示器
         Display d = desktopDisplay();
         if (d != null && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
-            showSetup("正在回到 " + apps.label(), "桌面窗口关了，外接屏上还有这个应用。", true, null, null);
+            showSetup(getString(R.string.xd_returning_to, apps.label()), getString(R.string.xd_returning_to_message), true, null, null);
             return;
         }
         if (apps.hasInjector()) apps.stop();
@@ -2021,7 +2022,7 @@ public class XDeskActivity extends Activity {
 
     /** 明确结束：应用移回手机，外接屏恢复镜像，键鼠、声音路由和界面大小恢复。Termux 桌面继续运行。 */
     private void confirmEndXDesk() {
-        ui().confirm("结束 XDesk？", "外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Termux 桌面继续运行，只是没有窗口。", "结束", new Runnable() {
+        ui().confirm(getString(R.string.xd_end_xdesk_title), getString(R.string.xd_end_xdesk_message), getString(R.string.xd_end), new Runnable() {
             @Override public void run() {
                 releaseLatches();
                 client = null;
@@ -2063,7 +2064,7 @@ public class XDeskActivity extends Activity {
     /** 权限和注入服务都就绪才启动。缺什么说什么，弄好了回来会接着走（onResume、onInjectorSourceChanged）。 */
     private void startApp(final AppCatalog.App app) {
         if (apps.isStopping()) {
-            showSetup("正在启动 " + app.label, "等上一个注入服务结束。", true, null, null);
+            showSetup(getString(R.string.xd_starting_app, app.label), getString(R.string.xd_waiting_previous_injector), true, null, null);
             ui.postDelayed(new Runnable() {
                 @Override public void run() { startApp(app); }
             }, STOPPING_RETRY_MS);
@@ -2081,7 +2082,7 @@ public class XDeskActivity extends Activity {
             else showShizukuSetup();
         } else if (!Settings.canDrawOverlays(this)) {
             closeActivation();
-            showSetup("需要悬浮窗权限", "安卓自己的光标只留在手机屏上，\nXDesk 要在外接屏上画一个光标。\n\n允许后回到这里，会自动继续。", false, "打开设置", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_overlay_title), getString(R.string.xd_overlay_message), false, getString(R.string.xd_open_settings), new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
                 }
@@ -2091,7 +2092,7 @@ public class XDeskActivity extends Activity {
             pendingApp = null;
             shizukuScreens = false;
             rememberRecent(ChooserView.recentKey(app));
-            showSetup("正在启动 " + app.label, "正在连接注入服务。", true, null, null);
+            showSetup(getString(R.string.xd_starting_app, app.label), getString(R.string.xd_connecting_injector), true, null, null);
             leaveDesktop();
             apps.start(app, d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false));
         }
@@ -2103,9 +2104,9 @@ public class XDeskActivity extends Activity {
         ShellActivation shell = apps.shell();
         String text;
         if (apps.injectorReady()) text = null;
-        else if (!shell.isPaired()) text = "外屏运行安卓应用要先激活一次 · 去激活";
-        else if (shell.isStarting()) text = "正在启动注入服务…";
-        else text = "注入服务没有运行 · 去启动";
+        else if (!shell.isPaired()) text = getString(R.string.xd_prompt_activate);
+        else if (shell.isStarting()) text = getString(R.string.xd_prompt_starting);
+        else text = getString(R.string.xd_prompt_start);
         chooser.setActivation(text, () -> {
             retryRequested = true;
             activationFlow = true;
@@ -2129,19 +2130,19 @@ public class XDeskActivity extends Activity {
         if ((retryRequested || shell.isStoppedByUser()) && !shell.isRunning() && !shell.isStarting()) shell.startByUser();
         retryRequested = false;
         if (shell.isStarting()) {
-            showSetup(app != null ? "正在启动 " + app.label : "正在启动注入服务", "正在启动注入服务。", true, null, null);
+            showSetup(app != null ? getString(R.string.xd_starting_app, app.label) : getString(R.string.xd_starting_injector_title), getString(R.string.xd_starting_injector), true, null, null);
             return;
         }
-        showSetup("还差一步", shell.problem() != null ? shell.problem() : "注入服务没有运行。", false, "打开无线调试设置", new View.OnClickListener() {
+        showSetup(getString(R.string.xd_one_more_step), shell.problem() != null ? shell.problem() : getString(R.string.xd_injector_not_running), false, getString(R.string.xd_act_open_wireless), new View.OnClickListener() {
             @Override public void onClick(View v) { openWirelessSettings(); }
         });
-        addSetupChoice("重新配对", new View.OnClickListener() {
+        addSetupChoice(getString(R.string.xd_pair_again), new View.OnClickListener() {
             @Override public void onClick(View v) { shell.forgetPairing(); }
         });
     }
 
     private void openActivation() {
-        showSetup("激活注入服务", "", false, null, null);
+        showSetup(getString(R.string.xd_act_title), "", false, null, null);
         activation = new ActivationPage(this, ui(), apps.shell(), apps.shizukuInstalled(), new ActivationPage.Actions() {
             @Override public void openPairingSettings() { beginPairing(); }
             @Override public void useShizuku() {
@@ -2192,7 +2193,7 @@ public class XDeskActivity extends Activity {
         try {
             startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).putExtra(":settings:fragment_args_key", "toggle_adb_wireless"));
         } catch (android.content.ActivityNotFoundException e) {
-            Toast.makeText(this, "打不开开发者选项，到系统设置里找一下。", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.xd_no_developer_options, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -2209,30 +2210,30 @@ public class XDeskActivity extends Activity {
     private void showShizukuSetup() {
         int shizuku = apps.shizukuState();
         if (shizuku == AppSession.SHIZUKU_NOT_INSTALLED) {
-            showSetup("需要 Shizuku", "安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_shizuku_missing_title), getString(R.string.xd_shizuku_missing), false, getString(R.string.xd_shizuku_website), new View.OnClickListener() {
                 @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
             });
         } else if (shizuku == AppSession.SHIZUKU_NOT_RUNNING) {
-            showSetup("Shizuku 没有运行", "打开 Shizuku，按里面的说明用无线调试启动它，\n然后回到这里，会自动继续。", false, "打开 Shizuku", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_shizuku_stopped_title), getString(R.string.xd_shizuku_stopped), false, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
                     if (open != null) startActivity(open);
                 }
             });
         } else if (shizuku == AppSession.SHIZUKU_TOO_OLD) {
-            showSetup("Shizuku 版本太旧", "请升级 Shizuku 后回到这里。", false, "打开 Shizuku 网站", new View.OnClickListener() {
+            showSetup(getString(R.string.xd_shizuku_old_title), getString(R.string.xd_shizuku_old), false, getString(R.string.xd_shizuku_website), new View.OnClickListener() {
                 @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
             });
         } else if (shizuku == AppSession.SHIZUKU_NO_PERMISSION) {
             if (apps.permissionDeniedForGood()) {
-                showSetup("Shizuku 拒绝了 XDesk", "之前选了不再询问。在 Shizuku 的应用管理里允许 XDesk，\n然后回到这里。", false, "打开 Shizuku", new View.OnClickListener() {
+                showSetup(getString(R.string.xd_shizuku_denied_title), getString(R.string.xd_shizuku_denied), false, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
                         if (open != null) startActivity(open);
                     }
                 });
             } else {
-                showSetup("授权 Shizuku", "XDesk 要通过 Shizuku 把键鼠转发给外接屏上的应用。", false, "授权", new View.OnClickListener() {
+                showSetup(getString(R.string.xd_shizuku_ask_title), getString(R.string.xd_shizuku_ask), false, getString(R.string.xd_shizuku_ask_action), new View.OnClickListener() {
                     @Override public void onClick(View v) { apps.requestPermission(); }
                 });
             }
@@ -2283,13 +2284,13 @@ public class XDeskActivity extends Activity {
         desktopName = runningSession;
         pendingSession = runningSession;
         pendingReplace = false;
-        showSetup("桌面正在运行", "正在接回 " + runningSession + "。", true, null, null);
+        showSetup(getString(R.string.xd_reattach_title), getString(R.string.xd_reattach, runningSession), true, null, null);
         ui.removeCallbacks(connectTimeout);
         ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
     }
 
     private void showWaiting() {
-        showSetup("等待桌面", "在 Termux 里运行：\n\nxdesk start\n\n也可以运行任意程序：xdesk run 命令", false, "一键启动默认环境", new View.OnClickListener() {
+        showSetup(getString(R.string.xd_waiting_title), getString(R.string.xd_waiting), false, getString(R.string.xd_waiting_action), new View.OnClickListener() {
             @Override public void onClick(View v) { launchDesktop(null, false); }
         });
     }
@@ -2302,9 +2303,9 @@ public class XDeskActivity extends Activity {
      */
     private void launchDesktop(String name, boolean replace) {
         if (!installed(PKG_TERMUX)) {
-            showSetup("缺少组件", "Termux 桌面要用 Termux，从 F-Droid 或 Termux 的 GitHub 页面安装。\n装好后回到这里再选一次。\n\n外接屏上运行安卓应用不需要 Termux。", false,
-                "打开 F-Droid 上的 Termux", v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TERMUX_DOWNLOAD))));
-            addSetupChoice("回到启动器", v -> backToChooser());
+            showSetup(getString(R.string.xd_no_termux_title), getString(R.string.xd_no_termux), false,
+                getString(R.string.xd_no_termux_action), v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TERMUX_DOWNLOAD))));
+            addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
@@ -2326,7 +2327,7 @@ public class XDeskActivity extends Activity {
             attachDisplay(d);
         }
         askNotificationsOnce();
-        showSetup("正在启动桌面", "第一次启动可能要多等一会。", true, null, null);
+        showSetup(getString(R.string.xd_starting_desktop_title), getString(R.string.xd_starting_desktop), true, null, null);
         if (!session.launch(name, replace)) return;
         // xdesk switch 不断开 X，不会再有“连上了”的通知
         if (session.isConnected()) {
@@ -2353,7 +2354,7 @@ public class XDeskActivity extends Activity {
             launchDesktop(pendingSession, pendingReplace);
             return;
         }
-        showSetup("没有运行 Termux 命令的权限", "可以在 Termux 里自己运行 xdesk start，\n或者在系统设置里允许 XDesk“运行 Termux 命令”。", false, "打开设置", new View.OnClickListener() {
+        showSetup(getString(R.string.xd_run_command_denied_title), getString(R.string.xd_run_command_denied), false, getString(R.string.xd_open_settings), new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
             }
@@ -2361,7 +2362,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void showConnectFailure() {
-        showSetup("桌面没有启动", "在 Termux 里运行 xdesk enable-app-start 和 xdesk setup，\n也可以直接运行 xdesk start 看报错。\n日志在 $PREFIX/tmp/xdesk.log。", false, "重试", new View.OnClickListener() {
+        showSetup(getString(R.string.xd_desktop_no_start_title), getString(R.string.xd_desktop_no_start), false, getString(R.string.xd_retry), new View.OnClickListener() {
             @Override public void onClick(View v) { launchDesktop(pendingSession, pendingReplace); }
         });
     }
@@ -2416,7 +2417,7 @@ public class XDeskActivity extends Activity {
             o.setLaunchDisplayId(displayId);
             startActivity(i, o.toBundle());
         } catch (RuntimeException e) {
-            setStatus(Style.DANGER, (displayId == CarActivity.displayId() ? "无法把桌面放到车机: " : "无法把桌面放到外屏: ") + e.getMessage());
+            setStatus(Style.DANGER, getString(displayId == CarActivity.displayId() ? R.string.xd_place_failed_car : R.string.xd_place_failed_display, e.getMessage()));
             return;
         }
         // 放置后焦点在 X11 上，拿回来，键盘和抓取鼠标才归 App
@@ -2454,10 +2455,10 @@ public class XDeskActivity extends Activity {
 
     private void confirmStop() {
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            ui().confirm("结束桌面", "XDesk 没有运行 Termux 命令的权限。请在 Termux 里运行：\n\nxdesk stop", "知道了", null);
+            ui().confirm(getString(R.string.xd_end_desktop_title), getString(R.string.xd_end_desktop_no_permission), getString(R.string.xd_ok), null);
             return;
         }
-        ui().confirm("结束桌面？", "桌面会退出，未保存的内容会丢失。", "结束", new Runnable() {
+        ui().confirm(getString(R.string.xd_end_desktop_confirm_title), getString(R.string.xd_end_desktop_message), getString(R.string.xd_end), new Runnable() {
             @Override public void run() { stopDesktop(); }
         });
     }

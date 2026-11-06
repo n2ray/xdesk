@@ -100,13 +100,13 @@ final class AudioRouter {
             int strategy = mediaStrategy();
             Log.i(TAG, "media strategy " + strategy + ", output type " + type);
             int result = (Integer) m.invoke(null, strategy, preferredRole(system), devices);
-            if (result != RESULT_OK) return "setDevicesRoleForStrategy 返回 " + result;
+            if (result != RESULT_OK) return ShellText.code(ShellText.AUDIO_RESULT, result);
             applied = true;
             lastDevices = devices;
             return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.w(TAG, "audio route", e);
-            return "这个系统版本不支持（" + e + "）";
+            return ShellText.code(ShellText.AUDIO_UNSUPPORTED, e);
         }
     }
 
@@ -132,9 +132,9 @@ final class AudioRouter {
                 } catch (NoSuchMethodException ignored) { }
             }
             if (result == null) result = removeWithList(system, strategy, role);
-            if (result == null) return "这个系统版本没有清除声音路由的方法";
+            if (result == null) return ShellText.code(ShellText.AUDIO_NO_CLEAR);
             // With nothing set, the system may answer with an error. That is what we wanted anyway.
-            return result == RESULT_OK || !hadOurs ? null : "清除声音路由返回 " + result;
+            return result == RESULT_OK || !hadOurs ? null : ShellText.code(ShellText.AUDIO_CLEAR_RESULT, result);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.w(TAG, "audio route clear", e);
             return String.valueOf(e);

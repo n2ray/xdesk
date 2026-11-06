@@ -8,6 +8,7 @@ import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteException;
+import com.termux.x11.app.R;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -28,14 +29,14 @@ final class AudioRoute {
         final int type;
         final String address, label, shortLabel, key;
 
-        Output(AudioDeviceInfo d) {
+        Output(Context c, AudioDeviceInfo d) {
             type = d.getType();
             address = d.getAddress();
             key = type + "|" + address;
-            shortLabel = shortName(type);
+            shortLabel = c.getString(shortName(type));
             CharSequence product = d.getProductName();
             boolean named = product != null && product.length() > 0 && type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
-            label = longName(type) + (named ? "：" + product : "");
+            label = named ? c.getString(R.string.xd_audio_named, longName(c, type), product) : longName(c, type);
         }
     }
 
@@ -69,7 +70,10 @@ final class AudioRoute {
     /** 用的是车机：声音走系统默认的媒体输出，Android Auto 把它送到车里。存的选择不变，回到外接屏时再按它来。 */
     private boolean car;
 
+    private final Context context;
+
     private AudioRoute(Context c) {
+        context = c;
         audio = c.getSystemService(AudioManager.class);
         prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         audio.registerAudioDeviceCallback(new AudioDeviceCallback() {
@@ -97,7 +101,7 @@ final class AudioRoute {
 
     private void devicesChanged() {
         boolean missing = isMissing();
-        if (missing && !wasMissing && listener != null) listener.onAudioMessage("选的声音输出断开了，暂时走系统默认");
+        if (missing && !wasMissing && listener != null) listener.onAudioMessage(context.getString(R.string.xd_audio_missing));
         wasMissing = missing;
         syncSystem();
         if (listener != null) listener.onOutputsChanged();
@@ -120,41 +124,41 @@ final class AudioRoute {
         }
     }
 
-    private static String shortName(int type) {
+    private static int shortName(int type) {
         switch (type) {
-            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "手机";
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return R.string.xd_audio_short_phone;
             case AudioDeviceInfo.TYPE_HDMI:
             case AudioDeviceInfo.TYPE_HDMI_ARC:
-            case AudioDeviceInfo.TYPE_HDMI_EARC: return "外接";
+            case AudioDeviceInfo.TYPE_HDMI_EARC: return R.string.xd_audio_short_hdmi;
             case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
             case AudioDeviceInfo.TYPE_BLE_HEADSET:
             case AudioDeviceInfo.TYPE_BLE_SPEAKER:
-            case AudioDeviceInfo.TYPE_HEARING_AID: return "蓝牙";
+            case AudioDeviceInfo.TYPE_HEARING_AID: return R.string.xd_audio_short_bluetooth;
             case AudioDeviceInfo.TYPE_USB_DEVICE:
             case AudioDeviceInfo.TYPE_USB_ACCESSORY:
-            case AudioDeviceInfo.TYPE_USB_HEADSET: return "USB";
+            case AudioDeviceInfo.TYPE_USB_HEADSET: return R.string.xd_audio_short_usb;
             case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "耳机";
-            default: return "其他";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return R.string.xd_audio_short_wired;
+            default: return R.string.xd_audio_short_other;
         }
     }
 
-    private static String longName(int type) {
+    private static String longName(Context c, int type) {
         switch (type) {
-            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "手机扬声器";
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return c.getString(R.string.xd_audio_phone);
             case AudioDeviceInfo.TYPE_HDMI:
             case AudioDeviceInfo.TYPE_HDMI_ARC:
-            case AudioDeviceInfo.TYPE_HDMI_EARC: return "外接屏（HDMI）";
+            case AudioDeviceInfo.TYPE_HDMI_EARC: return c.getString(R.string.xd_audio_hdmi);
             case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
             case AudioDeviceInfo.TYPE_BLE_HEADSET:
             case AudioDeviceInfo.TYPE_BLE_SPEAKER:
-            case AudioDeviceInfo.TYPE_HEARING_AID: return "蓝牙";
+            case AudioDeviceInfo.TYPE_HEARING_AID: return c.getString(R.string.xd_audio_bluetooth);
             case AudioDeviceInfo.TYPE_USB_DEVICE:
             case AudioDeviceInfo.TYPE_USB_ACCESSORY:
-            case AudioDeviceInfo.TYPE_USB_HEADSET: return "USB";
+            case AudioDeviceInfo.TYPE_USB_HEADSET: return c.getString(R.string.xd_audio_usb);
             case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "有线耳机";
-            default: return "其他输出（类型 " + type + "）";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return c.getString(R.string.xd_audio_wired);
+            default: return c.getString(R.string.xd_audio_other, type);
         }
     }
 
@@ -163,7 +167,7 @@ final class AudioRoute {
         ArrayList<Output> out = new ArrayList<>();
         for (AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             if (!d.isSink() || !usable(d.getType())) continue;
-            Output o = new Output(d);
+            Output o = new Output(context, d);
             boolean seen = false;
             for (Output e : out) seen |= e.key.equals(o.key);
             if (!seen) out.add(o);
@@ -229,9 +233,9 @@ final class AudioRoute {
     }
 
     String shortLabel() {
-        if (car) return "车机";
+        if (car) return context.getString(R.string.xd_audio_short_car);
         Output o = selectedOutput();
-        return o != null ? o.shortLabel : "系统";
+        return o != null ? o.shortLabel : context.getString(R.string.xd_audio_short_system);
     }
 
     /** 给 AudioPlayer：null 表示走系统默认。 */
@@ -276,7 +280,7 @@ final class AudioRoute {
     /** AudioPlayer 试了几次系统都不理。从播放线程调用。 */
     void reportNotHonoured() {
         ui.post(() -> {
-            if (listener != null) listener.onAudioMessage("系统没有听 XDesk 的，接着 HDMI 时可能指定不了输出。注入服务运行后再试");
+            if (listener != null) listener.onAudioMessage(context.getString(R.string.xd_audio_not_honoured));
         });
     }
 
@@ -297,10 +301,10 @@ final class AudioRoute {
             try {
                 error = i.setAudioOutput(o != null ? o.type : -1, o != null ? o.address : "");
             } catch (RemoteException e) {
-                error = "注入服务断开了";
+                error = context.getString(R.string.xd_injector_gone);
             }
             final boolean failed = error != null;
-            final String message = "无法切换系统声音：" + error;
+            final String message = context.getString(R.string.xd_audio_cannot_switch, ShellText.localize(context, error));
             ui.post(() -> {
                 systemFailed = failed;
                 if (failed && listener != null) listener.onAudioMessage(message);

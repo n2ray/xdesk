@@ -3,10 +3,12 @@ package com.termux.x11;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
+import android.text.TextUtils;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.ImageView;
@@ -70,6 +72,14 @@ final class Style {
         return b;
     }
 
+    /** Hints drawn on a canvas: smaller than size when the longest line would be wider than width. Text depends on the language. */
+    static void fitText(Paint p, float size, float width, String... lines) {
+        p.setTextSize(size);
+        float widest = 0;
+        for (String l : lines) widest = Math.max(widest, p.measureText(l));
+        if (width > 0 && widest > width) p.setTextSize(size * width / widest);
+    }
+
     static void tick(View v) {
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
@@ -116,6 +126,7 @@ final class Style {
             text.setTextColor(TEXT);
             text.setTextSize(TEXT_TINY);
             text.setSingleLine(true);
+            text.setEllipsize(TextUtils.TruncateAt.END);
             text.setGravity(Gravity.CENTER);
             addView(text, new LayoutParams(-2, -2));
             setLabel(label);

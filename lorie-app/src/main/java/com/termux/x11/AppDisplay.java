@@ -58,7 +58,7 @@ final class AppDisplay {
             c.setAccessible(true);
             DisplayManager dm = c.newInstance(new ShellContext(systemContext()));
             VirtualDisplay d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags());
-            if (d == null) throw new IllegalStateException("系统没有建出显示器");
+            if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
             return d;
         } catch (InvocationTargetException e) {
             throw new IllegalStateException(String.valueOf(e.getCause()));

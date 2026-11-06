@@ -6,6 +6,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.WindowManager;
+import com.termux.x11.app.R;
 
 /**
  * Covers the external display while the phone is on another app, so what is on it stays private. It is a window above
@@ -35,7 +36,7 @@ final class ExternalCover {
         }
         Context dc = context.createDisplayContext(display);
         WindowManager wm = dc.getSystemService(WindowManager.class);
-        DashboardView v = new DashboardView(dc, "回到手机上的 XDesk 继续", false);
+        DashboardView v = new DashboardView(dc, dc.getString(R.string.xd_dash_cover), false);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,

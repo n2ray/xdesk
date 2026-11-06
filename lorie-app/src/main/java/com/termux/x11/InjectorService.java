@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 public class InjectorService extends IInjector.Stub {
     private static final String TAG = "XDeskInjector";
     private static final int NO_UID = -1;
-    private static final String OVER = "会话已经结束";
+    private static final String OVER = ShellText.code(ShellText.SESSION_OVER);
     private static final long AM_TIMEOUT_MS = 10000, DUMPSYS_TIMEOUT_MS = 5000, SHUTDOWN_TIMEOUT_MS = 2000;
     /** Time for a focus change to reach the input system before a key is sent. */
     private static final int FOCUS_SETTLE_MS = 60;
@@ -241,7 +241,7 @@ public class InjectorService extends IInjector.Stub {
                 Log.w(TAG, "input failed", e);
                 if (!toldInjectionRefused && refused(e)) {
                     toldInjectionRefused = true;
-                    message("系统拒绝了注入的输入。小米/红米手机需要在开发者选项里打开「USB 调试（安全设置）」。");
+                    message(ShellText.code(ShellText.INJECT_REFUSED));
                 }
             }
         });
@@ -309,7 +309,7 @@ public class InjectorService extends IInjector.Stub {
                 } catch (LinkageError e) {
                     Log.e(TAG, "no evdev", e);
                     reader = null;
-                    message("无法读取实体键鼠，手机触摸板仍可使用：" + e.getMessage());
+                    message(ShellText.code(ShellText.NO_PHYSICAL_INPUT, e.getMessage()));
                 }
             }
         }
@@ -386,7 +386,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public String returnToPhone(int display) {
-        return ownPackage == null ? "XDesk 没有连上注入服务" : TaskMover.moveAllToPhone(display, ownPackage);
+        return ownPackage == null ? ShellText.code(ShellText.NOT_CONNECTED) : TaskMover.moveAllToPhone(display, ownPackage);
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
@@ -478,7 +478,7 @@ public class InjectorService extends IInjector.Stub {
     @Override public void setVirtualDisplaySurface(int id, Surface surface) {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(id);
-            if (d == null) throw new IllegalArgumentException("没有显示器 " + id);
+            if (d == null) throw new IllegalArgumentException("no display " + id);
             d.setSurface(surface);
         }
     }
@@ -507,7 +507,7 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void text(final String s) {
         fromPhone(() -> {
-            if (injector.text(s) > 0) message("有些文字无法作为按键发送给安卓应用（比如中文）");
+            if (injector.text(s) > 0) message(ShellText.code(ShellText.TEXT_NOT_SENT));
         });
     }
 

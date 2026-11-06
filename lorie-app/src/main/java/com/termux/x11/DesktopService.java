@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.IBinder;
 import android.os.PowerManager;
+import com.termux.x11.app.R;
 
 /** 前台服务：切到别的 App 或界面被回收时，保住进程里的 DesktopSession。 */
 public class DesktopService extends Service {
@@ -33,7 +34,7 @@ public class DesktopService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "桌面运行状态", NotificationManager.IMPORTANCE_LOW));
+        nm.createNotificationChannel(new NotificationChannel(CHANNEL, getString(R.string.xd_service_channel), NotificationManager.IMPORTANCE_LOW));
         PowerManager pm = getSystemService(PowerManager.class);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xdesk:session");
         wakeLock.acquire();
@@ -47,8 +48,8 @@ public class DesktopService extends Service {
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         Notification n = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setContentTitle(title != null ? title : "XDesk 运行中")
-            .setContentText("点击回到触摸板")
+            .setContentTitle(title != null ? title : getString(R.string.xd_service_title))
+            .setContentText(getString(R.string.xd_service_text))
             .setContentIntent(open)
             .setOngoing(true)
             .build();
@@ -77,7 +78,7 @@ public class DesktopService extends Service {
         final android.content.Context app = context.getApplicationContext();
         AppSession apps = AppSession.get(app);
         if (apps.hasAppOnDisplay() && !apps.hasInjector()) {
-            android.widget.Toast.makeText(app, "注入服务没有运行，外接屏上的应用没能移回手机", android.widget.Toast.LENGTH_LONG).show();
+            android.widget.Toast.makeText(app, app.getString(R.string.xd_service_not_moved), android.widget.Toast.LENGTH_LONG).show();
         }
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
         // 外接屏上的安卓应用移回手机。车机上的应用在 XDesk 自己的显示器上，AppSession 自己移回；Android Auto 的显示器上的东西不动

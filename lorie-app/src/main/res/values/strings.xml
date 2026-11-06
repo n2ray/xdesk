@@ -1,0 +1,396 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    XDesk's own UI text. English is the default; values-zh-rCN has the same names in Simplified Chinese.
+    Every name starts with xd_ so it cannot collide with upstream lorie's resources. Text from the shell-uid process
+    arrives as a code and is mapped in ShellText.
+-->
+<resources>
+    <!-- Shared -->
+    <string name="xd_back">Back</string>
+    <string name="xd_cancel">Cancel</string>
+    <string name="xd_apply">Apply</string>
+    <string name="xd_range">Must be between %1$d and %2$d</string>
+
+    <!-- ActivationPage, PairingService, ShellActivation: activating the input service over wireless debugging -->
+    <string name="xd_act_title">Activate input service</string>
+    <string name="xd_act_steps_title">How to</string>
+    <string name="xd_act_steps">Forwarding mouse and keyboard to Android apps needs a small service with shell permissions. No root, and no other app to install. You only pair once.\n\n1. Connect to Wi-Fi. It must be connected while you activate; the phone\'s own hotspot may not count. Losing Wi-Fi afterwards is fine.\n\n2. Tap the button below to open Developer options, turn on “Wireless debugging”, then tap “Pair device with pairing code”. If there are no Developer options, tap the build number several times in “About phone” first.\n\n3. The pairing dialog shows a 6-digit code. You can type it straight into XDesk\'s notification.\n\n4. If the notification won\'t take it (seen on HyperOS), enter it below. Keep the pairing dialog open. If it closes when you switch back here, open Settings and XDesk together in split screen or a floating window.</string>
+    <string name="xd_act_open_wireless">Open wireless debugging settings</string>
+    <string name="xd_act_code_title">Pairing code</string>
+    <string name="xd_act_code_hint">6-digit pairing code</string>
+    <string name="xd_act_port_hint">Port after the colon in the pairing dialog</string>
+    <string name="xd_act_pair">Pair</string>
+    <string name="xd_act_later_title">From now on</string>
+    <string name="xd_act_later">When you open XDesk with wireless debugging on, it starts the service by itself.\n\nAfter the phone restarts, activate again: if the system allows it, XDesk turns on wireless debugging by itself while on Wi-Fi, otherwise it tells you what to do.\n\nDon\'t turn off USB debugging or Developer options while it runs.</string>
+    <string name="xd_act_use_shizuku">Use Shizuku instead</string>
+    <string name="xd_act_need_port">The pairing port is not known yet. Enter the number after the colon in the pairing dialog.</string>
+    <string name="xd_act_code_length">The pairing code has 6 digits.</string>
+    <string name="xd_act_pairing">Pairing…</string>
+    <string name="xd_act_port_found">Found the pairing port.</string>
+    <string name="xd_act_port_missing">No pairing port found yet. If the pairing dialog is open, you can enter it yourself.</string>
+    <string name="xd_act_pairing_lost">The system no longer has the pairing. Pair again.</string>
+
+    <string name="xd_pair_channel">Wireless debugging pairing</string>
+    <string name="xd_pair_received_title">Pairing</string>
+    <string name="xd_pair_received">Got the pairing code.</string>
+    <string name="xd_pair_timeout_title">Pairing timed out</string>
+    <string name="xd_pair_timeout">Go back to XDesk and tap “Open wireless debugging settings” again.</string>
+    <string name="xd_pair_ok_title">Paired</string>
+    <string name="xd_pair_ok">Go back to XDesk to continue.</string>
+    <string name="xd_pair_failed_title">Pairing failed</string>
+    <string name="xd_pair_failed">%1$s\nIf you can\'t type in the notification, go back to XDesk and enter the code there.</string>
+    <string name="xd_pair_searching_title">XDesk is looking for the pairing port</string>
+    <string name="xd_pair_searching">Turn on “Wireless debugging” and tap “Pair device with pairing code”. Keep the pairing dialog open. Once found, you can enter the code in this notification. If you can\'t, open XDesk in split screen or a floating window and enter it there.</string>
+    <string name="xd_pair_stop">Stop</string>
+    <string name="xd_pair_ask_title">Pairing port found, enter the code</string>
+    <string name="xd_pair_ask">Tap “Enter pairing code” and type the 6 digits from the pairing dialog. If you can\'t, open XDesk in split screen or a floating window and enter it there.</string>
+    <string name="xd_pair_enter">Enter pairing code</string>
+
+    <string name="xd_shell_interrupted">Starting was interrupted. Try again.</string>
+    <string name="xd_shell_no_port">Can\'t find the wireless debugging port. Check in Developer options that wireless debugging is on, then come back.</string>
+    <string name="xd_shell_cannot_connect">Can\'t connect to wireless debugging.</string>
+    <string name="xd_shell_cannot_connect_detail">Can\'t connect to wireless debugging: %1$s</string>
+    <string name="xd_shell_no_answer">The input service started but does not answer. Try again.</string>
+    <string name="xd_shell_refused">Wireless debugging refused XDesk. If you revoked the authorisation in Developer options, tap “Pair again” in XDesk\'s settings.</string>
+    <string name="xd_shell_pair_port_gone">Can\'t reach the pairing port. The pairing dialog may have closed; open it again and retry.</string>
+    <string name="xd_shell_pair_failed">Pairing failed. Check the code, and keep the pairing dialog open. (%1$s)</string>
+    <string name="xd_shell_wireless_off">Wireless debugging is off. Turn it on in Developer options (Wi-Fi must be connected). XDesk continues when you come back.</string>
+    <string name="xd_shell_need_wifi">XDesk can turn on wireless debugging by itself, but Wi-Fi must be connected first. The phone\'s own hotspot may not count. Come back once connected.</string>
+    <string name="xd_shell_wireless_refused">The system did not turn on wireless debugging. It needs Wi-Fi. If a dialog asks whether to allow this network, allow it and come back.</string>
+
+    <!-- ShellText: codes from the shell-uid process (InjectorService, TaskMover, AudioRouter, DensityOverride, AppDisplay).
+         Each takes the code's detail as %1$s, which may be empty. -->
+    <string name="xd_sx_session_over">The session has already ended</string>
+    <string name="xd_sx_inject_refused">The system refused the injected input. On Xiaomi and Redmi phones, turn on “USB debugging (Security settings)” in Developer options.</string>
+    <string name="xd_sx_no_physical_input">Can\'t read the physical mouse and keyboard. The phone\'s touchpad still works: %1$s</string>
+    <string name="xd_sx_not_connected">XDesk is not connected to the input service</string>
+    <string name="xd_sx_text_not_sent">Some text can\'t be sent to Android apps as key presses (Chinese, for example)</string>
+    <string name="xd_sx_audio_result">setDevicesRoleForStrategy returned %1$s</string>
+    <string name="xd_sx_audio_unsupported">Not supported on this Android version (%1$s)</string>
+    <string name="xd_sx_audio_no_clear">This Android version has no way to clear the audio route</string>
+    <string name="xd_sx_audio_clear_result">Clearing the audio route returned %1$s</string>
+    <string name="xd_sx_phone_screen">Can\'t change the phone\'s own screen</string>
+    <string name="xd_sx_no_task_list">Can\'t list the tasks on the display: %1$s</string>
+    <string name="xd_sx_no_display_made">The system did not create the display</string>
+
+    <!-- AppSession: an Android app on the display -->
+    <string name="xd_injector_gone">The input service disconnected</string>
+    <string name="xd_app_injector_gone_detail">The input service disconnected: %1$s</string>
+    <string name="xd_app_no_answer">The input service does not answer. Try again.</string>
+    <string name="xd_app_shizuku_no_start">The input service did not start. Check in Shizuku that it is still running, then try again.</string>
+    <string name="xd_app_running_title">XDesk is running %1$s on the display</string>
+    <string name="xd_app_cannot_start_injector">Can\'t start the input service: %1$s</string>
+    <string name="xd_app_no_such_display">Display %1$d is not visible</string>
+    <string name="xd_app_no_car_display">Can\'t create a display for the car: %1$s</string>
+    <string name="xd_app_cannot_inject">Can\'t inject input: %1$s</string>
+    <string name="xd_app_presentation">Another app is already showing content on the display. It may cover %1$s</string>
+    <string name="xd_app_cannot_launch">Can\'t start %1$s: %2$s</string>
+    <string name="xd_app_cannot_switch">Can\'t switch to %1$s: %2$s</string>
+    <string name="xd_app_cannot_fullscreen">Can\'t make %1$s full screen landscape: %2$s</string>
+    <plurals name="xd_app_restore_failed">
+        <item quantity="one">%1$d app could not be restored. Try again while the input service is connected</item>
+        <item quantity="other">%1$d apps could not be restored. Try again while the input service is connected</item>
+    </plurals>
+    <plurals name="xd_app_restored">
+        <item quantity="one">Restored %1$d app</item>
+        <item quantity="other">Restored %1$d apps</item>
+    </plurals>
+    <string name="xd_app_cannot_density">Can\'t change the display\'s interface size: %1$s</string>
+    <string name="xd_app_cannot_close">Can\'t close %1$s: %2$s</string>
+    <string name="xd_app_not_moved_back">Some apps did not move back to the phone: %1$s</string>
+
+    <!-- AudioRoute: sound outputs. Short labels sit under the sound icon, keep them to one short word. -->
+    <string name="xd_audio_short_phone">Phone</string>
+    <string name="xd_audio_short_hdmi">HDMI</string>
+    <string name="xd_audio_short_bluetooth">Bluetooth</string>
+    <string name="xd_audio_short_usb">USB</string>
+    <string name="xd_audio_short_wired">Wired</string>
+    <string name="xd_audio_short_other">Other</string>
+    <string name="xd_audio_short_car">Car</string>
+    <string name="xd_audio_short_system">System</string>
+    <string name="xd_audio_phone">Phone speaker</string>
+    <string name="xd_audio_hdmi">Display (HDMI)</string>
+    <string name="xd_audio_bluetooth">Bluetooth</string>
+    <string name="xd_audio_usb">USB</string>
+    <string name="xd_audio_wired">Wired headphones</string>
+    <string name="xd_audio_other">Other output (type %1$d)</string>
+    <!-- An output and its product name -->
+    <string name="xd_audio_named">%1$s: %2$s</string>
+    <string name="xd_audio_missing">The chosen sound output is gone. Using the system default for now</string>
+    <string name="xd_audio_not_honoured">The system ignored XDesk\'s choice, so the output may not be settable while HDMI is connected. Try again once the input service runs</string>
+    <string name="xd_audio_cannot_switch">Can\'t switch the system sound: %1$s</string>
+
+    <!-- TermuxCommand -->
+    <string name="xd_termux_not_allowed">Termux does not let other apps run commands. Run xdesk enable-app-start in Termux, then tap here</string>
+    <string name="xd_termux_refused">Termux did not run the command: %1$s</string>
+    <string name="xd_termux_no_xdesk">xdesk is not installed in Termux yet. Run this line in Termux, then tap here:\n%1$s</string>
+    <string name="xd_termux_failed">xdesk failed (%1$d): %2$s</string>
+
+    <!-- DesktopService: the notification while XDesk runs -->
+    <string name="xd_service_channel">Desktop status</string>
+    <string name="xd_service_title">XDesk is running</string>
+    <string name="xd_service_text">Tap to go back to the touchpad</string>
+    <string name="xd_service_not_moved">The input service is not running, so the apps on the display could not move back to the phone</string>
+
+    <!-- DashboardView on the external display and the car -->
+    <string name="xd_dash_choose">Choose an app on the phone</string>
+    <string name="xd_dash_car">Car connected · Use XDesk on the phone</string>
+    <string name="xd_dash_cover">Go back to XDesk on the phone to continue</string>
+    <string name="xd_dash_battery">Battery %1$d%%</string>
+    <string name="xd_dash_charging">Charging</string>
+    <string name="xd_dash_sound">Sound: %1$s</string>
+    <string name="xd_dash_input_display">Mouse &amp; keyboard on the display, Ctrl+Alt+M gives them back</string>
+    <string name="xd_dash_input_phone_hotkey">Mouse &amp; keyboard on the phone, Ctrl+Alt+M takes them over</string>
+    <string name="xd_dash_input_phone">Mouse &amp; keyboard on the phone</string>
+
+    <!-- DockBar -->
+    <string name="xd_dock_empty">Tap the star next to an app to add it here</string>
+
+    <!-- Hints in the touch area, drawn centred. Short lines: they shrink to fit -->
+    <string name="xd_pad_hint_move">One finger moves · Tap to left-click</string>
+    <string name="xd_pad_hint_drag">Long press, or tap then hold, to drag</string>
+    <string name="xd_pad_hint_two">Two fingers: tap to right-click, swipe to scroll</string>
+    <string name="xd_touch_hint_move">One finger moves the cursor · Tap to click</string>
+    <string name="xd_touch_hint_fingers">Hold to drag · More fingers touch directly</string>
+
+    <!-- ChooserView: the launcher on the phone -->
+    <string name="xd_settings">Settings</string>
+    <string name="xd_on_display">On the display</string>
+    <string name="xd_on_car">On the car</string>
+    <string name="xd_linux_desktops">Linux desktops</string>
+    <string name="xd_linux_desktop">Linux desktop</string>
+    <string name="xd_android_apps">Android apps</string>
+    <string name="xd_android_app">Android app</string>
+    <string name="xd_chooser_close">Back to touchpad</string>
+    <string name="xd_chooser_favourites">Favourites</string>
+    <string name="xd_chooser_all_apps">All apps</string>
+    <string name="xd_chooser_search">Search by app or package name</string>
+    <string name="xd_chooser_clear">Clear</string>
+    <string name="xd_chooser_no_display">No display connected. You can look around; connect a monitor to start something.</string>
+    <string name="xd_chooser_running">Running, tap to reattach</string>
+    <string name="xd_chooser_default">Default</string>
+    <string name="xd_chooser_reattach_x">Reattach the running X display</string>
+    <string name="xd_chooser_attach_x">Attach an X display</string>
+    <string name="xd_chooser_reattach_x_note">Such as a program started with xdesk run</string>
+    <string name="xd_chooser_attach_x_note">Run the xdesk command in Termux yourself</string>
+    <string name="xd_chooser_loading">Loading apps…</string>
+    <string name="xd_chooser_no_match">No matches</string>
+    <!-- The button on a Linux desktop row, 60dp wide -->
+    <string name="xd_chooser_stop">Stop</string>
+    <string name="xd_chooser_start">Start</string>
+    <string name="xd_chooser_unfavourite">Remove from favourites</string>
+    <string name="xd_chooser_favourite">Add to favourites</string>
+
+    <!-- XDeskActivity: product terms -->
+    <string name="xd_launcher">Launcher</string>
+    <string name="xd_back_to_launcher">Back to launcher</string>
+    <!-- Android Back for the app on the display -->
+    <string name="xd_back_app">Back</string>
+    <string name="xd_keyboard">Keyboard</string>
+    <!-- The function key row: Esc, Tab, Ctrl… -->
+    <string name="xd_keys">Keys</string>
+    <string name="xd_take_over">Take over</string>
+    <string name="xd_give_back">Give back</string>
+    <string name="xd_mode_mouse">Mouse &amp; keyboard</string>
+    <!-- Mouse & keyboard under a small icon, about 50dp wide -->
+    <string name="xd_mode_mouse_short">Mouse</string>
+    <string name="xd_mode_touch">Touch</string>
+    <string name="xd_end_xdesk">End XDesk</string>
+    <string name="xd_end">End</string>
+    <string name="xd_stop">Stop</string>
+    <string name="xd_close">Close</string>
+    <string name="xd_restore">Restore</string>
+    <string name="xd_reset">Reset</string>
+    <string name="xd_retry">Retry</string>
+    <string name="xd_ok">OK</string>
+    <string name="xd_on">On</string>
+    <string name="xd_off">Off</string>
+    <string name="xd_unknown">unknown</string>
+    <string name="xd_switch">Switch</string>
+    <string name="xd_open_settings">Open settings</string>
+    <string name="xd_open_shizuku">Open Shizuku</string>
+    <string name="xd_shizuku_website">Open Shizuku website</string>
+    <string name="xd_unsaved_may_be_lost">Unsaved work may be lost.</string>
+
+    <!-- XDeskActivity: messages and setup screens -->
+    <string name="xd_no_display">No display found. Connect a monitor or a dock to a USB-C port with video output (DisplayPort), or connect to an Android Auto car. Some phones\' USB-C ports have no video output; those phones can only use a car.</string>
+    <string name="xd_car_gone_title">Car disconnected</string>
+    <string name="xd_car_gone">The desktop is still running. It comes back when you open XDesk on the car again</string>
+    <string name="xd_car_gone_status">Car disconnected. The desktop is still running. It comes back when you open XDesk on the car again</string>
+    <string name="xd_termux_no_reply">Termux did not answer. Run xdesk enable-app-start in Termux, then come back</string>
+    <string name="xd_display_gone_desktop">Display disconnected. The desktop keeps running and comes back when you plug it in again</string>
+    <string name="xd_desktop_ended">Desktop ended.</string>
+    <string name="xd_desktop_crashed">The desktop stopped unexpectedly and will not restart by itself.</string>
+    <string name="xd_desktop_ended_notice">Desktop ended. Tap an environment below to start it again.</string>
+    <string name="xd_desktop_crashed_notice">The desktop stopped unexpectedly (the X server exited). XDesk does not restart it by itself. Unsaved work may be lost. Tap an environment below to start it again.</string>
+    <string name="xd_termux_unreachable">Can\'t use Termux</string>
+    <string name="xd_cannot_run_on_display">Can\'t run on the display</string>
+    <string name="xd_switch_desktop_title">Switch desktop?</string>
+    <string name="xd_switch_desktop">This ends the running %1$s. Unsaved work will be lost.</string>
+    <string name="xd_left_click">Left click</string>
+    <string name="xd_right_click">Right click</string>
+    <string name="xd_exit_fullscreen">Exit full screen</string>
+    <!-- Ctrl+letter shortcuts, five in a row: keep them short -->
+    <string name="xd_key_select_all">A All</string>
+    <string name="xd_key_cut">X Cut</string>
+    <string name="xd_key_copy">C Copy</string>
+    <string name="xd_key_paste">V Paste</string>
+    <string name="xd_key_undo">Z Undo</string>
+    <string name="xd_fullscreen_pad">Full screen touch area</string>
+
+    <!-- Status line on the control screen. %1$s is an app name. -->
+    <string name="xd_status_no_app">No app on the display. Choose one</string>
+    <string name="xd_status_injector_gone_shell">Input service disconnected. Turn on wireless debugging, then come back to XDesk</string>
+    <string name="xd_status_injector_gone_shizuku">Input service disconnected. Check that Shizuku is still running</string>
+    <string name="xd_status_display_gone_app">Display disconnected. %1$s goes back when you plug it in again</string>
+    <string name="xd_status_no_devices">%1$s: no mouse or keyboard plugged in. Plug one in to take over</string>
+    <string name="xd_status_input_display">%1$s · Mouse &amp; keyboard on the display</string>
+    <string name="xd_status_input_phone">%1$s · Mouse &amp; keyboard on the phone</string>
+    <string name="xd_status_desktop_car">On the car: %1$s</string>
+    <string name="xd_status_desktop_display">On the display: %1$s</string>
+    <string name="xd_status_desktop_connected">Desktop connected</string>
+    <string name="xd_status_desktop_not_connected">Desktop not connected</string>
+    <!-- Diagnostics: each %s is ✓ or ✗ -->
+    <string name="xd_diag">Focus%1$s Key view%2$s Ext. mouse%3$s Capture%4$s Keys %5$d Mouse %6$d</string>
+
+    <!-- Sound output -->
+    <string name="xd_output_car">On the car, sound plays in the car through Android Auto. There is no output to choose</string>
+    <string name="xd_output_system">System default (none chosen)</string>
+    <string name="xd_output_note_shared">Shared by all modes: during a session, sound from the Termux desktop, Android apps and other media goes here, also when you switch. After End XDesk the phone is back to normal, and this choice applies again next time.</string>
+    <string name="xd_output_note_desktop_only">The input service is not running: XDesk can only try to send Termux desktop sound here, which may not work while HDMI is connected. Sound from Android apps is not affected.</string>
+    <string name="xd_output_note_unverified">This only points the output at the device. Sound quality and the Bluetooth codec can\'t be checked.</string>
+    <string name="xd_output_title">Play sound on</string>
+    <string name="xd_output_missing">This output is not connected. Using the system default for now</string>
+
+    <!-- Settings -->
+    <string name="xd_width_native">Sharp (monitor\'s native)</string>
+    <string name="xd_width_1920">Balanced (1920 wide)</string>
+    <string name="xd_width_1280">Battery and games (1280 wide)</string>
+    <!-- Three segments in one row: one short word each -->
+    <string name="xd_orientation_system">System</string>
+    <string name="xd_orientation_portrait">Portrait</string>
+    <string name="xd_orientation_landscape">Landscape</string>
+    <string name="xd_resolution">Desktop resolution</string>
+    <string name="xd_resolution_note">X resolution of the Termux desktop</string>
+    <string name="xd_density">Interface size</string>
+    <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
+    <string name="xd_density_need_injector">Needs the input service</string>
+    <string name="xd_density_need_app">Only while an Android app is on the display</string>
+    <string name="xd_density_range">%1$d to %2$d dpi, smaller fits more. Display default: %3$s</string>
+    <string name="xd_section_phone">Phone</string>
+    <string name="xd_section_input">Input</string>
+    <string name="xd_section_sound">Sound</string>
+    <string name="xd_section_display">Display</string>
+    <string name="xd_section_about">About</string>
+    <string name="xd_orientation">Control screen orientation</string>
+    <string name="xd_dim">Dim the phone when idle</string>
+    <string name="xd_dim_note">After 1 minute without a touch. The display is not affected</string>
+    <string name="xd_pad_speed">Touchpad sensitivity</string>
+    <string name="xd_scroll_speed">Two-finger scroll speed</string>
+    <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode</string>
+    <string name="xd_mouse_speed">Physical mouse speed</string>
+    <string name="xd_mouse_speed_note" formatted="false">100% follows the display width</string>
+    <string name="xd_always_cursor">Always show the XDesk cursor</string>
+    <string name="xd_always_cursor_note">Turn on if it guesses wrong in a RustDesk session</string>
+    <string name="xd_output">Sound output</string>
+    <string name="xd_fullscreen_default">Force apps to full screen landscape</string>
+    <string name="xd_fullscreen_default_note">Ignores portrait locks on the display and other large screens; the phone screen is not affected. Applies the next time an app starts, and restarts it the first time. Can be changed per app in its card</string>
+    <string name="xd_fullscreen_reset">Restore all apps</string>
+    <string name="xd_fullscreen_reset_note">Undo the full screen landscape XDesk set for apps</string>
+    <string name="xd_fullscreen_reset_title">Restore all apps?</string>
+    <string name="xd_fullscreen_reset_message">Apps that XDesk made full screen landscape go back to how they were, and the system stops each of them once. The default and every app\'s choice go back to off.</string>
+    <string name="xd_fullscreen_reset_need_injector">Needs the input service: run an Android app once, then try again</string>
+    <string name="xd_cover">Cover the display when you leave XDesk or lock the phone</string>
+    <string name="xd_cover_note">The display shows a clock and the mouse &amp; keyboard go to the phone. Apps keep running and sound keeps playing</string>
+    <string name="xd_cover_note_no_overlay">The display shows a clock and the mouse &amp; keyboard go to the phone. Apps keep running and sound keeps playing. Without the overlay permission it does not cover anything now</string>
+    <string name="xd_diag_setting">Show diagnostics</string>
+    <string name="xd_diag_setting_note">Focus and event counts on the control screen</string>
+    <string name="xd_builtin">Built-in input service</string>
+    <string name="xd_builtin_note">Mouse &amp; keyboard for Android apps when there is no Shizuku</string>
+    <string name="xd_builtin_stop">Stop built-in service</string>
+    <string name="xd_builtin_stop_note">XDesk won\'t start it by itself until you next run an Android app</string>
+    <string name="xd_builtin_stop_title">Stop built-in service?</string>
+    <string name="xd_builtin_stop_message">Android apps running through it go back to the phone (not closed), and mouse, keyboard and sound are back to normal.</string>
+    <string name="xd_pair_again">Pair again</string>
+    <string name="xd_pair_again_note">If you revoked the authorisation in Developer options, or it keeps failing to connect</string>
+    <string name="xd_pair_again_title">Pair again?</string>
+    <string name="xd_pair_again_message">XDesk stops the built-in service and forgets the pairing, then takes you through pairing in wireless debugging again.</string>
+    <string name="xd_end_desktop_row">End Termux desktop</string>
+    <string name="xd_end_desktop_row_note">XDesk stays open</string>
+    <string name="xd_end_xdesk_note">Apps go back to the phone, and the display mirrors the phone again</string>
+    <string name="xd_builtin_running">Running</string>
+    <string name="xd_builtin_starting">Starting</string>
+    <string name="xd_builtin_not_running">Not running</string>
+    <string name="xd_builtin_not_paired">Not paired</string>
+
+    <!-- The app card (long press) -->
+    <string name="xd_card_on_display">On the display</string>
+    <string name="xd_card_position">Position in favourites</string>
+    <string name="xd_card_display">Display</string>
+    <string name="xd_card_density_note_value">dpi, empty follows the default %1$d</string>
+    <string name="xd_card_density_note">dpi, empty follows the default</string>
+    <string name="xd_card_fullscreen">Full screen landscape</string>
+    <string name="xd_card_fullscreen_note_on">The default is on now. The app restarts when you change this</string>
+    <string name="xd_card_fullscreen_note_off">The default is off now. The app restarts when you change this</string>
+    <string name="xd_card_follow_default">Default</string>
+    <string name="xd_card_mode">Input mode</string>
+    <string name="xd_card_mode_note">Touch is for apps or web pages that only respond to touch</string>
+    <string name="xd_card_close">Close this app</string>
+    <string name="xd_card_close_title">Close %1$s?</string>
+
+    <!-- Termux environments in the launcher -->
+    <string name="xd_termux_not_installed">Termux is not installed. Install it, then tap here</string>
+    <string name="xd_termux_permission">Tap here to let XDesk read the Termux environments</string>
+    <string name="xd_termux_no_sessions">No environments found. Run xdesk setup in Termux, then tap here</string>
+
+    <string name="xd_returning_to">Going back to %1$s</string>
+    <string name="xd_returning_to_message">The desktop window closed; this app is still on the display.</string>
+    <string name="xd_end_xdesk_title">End XDesk?</string>
+    <string name="xd_end_xdesk_message">Apps on the display go back to the phone (not closed), the display mirrors the phone again, and mouse, keyboard and sound are back to normal. The Termux desktop keeps running, just without a window.</string>
+    <string name="xd_starting">Starting</string>
+    <string name="xd_starting_app">Starting %1$s</string>
+    <string name="xd_connecting_injector">Connecting to the input service.</string>
+    <string name="xd_waiting_previous_injector">Waiting for the previous input service to end.</string>
+    <string name="xd_overlay_title">Overlay permission needed</string>
+    <string name="xd_overlay_message">Android\'s own cursor stays on the phone screen,\nso XDesk draws a cursor on the display.\n\nAllow it and come back; XDesk continues by itself.</string>
+    <!-- The prompt at the top of the launcher -->
+    <string name="xd_prompt_activate">Activate once to run Android apps on the display · Activate</string>
+    <string name="xd_prompt_starting">Starting the input service…</string>
+    <string name="xd_prompt_start">Input service not running · Start</string>
+    <string name="xd_starting_injector_title">Starting the input service</string>
+    <string name="xd_starting_injector">Starting the input service.</string>
+    <string name="xd_one_more_step">One more step</string>
+    <string name="xd_injector_not_running">The input service is not running.</string>
+    <string name="xd_no_developer_options">Can\'t open Developer options. Look for them in the system settings.</string>
+    <string name="xd_shizuku_missing_title">Shizuku needed</string>
+    <string name="xd_shizuku_missing">Forwarding mouse and keyboard to Android apps needs Shizuku (no root).\nThe Termux desktop doesn\'t need it.\n\nInstall and start Shizuku, then come back.</string>
+    <string name="xd_shizuku_stopped_title">Shizuku is not running</string>
+    <string name="xd_shizuku_stopped">Open Shizuku and start it with wireless debugging as it explains,\nthen come back. XDesk continues by itself.</string>
+    <string name="xd_shizuku_old_title">Shizuku is too old</string>
+    <string name="xd_shizuku_old">Update Shizuku, then come back.</string>
+    <string name="xd_shizuku_denied_title">Shizuku denied XDesk</string>
+    <string name="xd_shizuku_denied">You chose not to be asked again. Allow XDesk in Shizuku\'s app management,\nthen come back.</string>
+    <string name="xd_shizuku_ask_title">Authorise Shizuku</string>
+    <string name="xd_shizuku_ask">XDesk uses Shizuku to forward mouse and keyboard to the app on the display.</string>
+    <string name="xd_shizuku_ask_action">Authorise</string>
+    <string name="xd_reattach_title">Desktop running</string>
+    <string name="xd_reattach">Reattaching %1$s.</string>
+    <string name="xd_waiting_title">Waiting for a desktop</string>
+    <string name="xd_waiting">Run in Termux:\n\nxdesk start\n\nor any program: xdesk run command</string>
+    <string name="xd_waiting_action">Start the default environment</string>
+    <string name="xd_no_termux_title">Missing component</string>
+    <string name="xd_no_termux">A Termux desktop needs Termux. Install it from F-Droid or Termux\'s GitHub page,\nthen come back and choose again.\n\nAndroid apps on the display don\'t need Termux.</string>
+    <string name="xd_no_termux_action">Open Termux on F-Droid</string>
+    <string name="xd_starting_desktop_title">Starting the desktop</string>
+    <string name="xd_starting_desktop">The first start can take a little longer.</string>
+    <string name="xd_run_command_denied_title">No permission to run Termux commands</string>
+    <string name="xd_run_command_denied">You can run xdesk start in Termux yourself,\nor allow XDesk to “Run commands in Termux environment” in the system settings.</string>
+    <string name="xd_desktop_no_start_title">The desktop did not start</string>
+    <string name="xd_desktop_no_start">Run xdesk enable-app-start and xdesk setup in Termux,\nor run xdesk start directly to see the error.\nThe log is in $PREFIX/tmp/xdesk.log.</string>
+    <string name="xd_place_failed_car">Can\'t put the desktop on the car: %1$s</string>
+    <string name="xd_place_failed_display">Can\'t put the desktop on the display: %1$s</string>
+    <string name="xd_end_desktop_title">End desktop</string>
+    <string name="xd_end_desktop_no_permission">XDesk has no permission to run Termux commands. Run this in Termux:\n\nxdesk stop</string>
+    <string name="xd_end_desktop_confirm_title">End desktop?</string>
+    <string name="xd_end_desktop_message">The desktop exits. Unsaved work will be lost.</string>
+</resources>

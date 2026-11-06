@@ -55,7 +55,7 @@ final class SettingsUi {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(4), dp(4), dp(16), dp(4));
         Style.IconButton back = new Style.IconButton(c, R.drawable.xd_ic_back, "", Style.BACKGROUND);
-        back.setContentDescription("返回");
+        back.setContentDescription(c.getString(R.string.xd_back));
         back.onTap(d::dismiss);
         head.addView(back, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET)));
         TextView t = Style.label(c, title, Style.TEXT, Style.TEXT_TITLE);
@@ -204,7 +204,7 @@ final class SettingsUi {
             }
             if (n < min || n > max) {
                 field.setTextColor(Style.DANGER);
-                android.widget.Toast.makeText(c, "要在 " + min + " 到 " + max + " 之间", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(c, c.getString(R.string.xd_range, min, max), android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
             field.setTextColor(Style.TEXT);
@@ -277,7 +277,7 @@ final class SettingsUi {
         row.setGravity(Gravity.END);
         final Dialog[] d = new Dialog[1];
         if (onConfirm != null) {
-            TextView cancel = pill("取消", Style.SURFACE_RAISED);
+            TextView cancel = pill(c.getString(R.string.xd_cancel), Style.SURFACE_RAISED);
             cancel.setOnClickListener(v -> d[0].dismiss());
             row.addView(cancel, pillParams());
         }
@@ -300,6 +300,9 @@ final class SettingsUi {
     TextView pill(String text, int color) {
         TextView b = Style.button(c, text, color, Style.TEXT_SMALL + 2, Style.RADIUS);
         b.setPadding(dp(14), 0, dp(14), 0);
+        // 英文比中文长：分段选择里宁可省略也不换行
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         return b;
     }
 
@@ -403,6 +406,7 @@ final class SettingsUi {
         for (int i = 0; i < options.length; i++) {
             final int which = i;
             buttons[i] = pill(options[i], i == selected ? Style.ACCENT : Style.SURFACE_RAISED);
+            buttons[i].setPadding(dp(6), 0, dp(6), 0);
             buttons[i].setOnClickListener(v -> {
                 Style.tick(v);
                 for (int k = 0; k < buttons.length; k++) {
@@ -480,7 +484,7 @@ final class SettingsUi {
             }
             if (dpi < min || dpi > max) {
                 field.setTextColor(Style.DANGER);
-                android.widget.Toast.makeText(c, "要在 " + min + " 到 " + max + " 之间", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(c, c.getString(R.string.xd_range, min, max), android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
             field.setTextColor(Style.TEXT);
@@ -495,7 +499,7 @@ final class SettingsUi {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(field, new LinearLayout.LayoutParams(dp(84), dp(Style.TARGET - 4)));
-        TextView apply = pill("应用", Style.ACCENT);
+        TextView apply = pill(c.getString(R.string.xd_apply), Style.ACCENT);
         apply.setOnClickListener(v -> {
             Style.tick(v);
             confirm.run();

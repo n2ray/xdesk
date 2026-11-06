@@ -9,6 +9,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.termux.x11.app.R;
 import java.util.List;
 
 /**
@@ -74,7 +75,7 @@ final class DockBar extends LinearLayout {
             if (v != null) row.addView(v);
         }
         if (hintWhenEmpty && keys.isEmpty()) {
-            row.addView(Style.label(getContext(), "点列表右边的星把常用的加到这里", Style.TEXT_DIM, 13));
+            row.addView(Style.label(getContext(), getContext().getString(R.string.xd_dock_empty), Style.TEXT_DIM, 13));
         }
     }
 

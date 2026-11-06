@@ -12,6 +12,7 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
+import com.termux.x11.app.R;
 
 /**
  * Android Auto's entry while parked (CAR_LAUNCHER): the dashboard on the car's screen, and what tells XDesk which display
@@ -122,7 +123,7 @@ public class CarActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setDecorFitsSystemWindows(false);
-        view = new DashboardView(this, "车机已连接 · 在手机上用 XDesk 操作", true);
+        view = new DashboardView(this, getString(R.string.xd_dash_car), true);
         appView = buildAppView();
         FrameLayout root = new FrameLayout(this);
         root.addView(appView, new FrameLayout.LayoutParams(-1, -1));

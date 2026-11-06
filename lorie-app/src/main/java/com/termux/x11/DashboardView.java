@@ -16,6 +16,7 @@ import android.view.Gravity;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.termux.x11.app.R;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Random;
@@ -130,19 +131,19 @@ final class DashboardView extends FrameLayout {
         if (battery != null) {
             int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
             int state = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-            if (level >= 0 && scale > 0) s.append("电量 ").append(level * 100 / scale).append('%');
-            if (state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL) s.append(" 充电中");
+            if (level >= 0 && scale > 0) s.append(c.getString(R.string.xd_dash_battery, level * 100 / scale));
+            if (state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL) s.append(' ').append(c.getString(R.string.xd_dash_charging));
             s.append("   ·   ");
         }
-        s.append("声音：").append(AudioRoute.get(c).shortLabel());
+        s.append(c.getString(R.string.xd_dash_sound, AudioRoute.get(c).shortLabel()));
         if (!showInput) {
             status.setText(s);
             return;
         }
         s.append("   ·   ");
         AppSession apps = AppSession.get(c);
-        String input = apps.isForwarding() ? "键鼠在外接屏，Ctrl+Alt+M 交还手机"
-            : apps.hasInjector() ? "键鼠在手机，Ctrl+Alt+M 接管" : "键鼠在手机";
+        String input = c.getString(apps.isForwarding() ? R.string.xd_dash_input_display
+            : apps.hasInjector() ? R.string.xd_dash_input_phone_hotkey : R.string.xd_dash_input_phone);
         s.append(input);
         status.setText(s);
         if (!input.equals(lastInput)) {

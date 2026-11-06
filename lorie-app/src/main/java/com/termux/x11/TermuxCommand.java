@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.SparseArray;
+import com.termux.x11.app.R;
 
 /** 让 Termux 运行命令并把输出传回来。和 DesktopSession.run 一样要 RUN_COMMAND 权限和 allow-external-apps。 */
 final class TermuxCommand {
@@ -61,7 +62,7 @@ final class TermuxCommand {
         }
     }
 
-    static void deliver(Intent i) {
+    static void deliver(Context c, Intent i) {
         final Callback callback;
         int id = i.getIntExtra(EXTRA_ID, 0);
         synchronized (PENDING) {
@@ -71,7 +72,7 @@ final class TermuxCommand {
         Bundle r = i.getBundleExtra(EXTRA_RESULT);
         if (callback == null || r == null) return;
         final String stdout = r.getString(RESULT_STDOUT, "");
-        final String failure = failure(r, stdout);
+        final String failure = failure(c, r, stdout);
         new Handler(Looper.getMainLooper()).post(() -> {
             if (failure != null) callback.onFailure(failure);
             else callback.onOutput(stdout);
@@ -79,18 +80,18 @@ final class TermuxCommand {
     }
 
     /** null 是命令正常运行了。装了 xdesk 又有输出时就用输出，退出码不算数。 */
-    private static String failure(Bundle r, String stdout) {
+    private static String failure(Context c, Bundle r, String stdout) {
         String errmsg = r.getString(RESULT_ERRMSG, ""), stderr = r.getString(RESULT_STDERR, "");
         if (r.getInt(RESULT_ERR, Activity.RESULT_OK) != Activity.RESULT_OK) {
             Log.w(TAG, "Termux refused the command: " + errmsg);
-            if (errmsg.contains("allow-external-apps")) return "Termux 不让别的应用运行命令。在 Termux 里运行 xdesk enable-app-start 后点这里";
-            return "Termux 没有运行命令：" + firstLine(errmsg);
+            if (errmsg.contains("allow-external-apps")) return c.getString(R.string.xd_termux_not_allowed);
+            return c.getString(R.string.xd_termux_refused, firstLine(errmsg));
         }
         // 输出里还会有命令之间的 echo，所以先看是不是没装
         int exit = r.getInt(RESULT_EXIT, 0);
-        if (exit == EXIT_NOT_FOUND || stderr.contains("xdesk: No such file")) return "Termux 里还没有装 xdesk。在 Termux 里运行下面这行，装好后点这里：\n" + INSTALL;
+        if (exit == EXIT_NOT_FOUND || stderr.contains("xdesk: No such file")) return c.getString(R.string.xd_termux_no_xdesk, INSTALL);
         if (!stdout.trim().isEmpty()) return null;
-        if (exit != 0 || !stderr.trim().isEmpty()) return "xdesk 出错了（" + exit + "）：" + firstLine(stderr);
+        if (exit != 0 || !stderr.trim().isEmpty()) return c.getString(R.string.xd_termux_failed, exit, firstLine(stderr));
         return null;
     }
 

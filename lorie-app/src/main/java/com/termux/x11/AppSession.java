@@ -18,6 +18,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.Display;
 import android.view.Surface;
+import com.termux.x11.app.R;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -151,7 +152,7 @@ final class AppSession {
         }
         @Override public void onMessage(final String message) {
             ui.post(() -> {
-                if (listener != null) listener.onAppMessage(message);
+                if (listener != null) listener.onAppMessage(ShellText.localize(context, message));
             });
         }
         @Override public void onAppInSession(final boolean inSession) {
@@ -220,7 +221,7 @@ final class AppSession {
 
     private final Runnable rebind = this::rebindInjector;
 
-    private final Runnable bindTimeout = () -> fail(viaShell ? "注入服务没有回应，再试一次。" : "注入服务没有启动。到 Shizuku 里确认它还在运行，再试一次。");
+    private final Runnable bindTimeout = () -> fail(text(viaShell ? R.string.xd_app_no_answer : R.string.xd_app_shizuku_no_start));
 
     private final InputSink input = new InputSink() {
         @Override public void move(int dx, int dy) {
@@ -283,6 +284,10 @@ final class AppSession {
         Shizuku.addRequestPermissionResultListener((code, result) -> {
             if (code == PERMISSION_REQUEST) sourceChanged();
         });
+    }
+
+    private String text(int id, Object... args) {
+        return context.getString(id, args);
     }
 
     private void hideTouchCursor() {
@@ -417,7 +422,7 @@ final class AppSession {
         if (display != null) attachOverlays(display);
         updateCursor();
         if (injector == null) audioRoute.setPending(true);
-        Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label);
+        Intent keepAlive = new Intent(context, DesktopService.class).putExtra(DesktopService.EXTRA_TITLE, text(R.string.xd_app_running_title, a.label));
         context.startForegroundService(keepAlive);
         if (injector != null) {
             // 从 Termux 桌面切回来，注入服务一直留着，不用再等它启动
@@ -429,7 +434,7 @@ final class AppSession {
         try {
             connectInjector();
         } catch (RuntimeException e) {
-            fail("无法启动注入服务：" + e.getMessage());
+            fail(text(R.string.xd_app_cannot_start_injector, e.getMessage()));
         }
     }
 
@@ -485,7 +490,7 @@ final class AppSession {
             id = carDisplayId;
         }
         Display d = displays().getDisplay(id);
-        if (d == null) throw new IllegalStateException("看不到显示器 " + id);
+        if (d == null) throw new IllegalStateException(text(R.string.xd_app_no_such_display, id));
         return d;
     }
 
@@ -543,7 +548,7 @@ final class AppSession {
                 } catch (RuntimeException e) {
                     // The system refused the display, the reason comes from createVirtualDisplay
                     Log.w(TAG, "no display for apps on the car", e);
-                    failIfCurrent(gen, "无法为车机建显示器：" + e.getMessage());
+                    failIfCurrent(gen, text(R.string.xd_app_no_car_display, ShellText.localize(context, e.getMessage())));
                     return;
                 }
                 d = made;
@@ -557,7 +562,7 @@ final class AppSession {
             int[] size = logicalSize(d);
             String error = i.configure(fromInjector, d.getDisplayId(), size[0], size[1], a != null ? a.packageName : null, mouseSpeed);
             if (error != null) {
-                failIfCurrent(gen, "无法注入输入：" + error);
+                failIfCurrent(gen, text(R.string.xd_app_cannot_inject, ShellText.localize(context, error)));
                 return;
             }
             if (!current(i, gen)) return;
@@ -575,7 +580,7 @@ final class AppSession {
             applyDensityFor(i, d, a);
             if (a != null && current(i, gen)) launch(i, d, a, gen);
         } catch (RemoteException e) {
-            failIfCurrent(gen, "注入服务断开了：" + e.getMessage());
+            failIfCurrent(gen, text(R.string.xd_app_injector_gone_detail, e.getMessage()));
         }
     }
 
@@ -591,7 +596,7 @@ final class AppSession {
         if (presenting != null) {
             Log.i(TAG, "presentation on the external display: " + presenting);
             ui.post(() -> {
-                if (listener != null) listener.onAppMessage("外接屏上已有别的应用在显示内容，它可能盖住 " + a.label);
+                if (listener != null) listener.onAppMessage(text(R.string.xd_app_presentation, a.label));
             });
         }
         String error = i.startApp(a.component(), d.getDisplayId());
@@ -603,7 +608,7 @@ final class AppSession {
         ui.post(() -> {
             if (!active || generation != gen) return;
             if (result != null) {
-                fail("无法启动 " + a.label + "：" + result);
+                fail(text(R.string.xd_app_cannot_launch, a.label, ShellText.localize(context, result)));
                 return;
             }
             started = true;
@@ -663,7 +668,7 @@ final class AppSession {
         ui.postDelayed(rebind, REBIND_DELAY_MS);
         if (!active) return;
         if (!started) {
-            fail("注入服务断开了");
+            fail(text(R.string.xd_injector_gone));
             return;
         }
         if (listener != null) listener.onAppStateChanged();
@@ -734,12 +739,12 @@ final class AppSession {
                     applyDensityFor(i, d, app);  // 还留在原来的应用上
                 }
             } catch (RemoteException e) {
-                error = "注入服务断开了";
+                error = text(R.string.xd_injector_gone);
             }
             final String result = error;
             ui.post(() -> {
                 if (result != null) {
-                    if (listener != null) listener.onAppMessage("无法切换到 " + a.label + "：" + result);
+                    if (listener != null) listener.onAppMessage(text(R.string.xd_app_cannot_switch, a.label, ShellText.localize(context, result)));
                     return;
                 }
                 if (!active) return;
@@ -747,7 +752,7 @@ final class AppSession {
                 cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
                 updateCursor();
                 context.startForegroundService(new Intent(context, DesktopService.class)
-                    .putExtra(DesktopService.EXTRA_TITLE, "XDesk 正在外接屏上运行 " + a.label));
+                    .putExtra(DesktopService.EXTRA_TITLE, text(R.string.xd_app_running_title, a.label)));
                 if (listener != null) listener.onAppStateChanged();
             });
         }, "xdesk-app-switch").start();
@@ -897,7 +902,7 @@ final class AppSession {
         if (error != null) {
             Log.w(TAG, "fullscreen " + a.packageName + ": " + error);
             ui.post(() -> {
-                if (listener != null) listener.onAppMessage("无法给 " + a.label + " 设横屏全屏：" + error);
+                if (listener != null) listener.onAppMessage(text(R.string.xd_app_cannot_fullscreen, a.label, ShellText.localize(context, error)));
             });
             return false;
         }
@@ -952,7 +957,8 @@ final class AppSession {
             } catch (RemoteException e) {
                 Log.w(TAG, "fullscreen reset restart", e);
             }
-            final String result = failed > 0 ? "有 " + failed + " 个应用没能恢复，注入服务连着时再试一次" : "已恢复 " + changed.size() + " 个应用";
+            final String result = failed > 0 ? context.getResources().getQuantityString(R.plurals.xd_app_restore_failed, failed, failed)
+                : context.getResources().getQuantityString(R.plurals.xd_app_restored, changed.size(), changed.size());
             ui.post(() -> {
                 if (listener != null) listener.onAppMessage(result);
             });
@@ -983,7 +989,7 @@ final class AppSession {
                     applyDensityFor(i, d, current);
                 }
             } catch (RemoteException e) {
-                densityFailed("注入服务断开了");
+                densityFailed(text(R.string.xd_injector_gone));
             }
         }, "xdesk-density").start();
     }
@@ -991,7 +997,7 @@ final class AppSession {
     private void densityFailed(String error) {
         Log.w(TAG, "density: " + error);
         ui.post(() -> {
-            if (listener != null) listener.onAppMessage("无法改外接屏界面大小：" + error);
+            if (listener != null) listener.onAppMessage(text(R.string.xd_app_cannot_density, ShellText.localize(context, error)));
         });
     }
 
@@ -1144,12 +1150,12 @@ final class AppSession {
             try {
                 error = i.closeApp(a.packageName);
             } catch (RemoteException e) {
-                error = "注入服务断开了";
+                error = text(R.string.xd_injector_gone);
             }
             final String result = error;
             ui.post(() -> {
                 if (result != null) {
-                    if (listener != null) listener.onAppMessage("无法关闭 " + a.label + "：" + result);
+                    if (listener != null) listener.onAppMessage(text(R.string.xd_app_cannot_close, a.label, ShellText.localize(context, result)));
                     return;
                 }
                 if (!active || app == null || !app.packageName.equals(a.packageName)) return;
@@ -1307,7 +1313,7 @@ final class AppSession {
                     String error = i.returnToPhone(from);
                     if (error != null) {
                         Log.w(TAG, "tasks not moved back: " + error);
-                        ui.post(() -> android.widget.Toast.makeText(context, "有的应用没能移回手机：" + error, android.widget.Toast.LENGTH_LONG).show());
+                        ui.post(() -> android.widget.Toast.makeText(context, text(R.string.xd_app_not_moved_back, ShellText.localize(context, error)), android.widget.Toast.LENGTH_LONG).show());
                     }
                 }
                 if (carId >= 0) Log.i(TAG, "display=" + carId + " for apps ends with the session");

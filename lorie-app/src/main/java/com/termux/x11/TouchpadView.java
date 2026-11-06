@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import com.termux.x11.app.R;
 
 /** 触摸板：单指移动，轻点左键，双指轻点右键，三指轻点中键，双指滑动滚动；长按或轻点后再按住可拖动。 */
 final class TouchpadView extends View {
@@ -29,6 +30,7 @@ final class TouchpadView extends View {
     private final Output output;
     private final float density;
     private final Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final String[] hints;
     private float lastX, lastY, restX, restY, travel, scrollX, scrollY;
     private long downTime;
     private int maxPointers;
@@ -51,14 +53,16 @@ final class TouchpadView extends View {
         hint.setColor(Style.TEXT_DIM);
         hint.setTextSize(15 * density);
         hint.setTextAlign(Paint.Align.CENTER);
+        hints = new String[]{c.getString(R.string.xd_pad_hint_move), c.getString(R.string.xd_pad_hint_drag), c.getString(R.string.xd_pad_hint_two)};
     }
 
     @Override protected void onDraw(Canvas c) {
         if (used) return;
         float x = getWidth() / 2f, y = getHeight() / 2f;
-        c.drawText("单指移动 · 轻点左键", x, y - 26 * density, hint);
-        c.drawText("长按或轻点后按住：拖动", x, y, hint);
-        c.drawText("双指轻点右键 · 双指滑动滚动", x, y + 26 * density, hint);
+        Style.fitText(hint, 15 * density, getWidth() * 0.92f, hints);
+        c.drawText(hints[0], x, y - 26 * density, hint);
+        c.drawText(hints[1], x, y, hint);
+        c.drawText(hints[2], x, y + 26 * density, hint);
     }
 
     /** 1 = 默认灵敏度。 */

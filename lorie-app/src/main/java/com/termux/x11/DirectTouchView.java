@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import com.termux.x11.app.R;
 import java.util.Collections;
 
 /**
@@ -39,6 +40,7 @@ final class DirectTouchView extends View {
     private final int[] phoneId = new int[MAX_FINGERS];
     private final float[] fingerX = new float[MAX_FINGERS], fingerY = new float[MAX_FINGERS];
     private final Paint hintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final String hintMove, hintFingers;
     private final float density;
     private State state = State.IDLE;
     private int count;
@@ -64,6 +66,8 @@ final class DirectTouchView extends View {
         hintPaint.setColor(Style.TEXT_DIM);
         hintPaint.setTextSize(14 * density);
         hintPaint.setTextAlign(Paint.Align.CENTER);
+        hintMove = c.getString(R.string.xd_touch_hint_move);
+        hintFingers = c.getString(R.string.xd_touch_hint_fingers);
     }
 
     void setSpeed(float s) {
@@ -91,8 +95,9 @@ final class DirectTouchView extends View {
 
     @Override protected void onDraw(Canvas c) {
         float x = getWidth() / 2f, y = getHeight() / 2f;
-        c.drawText("单指移动光标 · 轻点点按", x, y - 13 * density, hintPaint);
-        c.drawText("按住拖动 · 多指直接操作", x, y + 13 * density, hintPaint);
+        Style.fitText(hintPaint, 14 * density, getWidth() * 0.92f, hintMove, hintFingers);
+        c.drawText(hintMove, x, y - 13 * density, hintPaint);
+        c.drawText(hintFingers, x, y + 13 * density, hintPaint);
     }
 
     private int slotOf(int id) {
