@@ -80,6 +80,8 @@ lost connection.
 
 ## Behaviour
 
+- **Codec config:** the phone sends the encoder's codec config (SPS/PPS, VIDEO_FRAME with flag bit 0) after every VIDEO_FORMAT, usually only then. A receiver that resets its decoder feeds the last config again before the next key frame; KEY_FRAME may be answered with a key frame alone.
+- **Density:** the receiver reports its screen's own `densityDpi`, not scaled to the size it asks for. The phone chooses the display's density itself (XDesk: as for a monitor of that width, 1920 wide is 160 dpi).
 - **Video:** H.264 without B-frames; the receiver decodes with low latency and shows each frame as soon as it is
   decoded, not by its time stamp. It keeps the picture's aspect ratio, black around it. If the decoder cannot keep up,
   the receiver may drop frames until the next key frame and send KEY_FRAME.
