@@ -639,7 +639,15 @@ void Renderer::testCapabilities(int* legacy_drawing, int* gpu_present_disabled, 
         if (eglMakeCurrent(egl_display, checksfc, checksfc, testctx) != EGL_TRUE)
             return vprintEglError("check eglMakeCurrent failed", __LINE__);
 
-        *renderer_relock = rendererCanRelockWhileLocked();
+        // Probed once per process: the probe preloads this library by the path it was loaded
+        // from, and after the app is updated while the X server keeps running that path is gone.
+        // Every server reset (the last client leaving, e.g. a session restart) then failed the
+        // probe ("CANNOT LINK EXECUTABLE sh ... libXlorie.so not found") and switched the
+        // renderer to the fallback path for the rest of the server's life.
+        static int relockProbed = -1;
+        if (relockProbed < 0)
+            relockProbed = rendererCanRelockWhileLocked();
+        *renderer_relock = relockProbed;
 
         // Present's GPU offload writes the root buffer from the renderer while the X server keeps
         // it locked for CPU drawing. That only works when the CPU and GPU views of an
