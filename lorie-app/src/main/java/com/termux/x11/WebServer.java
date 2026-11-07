@@ -318,7 +318,10 @@ final class WebServer {
         }
     }
 
-    /** XDesk's own launcher icon for "Add to Home Screen". */
+    /**
+     * For "Add to Home Screen": XDesk's launcher icon with a green globe badge, so the web display does not look like
+     * the app itself on a device that has both.
+     */
     private synchronized byte[] icon() {
         if (iconPng != null) return iconPng;
         try {
@@ -327,6 +330,24 @@ final class WebServer {
             Canvas c = new Canvas(b);
             d.setBounds(0, 0, 192, 192);
             d.draw(c);
+            // Badge at the lower right, inside the corner that home screens round off
+            float cx = 138, cy = 138, r = 40;
+            android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            p.setColor(Style.BACKGROUND);
+            c.drawCircle(cx, cy, r + 6, p);
+            p.setColor(Style.OK);
+            c.drawCircle(cx, cy, r, p);
+            // The globe: outline, a meridian, the equator and two parallels
+            p.setStyle(android.graphics.Paint.Style.STROKE);
+            p.setStrokeWidth(4.5f);
+            p.setColor(0xFFFFFFFF);
+            float g = r * 0.62f;
+            c.drawCircle(cx, cy, g, p);
+            c.drawOval(new android.graphics.RectF(cx - g * 0.45f, cy - g, cx + g * 0.45f, cy + g), p);
+            c.drawLine(cx - g, cy, cx + g, cy, p);
+            float py = g * 0.5f, px = (float) Math.sqrt(g * g - py * py);
+            c.drawLine(cx - px, cy - py, cx + px, cy - py, p);
+            c.drawLine(cx - px, cy + py, cx + px, cy + py, p);
             ByteArrayOutputStream o = new ByteArrayOutputStream();
             b.compress(Bitmap.CompressFormat.PNG, 100, o);
             iconPng = o.toByteArray();
