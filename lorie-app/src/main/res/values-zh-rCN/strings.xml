@@ -436,4 +436,7 @@
     <string name="xd_web_code_note">%1$s 想显示 XDesk。请在那个浏览器里输入这个码。如果不是你在连，不用理会，码 2 分钟后失效。</string>
     <string name="xd_web_no_port">网页显示用不了端口 %1$d：%2$s</string>
     <string name="xd_web_receiver_name">网页：%1$s</string>
+    <string name="xd_web_service_title">XDesk 网页显示已开启</string>
+    <string name="xd_web_no_service">手机不让 XDesk 在后台启动。请在手机上打开 XDesk，再重新连接。</string>
+    <string name="xd_web_pairing_paused">浏览器输错配对码太多次：网页显示的配对暂停 10 分钟，已配对的浏览器不受影响。</string>
 </resources>

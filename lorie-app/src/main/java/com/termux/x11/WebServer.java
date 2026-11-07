@@ -59,7 +59,16 @@ final class WebServer {
     static final int PORT = 47150;
     private static final String WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final int HEADER_MAX = 16384, REQUEST_TIMEOUT_MS = 15000, PAIRING_MS = 120000, MAX_TRIES = 3;
-    private static final long LOCKOUT_MS = 60000;
+    /** A connection that has not paired: its requests, all of them, and its hello must be done by then. */
+    private static final int CONNECTION_MS = 60000, HELLO_MS = 15000;
+    /** Before pairing, messages are a hello or a code. */
+    private static final int SMALL_MESSAGE = 8192, PAIRED_MESSAGE = 1 << 20;
+    /** Unpaired connections at a time, all and from one address. More are closed at once. */
+    private static final int MAX_UNPAIRED = 16, MAX_UNPAIRED_PER_ADDRESS = 4;
+    /** Wrong codes, dropped pairings included: per address before a lockout, and for everyone together. */
+    private static final int ADDRESS_FAILURES = MAX_TRIES, ALL_FAILURES = 10;
+    private static final long LOCKOUT_MS = 60000, ALL_WINDOW_MS = 600000, ALL_LOCKOUT_MS = 600000;
+    private static final long ALLOWED_REFRESH_MS = 5000;
 
     private static WebServer instance;
 
@@ -68,8 +77,23 @@ final class WebServer {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile Listener listener;
     private volatile ServerSocket server;
+
+    // Pairing, under pairingLock: one at a time; failures counted per address and for all, across connections
     private final Object pairingLock = new Object();
-    private final Map<String, Long> lockedOut = Collections.synchronizedMap(new HashMap<>());
+    private boolean pairing;
+    private final Map<String, int[]> addressFailures = new HashMap<>();
+    private final Map<String, Long> lockedUntil = new HashMap<>();
+    private final java.util.ArrayDeque<Long> allFailures = new java.util.ArrayDeque<>();
+    private long allLockedUntil;
+
+    // Unpaired connections, under unpairedLock
+    private final Object unpairedLock = new Object();
+    private int unpaired;
+    private final Map<String, Integer> unpairedPerAddress = new HashMap<>();
+
+    /** Local addresses the server answers on: those addresses() lists, and loopback. */
+    private volatile java.util.Set<String> allowed = java.util.Collections.emptySet();
+    private volatile long allowedAt;
     private byte[] iconPng;
 
     static synchronized WebServer get(Context c) {
@@ -100,9 +124,16 @@ final class WebServer {
         return server != null;
     }
 
-    /** Starts listening if enabled; nothing when already running. */
+    /**
+     * Starts listening if enabled; nothing when already running. Call it while XDesk is in front (opening the window,
+     * turning the switch on): it also starts DesktopService in the foreground and keeps it there while the web display
+     * is on, so a browser that connects while the phone is locked or XDesk is in the background can start streaming.
+     * Android 12+ refuses to start a foreground service from the background (ForegroundServiceStartNotAllowedException).
+     */
     synchronized void start() {
-        if (server != null || !isEnabled()) return;
+        if (!isEnabled()) return;
+        keepService();
+        if (server != null) return;
         try {
             ServerSocket s = new ServerSocket();
             s.setReuseAddress(true);
@@ -131,6 +162,24 @@ final class WebServer {
         }
         WirelessDisplay w = WirelessDisplay.get(context);
         if (w.isWeb() && w.isActive()) ui.post(w::stop);
+        ui.post(() -> DesktopService.stopIfIdle(context));
+    }
+
+    /** A browser's stream ended: the service stays, with the web display's own notification again. */
+    void sessionEnded() {
+        ui.post(() -> {
+            if (server != null) keepService();
+        });
+    }
+
+    private void keepService() {
+        try {
+            context.startForegroundService(new android.content.Intent(context, DesktopService.class)
+                .putExtra(DesktopService.EXTRA_TITLE, context.getString(com.termux.x11.app.R.string.xd_web_service_title)));
+        } catch (RuntimeException e) {
+            // In the background after all: the stream then starts only while XDesk is in front
+            Log.w(TAG, "foreground service", e);
+        }
     }
 
     int pairedCount() {
@@ -205,27 +254,96 @@ final class WebServer {
     // --- HTTP ---
 
     private void accept(ServerSocket s) {
+        int backoff = 50;
         while (server == s) {
             final Socket c;
             try {
                 c = s.accept();
+                backoff = 50;
             } catch (IOException e) {
+                if (server != s || s.isClosed()) break;
+                // EMFILE, ECONNABORTED and the like pass: wait a little and go on
+                Log.w(TAG, "accept: " + e);
+                android.os.SystemClock.sleep(backoff);
+                backoff = Math.min(backoff * 2, 2000);
+                continue;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "accept", e);
                 break;
             }
-            new Thread(() -> serve(c), "xdesk-web-client").start();
+            final String ip = c.getInetAddress().getHostAddress();
+            // Only on the networks the page lists (and this phone itself): not VPNs, mobile data or IPv6
+            if (!allowedLocal(c.getLocalAddress()) || !enterUnpaired(ip)) {
+                closeQuietly(c);
+                continue;
+            }
+            try {
+                new Thread(() -> serve(c, ip), "xdesk-web-client").start();
+            } catch (Throwable t) {
+                // Out of threads or memory: drop this one, keep serving
+                leaveUnpaired(ip);
+                closeQuietly(c);
+            }
+        }
+        // Ended by an error, not by stop(): give the port back and show the web display as off until it starts again
+        synchronized (this) {
+            if (server == s) {
+                server = null;
+                try {
+                    s.close();
+                } catch (IOException ignored) { }
+            }
         }
     }
 
-    private void serve(Socket c) {
+    private boolean allowedLocal(InetAddress local) {
+        if (local == null) return false;
+        if (local.isLoopbackAddress()) return true;
+        long now = android.os.SystemClock.uptimeMillis();
+        // Stale, or a new address (Wi-Fi changed, tethering turned on); not for every refused connection
+        boolean known = allowed.contains(local.getHostAddress());
+        if (now - allowedAt > ALLOWED_REFRESH_MS || (!known && now - allowedAt > 500)) {
+            java.util.Set<String> a = new java.util.HashSet<>();
+            for (Address x : addresses()) a.add(x.host);
+            allowed = a;
+            allowedAt = now;
+        }
+        return allowed.contains(local.getHostAddress());
+    }
+
+    private boolean enterUnpaired(String ip) {
+        synchronized (unpairedLock) {
+            int mine = unpairedPerAddress.containsKey(ip) ? unpairedPerAddress.get(ip) : 0;
+            if (unpaired >= MAX_UNPAIRED || mine >= MAX_UNPAIRED_PER_ADDRESS) return false;
+            unpaired++;
+            unpairedPerAddress.put(ip, mine + 1);
+            return true;
+        }
+    }
+
+    private void leaveUnpaired(String ip) {
+        synchronized (unpairedLock) {
+            unpaired = Math.max(0, unpaired - 1);
+            Integer mine = unpairedPerAddress.get(ip);
+            if (mine == null || mine <= 1) unpairedPerAddress.remove(ip);
+            else unpairedPerAddress.put(ip, mine - 1);
+        }
+    }
+
+    private void serve(Socket c, String ip) {
         boolean handedOver = false;
+        // Everything before pairing ends by then, however slowly the client sends
+        final long deadline = System.currentTimeMillis() + CONNECTION_MS;
         try {
-            c.setSoTimeout(REQUEST_TIMEOUT_MS);
             InputStream in = new BufferedInputStream(c.getInputStream(), 16384);
             OutputStream out = new BufferedOutputStream(c.getOutputStream(), 65536);
             // Keep-alive: browsers fetch the page, script and icon over one connection
             while (true) {
+                long left = deadline - System.currentTimeMillis();
+                if (left <= 0) return;
+                c.setSoTimeout((int) Math.min(REQUEST_TIMEOUT_MS, left));
                 Map<String, String> h = new HashMap<>();
-                String[] request = readRequest(in, h);
+                String[] request = readRequest(in, h, deadline);
                 if (request == null) return;
                 String path = request[1];
                 int q = path.indexOf('?');
@@ -235,7 +353,7 @@ final class WebServer {
                     return;
                 }
                 if ("/ws".equals(path) && "websocket".equalsIgnoreCase(h.get("upgrade"))) {
-                    handedOver = webSocket(c, in, out, h);
+                    handedOver = webSocket(c, ip, in, out, h);
                     return;
                 }
                 byte[] body;
@@ -255,20 +373,24 @@ final class WebServer {
         } catch (SocketTimeoutException ignored) {
         } catch (IOException e) {
             Log.i(TAG, "client: " + e);
+        } catch (RuntimeException e) {
+            // Nothing a client sends may take XDesk down with it
+            Log.w(TAG, "client", e);
         } finally {
+            leaveUnpaired(ip);
             if (!handedOver) closeQuietly(c);
         }
     }
 
     /** Method and path, headers lower-cased into h; null at end of stream. */
-    private static String[] readRequest(InputStream in, Map<String, String> h) throws IOException {
-        String line = readLine(in);
+    private static String[] readRequest(InputStream in, Map<String, String> h, long deadline) throws IOException {
+        String line = readLine(in, deadline);
         if (line == null) return null;
         String[] parts = line.split(" ");
         if (parts.length < 3) throw new IOException("bad request line");
         int total = line.length();
         while (true) {
-            String l = readLine(in);
+            String l = readLine(in, deadline);
             if (l == null) throw new IOException("headers cut off");
             if (l.isEmpty()) break;
             total += l.length();
@@ -279,9 +401,10 @@ final class WebServer {
         return parts;
     }
 
-    private static String readLine(InputStream in) throws IOException {
+    private static String readLine(InputStream in, long deadline) throws IOException {
         ByteArrayOutputStream b = new ByteArrayOutputStream(128);
         while (true) {
+            if (System.currentTimeMillis() > deadline) throw new SocketTimeoutException("deadline");
             int c = in.read();
             if (c < 0) return b.size() == 0 ? null : b.toString("UTF-8");
             if (c == '\n') break;
@@ -360,7 +483,7 @@ final class WebServer {
     // --- WebSocket 和配对 ---
 
     /** Returns true when the socket now belongs to WirelessDisplay. */
-    private boolean webSocket(Socket c, InputStream in, OutputStream out, Map<String, String> h) throws IOException {
+    private boolean webSocket(Socket c, String ip, InputStream in, OutputStream out, Map<String, String> h) throws IOException {
         String key = h.get("sec-websocket-key");
         if (key == null) return false;
         // Another web page in the same browser must not reach the phone: only this page's own origin
@@ -380,7 +503,9 @@ final class WebServer {
             + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
         out.flush();
         WebSocket ws = new WebSocket(in, out);
-        String ip = c.getInetAddress().getHostAddress();
+        // Until paired: small messages, and the hello within its time whatever else arrives
+        ws.setMaxMessage(SMALL_MESSAGE);
+        ws.setDeadline(c, System.currentTimeMillis() + HELLO_MS);
         try {
             JSONObject hello = new JSONObject(ws.read().text());
             String id = hello.optString("id", "");
@@ -409,30 +534,35 @@ final class WebServer {
             String known = prefs.getString("token_" + id, null);
             String offered = hello.optString("token", "");
             if (known == null || !MessageDigest.isEqual(known.getBytes(StandardCharsets.US_ASCII), offered.getBytes(StandardCharsets.US_ASCII))) {
-                // Someone has to walk to the phone: wait longer than for a request
-                c.setSoTimeout(PAIRING_MS);
-                token = pair(ws, ip, label);
-                c.setSoTimeout(REQUEST_TIMEOUT_MS);
+                token = pair(ws, c, ip, label);
                 if (token == null) {
                     ws.close();
                     return false;
                 }
                 prefs.edit().putString("token_" + id, token).putString("name_" + id, name).apply();
             }
+            ws.setDeadline(null, 0);
+            ws.setMaxMessage(PAIRED_MESSAGE);
             JSONObject ok = new JSONObject();
             ok.put("status", "ok");
             ok.put("token", token != null ? token : "");
             ok.put("phone", phoneName());
             ok.put("w", size[0]);
             ok.put("h", size[1]);
-            ws.sendText(ok.toString());
             synchronized (wd) {
                 if (wd.isActive()) {
                     ws.sendText(status("busy"));
                     ws.close();
                     return false;
                 }
-                wd.startWeb(c, ws, context.getString(com.termux.x11.app.R.string.xd_web_receiver_name, label), size[0], size[1]);
+                // Sends ok itself, before any stream message; false when it may not start (see startWeb)
+                if (!wd.startWeb(c, ws, context.getString(com.termux.x11.app.R.string.xd_web_receiver_name, label),
+                        size[0], size[1], ok.toString())) {
+                    ws.sendText(status("ended").replace("}", ",\"reason\":"
+                        + JSONObject.quote(context.getString(com.termux.x11.app.R.string.xd_web_no_service)) + "}"));
+                    ws.close();
+                    return false;
+                }
             }
             return true;
         } catch (JSONException e) {
@@ -441,53 +571,113 @@ final class WebServer {
         }
     }
 
-    /** Shows a code on the phone and waits for the browser to send it. Returns a new token, or null. */
-    private String pair(WebSocket ws, String ip, final String label) throws IOException, JSONException {
-        Long until = lockedOut.get(ip);
-        if (until != null && until > System.currentTimeMillis()) {
-            ws.sendText(status("refused"));
-            return null;
-        }
+    /**
+     * Shows a code on the phone and waits for the browser to send it. Returns a new token, or null.
+     *
+     * One pairing at a time: others get "pairing" at once rather than waiting. A pairing ends 2 minutes after it began,
+     * whatever arrives. Every wrong code counts against the address and against everyone, across connections, and so
+     * does a pairing that ends without a right code (dropped, timed out, anything but a code).
+     */
+    private String pair(WebSocket ws, Socket c, String ip, final String label) throws IOException {
         synchronized (pairingLock) {
-            SecureRandom r = new SecureRandom();
-            final String code = String.format(Locale.ROOT, "%04d", r.nextInt(10000));
-            ui.post(() -> {
-                Listener l = listener;
-                if (l != null) l.onWebCode(label, code);
-            });
-            try {
-                ws.sendText(status("pair"));
-                for (int tries = 0; tries < MAX_TRIES; tries++) {
-                    WebSocket.Message m;
-                    try {
-                        m = ws.read();
-                    } catch (SocketTimeoutException e) {
-                        return null;
-                    }
-                    if (m.type != WebSocket.TEXT) {
-                        tries--;
-                        continue;
-                    }
-                    String typed = new JSONObject(m.text()).optString("code", "");
-                    if (code.equals(typed)) {
-                        byte[] t = new byte[32];
-                        r.nextBytes(t);
-                        StringBuilder s = new StringBuilder();
-                        for (byte x : t) s.append(String.format("%02x", x));
-                        return s.toString();
-                    }
-                    if (tries < MAX_TRIES - 1) ws.sendText(status("wrong"));
-                }
-                lockedOut.put(ip, System.currentTimeMillis() + LOCKOUT_MS);
+            if (lockedOut(ip, System.currentTimeMillis())) {
                 ws.sendText(status("refused"));
                 return null;
-            } finally {
-                ui.post(() -> {
-                    Listener l = listener;
-                    if (l != null) l.onWebCodeDone();
-                });
             }
+            if (pairing) {
+                ws.sendText(status("pairing"));
+                return null;
+            }
+            pairing = true;
         }
+        SecureRandom r = new SecureRandom();
+        final String code = String.format(Locale.ROOT, "%04d", r.nextInt(10000));
+        ui.post(() -> {
+            Listener l = listener;
+            if (l != null) l.onWebCode(label, code);
+        });
+        boolean paired = false;
+        int wrong = 0;
+        try {
+            ws.setDeadline(c, System.currentTimeMillis() + PAIRING_MS);
+            ws.sendText(status("pair"));
+            while (true) {
+                WebSocket.Message m;
+                try {
+                    m = ws.read();
+                } catch (IOException e) {
+                    return null;
+                }
+                if (m.type != WebSocket.TEXT) return null;
+                String typed;
+                try {
+                    typed = new JSONObject(m.text()).optString("code", "");
+                } catch (JSONException e) {
+                    return null;
+                }
+                if (code.equals(typed)) {
+                    paired = true;
+                    byte[] t = new byte[32];
+                    r.nextBytes(t);
+                    StringBuilder s = new StringBuilder();
+                    for (byte x : t) s.append(String.format("%02x", x));
+                    return s.toString();
+                }
+                wrong++;
+                boolean locked;
+                synchronized (pairingLock) {
+                    locked = fail(ip);
+                }
+                if (locked || wrong >= MAX_TRIES) {
+                    ws.sendText(status("refused"));
+                    return null;
+                }
+                ws.sendText(status("wrong"));
+            }
+        } finally {
+            synchronized (pairingLock) {
+                pairing = false;
+                if (paired) addressFailures.remove(ip);
+                else if (wrong == 0) fail(ip);
+            }
+            ui.post(() -> {
+                Listener l = listener;
+                if (l != null) l.onWebCodeDone();
+            });
+        }
+    }
+
+    /** Under pairingLock. */
+    private boolean lockedOut(String ip, long now) {
+        if (allLockedUntil > now) return true;
+        Long until = lockedUntil.get(ip);
+        if (until == null) return false;
+        if (until > now) return true;
+        lockedUntil.remove(ip);
+        return false;
+    }
+
+    /** One failed pairing attempt from ip. Under pairingLock. Returns whether ip is now locked out. */
+    private boolean fail(String ip) {
+        long now = System.currentTimeMillis();
+        int[] n = addressFailures.get(ip);
+        if (n == null) addressFailures.put(ip, n = new int[1]);
+        if (++n[0] >= ADDRESS_FAILURES) {
+            addressFailures.remove(ip);
+            lockedUntil.put(ip, now + LOCKOUT_MS);
+        }
+        // Many addresses guessing together: stop pairing for everyone a while, and say so on the phone
+        allFailures.addLast(now);
+        while (!allFailures.isEmpty() && now - allFailures.peekFirst() > ALL_WINDOW_MS) allFailures.removeFirst();
+        if (allFailures.size() >= ALL_FAILURES && allLockedUntil <= now) {
+            allFailures.clear();
+            allLockedUntil = now + ALL_LOCKOUT_MS;
+            ui.post(() -> {
+                Listener l = listener;
+                if (l != null) l.onWebMessage(context.getString(com.termux.x11.app.R.string.xd_web_pairing_paused));
+            });
+        }
+        return lockedOut(ip, now);
     }
 
     private static String status(String s) {

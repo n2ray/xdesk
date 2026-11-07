@@ -27,8 +27,9 @@ public class DesktopService extends Service {
     /** 会话结束了不等于 XDesk 结束了：外接屏上还有仪表盘时，从最近任务划掉仍然要能收到。 */
     static void stopIfIdle(android.content.Context c) {
         android.content.Context app = c.getApplicationContext();
+        // The web display keeps it while on: a browser may connect with XDesk in the background, see WebServer.start
         if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()
-            || WirelessDisplay.get(app).isActive()) return;
+            || WirelessDisplay.get(app).isActive() || WebServer.get(app).isRunning()) return;
         app.stopService(new Intent(app, DesktopService.class));
     }
 

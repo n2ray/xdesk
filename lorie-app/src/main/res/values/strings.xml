@@ -460,4 +460,7 @@
     <string name="xd_web_code_note">%1$s wants to show XDesk. Type this code in that browser. If it is not you, ignore it: the code expires in 2 minutes.</string>
     <string name="xd_web_no_port">Web display cannot use port %1$d: %2$s</string>
     <string name="xd_web_receiver_name">Web: %1$s</string>
+    <string name="xd_web_service_title">XDesk web display is on</string>
+    <string name="xd_web_no_service">The phone did not let XDesk start in the background. Open XDesk on the phone, then connect again.</string>
+    <string name="xd_web_pairing_paused">Many wrong codes from browsers: web display pairing is paused for 10 minutes. Paired browsers still connect.</string>
 </resources>

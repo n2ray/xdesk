@@ -98,13 +98,16 @@ lost connection.
 XDesk can also serve the display to a browser (settings → Display → Web display). Here the **phone is the server**:
 it listens on **TCP port 47150** for HTTP/1.1, serves the page (`/`, `/xdesk.js`, `/xdesk.css`, `/manifest.webmanifest`,
 `/icon.png`) and accepts a WebSocket at `/ws`. A WebSocket whose `Origin` is not the page's own host is refused.
+It answers only on the networks the settings list (Wi-Fi, hotspot, USB tethering, Ethernet; IPv4) and on the phone itself; connections on other interfaces (VPNs, mobile data, IPv6) are closed at once. Before pairing at most 16 connections, 4 per address; each must finish its requests within a minute and send its hello within 15 seconds; messages are at most 8 KiB. While the web display is on, XDesk keeps its foreground service, so a browser can connect while the phone is locked.
 
 Pairing, as JSON text messages, before anything else:
 
 1. Browser → phone: `{"hello":1, "id":"<32 hex, made once per browser>", "name":"iPad Safari", "token":"<from an earlier pairing, or empty>", "w":<px>, "h":<px>}`. `w` and `h` are the browser screen's size in device pixels, in its current orientation.
 2. Phone → browser, `{"status": ...}`:
    - `ok`, with `token` (new after pairing, otherwise empty: keep the old one), `phone` (its name), `w`, `h` (the size it streams: at most 1920 on the long side and 1088 on the short one, aspect kept, even). The binary protocol starts.
-   - `pair`: XDesk shows a 4-digit code on the phone. The browser sends `{"code":"1234"}`; a wrong one gets `wrong` and another try, the third wrong one `refused`, and that address is refused for a minute. The code is valid for 2 minutes.
+   - `pair`: XDesk shows a 4-digit code on the phone. The browser sends `{"code":"1234"}`; a wrong one gets `wrong` and another try, the third `refused`. Wrong codes count per address across connections, and so does a pairing that ends without a right code (closed, timed out, anything else sent): 3 lock the address out for a minute, 10 from anyone within 10 minutes pause pairing for 10 minutes. A pairing ends 2 minutes after it began.
+   - `pairing`: another browser is pairing now; try again later.
+   - `ended`, with `reason`: the phone could not start, or it stopped in a way trying again would not help (no injector, no display). The browser shows the reason and does not reconnect by itself. Also sent after a stream, before the phone closes.
    - `busy` (with `name`, where the phone streams now), `closed` (XDesk is not open on the phone), `version`, `refused`: the phone closes the WebSocket.
 
 After `ok` each binary WebSocket message holds exactly one message of the framing above (u8 type, u32 length, payload),

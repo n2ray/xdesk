@@ -99,6 +99,10 @@ final class WirelessDisplay {
     private volatile Socket socket;
     private volatile WebSocket webSocket;
     private volatile InputSink webInput;
+    /** Why the stream ended for good, for a browser (see finalMessage); null for a lost connection. */
+    private volatile String endReason;
+    /** Key frames at most once a second: a browser behind asks with every frame, and IDR frames make it worse. */
+    private long lastSyncRequest;
     private DataOutputStream out;
     private final Object writeLock = new Object();
     private volatile long lastWrite;
@@ -198,6 +202,15 @@ final class WirelessDisplay {
         });
     }
 
+    /**
+     * A message for an ending that trying again would not help (no injector, no display): a browser is told so and
+     * stops reconnecting, rather than starting the same failure again every few seconds.
+     */
+    private void finalMessage(final int id, final Object... args) {
+        endReason = context.getString(id, args);
+        message(id, args);
+    }
+
     // --- 连接和配对 ---
 
     private void run(String host, int port) {
@@ -233,7 +246,7 @@ final class WirelessDisplay {
             boolean injectorDied = stream(width, height, dpi);
             if (!injectorDied || !running) break;
             if (++retries > MAX_INJECTOR_RETRIES) {
-                message(R.string.xd_wireless_injector_lost);
+                finalMessage(R.string.xd_wireless_injector_lost);
                 break;
             }
             Log.i(TAG, "injector died, new one, try " + retries);
@@ -244,12 +257,23 @@ final class WirelessDisplay {
     private void ended(Socket s) {
         running = false;
         WebSocket w = webSocket;
-        if (w != null) w.close();
+        if (w != null) {
+            String reason = endReason;
+            if (reason != null) {
+                try {
+                    w.sendText("{\"status\":\"ended\",\"reason\":" + org.json.JSONObject.quote(reason) + "}");
+                } catch (IOException ignored) { }
+            }
+            w.close();
+        }
         closeQuietly(s);
         socket = null;
         webSocket = null;
         displayId = Display.INVALID_DISPLAY;
         soundCaptured = false;
+        // A drag or a held Ctrl from the browser must not stay pressed on the desktop
+        if (web) ui.post(this::releaseWebInput);
+        WebServer.get(context).sessionEnded();
         setState(IDLE);
     }
 
@@ -269,16 +293,30 @@ final class WirelessDisplay {
      * A browser paired through WebServer: stream to it over its WebSocket. The caller checked isActive() first.
      * Any thread.
      */
-    void startWeb(final Socket s, final WebSocket ws, String name, final int width, final int height) {
+    boolean startWeb(final Socket s, final WebSocket ws, String name, final int width, final int height, String okJson) {
+        // Android 12+ refuses a foreground service from the background (ForegroundServiceStartNotAllowedException).
+        // WebServer keeps the service in the foreground while the web display is on, so this is only an update; if it
+        // fails anyway, nothing has been set yet and the browser is told.
+        try {
+            context.startForegroundService(new Intent(context, DesktopService.class)
+                .putExtra(DesktopService.EXTRA_TITLE, context.getString(R.string.xd_wireless_title, name)));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "web: no foreground service", e);
+            return false;
+        }
+        try {
+            ws.sendText(okJson);
+        } catch (IOException e) {
+            return false;
+        }
         running = true;
         web = true;
+        endReason = null;
         address = null;
         receiverId = null;
         receiverName = name;
         codes.clear();
         setState(CONNECTING);
-        context.startForegroundService(new Intent(context, DesktopService.class)
-            .putExtra(DesktopService.EXTRA_TITLE, context.getString(R.string.xd_wireless_title, receiverName)));
         worker = new Thread(() -> {
             try {
                 socket = s;
@@ -288,7 +326,7 @@ final class WirelessDisplay {
                 out = new DataOutputStream(ws.output());
                 session(new DataInputStream(ws.input()), width, height, 0);
             } catch (NoInjector e) {
-                message(R.string.xd_wireless_need_injector);
+                finalMessage(R.string.xd_wireless_need_injector);
             } catch (IOException e) {
                 Log.i(TAG, "web ended: " + e);
                 if (running) message(R.string.xd_wireless_lost, receiverName);
@@ -297,6 +335,20 @@ final class WirelessDisplay {
             }
         }, "xdesk-web-display");
         worker.start();
+        return true;
+    }
+
+    // What the browser holds down, main thread: released when the session ends (releaseWebInput)
+    private final java.util.Set<Integer> webButtons = new java.util.HashSet<>(), webKeys = new java.util.HashSet<>();
+
+    private void releaseWebInput() {
+        InputSink sink = webInput;
+        if (sink != null) {
+            for (int b : webButtons) sink.button(b, false);
+            for (int k : webKeys) sink.key(k, false);
+        }
+        webButtons.clear();
+        webKeys.clear();
     }
 
     /** Browser → phone input, inside the same framing; only a browser sends these. */
@@ -316,7 +368,10 @@ final class WirelessDisplay {
                 final int button = b[0] & 0xff;
                 final boolean down = b[1] != 0;
                 if (button < 1 || button > 3) return;
-                r = () -> sink.button(button, down);
+                r = () -> {
+                    if (down) webButtons.add(button); else webButtons.remove(button);
+                    sink.button(button, down);
+                };
                 break;
             case IN_SCROLL:
                 if (b.length < 4) return;
@@ -328,7 +383,10 @@ final class WirelessDisplay {
                 final int scan = p.getShort() & 0xffff;
                 final boolean pressed = b[2] != 0;
                 if (scan == 0 || scan > 767) return;
-                r = () -> sink.key(scan, pressed);
+                r = () -> {
+                    if (pressed) webKeys.add(scan); else webKeys.remove(scan);
+                    sink.key(scan, pressed);
+                };
                 break;
             case IN_TEXT:
                 if (b.length == 0 || b.length > 4096) return;
@@ -562,7 +620,7 @@ final class WirelessDisplay {
             try {
                 id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input);
             } catch (IllegalStateException e) {
-                message(R.string.xd_wireless_no_display, ShellText.localize(context, String.valueOf(e.getMessage())));
+                finalMessage(R.string.xd_wireless_no_display, ShellText.localize(context, String.valueOf(e.getMessage())));
                 running = false;
                 return false;
             }
@@ -621,8 +679,9 @@ final class WirelessDisplay {
                     break;
                 }
             }
-            if (keyFrameWanted) {
+            if (keyFrameWanted && SystemClock.uptimeMillis() - lastSyncRequest >= 1000) {
                 keyFrameWanted = false;
+                lastSyncRequest = SystemClock.uptimeMillis();
                 Bundle b = new Bundle();
                 b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
                 encoder.setParameters(b);

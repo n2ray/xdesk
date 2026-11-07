@@ -23,6 +23,10 @@ final class WebSocket {
     private final OutputStream out;
     private final Object sendLock = new Object();
     private volatile boolean closed;
+    /** Before pairing: messages are small, and every read ends by an absolute time, pings or not. */
+    private volatile int maxMessage = MAX_MESSAGE;
+    private volatile java.net.Socket deadlineSocket;
+    private volatile long deadline;
 
     /** A message as received: its opcode (TEXT or BINARY) and payload. */
     static final class Message {
@@ -42,11 +46,35 @@ final class WebSocket {
         this.out = out;
     }
 
+    /** Largest message accepted; small until a browser has paired. */
+    void setMaxMessage(int bytes) {
+        maxMessage = bytes;
+    }
+
+    /**
+     * Reads end at this wall clock time (System.currentTimeMillis), whatever arrives meanwhile: the socket's timeout is
+     * set to what is left before every frame. 0 removes it, and the caller sets its own socket timeout again.
+     */
+    void setDeadline(java.net.Socket s, long at) {
+        deadlineSocket = s;
+        deadline = at;
+    }
+
+    private void beforeFrame() throws IOException {
+        long at = deadline;
+        java.net.Socket s = deadlineSocket;
+        if (at <= 0 || s == null) return;
+        long left = at - System.currentTimeMillis();
+        if (left <= 0) throw new java.net.SocketTimeoutException("deadline");
+        s.setSoTimeout((int) Math.min(Integer.MAX_VALUE, left));
+    }
+
     /** The next text or binary message; answers pings on the way. Throws at close or a protocol error. */
     Message read() throws IOException {
         ByteArrayOutputStream whole = null;
         int type = 0;
         while (true) {
+            beforeFrame();
             int b0 = in.readUnsignedByte(), b1 = in.readUnsignedByte();
             boolean fin = (b0 & 0x80) != 0;
             int op = b0 & 0x0f;
@@ -54,7 +82,7 @@ final class WebSocket {
             long len = b1 & 0x7f;
             if (len == 126) len = in.readUnsignedShort();
             else if (len == 127) len = in.readLong();
-            if (len < 0 || len > MAX_MESSAGE) throw new IOException("frame of " + len + " bytes");
+            if (len < 0 || len > maxMessage) throw new IOException("frame of " + len + " bytes");
             byte[] mask = new byte[4];
             in.readFully(mask);
             byte[] data = new byte[(int) len];
@@ -81,7 +109,7 @@ final class WebSocket {
             } else if (op == 0) {
                 if (whole == null) throw new IOException("continuation without a message");
                 whole.write(data);
-                if (whole.size() > MAX_MESSAGE) throw new IOException("message too long");
+                if (whole.size() > maxMessage) throw new IOException("message too long");
                 if (fin) return new Message(type, whole.toByteArray());
             } else {
                 throw new IOException("opcode " + op);

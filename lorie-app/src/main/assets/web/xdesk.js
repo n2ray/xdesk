@@ -15,6 +15,7 @@ const T = zh ? {
   full: '全屏', kbd: '键盘', sound: '声音', quit: '断开', soundOn: '点一下画面打开声音',
   backBlocked: '已拦住返回，要离开请点工具栏的断开', bye: '已断开。', reconnect: '重新连接',
   lockHint: '点一下画面锁定鼠标，按 Esc 解锁', ended: '手机结束了投屏', leave: '要断开 XDesk 吗？',
+  pairing: '另一个浏览器正在配对，稍后自动重试', noPicture: '连上了手机，但几次都没有画面，已停止重连。看一下手机上 XDesk 的提示。',
 } : {
   connecting: 'Connecting to the phone…', pair: 'Enter the 4-digit code shown on the phone', wrong: 'Wrong code, look at the phone again', pairBtn: 'Connect',
   refused: 'Too many wrong codes, try again in a minute', busy: n => `The phone is streaming to ${n || 'another device'}; this connects when it ends`,
@@ -24,6 +25,7 @@ const T = zh ? {
   full: 'Full screen', kbd: 'Keyboard', sound: 'Sound', quit: 'Disconnect', soundOn: 'Tap the picture to turn on sound',
   backBlocked: 'Back is blocked; disconnect from the toolbar to leave', bye: 'Disconnected.', reconnect: 'Connect again',
   lockHint: 'Click the picture to capture the mouse, Esc to release', ended: 'The phone ended the stream', leave: 'Disconnect XDesk?',
+  pairing: 'Another browser is pairing; trying again shortly', noPicture: 'Connected several times without a picture, so this stopped trying. Look at XDesk on the phone.',
 };
 
 // ---------------------------------------------------------------- protocol
@@ -36,6 +38,10 @@ const panel = $('panel'), statusEl = $('status'), pairForm = $('pair'), codeIn =
 const connectBtn = $('b-connect'), bar = $('bar'), hint = $('hint');
 
 let ws = null, live = false, quitting = false, retryTimer = 0, retryDelay = 1500;
+// Keepalive without timers, which hidden tabs run once a minute: answer what the phone sends (item 10)
+let lastSent = 0;
+// Sessions in a row that ended before any picture: stop after 3 rather than reconnecting forever
+let gotPicture = false, noPicture = 0;
 let player = null, sound = null, streamW = 0, streamH = 0;
 
 const store = {
@@ -90,6 +96,7 @@ function send(type, payload) {
   v.setUint32(1, n);
   if (n) b.set(payload instanceof Uint8Array ? payload : new Uint8Array(payload), 5);
   ws.send(b.buffer);
+  lastSent = performance.now();
 }
 
 // ---------------------------------------------------------------- connection
@@ -115,6 +122,8 @@ function connect() {
       onStatus(m);
     } else if (live) {
       onMessage(new DataView(e.data));
+      // The phone sends at least every 100 ms while streaming: answer from here, a hidden tab's timers may not run
+      if (performance.now() - lastSent > 1500) send(PING);
     }
   };
   ws.onclose = () => {
@@ -124,8 +133,10 @@ function connect() {
     if (quitting) return;
     if (lastStatus === 'refused') { show(T.refused, { button: T.reconnect }); return; }
     if (lastStatus === 'version') { show(T.version, { button: T.reconnect }); return; }
-    if (lastStatus === 'busy' || lastStatus === 'closed') { retryLater(5000); return; }
+    if (lastStatus === 'busy' || lastStatus === 'closed' || lastStatus === 'pairing') { retryLater(5000); return; }
     if (lastStatus === 'pair' || lastStatus === 'wrong') { show(T.lost, { button: T.reconnect }); return; }
+    // Connected but never a picture, again and again: the phone has a lasting problem, stop and say so
+    if (wasLive && !gotPicture && ++noPicture >= 3) { noPicture = 0; show(T.noPicture, { button: T.reconnect }); return; }
     show(wasLive ? T.lost : T.connecting);
     retryLater(retryDelay);
     retryDelay = Math.min(retryDelay * 1.5, 8000);
@@ -145,10 +156,14 @@ function onStatus(m) {
     case 'busy': show(T.busy(m.name)); break;
     case 'closed': show(T.closed); break;
     case 'version': show(T.version); break;
+    case 'pairing': show(T.pairing); break;
+    // An ending that reconnecting would not help (no injector, no display, no foreground service)
+    case 'ended': quitting = true; show(m.reason || T.ended, { button: T.reconnect }); break;
     case 'ok':
       if (m.token) store.set('token', m.token);
       streamW = m.w; streamH = m.h;
       retryDelay = 1500;
+      gotPicture = false;
       startSession();
       break;
   }
@@ -222,6 +237,7 @@ function onMessage(v) {
       const pts = Number(v.getBigUint64 ? v.getBigUint64(5) : v.getUint32(5) * 4294967296 + v.getUint32(9));
       const flags = v.getUint8(13);
       stats.framesIn++;
+      if (!gotPicture) { gotPicture = true; noPicture = 0; }
       if (flags & 1) stats.configs++;
       if (flags & 2) stats.keys++;
       try {
@@ -236,7 +252,15 @@ function onMessage(v) {
   }
 }
 
-function needKeyFrame() { send(KEY_FRAME); }
+// At most once a second, as XDesk Receiver: a decoder behind would otherwise ask with every frame, and a run of
+// key frames (bigger, slower to decode) only puts it further behind
+let lastKeyRequest = 0;
+function needKeyFrame() {
+  const now = performance.now();
+  if (now - lastKeyRequest < 1000) return;
+  lastKeyRequest = now;
+  send(KEY_FRAME);
+}
 
 // ---------------------------------------------------------------- H.264 helpers
 function nalUnits(b) {
@@ -818,6 +842,8 @@ $('b-sound').addEventListener('click', () => { if (sound) sound.unlock(); });
 $('b-quit').addEventListener('click', () => {
   if (!confirm(T.leave)) return;
   quitting = true;
+  // Let go of keys and buttons first: the phone stops reading at BYE (item 8)
+  releaseAll();
   send(BYE);
   live = false;
   stopSession();
