@@ -171,3 +171,13 @@ Android apps no longer require Shizuku, which replaces "Use Shizuku" under Privi
 # Desktop audio
 
 `AudioPlayer` plays the PulseAudio stream with a 100 ms `AudioTrack` buffer and starts it once 40 ms are written. A low latency track of about 20 ms underran when a video started in Chromium, and the first seconds crackled. Underruns are logged.
+
+# Wireless display
+
+- **Receiver:** `receiver/`, a separate small app (`io.github.n2ray.xdesk.receiver`, API 21+, phone and leanback launchers). It decodes H.264 into a SurfaceView, plays PCM with `AudioTrack` and drops sound beyond 150 ms queued. The protocol is in `receiver/PROTOCOL.md`. Its icon is XDesk's mark mirrored with blue and white swapped.
+- **Phone connects to the receiver** (TCP 47140, mDNS `_xdesk-display._tcp`, or a typed address), because the receiver may sit behind NAT. First contact pairs with a 4-digit code shown on the receiver; both sides keep a token after that.
+- **Display:** the injector creates a public, trusted VirtualDisplay (`AppDisplay.create`) on the encoder's input surface, so Android apps and the Termux desktop go there exactly as on a cable. `TargetDisplay` prefers it as the real display. Density is chosen as for a monitor of that width (width × 213 / 2560, 1920 → 160).
+- **Encoder:** H.264, about 12 Mbit/s at 1080p scaled by area, low latency, no B-frames, a frame repeated after 100 ms without change. Codec config follows each VIDEO_FORMAT; KEY_FRAME from the receiver requests a sync frame.
+- **Sound:** `OutputCapture` in the injector records `REMOTE_SUBMIX` at 48 kHz stereo 16-bit and hands the app a pipe. The phone is silent meanwhile, and `AudioRoute` shows the wireless output instead of a choice.
+- **Own session:** the built-in server keeps a separate `newWirelessSession`, and Shizuku a separate user service (tag `wireless`), so app sessions starting and ending do not end the stream. A vanished display counts as the injector dying; XDesk reconnects up to 3 times, then stops with a message.
+- **Ends** with the settings row, End XDesk, the receiver's BYE, or 6 s without data.

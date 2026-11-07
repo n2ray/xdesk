@@ -31,6 +31,7 @@ No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
 ## Requirements
 
 - An Android phone with **video output over USB-C** (DisplayPort Alt Mode). If plugging in a monitor mirrors the screen, it qualifies
+- Or, without a cable: another Android device on the same network running XDesk Receiver (see Wireless display)
 - USB-C to HDMI cable or dock
 - Android 11 or newer (only tested on Android 16)
 - Termux
@@ -104,12 +105,26 @@ Tap an app in the chooser to run it full screen on the external display, with th
 - **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
 - **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
 
+## Wireless display
+
+No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](https://github.com/n2ray/xdesk/releases)) on another device on the same network: an old phone, a projector or a TV box, Android 5.0 or later. XDesk then streams a display to it over Wi-Fi, and everything works as on a cable: Android apps, a Termux desktop and the sound. The receiver only shows the picture and plays the sound; all input stays on the phone.
+
+1. Open XDesk Receiver on the other device. It shows its name and address and waits.
+2. In XDesk, open settings → **Display** → **Wireless display** and choose the receiver. It is found over mDNS; across subnets, use **Enter address** with the address shown on the receiver.
+3. The first time, type the 4-digit code shown on the receiver. Paired devices connect without a code from then on.
+
+- **Needs the injector service** (built-in or Shizuku): it creates the display that is streamed. The wireless display has its own session in the service, so apps starting and ending do not touch it, and XDesk makes the display again if the service drops it.
+- **Video** is H.264 at the receiver's screen size, capped at 1920 on the long side and to what its decoder handles, at about 12 Mbit/s for 1080p, decoded with low latency. **Sound** is the phone's whole output, captured as PCM and played on the receiver; the phone is silent meanwhile, and the output choice does not apply.
+- **Stop** from the same settings row, with **End XDesk**, or by closing the receiver.
+- The pairing token travels unencrypted. It keeps other phones on the network from casting by accident, it does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
+
 ## What you get
 
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop. **Take over** in the top bar gives the desktop window the keyboard and mouse directly, so a physical keyboard's input method candidates show on the display; **Give back** returns them to the phone. Taking over needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
+- Wireless display: the same over Wi-Fi to XDesk Receiver on a projector, TV box or old phone, with sound
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
@@ -136,6 +151,7 @@ It installs next to the official Termux:X11 and does not touch it. Do not run bo
 - **The X server runs in Termux**, started with a loader built for this app id.
 - **Android apps** are started on the display with the injector (`InjectorService`), which runs as the shell user and sends events with `injectInputEvent`. `CursorOverlay` draws the pointer.
 - **Audio** goes from a PulseAudio null sink to port 47130. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
+- **Wireless display:** the injector creates a public display whose surface is a MediaCodec H.264 encoder, and records the phone's output through `REMOTE_SUBMIX` (`WirelessDisplay`, `OutputCapture`). XDesk connects to the receiver on port 47140 and treats that display as its external display.
 
 Almost all changes live in `lorie-app/` and `xdesk/`, so merging upstream stays simple.
 
@@ -163,6 +179,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 - Android apps need activation through wireless debugging or Shizuku, and only one full screen app or desktop can use the display at a time. Moving between them goes through the chooser
 - Android Auto: only while parked. When Android Auto closes XDesk or disconnects, the desktop keeps running without its window, and Android apps keep running and come back when XDesk is opened on the car again. DRM video (some streaming apps) may be black on the car. Android apps on the car need activation, as on an external display, and go back to the phone when the session ends
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
+- Wireless display: one phone per receiver, picture and sound only, and only as smooth as the Wi-Fi. Tested with a 32-bit Android 9 projector
 - Tested on a single phone, the European Xiaomi 15 Ultra
 
 ## Building
