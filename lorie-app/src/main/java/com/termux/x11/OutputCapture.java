@@ -28,6 +28,10 @@ final class OutputCapture {
     synchronized ParcelFileDescriptor start() {
         stop();
         AudioRecord r;
+        // Called over Binder from XDesk: AudioFlinger would otherwise check XDesk's own uid (an app without
+        // CAPTURE_AUDIO_OUTPUT) instead of this process's. Seen as root, where the attribution comes from the
+        // system context: "getInputForAttr ... EX_SECURITY ... uid: <XDesk>, packageName: android".
+        long identity = android.os.Binder.clearCallingIdentity();
         try {
             AudioRecord.Builder b = new AudioRecord.Builder();
             // The system checks the package against the uid on Android 12 and later
@@ -45,6 +49,8 @@ final class OutputCapture {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             // As text: Binder only carries some exception types
             throw new IllegalStateException(e.toString());
+        } finally {
+            android.os.Binder.restoreCallingIdentity(identity);
         }
         ParcelFileDescriptor[] pipe;
         try {
