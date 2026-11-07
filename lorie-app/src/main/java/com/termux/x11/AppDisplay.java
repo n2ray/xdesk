@@ -98,9 +98,15 @@ final class AppDisplay {
             return SHELL_PACKAGE;
         }
 
-        /** The system context would name the package "android", which uid 2000 does not own. */
+        /**
+         * The system context would name the package "android", which uid 2000 does not own. As root (Shizuku started
+         * in root mode) it is the other way round: uid 0 does not own com.android.shell, and AudioRecord refused
+         * REMOTE_SUBMIX, so the wireless display had no sound. Root keeps the system context's own attribution, which
+         * records fine (tested on LineageOS 23).
+         */
         @TargetApi(Build.VERSION_CODES.S)
         @Override public AttributionSource getAttributionSource() {
+            if (Process.myUid() != Process.SHELL_UID) return super.getAttributionSource();
             return new AttributionSource.Builder(Process.myUid()).setPackageName(SHELL_PACKAGE).build();
         }
     }
