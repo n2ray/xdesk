@@ -148,7 +148,7 @@ final class WebSocket {
                 while (pos >= current.length) {
                     Message m;
                     try {
-                        m = read();
+                        m = WebSocket.this.read();
                     } catch (java.io.EOFException e) {
                         return false;
                     }
