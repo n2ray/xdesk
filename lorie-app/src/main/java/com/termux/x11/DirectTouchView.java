@@ -62,7 +62,7 @@ final class DirectTouchView extends View {
         this.sink = sink;
         density = c.getResources().getDisplayMetrics().density;
         for (int i = 0; i < MAX_FINGERS; i++) phoneId[i] = -1;
-        setBackground(Style.rounded(c, Style.SURFACE, Style.RADIUS));
+        setBackground(new PadBackground(c, Style.RADIUS));
         hintPaint.setColor(Style.TEXT_DIM);
         hintPaint.setTextSize(14 * density);
         hintPaint.setTextAlign(Paint.Align.CENTER);

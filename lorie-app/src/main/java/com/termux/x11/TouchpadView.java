@@ -49,7 +49,7 @@ final class TouchpadView extends View {
         super(c);
         this.output = output;
         density = c.getResources().getDisplayMetrics().density;
-        setBackground(Style.rounded(c, Style.SURFACE, 16));
+        setBackground(new PadBackground(c, 16));
         hint.setColor(Style.TEXT_DIM);
         hint.setTextSize(15 * density);
         hint.setTextAlign(Paint.Align.CENTER);

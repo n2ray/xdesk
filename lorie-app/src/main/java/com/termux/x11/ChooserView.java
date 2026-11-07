@@ -31,6 +31,8 @@ final class ChooserView extends LinearLayout {
         void onAppChosen(AppCatalog.App app);
         /** 点了 Termux 那一节的提示行。 */
         void onTermuxHint();
+        /** 点了没有外接屏的提示：打开无线显示。 */
+        void onNoDisplayHint();
         /** 点了一行右边的星。 */
         void onDockToggle(String key);
         /** 盖在会话上时回到触摸板。 */
@@ -133,6 +135,7 @@ final class ChooserView extends LinearLayout {
 
         banner = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
         banner.setPadding(0, Style.dp(c, 4), 0, 0);
+        banner.setOnClickListener(v -> host.onNoDisplayHint());
         addView(banner, new LayoutParams(-1, -2));
 
         notice = Style.label(c, "", Style.WARN, Style.TEXT_SMALL + 1);

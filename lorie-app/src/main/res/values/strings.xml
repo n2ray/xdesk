@@ -166,7 +166,7 @@
     <string name="xd_chooser_all_apps">All apps</string>
     <string name="xd_chooser_search">Search by app or package name</string>
     <string name="xd_chooser_clear">Clear</string>
-    <string name="xd_chooser_no_display">No display connected. You can look around; connect a monitor to start something.</string>
+    <string name="xd_chooser_no_display">No display. Plug one into USB-C, use a car, or tap here to show on XDesk Receiver over Wi-Fi.</string>
     <string name="xd_chooser_running">Running, tap to reattach</string>
     <string name="xd_chooser_default">Default</string>
     <string name="xd_chooser_reattach_x">Reattach the running X display</string>
@@ -213,7 +213,7 @@
     <string name="xd_unsaved_may_be_lost">Unsaved work may be lost.</string>
 
     <!-- XDeskActivity: messages and setup screens -->
-    <string name="xd_no_display">No display found. Connect a monitor or a dock to a USB-C port with video output (DisplayPort), or connect to an Android Auto car. Some phones\' USB-C ports have no video output; those phones can only use a car.</string>
+    <string name="xd_no_display">Connect a display first.</string>
     <string name="xd_car_gone_title">Car disconnected</string>
     <string name="xd_car_gone">The desktop is still running. It comes back when you open XDesk on the car again</string>
     <string name="xd_car_gone_status">Car disconnected. The desktop is still running. It comes back when you open XDesk on the car again</string>

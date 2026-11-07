@@ -535,6 +535,9 @@ public class XDeskActivity extends Activity {
         @Override public void onAppChosen(AppCatalog.App app) {
             chooseApp(app);
         }
+        @Override public void onNoDisplayHint() {
+            showWirelessPicker();
+        }
         @Override public void onTermuxHint() {
             if (installed(PKG_TERMUX) && checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{PERM}, REQ_LIST_SESSIONS);
