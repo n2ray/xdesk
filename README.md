@@ -118,6 +118,22 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 - **Stop** from the same settings row, with **End XDesk**, or by closing the receiver.
 - The pairing token travels unencrypted. It keeps other phones on the network from casting by accident, it does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 
+## Web display
+
+Any device with a browser can be the display: an iPad, a laptop, a smart TV. No app to install. Turn on settings → **Display** → **Web display**; XDesk then serves a page on port 47150 and lists the addresses to open, by network:
+
+- **Wireless:** the phone's Wi-Fi address, or its hotspot's address when the other device joins the hotspot.
+- **Wired:** connect a USB cable and turn on **USB tethering** (the row opens the tethering settings). A wired address appears. The delay is lower and steadier than over Wi-Fi. iPad and Mac only speak NCM over USB: tap **USB tethering as NCM** first (it needs the permission the built-in service gives; otherwise run `adb shell settings put global tether_force_usb_functions 1`), then turn tethering off and on.
+
+The first time, the browser asks for a 4-digit code that XDesk shows on the phone; it remembers the phone from then on. You get the picture, the phone's sound, and the browser's mouse, keyboard and touch:
+
+- **Mouse:** the first click captures it (Pointer Lock), Esc releases it. Buttons and the wheel go to the display.
+- **Touch** works as the phone's touchpad: one finger moves, tap clicks, tap and drag drags, two fingers scroll, a two-finger tap is a right click, three fingers a middle click.
+- **Keyboard:** keys go as key codes, so shortcuts work; on Mac and iPad keyboards Command acts as Ctrl. Text from input methods (Chinese, the iPad's soft keyboard through ⌨) goes as text.
+- **Staying on the page:** the toolbar at the top (move the mouse up or touch the top edge) has full screen, keyboard, sound and disconnect. Back is blocked and leaving asks first; the page does not zoom, scroll, select or show menus. In Chrome full screen, Esc and browser shortcuts go to the display too. On the iPad, **Add to Home Screen** opens it full screen like an app.
+
+Same as the wireless display, which it shares with: one browser or receiver at a time, it needs the injector service, and XDesk must stay open on the phone. Plain HTTP and a pairing token, so only for networks you trust. Video is H.264, decoded with WebCodecs where the browser allows it (localhost, HTTPS) and otherwise with Media Source Extensions, which works on plain HTTP in Safari, Chrome, Edge and Firefox. The page and protocol are in `lorie-app/src/main/assets/web/` and [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
+
 ## What you get
 
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag

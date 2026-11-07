@@ -71,6 +71,8 @@ final class WirelessDisplay {
     private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
         SIZE = 7, KEY_FRAME = 8;
+    /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
@@ -93,8 +95,10 @@ final class WirelessDisplay {
 
     private volatile int state = IDLE;
     private volatile String receiverName, receiverId, address;
-    private volatile boolean running, keyFrameWanted, soundCaptured;
+    private volatile boolean running, keyFrameWanted, soundCaptured, web;
     private volatile Socket socket;
+    private volatile WebSocket webSocket;
+    private volatile InputSink webInput;
     private DataOutputStream out;
     private final Object writeLock = new Object();
     private volatile long lastWrite;
@@ -153,6 +157,7 @@ final class WirelessDisplay {
         receiverId = id != null ? id : prefs.getString("id_at_" + host, null);
         address = host;
         running = true;
+        web = false;
         receiverName = name != null ? name : host;
         codes.clear();
         setState(CONNECTING);
@@ -168,11 +173,13 @@ final class WirelessDisplay {
         running = false;
         codes.offer("");
         final Socket s = socket;
+        final WebSocket w = webSocket;
         // Off the main thread: a write may block on a slow network
         new Thread(() -> {
             try {
                 writeMessage(BYE, new byte[0], 0, 0);
             } catch (IOException ignored) { }
+            if (w != null) w.close();
             closeQuietly(s);
         }, "xdesk-wireless-bye").start();
     }
@@ -206,32 +213,132 @@ final class WirelessDisplay {
             int[] size = handshake(in);
             if (size == null) return;
             s.setSoTimeout(TIMEOUT_MS);
-            startReader(in);
-            startPings();
-            int retries = 0;
-            while (running) {
-                boolean injectorDied = stream(size[0], size[1], size[2]);
-                if (!injectorDied || !running) break;
-                if (++retries > MAX_INJECTOR_RETRIES) {
-                    message(R.string.xd_wireless_injector_lost);
-                    break;
-                }
-                Log.i(TAG, "injector died, new one, try " + retries);
-                SystemClock.sleep(1000);
-            }
+            session(in, size[0], size[1], size[2]);
         } catch (NoInjector e) {
             message(R.string.xd_wireless_need_injector);
         } catch (IOException e) {
             Log.i(TAG, "ended: " + e);
             if (running) message(R.string.xd_wireless_lost, receiverName);
         } finally {
-            running = false;
-            closeQuietly(s);
-            socket = null;
-            displayId = Display.INVALID_DISPLAY;
-            soundCaptured = false;
-            setState(IDLE);
+            ended(s);
         }
+    }
+
+    /** After the handshake, for a receiver and for a browser alike: the stream until it ends. */
+    private void session(DataInputStream in, int width, int height, int dpi) throws IOException {
+        startReader(in);
+        startPings();
+        int retries = 0;
+        while (running) {
+            boolean injectorDied = stream(width, height, dpi);
+            if (!injectorDied || !running) break;
+            if (++retries > MAX_INJECTOR_RETRIES) {
+                message(R.string.xd_wireless_injector_lost);
+                break;
+            }
+            Log.i(TAG, "injector died, new one, try " + retries);
+            SystemClock.sleep(1000);
+        }
+    }
+
+    private void ended(Socket s) {
+        running = false;
+        WebSocket w = webSocket;
+        if (w != null) w.close();
+        closeQuietly(s);
+        socket = null;
+        webSocket = null;
+        displayId = Display.INVALID_DISPLAY;
+        soundCaptured = false;
+        setState(IDLE);
+    }
+
+    // --- 网页显示：浏览器经 WebServer 配对后，从这里开始和接收端走同一套消息 ---
+
+    /** Whether the stream goes to a browser (WebServer) rather than XDesk Receiver. */
+    boolean isWeb() {
+        return web;
+    }
+
+    /** Where the browser's mouse and keyboard go, set by XDeskActivity. Called on the main thread. */
+    void setWebInput(InputSink sink) {
+        webInput = sink;
+    }
+
+    /**
+     * A browser paired through WebServer: stream to it over its WebSocket. The caller checked isActive() first.
+     * Any thread.
+     */
+    void startWeb(final Socket s, final WebSocket ws, String name, final int width, final int height) {
+        running = true;
+        web = true;
+        address = null;
+        receiverId = null;
+        receiverName = name;
+        codes.clear();
+        setState(CONNECTING);
+        context.startForegroundService(new Intent(context, DesktopService.class)
+            .putExtra(DesktopService.EXTRA_TITLE, context.getString(R.string.xd_wireless_title, receiverName)));
+        worker = new Thread(() -> {
+            try {
+                socket = s;
+                webSocket = ws;
+                s.setTcpNoDelay(true);
+                s.setSoTimeout(TIMEOUT_MS);
+                out = new DataOutputStream(ws.output());
+                session(new DataInputStream(ws.input()), width, height, 0);
+            } catch (NoInjector e) {
+                message(R.string.xd_wireless_need_injector);
+            } catch (IOException e) {
+                Log.i(TAG, "web ended: " + e);
+                if (running) message(R.string.xd_wireless_lost, receiverName);
+            } finally {
+                ended(s);
+            }
+        }, "xdesk-web-display");
+        worker.start();
+    }
+
+    /** Browser → phone input, inside the same framing; only a browser sends these. */
+    private void webInput(int type, byte[] b) {
+        final InputSink sink = webInput;
+        if (sink == null || !web) return;
+        final ByteBuffer p = ByteBuffer.wrap(b);
+        Runnable r;
+        switch (type) {
+            case IN_MOVE:
+                if (b.length < 4) return;
+                final int dx = p.getShort(), dy = p.getShort();
+                r = () -> sink.move(dx, dy);
+                break;
+            case IN_BUTTON:
+                if (b.length < 2) return;
+                final int button = b[0] & 0xff;
+                final boolean down = b[1] != 0;
+                if (button < 1 || button > 3) return;
+                r = () -> sink.button(button, down);
+                break;
+            case IN_SCROLL:
+                if (b.length < 4) return;
+                final int sy = p.getShort(), sx = p.getShort();
+                r = () -> sink.scroll(sy, sx);
+                break;
+            case IN_KEY:
+                if (b.length < 3) return;
+                final int scan = p.getShort() & 0xffff;
+                final boolean pressed = b[2] != 0;
+                if (scan == 0 || scan > 767) return;
+                r = () -> sink.key(scan, pressed);
+                break;
+            case IN_TEXT:
+                if (b.length == 0 || b.length > 4096) return;
+                final String text = new String(b, StandardCharsets.UTF_8);
+                r = () -> sink.text(text);
+                break;
+            default:
+                return;
+        }
+        ui.post(r);
     }
 
     /** Returns width, height and density, or null when the receiver said no or the user gave up. */
@@ -366,7 +473,8 @@ final class WirelessDisplay {
                     if (size < 0 || size > MAX_PAYLOAD) throw new IOException("bad size " + size);
                     byte[] b = new byte[size];
                     in.readFully(b);
-                    if (type == KEY_FRAME) keyFrameWanted = true;
+                    if (type >= IN_MOVE) webInput(type, b);
+                    else if (type == KEY_FRAME) keyFrameWanted = true;
                     else if (type == BYE) {
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;

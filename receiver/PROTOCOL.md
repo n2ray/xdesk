@@ -92,3 +92,32 @@ lost connection.
 - **One phone at a time.** A second phone gets BUSY.
 - **Idle screen:** the receiver's name, its address and port, and how to start from XDesk. While pairing, the
   phone's name and the 4-digit code in large digits. While streaming, only the picture.
+
+## Web display (browser as the receiver)
+
+XDesk can also serve the display to a browser (settings → Display → Web display). Here the **phone is the server**:
+it listens on **TCP port 47150** for HTTP/1.1, serves the page (`/`, `/xdesk.js`, `/xdesk.css`, `/manifest.webmanifest`,
+`/icon.png`) and accepts a WebSocket at `/ws`. A WebSocket whose `Origin` is not the page's own host is refused.
+
+Pairing, as JSON text messages, before anything else:
+
+1. Browser → phone: `{"hello":1, "id":"<32 hex, made once per browser>", "name":"iPad Safari", "token":"<from an earlier pairing, or empty>", "w":<px>, "h":<px>}`. `w` and `h` are the browser screen's size in device pixels, in its current orientation.
+2. Phone → browser, `{"status": ...}`:
+   - `ok`, with `token` (new after pairing, otherwise empty: keep the old one), `phone` (its name), `w`, `h` (the size it streams: at most 1920 on the long side and 1088 on the short one, aspect kept, even). The binary protocol starts.
+   - `pair`: XDesk shows a 4-digit code on the phone. The browser sends `{"code":"1234"}`; a wrong one gets `wrong` and another try, the third wrong one `refused`, and that address is refused for a minute. The code is valid for 2 minutes.
+   - `busy` (with `name`, where the phone streams now), `closed` (XDesk is not open on the phone), `version`, `refused`: the phone closes the WebSocket.
+
+After `ok` each binary WebSocket message holds exactly one message of the framing above (u8 type, u32 length, payload),
+both ways, with the same types, timing and pings. The browser decodes with WebCodecs, or with Media Source
+Extensions by wrapping each frame in a fragmented MP4 segment. Browser → phone also has input, which only the web
+display sends:
+
+| Type | Name | Payload |
+|---|---|---|
+| 20 | MOVE | i16 dx, i16 dy: relative pointer movement in the display's pixels |
+| 21 | BUTTON | u8 button (1 left, 2 middle, 3 right), u8 down |
+| 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
+| 23 | KEY | u16 Linux input key code, u8 down |
+| 24 | TEXT | UTF-8 text from an input method, at most 4096 bytes |
+
+Input goes where the phone's touchpad and keyboard go: the Termux desktop or the Android app on the display.

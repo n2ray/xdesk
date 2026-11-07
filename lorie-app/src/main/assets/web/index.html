@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="XDesk">
+<meta name="theme-color" content="#0b0d10">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="icon" href="/icon.png">
+<link rel="stylesheet" href="/xdesk.css">
+<title>XDesk</title>
+</head>
+<body>
+<div id="stage">
+  <video id="video" muted playsinline disablepictureinpicture disableremoteplayback></video>
+  <canvas id="canvas"></canvas>
+</div>
+<textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true"></textarea>
+
+<div id="bar" class="hidden">
+  <button id="b-full" title=""></button>
+  <button id="b-kbd" title=""></button>
+  <button id="b-sound" title=""></button>
+  <button id="b-quit" title=""></button>
+</div>
+<div id="hint" class="hidden"></div>
+
+<div id="panel">
+  <div class="card">
+    <img src="/icon.png" alt="" class="logo">
+    <h1>XDesk</h1>
+    <p id="status"></p>
+    <form id="pair" class="hidden" autocomplete="off">
+      <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000">
+      <button type="submit" id="b-pair"></button>
+    </form>
+    <button id="b-connect" class="hidden"></button>
+    <p id="note" class="small"></p>
+  </div>
+</div>
+<script src="/xdesk.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+/* XDesk web display. Everything is fixed and nothing scrolls, zooms, selects or bounces: the page is a screen. */
+html, body {
+  margin: 0; padding: 0; position: fixed; inset: 0; overflow: hidden;
+  background: #000; color: #e8ecf1;
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", Roboto, sans-serif;
+  overscroll-behavior: none; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+}
+#stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; cursor: none; }
+#stage.free { cursor: default; }
+#video, #canvas { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; }
+#video.on, #canvas.on { display: block; }
+#kbd { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; font-size: 16px; }
+
+#bar {
+  position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; padding: 4px; border-radius: 14px;
+  background: rgba(21, 24, 29, .86); box-shadow: 0 4px 18px rgba(0,0,0,.45);
+  transition: opacity .25s, transform .25s; z-index: 5;
+}
+#bar.hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -12px); }
+#bar button {
+  width: 44px; height: 40px; border: 0; border-radius: 10px; background: transparent; color: #e8ecf1;
+  font-size: 19px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+#bar button:active { background: rgba(255,255,255,.12); }
+#bar button.on { color: #3d7ef5; }
+#hint {
+  position: fixed; bottom: calc(env(safe-area-inset-bottom) + 18px); left: 50%; transform: translateX(-50%);
+  padding: 8px 14px; border-radius: 12px; background: rgba(21, 24, 29, .9); font-size: 14px; z-index: 6;
+  max-width: 86vw; text-align: center; pointer-events: none; transition: opacity .3s;
+}
+#hint.hidden { opacity: 0; }
+
+#panel {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 35%, #1a2230 0%, #0b0d10 70%); z-index: 10;
+}
+#panel.hidden { display: none; }
+.card { width: min(360px, 86vw); text-align: center; padding: 28px 24px; border-radius: 20px; background: #15181d; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.logo { width: 64px; height: 64px; border-radius: 16px; }
+h1 { margin: 10px 0 6px; font-size: 22px; font-weight: 600; letter-spacing: .5px; }
+#status { margin: 8px 0 14px; min-height: 1.4em; }
+.small { font-size: 12.5px; color: #8d97a3; margin: 14px 0 0; }
+.hidden { display: none !important; }
+form { display: flex; gap: 8px; justify-content: center; }
+input#code {
+  width: 140px; font: 600 28px/1 ui-monospace, Menlo, monospace; letter-spacing: 10px; text-align: center;
+  padding: 10px 0 10px 10px; border-radius: 12px; border: 1px solid #2b313a; background: #0b0d10; color: #e8ecf1;
+  -webkit-user-select: text; user-select: text; touch-action: manipulation;
+}
+.card button, form button {
+  border: 0; border-radius: 12px; background: #3d7ef5; color: #fff; font-size: 16px; padding: 12px 18px; cursor: pointer;
+  touch-action: manipulation;
+}
+.card button:active { filter: brightness(.9); }

@@ -1,0 +1,12 @@
+{
+  "name": "XDesk",
+  "short_name": "XDesk",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#0b0d10",
+  "icons": [{ "src": "/icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }]
+}

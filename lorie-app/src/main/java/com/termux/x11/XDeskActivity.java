@@ -125,6 +125,9 @@ public class XDeskActivity extends Activity {
     private AppCatalog catalog;
     private AudioRoute audioRoute;
     private WirelessDisplay wireless;
+    private WebServer web;
+    /** The code a browser should type, shown on the phone while it pairs. */
+    private android.app.Dialog webCodeDialog;
     private DockBar runningDock;
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
@@ -481,6 +484,121 @@ public class XDeskActivity extends Activity {
         wireless.start(host, port, name, id);
     }
 
+    // --- 网页显示 ---
+
+    /** The browser's mouse and keyboard, as the phone's touchpad and keyboard would. */
+    private final InputSink webInput = new InputSink() {
+        @Override public void move(int dx, int dy) { if (client != null) client.move(dx, dy); }
+        @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
+        @Override public void click(int b) { if (client != null) client.click(b); }
+        @Override public void scroll(int dy, int dx) { if (client != null) client.scroll(dy, dx); }
+        @Override public void key(int scan, boolean down) { if (client != null) client.key(scan, down); }
+        @Override public void tapKey(int scan) { if (client != null) client.tapKey(scan); }
+        @Override public void text(String s) { if (client != null) client.text(s); }
+    };
+
+    private final WebServer.Listener webListener = new WebServer.Listener() {
+        @Override public void onWebCode(String browserName, String code) {
+            if (webCodeDialog != null) webCodeDialog.dismiss();
+            TextView digits = Style.label(XDeskActivity.this, code, Style.TEXT, 56);
+            digits.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            digits.setGravity(Gravity.CENTER);
+            digits.setLetterSpacing(0.3f);
+            digits.setPadding(0, dp(16), 0, dp(16));
+            webCodeDialog = ui().sheet(getString(R.string.xd_web_code_title), getString(R.string.xd_web_code_note, browserName), digits);
+        }
+        @Override public void onWebCodeDone() {
+            if (webCodeDialog != null) webCodeDialog.dismiss();
+            webCodeDialog = null;
+        }
+        @Override public void onWebMessage(String message) {
+            Toast.makeText(XDeskActivity.this, message, Toast.LENGTH_LONG).show();
+        }
+    };
+
+    private String webValue() {
+        if (wireless.isWeb() && wireless.isActive()) return wireless.receiverName();
+        return getString(web.isEnabled() ? R.string.xd_web_on : R.string.xd_wireless_off);
+    }
+
+    /** 网页显示：开关、浏览器要打开的地址（无线、热点、有线）、有线的设置、已配对的浏览器。 */
+    private void showWebPage() {
+        final SettingsUi s = ui();
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        final android.app.Dialog[] d = new android.app.Dialog[1];
+        if (wireless.isWeb() && wireless.isActive()) {
+            s.dangerRow(c, getString(R.string.xd_wireless_stop, wireless.receiverName()), null, () -> {
+                d[0].dismiss();
+                wireless.stop();
+            });
+        }
+        LinearLayout main = s.card(c);
+        s.switchRow(main, getString(R.string.xd_web), getString(R.string.xd_web_switch_note), web.isEnabled(), on -> {
+            web.setEnabled(on);
+            d[0].dismiss();
+            ui.postDelayed(this::showWebPage, 300);
+        });
+        if (web.isEnabled()) {
+            LinearLayout where = s.section(c, getString(R.string.xd_web_addresses));
+            java.util.List<WebServer.Address> list = WebServer.addresses();
+            if (list.isEmpty()) s.infoRow(where, getString(R.string.xd_web_no_network), getString(R.string.xd_web_no_network_note), null);
+            for (final WebServer.Address a : list) {
+                String kind = getString(a.kind == WebServer.KIND_WIFI ? R.string.xd_web_kind_wifi
+                    : a.kind == WebServer.KIND_HOTSPOT ? R.string.xd_web_kind_hotspot
+                    : a.kind == WebServer.KIND_USB ? R.string.xd_web_kind_usb
+                    : a.kind == WebServer.KIND_ETHERNET ? R.string.xd_web_kind_ethernet : R.string.xd_web_kind_other);
+                s.valueRow(where, a.url(), kind, getString(R.string.xd_web_copy), () -> {
+                    android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("XDesk", a.url()));
+                    Toast.makeText(this, getString(R.string.xd_web_copied, a.url()), Toast.LENGTH_SHORT).show();
+                });
+            }
+        }
+        LinearLayout wired = s.section(c, getString(R.string.xd_web_wired));
+        s.infoRow(wired, getString(R.string.xd_web_wired_how), getString(R.string.xd_web_wired_how_note), null);
+        s.valueRow(wired, getString(R.string.xd_web_ncm), getString(R.string.xd_web_ncm_note),
+            getString(WebServer.usbTetheringIsNcm(this) ? R.string.xd_web_ncm_on : R.string.xd_web_ncm_off), () -> {
+                if (WebServer.usbTetheringIsNcm(this)) return;
+                if (WebServer.setUsbTetheringNcm(this)) {
+                    Toast.makeText(this, R.string.xd_web_ncm_done, Toast.LENGTH_LONG).show();
+                    d[0].dismiss();
+                    ui.postDelayed(this::showWebPage, 300);
+                } else {
+                    s.confirm(getString(R.string.xd_web_ncm), getString(R.string.xd_web_ncm_need_permission), getString(R.string.xd_web_copy), () -> {
+                        android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", "adb shell settings put global tether_force_usb_functions 1"));
+                    });
+                }
+            });
+        s.valueRow(wired, getString(R.string.xd_web_tethering), getString(R.string.xd_web_tethering_note), "", this::openTetherSettings);
+        int paired = web.pairedCount();
+        if (paired > 0) {
+            s.dangerRow(c, getString(R.string.xd_web_forget, paired), null, () ->
+                s.confirm(getString(R.string.xd_web_forget_title), getString(R.string.xd_web_forget_message), getString(R.string.xd_web_forget_action), () -> {
+                    web.forgetBrowsers();
+                    if (wireless.isWeb() && wireless.isActive()) wireless.stop();
+                    d[0].dismiss();
+                }));
+        }
+        d[0] = s.sheet(getString(R.string.xd_web), getString(R.string.xd_web_note), c);
+    }
+
+    /** Settings → Network → Hotspot and tethering; the component differs between ROMs. */
+    private void openTetherSettings() {
+        Intent[] tries = {
+            new Intent().setClassName("com.android.settings", "com.android.settings.TetherSettings"),
+            new Intent().setClassName("com.android.settings", "com.android.settings.Settings$TetherSettingsActivity"),
+            new Intent(Settings.ACTION_WIRELESS_SETTINGS),
+        };
+        for (Intent i : tries) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return;
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
         @Override public void onItemLongPress(String key) { showAppCard(key); }
@@ -593,6 +711,10 @@ public class XDeskActivity extends Activity {
         apps.setListener(appListener);
         audioRoute.setListener(audioListener);
         wireless.setListener(wirelessListener);
+        wireless.setWebInput(webInput);
+        web = WebServer.get(this);
+        web.setListener(webListener);
+        web.start();
         audioRoute.setWireless(wireless.capturesSound());
         displays.registerDisplayListener(displayListener, ui);
         for (Display d : displays.getDisplays()) if (TargetDisplay.isReal(d)) realDisplays.add(d.getDisplayId());
@@ -684,6 +806,10 @@ public class XDeskActivity extends Activity {
         apps.setListener(null);
         audioRoute.setListener(null);
         wireless.setListener(null);
+        wireless.setWebInput(null);
+        // The server stays: this window is recreated on a language change. Without a listener it turns browsers away
+        web.setListener(null);
+        if (webCodeDialog != null) webCodeDialog.dismiss();
         super.onDestroy();
     }
 
@@ -1612,6 +1738,10 @@ public class XDeskActivity extends Activity {
                 if (page[0] != null) page[0].dismiss();
                 showWirelessPicker();
             });
+        s.valueRow(external, getString(R.string.xd_web), getString(R.string.xd_web_row_note), webValue(), () -> {
+            if (page[0] != null) page[0].dismiss();
+            showWebPage();
+        });
         addDensitySetting(s, external);
         if (AppSession.fullscreenSupported()) {
             s.switchRow(external, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
