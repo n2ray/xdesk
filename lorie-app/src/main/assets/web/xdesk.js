@@ -165,7 +165,24 @@ pairForm.addEventListener('submit', e => {
 codeIn.addEventListener('input', () => { if (codeIn.value.replace(/\D/g, '').length === 4) pairForm.requestSubmit ? pairForm.requestSubmit() : pairForm.dispatchEvent(new Event('submit')); });
 connectBtn.addEventListener('click', () => { retryDelay = 1500; connect(); });
 
-let pingTimer = 0;
+// ?debug: statistics on screen, and sent to the phone as text messages (it ignores them, a test server logs them)
+const DEBUG = /[?&]debug\b/.test(location.search);
+const stats = { path: '', framesIn: 0, keys: 0, configs: 0, decoded: 0, errors: 0, lastError: '', audio: 0 };
+function noteError(e) { stats.errors++; stats.lastError = String(e && e.message || e).slice(0, 160); }
+let debugEl = null;
+function debugTick() {
+  if (player && player.extra) Object.assign(stats, player.extra());
+  const s = JSON.stringify(stats);
+  if (!debugEl) {
+    debugEl = document.createElement('pre');
+    debugEl.style.cssText = 'position:fixed;left:6px;bottom:6px;margin:0;padding:6px 8px;font:12px monospace;background:rgba(0,0,0,.7);color:#7f7;z-index:20;pointer-events:none;white-space:pre-wrap;max-width:90vw';
+    document.body.appendChild(debugEl);
+  }
+  debugEl.textContent = s.replace(/,/g, ', ');
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ debug: stats }));
+}
+
+let pingTimer = 0, debugTimer = 0;
 function startSession() {
   live = true;
   panel.classList.add('hidden');
@@ -176,6 +193,7 @@ function startSession() {
   if (!sound) sound = new Sound();
   sound.unlock();
   pingTimer = setInterval(() => send(PING), 2000);
+  if (DEBUG) { stats.path = player.name; debugTimer = setInterval(debugTick, 1000); }
   trapHistory();
   flash(matchMedia('(pointer: fine)').matches ? T.lockHint : '', 3500);
   showBar(4000);
@@ -183,6 +201,7 @@ function startSession() {
 
 function stopSession() {
   clearInterval(pingTimer);
+  clearInterval(debugTimer);
   releaseAll();
   if (document.pointerLockElement) document.exitPointerLock();
   if (player) player.reset();
@@ -202,7 +221,12 @@ function onMessage(v) {
     case VIDEO_FRAME: {
       const pts = Number(v.getBigUint64 ? v.getBigUint64(5) : v.getUint32(5) * 4294967296 + v.getUint32(9));
       const flags = v.getUint8(13);
-      player.frame(flags, pts, new Uint8Array(v.buffer, v.byteOffset + 14, len - 9));
+      stats.framesIn++;
+      if (flags & 1) stats.configs++;
+      if (flags & 2) stats.keys++;
+      try {
+        player.frame(flags, pts, new Uint8Array(v.buffer, v.byteOffset + 14, len - 9));
+      } catch (e) { noteError(e); }
       break;
     }
     case AUDIO_FORMAT: break;
@@ -240,7 +264,9 @@ class CodecsPlayer {
     this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     canvas.classList.add('on');
     this.decoder = null; this.config = null; this.codec = null; this.waitKey = true;
+    this.name = 'webcodecs'; this.decoded = 0; this.failures = 0;
   }
+  extra() { return { decoded: this.decoded, codec: this.codec, queue: this.decoder ? this.decoder.decodeQueueSize : -1, state: this.decoder ? this.decoder.state : 'none' }; }
   format(w, h) { canvas.width = w; canvas.height = h; this.reset(); }
   reset() {
     if (this.decoder && this.decoder.state !== 'closed') { try { this.decoder.close(); } catch (e) { /* closed */ } }
@@ -257,10 +283,22 @@ class CodecsPlayer {
     if (!this.decoder) {
       if (!key || !this.config || !this.codec) { needKeyFrame(); return; }
       this.decoder = new VideoDecoder({
-        output: f => { this.ctx.drawImage(f, 0, 0, canvas.width, canvas.height); f.close(); },
-        error: () => { this.decoder = null; this.waitKey = true; needKeyFrame(); },
+        output: f => { this.decoded++; this.ctx.drawImage(f, 0, 0, canvas.width, canvas.height); f.close(); },
+        error: e => {
+          noteError(e);
+          this.decoder = null; this.waitKey = true;
+          if (++this.failures >= 2 && this.decoded === 0 && fallBackToMse(this.config)) return;
+          needKeyFrame();
+        },
       });
-      this.decoder.configure({ codec: this.codec, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' });
+      try {
+        this.decoder.configure({ codec: this.codec, optimizeForLatency: true });
+      } catch (e) {
+        noteError(e);
+        this.decoder = null;
+        if (!fallBackToMse(this.config)) needKeyFrame();
+        return;
+      }
     }
     if (this.decoder.decodeQueueSize > 8) { this.waitKey = true; needKeyFrame(); }
     if (this.waitKey && !key) return;
@@ -269,7 +307,7 @@ class CodecsPlayer {
     if (key) { payload = new Uint8Array(this.config.length + data.length); payload.set(this.config); payload.set(data, this.config.length); }
     try {
       this.decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: pts, data: payload }));
-    } catch (e) { this.reset(); needKeyFrame(); }
+    } catch (e) { noteError(e); this.reset(); needKeyFrame(); }
   }
   rect() { return canvas.getBoundingClientRect(); }
 }
@@ -332,8 +370,15 @@ class MsePlayer {
     this.MS = MS;
     video.classList.add('on');
     video.disableRemotePlayback = true;
-    this.w = 0; this.h = 0;
+    video.addEventListener('error', () => noteError('video: ' + (video.error && (video.error.code + ' ' + video.error.message))));
+    this.w = 0; this.h = 0; this.name = 'mse';
     this.reset();
+  }
+  extra() {
+    const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};
+    const b = video.buffered;
+    return { decoded: q.totalVideoFrames || 0, dropped: q.droppedVideoFrames || 0, codec: this.codec, ready: video.readyState,
+      paused: video.paused, t: +video.currentTime.toFixed(2), end: b.length ? +b.end(b.length - 1).toFixed(2) : -1, queue: this.queue.length };
   }
   format(w, h) { this.w = w; this.h = h; this.reset(); }
   reset() {
@@ -349,8 +394,9 @@ class MsePlayer {
     const type = 'video/mp4; codecs="' + codec + '"';
     const ready = () => {
       if (this.ms !== ms) return;
-      try { this.sb = ms.addSourceBuffer(type); } catch (e) { show(T.noVideo); return; }
+      try { this.sb = ms.addSourceBuffer(type); } catch (e) { noteError(e); show(T.noVideo); return; }
       this.sb.mode = 'segments';
+      this.sb.addEventListener('error', () => noteError('sourcebuffer error'));
       this.sb.addEventListener('updateend', () => this.pump());
       ms.duration = Infinity;
       this.queue.unshift(init);
@@ -409,6 +455,7 @@ class MsePlayer {
     const next = this.queue.shift();
     if (!next) return;
     try { sb.appendBuffer(next); } catch (e) {
+      noteError(e);
       this.queue = []; this.waitKey = true;
       if (e.name === 'QuotaExceededError') { try { sb.remove(0, Math.max(0, video.currentTime - 1)); } catch (x) { /* busy */ } }
       needKeyFrame();
@@ -417,11 +464,37 @@ class MsePlayer {
   rect() { return video.getBoundingClientRect(); }
 }
 
-function makePlayer() {
-  if (window.isSecureContext && 'VideoDecoder' in window && 'EncodedVideoChunk' in window) return new CodecsPlayer();
+// WebCodecs only where it really decodes H.264: Chromium builds without proprietary codecs have the API, refuse
+// H.264 there, and still play it through MSE. Decided once at start, before connecting.
+let webCodecsH264 = false;
+const detected = (async () => {
+  if (!window.isSecureContext || !('VideoDecoder' in window) || !('EncodedVideoChunk' in window)) return;
+  try {
+    const r = await Promise.all(['avc1.42e01f', 'avc1.640028'].map(codec => VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true })));
+    webCodecsH264 = r.every(x => x.supported);
+  } catch (e) { webCodecsH264 = false; }
+})();
+
+function mseClass() {
   const MS = window.ManagedMediaSource || window.MediaSource || window.WebKitMediaSource;
-  if (MS && MS.isTypeSupported && MS.isTypeSupported('video/mp4; codecs="avc1.42e01f"')) return new MsePlayer(MS);
-  return null;
+  return MS && MS.isTypeSupported && MS.isTypeSupported('video/mp4; codecs="avc1.42e01f"') ? MS : null;
+}
+function makePlayer() {
+  if (webCodecsH264) return new CodecsPlayer();
+  const MS = mseClass();
+  return MS ? new MsePlayer(MS) : null;
+}
+// WebCodecs refused this stream after all: continue with MSE, from the codec config and the next key frame
+function fallBackToMse(config) {
+  const MS = mseClass();
+  if (!MS || !player || player.name !== 'webcodecs') return false;
+  canvas.classList.remove('on');
+  player = new MsePlayer(MS);
+  player.format(streamW, streamH);
+  if (config) player.frame(1, 0, config);
+  if (DEBUG) stats.path = 'mse (fallback)';
+  needKeyFrame();
+  return true;
 }
 
 // The picture's rectangle inside the element (object-fit: contain), for mapping pointer movement to its pixels
@@ -785,5 +858,5 @@ const standalone = matchMedia('(display-mode: standalone), (display-mode: fullsc
 noteEl.textContent = standalone ? '' : T.noteHttp;
 window.addEventListener('resize', () => { if (live) send(SIZE, new Uint8Array([...u16(screenSize()[0]), ...u16(screenSize()[1]), 0, 0])); });
 requestWakeLock();
-connect();
+detected.then(connect, connect);
 })();
