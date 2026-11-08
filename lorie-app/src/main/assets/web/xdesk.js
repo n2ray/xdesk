@@ -29,7 +29,7 @@ const T = zh ? {
 };
 
 // ---------------------------------------------------------------- protocol
-const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8;
+const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9;
 const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24;
 
 const $ = id => document.getElementById(id);
@@ -183,10 +183,53 @@ connectBtn.addEventListener('click', () => { retryDelay = 1500; connect(); });
 // ?debug: statistics on screen, and sent to the phone as text messages (it ignores them, a test server logs them)
 const DEBUG = /[?&]debug\b/.test(location.search);
 const stats = { path: '', framesIn: 0, keys: 0, configs: 0, decoded: 0, errors: 0, lastError: '', audio: 0 };
+// Latency in ms, medians over each second, only with ?debug. The phone's clock is the frames' timestamps (capture), its
+// offset from this one comes from TIME messages, keeping the sample with the shortest round trip, as NTP does.
+// rttMs: to the phone and back. arriveMs: capture to here (encoding, sending, network). decodeMs: here to handed to the
+// display. totalMs: capture to handed to the display. The monitor's own delay comes on top and cannot be seen from here.
+const lat = { times: [], arrivals: new Map(), arrive: [], decode: [], total: [] };
+function askTime() {
+  const b = new DataView(new ArrayBuffer(8));
+  b.setFloat64(0, performance.now());
+  send(TIME, new Uint8Array(b.buffer));
+}
+function onTime(v) {
+  const t0 = v.getFloat64(5), t1 = performance.now();
+  const phone = Number(v.getBigUint64(13)) / 1000;
+  lat.times.push({ rtt: t1 - t0, offset: phone - (t0 + t1) / 2 });
+  if (lat.times.length > 16) lat.times.shift();
+}
+function bestTime() { return lat.times.reduce((a, b) => !a || b.rtt < a.rtt ? b : a, null); }
+// How long ago the phone captured this frame, at the moment `at` on this page's clock
+function ageOf(pts, at) { const t = bestTime(); return t ? at - (pts / 1000 - t.offset) : null; }
+function noteArrival(pts) {
+  const now = performance.now();
+  lat.arrivals.set(pts, now);
+  if (lat.arrivals.size > 240) lat.arrivals.delete(lat.arrivals.keys().next().value);
+  const age = ageOf(pts, now);
+  if (age !== null) lat.arrive.push(age);
+}
+function noteShown(pts, at) {
+  const came = lat.arrivals.get(pts);
+  if (came === undefined) return;
+  lat.arrivals.delete(pts);
+  lat.decode.push(at - came);
+  const age = ageOf(pts, at);
+  if (age !== null) lat.total.push(age);
+}
+function median(a) {
+  if (!a.length) return null;
+  const s = a.slice().sort((x, y) => x - y);
+  a.length = 0;
+  return Math.round(s[s.length >> 1]);
+}
 function noteError(e) { stats.errors++; stats.lastError = String(e && e.message || e).slice(0, 160); }
 let debugEl = null;
 function debugTick() {
   if (player && player.extra) Object.assign(stats, player.extra());
+  const best = bestTime();
+  Object.assign(stats, { rttMs: best ? Math.round(best.rtt) : null, arriveMs: median(lat.arrive), decodeMs: median(lat.decode), totalMs: median(lat.total) });
+  askTime();
   const s = JSON.stringify(stats);
   if (!debugEl) {
     debugEl = document.createElement('pre');
@@ -208,7 +251,7 @@ function startSession() {
   if (!sound) sound = new Sound();
   sound.unlock();
   pingTimer = setInterval(() => send(PING), 2000);
-  if (DEBUG) { stats.path = player.name; debugTimer = setInterval(debugTick, 1000); }
+  if (DEBUG) { stats.path = player.name; debugTimer = setInterval(debugTick, 1000); askTime(); }
   trapHistory();
   flash(matchMedia('(pointer: fine)').matches ? T.lockHint : '', 3500);
   showBar(4000);
@@ -240,6 +283,7 @@ function onMessage(v) {
       if (!gotPicture) { gotPicture = true; noPicture = 0; }
       if (flags & 1) stats.configs++;
       if (flags & 2) stats.keys++;
+      if (DEBUG && !(flags & 1)) noteArrival(pts);
       try {
         player.frame(flags, pts, new Uint8Array(v.buffer, v.byteOffset + 14, len - 9));
       } catch (e) { noteError(e); }
@@ -248,6 +292,7 @@ function onMessage(v) {
     case AUDIO_FORMAT: break;
     case AUDIO_DATA: sound.data(new Uint8Array(v.buffer, v.byteOffset + 13, len - 8)); break;
     case PING: break;
+    case TIME: if (len >= 16) onTime(v); break;
     case BYE: quitting = true; show(T.ended, { button: T.reconnect }); ws.close(); break;
   }
 }
@@ -307,7 +352,12 @@ class CodecsPlayer {
     if (!this.decoder) {
       if (!key || !this.config || !this.codec) { needKeyFrame(); return; }
       this.decoder = new VideoDecoder({
-        output: f => { this.decoded++; this.ctx.drawImage(f, 0, 0, canvas.width, canvas.height); f.close(); },
+        output: f => {
+          this.decoded++;
+          this.ctx.drawImage(f, 0, 0, canvas.width, canvas.height);
+          if (DEBUG) noteShown(f.timestamp, performance.now());
+          f.close();
+        },
         error: e => {
           noteError(e);
           this.decoder = null; this.waitKey = true;
@@ -397,6 +447,13 @@ class MsePlayer {
     video.addEventListener('error', () => noteError('video: ' + (video.error && (video.error.code + ' ' + video.error.message))));
     this.w = 0; this.h = 0; this.name = 'mse';
     this.reset();
+    if (DEBUG && video.requestVideoFrameCallback) {
+      const shown = (now, m) => {
+        if (this.base >= 0) noteShown(Math.round(this.base + m.mediaTime * TIMESCALE), m.presentationTime);
+        video.requestVideoFrameCallback(shown);
+      };
+      video.requestVideoFrameCallback(shown);
+    }
   }
   extra() {
     const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};

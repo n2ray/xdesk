@@ -67,7 +67,7 @@ server.on('upgrade', (req, sock) => {
   const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
   sock.setNoDelay(true);
-  let buf = Buffer.alloc(0), timer = null, live = false, inputs = 0;
+  let buf = Buffer.alloc(0), timer = null, live = false, inputs = 0, t0 = Date.now();
   const send = (op, b) => { if (!sock.destroyed) sock.write(wsFrame(op, b)); };
   sock.on('data', d => {
     buf = Buffer.concat([buf, d]);
@@ -90,6 +90,7 @@ server.on('upgrade', (req, sock) => {
       } else if (op === 2 && p.length >= 5) {
         const t = p[0];
         if (t === 8) { console.log('KEY_FRAME requested'); }
+        else if (t === 9) { const c = Buffer.alloc(8); c.writeBigUInt64BE(BigInt(Math.round((Date.now() - t0) * 1000))); send(2, message(9, Buffer.concat([p.subarray(5, 13), c]))); }
         else if (t >= 20) { inputs++; if (inputs % 50 === 1) console.log('input type', t, 'count', inputs); }
       }
     }
@@ -101,7 +102,7 @@ server.on('upgrade', (req, sock) => {
     send(2, message(1, fmt));
     const head = (pts, flags) => { const h = Buffer.alloc(9); h.writeBigUInt64BE(BigInt(pts), 0); h[8] = flags; return h; };
     send(2, message(2, Buffer.concat([head(0, 1), config])));
-    let i = 0; const t0 = Date.now();
+    let i = 0; t0 = Date.now();
     timer = setInterval(() => {
       const u = units[i % units.length];
       // Loop from the first frame again: it is a key frame

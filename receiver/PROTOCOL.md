@@ -144,5 +144,6 @@ display sends:
 | 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
 | 23 | KEY | u16 Linux input key code, u8 down |
 | 24 | TEXT | UTF-8 text from an input method, at most 4096 bytes |
+| 9 | TIME | Only with `?debug`. 8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
 
 Input goes where the phone's touchpad and keyboard go: the Termux desktop or the Android app on the display.

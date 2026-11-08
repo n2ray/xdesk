@@ -442,6 +442,10 @@
     <string name="xd_web_kind_other">Other network</string>
     <string name="xd_web_copy">Copy</string>
     <string name="xd_web_copied">Copied %1$s</string>
+    <string name="xd_web_computer">From a computer, lowest delay</string>
+    <string name="xd_web_computer_note">Run one of these on the computer, then open http://localhost:47150 in its browser. On localhost the browser can use its faster video decoder, and Chrome can install the page as an app. Over SSH, Termux needs sshd running.</string>
+    <string name="xd_web_adb">USB (needs USB debugging)</string>
+    <string name="xd_web_ssh">Wi-Fi or tethering (SSH)</string>
     <string name="xd_web_wired">Wired</string>
     <string name="xd_web_wired_how">How</string>
     <string name="xd_web_wired_how_note">Connect an iPad, Mac or computer with a USB cable and turn on USB tethering (below). A wired address appears above. Lower and steadier delay than Wi-Fi. For iPad and Mac, switch tethering to NCM first. The phone barely charges from an iPad meanwhile.</string>

@@ -418,6 +418,10 @@
     <string name="xd_web_kind_other">其他网络</string>
     <string name="xd_web_copy">复制</string>
     <string name="xd_web_copied">已复制 %1$s</string>
+    <string name="xd_web_computer">从电脑打开（延迟最低）</string>
+    <string name="xd_web_computer_note">在电脑上运行下面任意一条，然后用电脑的浏览器打开 http://localhost:47150。localhost 下浏览器能用更快的视频解码，Chrome 也可以把页面安装成应用。走 SSH 时 Termux 要开着 sshd。</string>
+    <string name="xd_web_adb">USB（需要 USB 调试）</string>
+    <string name="xd_web_ssh">Wi-Fi 或网络共享（SSH）</string>
     <string name="xd_web_wired">有线连接</string>
     <string name="xd_web_wired_how">怎么连</string>
     <string name="xd_web_wired_how_note">用数据线连上 iPad、Mac 或电脑，打开下面的 USB 网络共享，上面就会多一个“有线”地址。延迟比 Wi-Fi 低，也更稳。iPad 和 Mac 要先把共享方式切成 NCM。接 iPad 时手机几乎充不进电。</string>

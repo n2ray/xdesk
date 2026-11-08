@@ -72,6 +72,8 @@ final class WirelessDisplay {
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
         SIZE = 7, KEY_FRAME = 8;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
+    /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
+    private static final int TIME = 9;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
@@ -643,6 +645,10 @@ final class WirelessDisplay {
                     in.readFully(b);
                     if (type >= IN_MOVE) webInput(type, b);
                     else if (type == KEY_FRAME) keyFrameWanted = true;
+                    else if (type == TIME && web && size == 8) {
+                        ByteBuffer reply = ByteBuffer.allocate(16).put(b).putLong(System.nanoTime() / 1000);
+                        writeMessage(TIME, reply.array(), 0, 16);
+                    }
                     else if (type == BYE) {
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;

@@ -523,6 +523,13 @@ public class XDeskActivity extends Activity {
     }
 
     /** 网页显示：开关、浏览器要打开的地址（无线、热点、有线）、有线的设置、已配对的浏览器。 */
+    private void addCopyRow(SettingsUi s, LinearLayout card, String title, final String text) {
+        s.valueRow(card, title, text, getString(R.string.xd_web_copy), () -> {
+            getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("XDesk", text));
+            Toast.makeText(this, getString(R.string.xd_web_copied, text), Toast.LENGTH_SHORT).show();
+        });
+    }
+
     private void showWebPage() {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
@@ -573,6 +580,14 @@ public class XDeskActivity extends Activity {
                 }
             });
         s.valueRow(wired, getString(R.string.xd_web_tethering), getString(R.string.xd_web_tethering_note), "", this::openTetherSettings);
+        LinearLayout computer = s.section(c, getString(R.string.xd_web_computer));
+        s.infoRow(computer, getString(R.string.xd_web_wired_how), getString(R.string.xd_web_computer_note), null);
+        addCopyRow(s, computer, getString(R.string.xd_web_adb), "adb forward tcp:" + WebServer.PORT + " tcp:" + WebServer.PORT);
+        java.util.List<WebServer.Address> forSsh = WebServer.addresses();
+        if (!forSsh.isEmpty()) {
+            addCopyRow(s, computer, getString(R.string.xd_web_ssh),
+                "ssh -N -L " + WebServer.PORT + ":127.0.0.1:" + WebServer.PORT + " -p 8022 " + forSsh.get(0).host);
+        }
         int paired = web.pairedCount();
         if (paired > 0) {
             s.dangerRow(c, getString(R.string.xd_web_forget, paired), null, () ->
