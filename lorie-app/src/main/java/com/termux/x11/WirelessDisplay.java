@@ -109,6 +109,17 @@ final class WirelessDisplay {
     private volatile WebSocket webSocket;
     /** The browser has been told that the phone's touchpad has the pointer. */
     private volatile boolean phonePointer;
+    /**
+     * A browser's connection is gone (a reload, a network hiccup) but the session goes on for GRACE_MS: frames are dropped,
+     * the display and the apps on it stay, and the same browser takes up where it was (resumeWeb). Under writeLock.
+     */
+    private volatile boolean webLost;
+    private volatile long graceUntil;
+    private volatile String webClient;
+    private volatile int streamWidth, streamHeight;
+    /** The encoder's codec config: it comes once, and a browser that returns needs it. */
+    private volatile byte[] lastConfig;
+    private static final long GRACE_MS = 8000;
     private volatile InputSink webInput;
     /** Why the stream ended for good, for a browser (see finalMessage); null for a lost connection. */
     private volatile String endReason;
@@ -340,8 +351,11 @@ final class WirelessDisplay {
             w.close();
         }
         closeQuietly(s);
+        closeQuietly(socket);   // a browser that returned is on another one
         socket = null;
         webSocket = null;
+        webLost = false;
+        webClient = null;
         displayId = Display.INVALID_DISPLAY;
         soundCaptured = false;
         // A drag or a held Ctrl from the browser must not stay pressed on the desktop
@@ -367,7 +381,10 @@ final class WirelessDisplay {
      * A browser paired through WebServer: stream to it over its WebSocket. The caller checked isActive() first.
      * Any thread.
      */
-    boolean startWeb(final Socket s, final WebSocket ws, String name, final int width, final int height, String okJson) {
+    boolean startWeb(final Socket s, final WebSocket ws, String id, String name, final int width, final int height, String okJson) {
+        synchronized (writeLock) {
+            if (canResume(id, width, height)) return resumeWeb(s, ws, okJson);
+        }
         // Android 12+ refuses a foreground service from the background (ForegroundServiceStartNotAllowedException).
         // WebServer keeps the service in the foreground while the web display is on, so this is only an update; if it
         // fails anyway, nothing has been set yet and the browser is told.
@@ -386,6 +403,8 @@ final class WirelessDisplay {
         running = true;
         web = true;
         phonePointer = false;
+        webLost = false;
+        webClient = id;
         endReason = null;
         address = null;
         receiverName = name;
@@ -430,11 +449,16 @@ final class WirelessDisplay {
     }
 
     private void releaseWebInput() {
+        releaseWebInput(true);
+    }
+
+    /** @param pointerToo false while the browser may come back: its pointer is still the one in use */
+    private void releaseWebInput(boolean pointerToo) {
         InputSink sink = webInput;
         if (sink != null) {
             for (int b : webButtons) sink.button(b, false);
             for (int k : webKeys) sink.key(k, false);
-            sink.pointerGone();
+            if (pointerToo) sink.pointerGone();
         }
         webButtons.clear();
         webKeys.clear();
@@ -630,29 +654,96 @@ final class WirelessDisplay {
 
     private void writeMessage(int type, byte[] head, ByteBuffer data, int size) throws IOException {
         synchronized (writeLock) {
+            if (webLost) return;
             DataOutputStream o = out;
             if (o == null) throw new IOException("not connected");
-            o.writeByte(type);
-            o.writeInt(head.length + size);
-            o.write(head);
-            if (size > 0) {
-                byte[] b = new byte[size];
-                data.get(b);
-                o.write(b);
+            try {
+                o.writeByte(type);
+                o.writeInt(head.length + size);
+                o.write(head);
+                if (size > 0) {
+                    byte[] b = new byte[size];
+                    data.get(b);
+                    o.write(b);
+                }
+                o.flush();
+            } catch (IOException e) {
+                if (!connectionLost()) throw e;
+                closeQuietly(socket);
+                return;
             }
-            o.flush();
             lastWrite = SystemClock.uptimeMillis();
+        }
+    }
+
+    /** Under writeLock. True if this is a browser's session, which now waits for the browser to return. */
+    private boolean connectionLost() {
+        if (!web || !running) return false;
+        if (!webLost) {
+            webLost = true;
+            graceUntil = SystemClock.uptimeMillis() + GRACE_MS;
+            Log.i(TAG, "browser gone, keeping the display for " + GRACE_MS + " ms");
+            ui.post(() -> releaseWebInput(false));
+        }
+        return true;
+    }
+
+    /** The same browser, back in time, and the display still fits it. */
+    private boolean canResume(String id, int width, int height) {
+        return web && running && webLost && id.equals(webClient) && width == streamWidth && height == streamHeight
+            && SystemClock.uptimeMillis() <= graceUntil;
+    }
+
+    /** Whether a browser with this id and picture size would take over the waiting session rather than be busy. */
+    boolean webResumable(String id, int width, int height) {
+        synchronized (writeLock) {
+            return canResume(id, width, height);
+        }
+    }
+
+    /** Under writeLock. Gives the session to the browser's new connection: the stream starts over from a key frame. */
+    private boolean resumeWeb(Socket s, WebSocket ws, String okJson) {
+        try {
+            s.setTcpNoDelay(true);
+            s.setSoTimeout(TIMEOUT_MS);
+            ws.sendText(okJson);
+            socket = s;
+            webSocket = ws;
+            out = new DataOutputStream(ws.output());
+            webLost = false;
+            ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
+            writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+            byte[] config = lastConfig;
+            if (config != null) {
+                byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
+                writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(config), config.length);
+            }
+            lastSyncRequest = 0;
+            keyFrameWanted = true;
+            startReader(new DataInputStream(ws.input()));
+            Log.i(TAG, "browser back, same display");
+            return true;
+        } catch (IOException e) {
+            Log.i(TAG, "resume: " + e);
+            return false;
         }
     }
 
     private void writeMessage(int type, byte[] payload, int offset, int size) throws IOException {
         synchronized (writeLock) {
+            if (webLost) return;
             DataOutputStream o = out;
             if (o == null) throw new IOException("not connected");
-            o.writeByte(type);
-            o.writeInt(size);
-            o.write(payload, offset, size);
-            o.flush();
+            try {
+                o.writeByte(type);
+                o.writeInt(size);
+                o.write(payload, offset, size);
+                o.flush();
+            } catch (IOException e) {
+                if (!connectionLost()) throw e;
+                closeQuietly(socket);
+                return;
+            }
             lastWrite = SystemClock.uptimeMillis();
         }
     }
@@ -687,7 +778,9 @@ final class WirelessDisplay {
             // The worker must not wait for its next write: with the phone locked the display may make no more frames.
             // Only this session: the next one may already have started if the worker got here first
             closeQuietly(mine);
-            if (socket == mine) running = false;
+            synchronized (writeLock) {
+                if (socket == mine && !connectionLost()) running = false;
+            }
         }, "xdesk-wireless-reader").start();
     }
 
@@ -716,6 +809,8 @@ final class WirelessDisplay {
 
     /** Returns true when the injector died and a new one may continue the stream. */
     private boolean stream(int width, int height, int receiverDpi) throws IOException {
+        streamWidth = width;
+        streamHeight = height;
         final IInjector[] got = new IInjector[1];
         final CountDownLatch connected = new CountDownLatch(1);
         final ServiceConnection connection = new ServiceConnection() {
@@ -825,6 +920,11 @@ final class WirelessDisplay {
                     break;
                 }
             }
+            if (webLost && SystemClock.uptimeMillis() > graceUntil) {
+                Log.i(TAG, "browser did not come back");
+                running = false;
+                break;
+            }
             if (keyFrameWanted && SystemClock.uptimeMillis() - lastSyncRequest >= 1000) {
                 keyFrameWanted = false;
                 lastSyncRequest = SystemClock.uptimeMillis();
@@ -839,6 +939,11 @@ final class WirelessDisplay {
                     ByteBuffer data = encoder.getOutputBuffer(index);
                     data.position(info.offset);
                     data.limit(info.offset + info.size);
+                    if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                        byte[] config = new byte[info.size];
+                        data.duplicate().get(config);
+                        lastConfig = config;
+                    }
                     int flags = ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0 ? 1 : 0)
                         | ((info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 ? 2 : 0);
                     byte[] head = ByteBuffer.allocate(9).putLong(info.presentationTimeUs).put((byte) flags).array();

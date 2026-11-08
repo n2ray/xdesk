@@ -122,6 +122,8 @@ it listens on **TCP port 47150** for HTTP/1.1, serves the page (`/`, `/xdesk.js`
 `/icon.png`) and accepts a WebSocket at `/ws`. A WebSocket whose `Origin` is not the page's own host is refused.
 It answers only on the networks the settings list (Wi-Fi, hotspot, USB tethering, Ethernet; IPv4) and on the phone itself; connections on other interfaces (VPNs, mobile data, IPv6) are closed at once. Before pairing at most 16 connections, 4 per address; each must finish its requests within a minute and send its hello within 15 seconds; messages are at most 8 KiB. While the web display is on, XDesk keeps its foreground service, so a browser can connect while the phone is locked.
 
+If a browser's connection is lost without a BYE, the phone keeps the session and its display for 8 seconds. The same browser id with the same picture size then continues it: after `ok` it gets VIDEO_FORMAT, the codec config and a key frame, as at the start.
+
 Pairing, as JSON text messages, before anything else:
 
 1. Browser → phone: `{"hello":1, "id":"<32 hex, made once per browser>", "name":"iPad Safari", "token":"<from an earlier pairing, or empty>", "w":<px>, "h":<px>}`. `w` and `h` are the browser screen's size in device pixels, in its current orientation.

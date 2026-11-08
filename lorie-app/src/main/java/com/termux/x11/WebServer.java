@@ -540,13 +540,13 @@ final class WebServer {
             int[] size = fit(w, hh);
             WirelessDisplay wd = WirelessDisplay.get(context);
             // A reloaded page is here before its old connection has ended
-            for (int i = 0; i < BUSY_WAITS && wd.isActive(); i++) android.os.SystemClock.sleep(100);
+            for (int i = 0; i < BUSY_WAITS && wd.isActive() && !wd.webResumable(id, size[0], size[1]); i++) android.os.SystemClock.sleep(100);
             if (listener == null) {
                 ws.sendText(status("closed"));
                 ws.close();
                 return false;
             }
-            if (wd.isActive()) {
+            if (wd.isActive() && !wd.webResumable(id, size[0], size[1])) {
                 ws.sendText(status("busy").replace("}", ",\"name\":" + JSONObject.quote(wd.receiverName()) + "}"));
                 ws.close();
                 return false;
@@ -577,13 +577,13 @@ final class WebServer {
             ok.put("w", size[0]);
             ok.put("h", size[1]);
             synchronized (wd) {
-                if (wd.isActive()) {
+                if (wd.isActive() && !wd.webResumable(id, size[0], size[1])) {
                     ws.sendText(status("busy"));
                     ws.close();
                     return false;
                 }
                 // Sends ok itself, before any stream message; false when it may not start (see startWeb)
-                if (!wd.startWeb(c, ws, context.getString(com.termux.x11.app.R.string.xd_web_receiver_name, label),
+                if (!wd.startWeb(c, ws, id, context.getString(com.termux.x11.app.R.string.xd_web_receiver_name, label),
                         size[0], size[1], ok.toString())) {
                     ws.sendText(status("ended").replace("}", ",\"reason\":"
                         + JSONObject.quote(context.getString(com.termux.x11.app.R.string.xd_web_no_service)) + "}"));
