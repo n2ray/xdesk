@@ -241,6 +241,13 @@ function median(a) {
   a.length = 0;
   return Math.round(s[s.length >> 1]);
 }
+// Kept across seconds: going to the Copy button makes no frames, so a per-second value would always read null there
+function recentMedian(a) {
+  if (a.length > 20) a.splice(0, a.length - 20);
+  if (!a.length) return null;
+  const s = a.slice().sort((x, y) => x - y);
+  return Math.round(s[s.length >> 1]);
+}
 function noteError(e) { stats.errors++; stats.lastError = String(e && e.message || e).slice(0, 160); }
 let debugEl = null;
 function copyText(text, button) {
@@ -257,7 +264,7 @@ function copyText(text, button) {
 function debugTick() {
   if (player && player.extra) Object.assign(stats, player.extra());
   const best = bestTime();
-  Object.assign(stats, { rttMs: best ? Math.round(best.rtt) : null, arriveMs: median(lat.arrive), decodeMs: median(lat.decode), totalMs: median(lat.total), inputMs: median(lat.input) });
+  Object.assign(stats, { rttMs: best ? Math.round(best.rtt) : null, arriveMs: median(lat.arrive), decodeMs: median(lat.decode), totalMs: median(lat.total), inputMs: recentMedian(lat.input) });
   askTime();
   const s = JSON.stringify(stats);
   if (!debugEl) {
