@@ -45,6 +45,7 @@ bool lorieConnectionAlive(int fd);
 extern bool lorieDebugEnabled; // Set in activity.cpp's startLogcat, only called when TERMUX_X11_DEBUG=1.
 void lorieSetRendererWakeupCond(int fd);
 void lorieSetCursorVisible(Bool visible);
+void lorieSetCursorHidden(Bool hidden);
 void lorieSendSyncReply(uint32_t serial);
 void lorieSendHeartbeat(void);
 
@@ -125,6 +126,7 @@ typedef enum {
     EVENT_SYNC,
     EVENT_SYNC_REPLY,
     EVENT_HEARTBEAT,
+    EVENT_CURSOR_HIDDEN,
 } eventType;
 
 typedef union {
@@ -164,6 +166,10 @@ typedef union {
     struct {
         uint8_t t, enable;
     } stylusEnable;
+    struct {
+        uint8_t t;
+        Bool hidden;
+    } cursorHidden;
     struct {
         uint8_t t;
         uint32_t code;

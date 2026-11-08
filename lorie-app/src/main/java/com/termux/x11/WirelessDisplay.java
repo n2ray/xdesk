@@ -418,6 +418,7 @@ final class WirelessDisplay {
         if (sink != null) {
             for (int b : webButtons) sink.button(b, false);
             for (int k : webKeys) sink.key(k, false);
+            sink.pointerGone();
         }
         webButtons.clear();
         webKeys.clear();

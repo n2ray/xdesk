@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 /** 把输入直接交给外屏 MainActivity 里的 LorieView。桌面没连上时丢弃。 */
 final class DesktopInput implements InputSink {
     private static final float WHEEL_STEP = 60f;
+    private boolean cursorHidden;
+    private LorieView cursorView;
 
     /** 桌面窗口已连上 X 时返回它的 LorieView，否则返回 null。 */
     static LorieView view() {
@@ -14,14 +16,28 @@ final class DesktopInput implements InputSink {
         return v != null && v.connected() ? v : null;
     }
 
+    /** The browser's pointer is on top: the X cursor stays hidden until another pointer moves, or it leaves. */
+    private void setCursorHidden(LorieView v, boolean hidden) {
+        if (v == null || (hidden == cursorHidden && v == cursorView)) return;
+        cursorHidden = hidden;
+        cursorView = v;
+        v.setCursorHidden(hidden);
+    }
+
+    @Override public void pointerGone() {
+        setCursorHidden(view(), false);
+    }
+
     @Override public void move(int dx, int dy) {
         LorieView v = view();
+        setCursorHidden(v, false);
         if (v != null) v.sendMouseEvent(dx, dy, InputStub.BUTTON_UNDEFINED, false, true);
     }
 
     @Override public void moveToFraction(float x, float y) {
         LorieView v = view();
         if (v == null) return;
+        setCursorHidden(v, true);
         android.graphics.Point s = v.screenSize();
         if (s.x > 0 && s.y > 0) v.sendMouseEvent(x * (s.x - 1), y * (s.y - 1), InputStub.BUTTON_UNDEFINED, false, false);
     }

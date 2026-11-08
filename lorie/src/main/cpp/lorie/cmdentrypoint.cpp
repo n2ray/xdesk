@@ -344,6 +344,10 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
 
                 break;
             }
+            case EVENT_CURSOR_HIDDEN: {
+                lorieSetCursorHidden(e.cursorHidden.hidden);
+                break;
+            }
             case EVENT_STYLUS_ENABLE: {
                 lorieSetStylusEnabled(e.stylusEnable.enable);
                 break;

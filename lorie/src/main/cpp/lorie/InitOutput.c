@@ -435,8 +435,16 @@ static Bool lorieCursorFromMouse(DeviceIntPtr pDev) {
     return !pDev || GetMaster(pDev, MASTER_POINTER) == inputInfo.pointer;
 }
 
+/* Another pointer stands in for this one, a browser's: its cursor would only trail behind that. */
+static Bool lorieCursorHidden = FALSE;
+
+void lorieSetCursorHidden(Bool hidden) {
+    lorieCursorHidden = hidden;
+    lorieSetCursorVisible(!hidden);
+}
+
 void lorieSetCursorVisible(Bool visible) {
-    pvfb->state->cursor.visible = visible;
+    pvfb->state->cursor.visible = visible && !lorieCursorHidden;
     pvfb->state->cursor.moved = TRUE;
     pthread_cond_signal(rendererCond);
 }

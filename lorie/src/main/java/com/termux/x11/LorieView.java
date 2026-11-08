@@ -799,6 +799,10 @@ public class LorieView extends SurfaceView implements InputStub {
         setRendererZoom(mNativeContext, isInPictureInPictureMode ? 100 : Math.round(rendererZoom));
     }
 
+    /** Hides the X cursor while another pointer stands in for it, a browser's. */
+    public void setCursorHidden(boolean hidden) { setCursorHidden(mNativeContext, hidden); }
+    private native void setCursorHidden(long ptr, boolean hidden);
+
     public void sendMouseEvent(float x, float y, int whichButton, boolean buttonDown, boolean relative) { sendMouseEvent(mNativeContext, x, y, whichButton, buttonDown, relative); }
     @FastNative private native void sendMouseEvent(long ptr, float x, float y, int whichButton, boolean buttonDown, boolean relative);
 

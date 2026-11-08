@@ -558,6 +558,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __unused void *reserved) {
                     }
                 }
             }},
+            {"setCursorHidden", "(JZ)V", (void *) +[](__unused JNIEnv* env, __unused jobject cls, jlong ptr, jboolean hidden) {
+                auto* r = (LorieViewResources*) ptr;
+                if (r && r->connFd != -1)
+                    sendEvent(r, .cursorHidden = { .t = EVENT_CURSOR_HIDDEN, .hidden = hidden });
+            }},
             {"sendMouseEvent", "(JFFIZZ)V", (void *) +[](JNIEnv* env, __unused jobject cls, jlong ptr, jfloat x, jfloat y, jint which_button, jboolean button_down, jboolean relative) {
                 lastInputTimestampMs = nowMs();
                 auto* r = (LorieViewResources*) ptr;
