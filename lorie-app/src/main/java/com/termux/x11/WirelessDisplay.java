@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit;
  * of its own (public and trusted, like AppDisplay), so XDesk uses it like a cable-connected external display: desktop,
  * Android apps, cursor, dashboard and density all work as there, TargetDisplay counts it as real. Its picture goes into
  * a hardware H.264 encoder. Sound is the phone's whole output, recorded by that injector (OutputCapture), so nothing
- * plays on the phone meanwhile; or, by choice (setSoundToReceiver), it stays on the phone, e.g. in headphones.
+ * plays on the phone meanwhile; or, by the sound output setting (updateSound), it stays on the phone, e.g. in headphones.
  *
  * If that injector dies (Shizuku killed, the built-in server restarted), the connection to the receiver stays and a new
  * injector makes a new display, a few times. Apps on the old display go to the phone as from an unplugged display.
@@ -100,8 +100,6 @@ final class WirelessDisplay {
     private volatile IInjector injector;
     private volatile ParcelFileDescriptor soundPipe;
     private final Object soundLock = new Object();
-    /** Whether the phone's sound goes to the receiver; off keeps it on the phone, e.g. in headphones. */
-    private static final String PREF_SOUND = "sound_to_receiver";
     private volatile Socket socket;
     private volatile WebSocket webSocket;
     private volatile InputSink webInput;
@@ -147,19 +145,23 @@ final class WirelessDisplay {
         return soundCaptured;
     }
 
-    /** The choice, kept for the next connection; capturesSound says whether it worked. */
-    boolean soundToReceiver() {
-        return prefs.getBoolean(PREF_SOUND, true);
+    /**
+     * The same sound output setting as for a cable (AudioRoute): system default follows the display, here the receiver;
+     * an output of the phone that is there (headphones, the speaker...) keeps the sound on the phone.
+     */
+    private boolean soundToReceiver() {
+        return !AudioRoute.get(context).choosesPresentOutput();
     }
 
-    /** Also while streaming: the recording starts or stops, and the phone's own outputs take the sound back. */
-    void setSoundToReceiver(final boolean on) {
-        prefs.edit().putBoolean(PREF_SOUND, on).apply();
+    /** After the choice or the phone's outputs changed. Also while streaming: the recording starts or stops. */
+    void updateSound() {
+        if (injector == null) return;
         // captureOutput is a Binder call that starts a recording, not for the main thread
         new Thread(() -> {
             synchronized (soundLock) {
                 IInjector i = injector;
                 if (i == null || state != STREAMING) return;
+                boolean on = soundToReceiver();
                 if (on && soundPipe == null) captureSound(i);
                 else if (!on && soundPipe != null) stopSound();
             }

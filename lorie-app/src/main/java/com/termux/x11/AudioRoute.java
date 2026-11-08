@@ -101,6 +101,7 @@ final class AudioRoute {
     }
 
     private void devicesChanged() {
+        WirelessDisplay.get(context).updateSound();
         boolean missing = isMissing();
         if (missing && !wasMissing && listener != null) listener.onAudioMessage(context.getString(R.string.xd_audio_missing));
         wasMissing = missing;
@@ -174,6 +175,14 @@ final class AudioRoute {
             if (!seen) out.add(o);
         }
         return out;
+    }
+
+    /**
+     * 有线外接屏、无线显示、网页显示都用这一个设置：系统默认就是跟着屏幕（有线时系统一般给外接屏，无线和网页时是接收端），
+     * 选了手机上在的设备（耳机、扬声器……）声音就留在那里。
+     */
+    boolean choosesPresentOutput() {
+        return !selectedKey().isEmpty() && selectedOutput() != null;
     }
 
     /** 所有模式共用这一个设置。没选过就是系统默认。 */
@@ -270,6 +279,7 @@ final class AudioRoute {
 
     void select(String key) {
         prefs.edit().putString(PREF_KEY, key).apply();
+        WirelessDisplay.get(context).updateSound();
         wasMissing = isMissing();
         appliedKey = null;  // 再选一次也要真的设一次，比如清掉别的进程留下的
         syncSystem();
