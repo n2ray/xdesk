@@ -364,39 +364,35 @@ final class WebServer {
         try {
             InputStream in = new BufferedInputStream(c.getInputStream(), 16384);
             OutputStream out = new BufferedOutputStream(c.getOutputStream(), 65536);
-            // Keep-alive: browsers fetch the page, script and icon over one connection
-            while (true) {
-                long left = deadline - System.currentTimeMillis();
-                if (left <= 0) return;
-                c.setSoTimeout((int) Math.min(REQUEST_TIMEOUT_MS, left));
-                Map<String, String> h = new HashMap<>();
-                String[] request = readRequest(in, h, deadline);
-                if (request == null) return;
-                String path = request[1];
-                int q = path.indexOf('?');
-                if (q >= 0) path = path.substring(0, q);
-                if (!"GET".equals(request[0])) {
-                    respond(out, 405, "text/plain", "method".getBytes(StandardCharsets.UTF_8));
-                    return;
-                }
-                if ("/ws".equals(path) && "websocket".equalsIgnoreCase(h.get("upgrade"))) {
-                    handedOver = webSocket(c, ip, in, out, h);
-                    return;
-                }
-                byte[] body;
-                String type;
-                switch (path) {
-                    case "/": body = asset("index.html"); type = "text/html; charset=utf-8"; break;
-                    case "/xdesk.js": body = asset("xdesk.js"); type = "text/javascript; charset=utf-8"; break;
-                    case "/xdesk.css": body = asset("xdesk.css"); type = "text/css; charset=utf-8"; break;
-                    case "/manifest.webmanifest": body = asset("manifest.webmanifest"); type = "application/manifest+json"; break;
-                    case "/icon.png": body = icon(); type = "image/png"; break;
-                    default: body = null; type = null;
-                }
-                if (body == null) respond(out, 404, "text/plain", "not found".getBytes(StandardCharsets.UTF_8));
-                else respond(out, 200, type, body);
-                if ("close".equalsIgnoreCase(h.get("connection"))) return;
+            // One request per connection: an idle keep-alive connection would count as unpaired, and after a reload those
+            // of the old page used up the limit, so the page's WebSocket was closed at once for up to a minute
+            c.setSoTimeout(REQUEST_TIMEOUT_MS);
+            Map<String, String> h = new HashMap<>();
+            String[] request = readRequest(in, h, deadline);
+            if (request == null) return;
+            String path = request[1];
+            int q = path.indexOf('?');
+            if (q >= 0) path = path.substring(0, q);
+            if (!"GET".equals(request[0])) {
+                respond(out, 405, "text/plain", "method".getBytes(StandardCharsets.UTF_8));
+                return;
             }
+            if ("/ws".equals(path) && "websocket".equalsIgnoreCase(h.get("upgrade"))) {
+                handedOver = webSocket(c, ip, in, out, h);
+                return;
+            }
+            byte[] body;
+            String type;
+            switch (path) {
+                case "/": body = asset("index.html"); type = "text/html; charset=utf-8"; break;
+                case "/xdesk.js": body = asset("xdesk.js"); type = "text/javascript; charset=utf-8"; break;
+                case "/xdesk.css": body = asset("xdesk.css"); type = "text/css; charset=utf-8"; break;
+                case "/manifest.webmanifest": body = asset("manifest.webmanifest"); type = "application/manifest+json"; break;
+                case "/icon.png": body = icon(); type = "image/png"; break;
+                default: body = null; type = null;
+            }
+            if (body == null) respond(out, 404, "text/plain", "not found".getBytes(StandardCharsets.UTF_8));
+            else respond(out, 200, type, body);
         } catch (SocketTimeoutException ignored) {
         } catch (IOException e) {
             Log.i(TAG, "client: " + e);
@@ -447,6 +443,7 @@ final class WebServer {
             + "Content-Type: " + type + "\r\n"
             + "Content-Length: " + body.length + "\r\n"
             + "Cache-Control: no-cache\r\n"
+            + "Connection: close\r\n"
             + "X-Content-Type-Options: nosniff\r\n"
             + "Referrer-Policy: no-referrer\r\n"
             + "\r\n";
