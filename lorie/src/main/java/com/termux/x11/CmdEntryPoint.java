@@ -24,6 +24,8 @@ import android.view.Surface;
 
 import androidx.annotation.Keep;
 
+import java.io.IOException;
+
 import dalvik.annotation.optimization.CriticalNative;
 
 import java.io.OutputStream;
