@@ -225,8 +225,10 @@ function noteInput() {
 }
 function noteShown(pts, at) {
   if (lat.inputAt && at >= lat.inputAt) {
-    if (at - lat.inputAt < 1000) lat.input.push(at - lat.inputAt);
-    lat.inputAt = 0;
+    // A frame captured before the move reached the phone cannot be the answer to it
+    const t = bestTime();
+    if (at - lat.inputAt >= 1000) lat.inputAt = 0;
+    else if (t && pts / 1000 - t.offset >= lat.inputAt + t.rtt / 2) { lat.input.push(at - lat.inputAt); lat.inputAt = 0; }
   }
   const came = lat.arrivals.get(pts);
   if (came === undefined) return;
