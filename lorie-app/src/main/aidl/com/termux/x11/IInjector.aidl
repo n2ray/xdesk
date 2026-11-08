@@ -68,7 +68,7 @@ interface IInjector {
      * A display of this session for apps, shown in a surface of XDesk's: the car's screen, see AppDisplay. Ends with the
      * session, and apps on it then go to the phone. The surface may be null. Returns the display id, throws when refused.
      */
-    int createVirtualDisplay(String name, int width, int height, int dpi, in Surface surface) = 31;
+    int createVirtualDisplay(String name, int width, int height, int dpi, in Surface surface, float refreshRate) = 31;
     /** Null detaches: the display and its apps stay, as with the screen off. Returns when done. */
     void setVirtualDisplaySurface(int displayId, in Surface surface) = 32;
     /** The car's touch screen: fingers at absolute pixels on the display, in any input mode. Action and ids as in MotionEvent. */

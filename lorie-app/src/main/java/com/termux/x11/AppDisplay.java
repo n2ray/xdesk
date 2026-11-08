@@ -52,12 +52,13 @@ final class AppDisplay {
     }
 
     /** Throws IllegalStateException with the reason, which Binder carries back to XDesk. */
-    static VirtualDisplay create(String name, int width, int height, int dpi, Surface surface) {
+    static VirtualDisplay create(String name, int width, int height, int dpi, Surface surface, float refreshRate) {
         try {
             Constructor<DisplayManager> c = DisplayManager.class.getDeclaredConstructor(Context.class);
             c.setAccessible(true);
             DisplayManager dm = c.newInstance(shellContext());
-            VirtualDisplay d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags());
+            VirtualDisplay d = refreshRate > 0 ? createAtRate(dm, name, width, height, dpi, surface, refreshRate) : null;
+            if (d == null) d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags());
             if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
             return d;
         } catch (InvocationTargetException e) {
@@ -69,6 +70,23 @@ final class AppDisplay {
         } catch (RuntimeException e) {
             // SecurityException and others, as text: Binder only carries some exception types
             throw new IllegalStateException(e.toString());
+        }
+    }
+
+    /** A display composited at most this often. Null if this system cannot, and it is made the plain way. */
+    private static VirtualDisplay createAtRate(DisplayManager dm, String name, int width, int height, int dpi, Surface surface, float rate) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null;
+        try {
+            android.hardware.display.VirtualDisplayConfig config = new android.hardware.display.VirtualDisplayConfig.Builder(name, width, height, dpi)
+                .setSurface(surface)
+                .setFlags(flags())
+                .setRequestedRefreshRate(rate)
+                .build();
+            return (VirtualDisplay) DisplayManager.class.getMethod("createVirtualDisplay", android.hardware.display.VirtualDisplayConfig.class, android.os.Handler.class, VirtualDisplay.Callback.class)
+                .invoke(dm, config, null, null);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            android.util.Log.w("XDeskInjector", "no display at " + rate + " Hz: " + e);
+            return null;
         }
     }
 

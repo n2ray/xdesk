@@ -116,6 +116,11 @@ final class AppSession {
     private int carWidth, carHeight, carDpi;
     private Surface carSurface;
     private final Object carLock = new Object();
+    /**
+     * Android Auto encodes about 30 frames a second. At 60 the apps' display keeps feeding it more, unevenly: the picture
+     * stuttered as soon as a finger moved, and the encoder fell to about 10 (measured with a browser playing video).
+     */
+    private static final float CAR_REFRESH_HZ = 30f;
 
     private final CarActivity.AppScreen carScreen = new CarActivity.AppScreen() {
         @Override public void onSurface(Surface s) {
@@ -484,7 +489,7 @@ final class AppSession {
         int id;
         synchronized (carLock) {
             if (carDisplayId == Display.INVALID_DISPLAY) {
-                carDisplayId = i.createVirtualDisplay("XDesk", carWidth, carHeight, carDpi, carSurface);
+                carDisplayId = i.createVirtualDisplay("XDesk", carWidth, carHeight, carDpi, carSurface, CAR_REFRESH_HZ);
                 Log.i(TAG, "made display=" + carDisplayId + " for apps, " + carWidth + "x" + carHeight
                     + " " + carDpi + " dpi, surface " + (carSurface != null ? "attached" : "not ready"));
             }

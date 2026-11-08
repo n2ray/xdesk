@@ -482,9 +482,9 @@ public class InjectorService extends IInjector.Stub {
         post(() -> injector.screenTouch(action, ids, x, y));
     }
 
-    @Override public int createVirtualDisplay(String name, int width, int height, int dpi, Surface surface) {
+    @Override public int createVirtualDisplay(String name, int width, int height, int dpi, Surface surface, float refreshRate) {
         if (sessionOver) throw new IllegalStateException(OVER);
-        VirtualDisplay d = AppDisplay.create(name, width, height, dpi, surface);
+        VirtualDisplay d = AppDisplay.create(name, width, height, dpi, surface, refreshRate);
         synchronized (appDisplays) {
             if (sessionOver) {
                 d.release();

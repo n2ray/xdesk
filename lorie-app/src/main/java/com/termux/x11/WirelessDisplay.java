@@ -733,7 +733,7 @@ final class WirelessDisplay {
             int dpi = Math.max(120, Math.round(width * 213f / 2560f));
             int id;
             try {
-                id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input);
+                id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input, 0);
             } catch (IllegalStateException e) {
                 finalMessage(R.string.xd_wireless_no_display, ShellText.localize(context, String.valueOf(e.getMessage())));
                 running = false;
