@@ -126,7 +126,7 @@ Pairing, as JSON text messages, before anything else:
 
 1. Browser → phone: `{"hello":1, "id":"<32 hex, made once per browser>", "name":"iPad Safari", "token":"<from an earlier pairing, or empty>", "w":<px>, "h":<px>}`. `w` and `h` are the browser screen's size in device pixels, in its current orientation.
 2. Phone → browser, `{"status": ...}`:
-   - `ok`, with `token` (new after pairing, otherwise empty: keep the old one), `phone` (its name), `w`, `h` (the size it streams: at most 1920 on the long side and 1088 on the short one, aspect kept, even). The binary protocol starts.
+   - `ok`, with `token` (new after pairing, otherwise empty: keep the old one), `phone` (its name), `version` (XDesk's; a page that was loaded from another version reloads), `w`, `h` (the size it streams: at most 1920 on the long side and 1088 on the short one, aspect kept, even). The binary protocol starts.
    - `pair`: XDesk shows a 4-digit code on the phone. The browser sends `{"code":"1234"}`; a wrong one gets `wrong` and another try, the third `refused`. Wrong codes count per address across connections, and so does a pairing that ends without a right code (closed, timed out, anything else sent): 3 lock the address out for a minute, 10 from anyone within 10 minutes pause pairing for 10 minutes. A pairing ends 2 minutes after it began.
    - `pairing`: another browser is pairing now; try again later.
    - `ended`, with `reason`: the phone could not start, or it stopped in a way trying again would not help (no injector, no display). The browser shows the reason and does not reconnect by itself. Also sent after a stream, before the phone closes.

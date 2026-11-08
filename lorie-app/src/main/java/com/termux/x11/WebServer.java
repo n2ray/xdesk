@@ -323,6 +323,14 @@ final class WebServer {
         return allowed.contains(local.getHostAddress());
     }
 
+    private String appVersion() {
+        try {
+            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return "";
+        }
+    }
+
     private void webMessage(final int id) {
         ui.post(() -> {
             Listener l = listener;
@@ -568,6 +576,7 @@ final class WebServer {
             ok.put("status", "ok");
             ok.put("token", token != null ? token : "");
             ok.put("phone", phoneName());
+            ok.put("version", appVersion());
             ok.put("w", size[0]);
             ok.put("h", size[1]);
             synchronized (wd) {

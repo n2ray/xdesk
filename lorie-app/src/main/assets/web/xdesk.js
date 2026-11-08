@@ -37,6 +37,7 @@ const stage = $('stage'), video = $('video'), canvas = $('canvas'), kbd = $('kbd
 const panel = $('panel'), statusEl = $('status'), pairForm = $('pair'), codeIn = $('code'), noteEl = $('note');
 const connectBtn = $('b-connect'), bar = $('bar'), hint = $('hint');
 
+let pageVersion = null;
 let ws = null, live = false, quitting = false, retryTimer = 0, retryDelay = 1500;
 // Keepalive without timers, which hidden tabs run once a minute: answer what the phone sends (item 10)
 let lastSent = 0;
@@ -161,6 +162,11 @@ function onStatus(m) {
     case 'ended': quitting = true; show(m.reason || T.ended, { button: T.reconnect }); break;
     case 'ok':
       if (m.token) store.set('token', m.token);
+      // XDesk was updated while this page stayed open: its page may no longer fit
+      if (m.version) {
+        if (pageVersion && m.version !== pageVersion) { location.reload(); return; }
+        pageVersion = m.version;
+      }
       streamW = m.w; streamH = m.h;
       retryDelay = 1500;
       gotPicture = false;
