@@ -105,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
     FrameLayout frm;
     TouchInputHandler mInputHandler;
     protected ICmdEntryInterface service = null;
+    /** The X server whose connection passed madeByXServer, for the desktop sound. */
+    public static volatile ICmdEntryInterface verifiedServer;
     private boolean logcatPending;
     public TermuxX11ExtraKeys mExtraKeys;
     private DisplayManager displayManager;
@@ -790,6 +792,7 @@ public class MainActivity extends AppCompatActivity {
                 scheduleConnect();
             } else if (fd != null) {
                 app.verifiedServers.add(service.asBinder());
+                verifiedServer = service;
                 if (logcatPending) {
                     logcatPending = false;
                     Log.v("MainActivity", "Extracting logcat fd.");

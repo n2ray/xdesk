@@ -18,7 +18,12 @@
 set -u
 APP=io.github.n2ray.xdesk.x11
 DPY=:1
-AUDIO_PORT=47130
+AUDIO_PORT=47130   # only for removing what an older xdesk loaded
+# Private to Termux, unlike a port on 127.0.0.1, which every app on the phone can reach
+AUDIO_SOCK=$PREFIX/tmp/xdesk-audio
+# The PulseAudio cookie where proot (/tmp, with --shared-tmp) and chroot clients can read it. Inside Termux's own
+# directory, so readable for a chroot's user does not mean for other apps
+PULSE_COOKIE_FILE=$PREFIX/tmp/xdesk-pulse-cookie
 DEFAULT_RES='1280 x 1024'    # what X reports before the app has connected
 CONF=$HOME/.config/xdesk
 SESSIONS=$CONF/sessions
@@ -143,7 +148,7 @@ start_x() {
     # through RUN_COMMAND, so a shell's env never gets here.
     local xenv
     read_x11_env
-    env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
         -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
         </dev/null >>"$LOG" 2>&1 9>&- &
     for _ in $(seq 40); do
@@ -157,15 +162,27 @@ start_x() {
 start_audio() {
     # Desktop audio goes to a null sink, the app reads it from a local port and picks the output device
     timeout 5 pulseaudio --start --exit-idle-time=-1 </dev/null 9>&- 2>/dev/null
-    timeout 3 pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1 >/dev/null 2>&1
-    local p="timeout 3 pactl"
-    export PULSE_SERVER=127.0.0.1
+    unset PULSE_SERVER PULSE_COOKIE   # the local daemon, whatever this shell has set
+    # Clients in proot or a chroot come in over TCP, so it needs the cookie: any app on the phone can reach 127.0.0.1.
+    # The file below brings back the old way, without one, for setups that cannot pass PULSE_COOKIE
+    local p="timeout 3 pactl" args="listen=127.0.0.1 auth-cookie-enabled=1 auth-anonymous=0" id
+    [ -e "$CONF/pulse-anonymous" ] && args="auth-ip-acl=127.0.0.1 auth-anonymous=1"
+    for _ in $(seq 10); do $p info >/dev/null 2>&1 && break; sleep 0.5; done
+    # A daemon still running from an older xdesk or another script keeps its open port otherwise
+    $p list short modules 2>/dev/null | awk -F'\t' -v want="$args" -v port="port=$AUDIO_PORT" \
+        '($2 == "module-native-protocol-tcp" && $3 != want) || ($2 == "module-simple-protocol-tcp" && index($3, port)) { print $1 }' |
+        while read -r id; do $p unload-module "$id"; done
+    $p list short modules 2>/dev/null | grep -q 'module-native-protocol-tcp' || \
+        timeout 3 pacmd load-module module-native-protocol-tcp $args >/dev/null 2>&1
+    cp -f "$HOME/.config/pulse/cookie" "$PULSE_COOKIE_FILE" 2>/dev/null && chmod 644 "$PULSE_COOKIE_FILE"
+    export PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE
     for _ in $(seq 10); do $p info >/dev/null 2>&1 && break; sleep 0.5; done
     $p info >/dev/null 2>&1 || { log "PulseAudio not reachable, no audio"; return 0; }
     $p list short sinks | grep -q '^[0-9]*[[:space:]]xdesk[[:space:]]' || \
         $p load-module module-null-sink sink_name=xdesk rate=48000 channels=2 >/dev/null
-    $p list short modules | grep -q "module-simple-protocol-tcp.*port=$AUDIO_PORT" || \
-        $p load-module module-simple-protocol-tcp port="$AUDIO_PORT" listen=127.0.0.1 source=xdesk.monitor \
+    # The app gets a connection to this from the X server (ICmdEntryInterface.getAudioConnection)
+    $p list short modules | grep -q "module-simple-protocol-unix.*socket=$AUDIO_SOCK" || \
+        $p load-module module-simple-protocol-unix socket="$AUDIO_SOCK" source=xdesk.monitor \
             record=true playback=false format=s16le rate=48000 channels=2 >/dev/null
     $p set-default-sink xdesk
     $p list short sink-inputs | cut -f1 | while read -r id; do $p move-sink-input "$id" xdesk; done
@@ -188,6 +205,16 @@ session_pid() {
 
 current() { cat "$CONF/current" 2>/dev/null; }
 
+# Sessions written before PulseAudio needed a cookie. proot-distro login clears the environment, so it goes on that line
+migrate_session() {
+    grep -q 'PULSE_COOKIE' "$1" && return 0
+    if grep -q -- '--shared-tmp -- env .*PULSE_SERVER=127.0.0.1 ' "$1"; then
+        sed -i 's|\(--shared-tmp -- env .*PULSE_SERVER=127.0.0.1 \)|\1PULSE_COOKIE=/tmp/xdesk-pulse-cookie |' "$1"
+    elif grep -q 'chroot\|proot' "$1" && [ ! -e "$CONF/pulse-anonymous" ]; then
+        log "Session $(basename "$1") may have no sound: pass PULSE_COOKIE (the file $PULSE_COOKIE_FILE) to its clients, see the README"
+    fi
+}
+
 start_session() {
     local name=$1 f=$SESSIONS/$1.sh
     [ -f "$f" ] || { say "No session named '$name'. Try: xdesk list"; return 1; }
@@ -195,7 +222,8 @@ start_session() {
         echo "Session $(cat "$RUN/session.name") is already running"
         return 0
     fi
-    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
+    migrate_session "$f"
+    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
     echo $! >"$RUN/session.pid"
     echo "$name" >"$RUN/session.name"
     say "Started session $name"
@@ -255,7 +283,7 @@ setup() {
             name=${de%%:*}; bin=${de##*:}
             if [ -e "$root/usr/bin/$bin" ]; then
                 write_session "proot-$distro-$name" \
-                    "exec proot-distro login $distro --shared-tmp -- env DISPLAY=$DPY PULSE_SERVER=127.0.0.1 dbus-launch --exit-with-session $bin"
+                    "exec proot-distro login $distro --shared-tmp -- env DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session $bin"
             fi
         done
     done
@@ -291,7 +319,7 @@ run)
     lock; start_x && start_audio || exit 1
     wait_for_app
     exec 9>&-
-    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 exec "$@"
+    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE exec "$@"
     ;;
 start)
     name=${1:-$(current)}

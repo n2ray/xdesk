@@ -9,6 +9,8 @@ import android.content.Context;
 import android.content.IIntentReceiver;
 import android.content.IIntentSender;
 import android.content.Intent;
+import android.net.LocalSocket;
+import android.net.LocalSocketAddress;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -181,6 +183,18 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     public native ParcelFileDescriptor getXConnection();
     public native ParcelFileDescriptor getLogcatOutput();
     public native void reportFatalError(String message);
+
+    /** Connects to PulseAudio's socket in Termux's private directory, which the app itself cannot reach. */
+    @Override public ParcelFileDescriptor getAudioConnection() {
+        String path = System.getenv("XDESK_AUDIO_SOCKET");
+        if (path == null) return null;
+        try (LocalSocket s = new LocalSocket()) {
+            s.connect(new LocalSocketAddress(path, LocalSocketAddress.Namespace.FILESYSTEM));
+            return ParcelFileDescriptor.dup(s.getFileDescriptor());
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
     @CriticalNative private static native boolean connected();
 
     static {

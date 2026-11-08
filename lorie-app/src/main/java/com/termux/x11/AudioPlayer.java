@@ -35,7 +35,7 @@ final class AudioPlayer {
     private int preferredId = NO_DEVICE, reroutes, loggedRoute = NO_DEVICE;
     private long lastRouteCheck;
     private volatile AudioTrack track;
-    private volatile Socket socket;
+    private volatile java.io.Closeable connection;
     private final Thread thread;
 
     AudioPlayer(int port, AudioRoute route) {
@@ -50,8 +50,8 @@ final class AudioPlayer {
     void close() {
         running = false;
         thread.interrupt();
-        Socket s = socket;
-        if (s != null) try { s.close(); } catch (IOException ignored) { }
+        java.io.Closeable c = connection;
+        if (c != null) try { c.close(); } catch (IOException ignored) { }
     }
 
     /** 系统可能不理会启动前设的首选设备，所以边放边核对实际路由，不对就重设几次。 */
@@ -108,15 +108,49 @@ final class AudioPlayer {
         return t;
     }
 
+    private static final class Connection implements java.io.Closeable {
+        final InputStream in;
+        private final java.io.Closeable raw;
+
+        Connection(InputStream in, java.io.Closeable raw) {
+            this.in = in;
+            this.raw = raw;
+        }
+
+        @Override public void close() throws IOException {
+            raw.close();
+        }
+    }
+
+    /** Through the X server, which can reach PulseAudio's private socket. The port is only there with an older xdesk command. */
+    private Connection connect() throws IOException {
+        ICmdEntryInterface x = MainActivity.verifiedServer;
+        if (x != null) {
+            try {
+                android.os.ParcelFileDescriptor fd = x.getAudioConnection();
+                if (fd != null) return new Connection(new java.io.FileInputStream(fd.getFileDescriptor()), fd);
+            } catch (android.os.RemoteException | RuntimeException e) {
+                Log.d(TAG, "audio: " + e);
+            }
+        }
+        Socket s = new Socket();
+        try {
+            s.setTcpNoDelay(true);
+            s.connect(new InetSocketAddress("127.0.0.1", port), 1000);
+            return new Connection(s.getInputStream(), s);
+        } catch (IOException e) {
+            s.close();
+            throw e;
+        }
+    }
+
     private void loop() {
         byte[] buf = new byte[CHUNK];
         while (running) {
-            try (Socket s = new Socket()) {
-                socket = s;
-                s.setTcpNoDelay(true);
-                s.connect(new InetSocketAddress("127.0.0.1", port), 1000);
+            try (Connection c = connect()) {
+                connection = c;
                 Log.i(TAG, "audio connected");
-                InputStream in = s.getInputStream();
+                InputStream in = c.in;
                 AudioTrack t = newTrack();
                 track = t;
                 try {

@@ -59,7 +59,7 @@ A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit the
 | Environment | How to connect |
 |---|---|
 | Termux | Found by `xdesk setup`, or `xdesk run xterm` |
-| proot-distro | Found by `xdesk setup`. By hand: `xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 dbus-launch --exit-with-session startxfce4"` |
+| proot-distro | Found by `xdesk setup`. By hand: `xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
 | Plain proot | Bind `$PREFIX/tmp` to `/tmp` and set `DISPLAY=:1` |
 | chroot (root) | Bind `$PREFIX/tmp/.X11-unix` to `/tmp/.X11-unix` in the chroot, set `DISPLAY=:1`. Untested so far |
 
@@ -132,7 +132,7 @@ The first time, the browser asks for a 4-digit code that XDesk shows on the phon
 - **Keyboard:** keys go as key codes, so shortcuts work; on Mac and iPad keyboards Command acts as Ctrl. Text from input methods (Chinese, the iPad's soft keyboard through ⌨) goes as text.
 - **Staying on the page:** the toolbar at the top (move the mouse up or touch the top edge) has full screen, keyboard, sound and disconnect. Back is blocked and leaving asks first; the page does not zoom, scroll, select or show menus. In Chrome full screen, Esc and browser shortcuts go to the display too. On the iPad, **Add to Home Screen** opens it full screen like an app.
 
-Same as the wireless display, which it shares with: one browser or receiver at a time, it needs the injector service, and XDesk must stay open on the phone. Plain HTTP and a pairing token, so only for networks you trust. Video is H.264, decoded with WebCodecs where the browser allows it (localhost, HTTPS) and otherwise with Media Source Extensions, which works on plain HTTP in Safari, Chrome, Edge and Firefox. The page and protocol are in `lorie-app/src/main/assets/web/` and [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
+Same as the wireless display, which it shares with: one browser or receiver at a time, it needs the injector service, and XDesk must stay open on the phone. Plain HTTP and a pairing token: the picture, sound and input are not encrypted, so only for networks you trust. To keep it as a window of its own, use the browser's full screen or, in desktop Chrome, a shortcut opened as a window. Video is H.264, decoded with WebCodecs where the browser allows it (localhost, HTTPS) and otherwise with Media Source Extensions, which works on plain HTTP in Safari, Chrome, Edge and Firefox. The page and protocol are in `lorie-app/src/main/assets/web/` and [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 
 ## What you get
 
@@ -166,7 +166,7 @@ It installs next to the official Termux:X11 and does not touch it. Do not run bo
 - **One app, two windows.** The upstream `MainActivity` runs unchanged on the external display. `XDeskActivity` runs on the phone in the same process and calls `LorieView.sendMouseEvent`, `sendKeyEvent` and `sendTextEvent` directly.
 - **The X server runs in Termux**, started with a loader built for this app id.
 - **Android apps** are started on the display with the injector (`InjectorService`), which runs as the shell user and sends events with `injectInputEvent`. `CursorOverlay` draws the pointer.
-- **Audio** goes from a PulseAudio null sink to port 47130. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. The port is bound to localhost but has no authentication, so another app on the phone could read the desktop audio.
+- **Audio** goes from a PulseAudio null sink through a socket in Termux's private directory; the X server hands the app a connection to it. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. Clients in proot or a chroot reach PulseAudio on `127.0.0.1:4713` with its cookie, since every app on the phone can reach that port. `xdesk` sets `PULSE_COOKIE` for its sessions and adds it to proot-distro sessions. A chroot or other setup of your own needs `PULSE_COOKIE` set to `$PREFIX/tmp/xdesk-pulse-cookie` as seen from inside it. If that is not possible, `touch ~/.config/xdesk/pulse-anonymous` restores the old port without a cookie, which any app on the phone can use to record the desktop sound and control PulseAudio.
 - **Wireless display:** the injector creates a public display whose surface is a MediaCodec H.264 encoder, and records the phone's output through `REMOTE_SUBMIX` (`WirelessDisplay`, `OutputCapture`). XDesk connects to the receiver on port 47140 and treats that display as its external display.
 
 Almost all changes live in `lorie-app/` and `xdesk/`, so merging upstream stays simple.

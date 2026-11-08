@@ -59,7 +59,7 @@ xdesk stop              # 全部结束
 | 环境 | 怎么连接 |
 |---|---|
 | Termux | `xdesk setup` 会找到，或者 `xdesk run xterm` |
-| proot-distro | `xdesk setup` 会找到。手动：`xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 dbus-launch --exit-with-session startxfce4"` |
+| proot-distro | `xdesk setup` 会找到。手动：`xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
 | 手动 proot | 把 `$PREFIX/tmp` 绑定到 `/tmp`，设 `DISPLAY=:1` |
 | chroot（要 root） | 把 `$PREFIX/tmp/.X11-unix` 绑定到 chroot 里的 `/tmp/.X11-unix`，设 `DISPLAY=:1`。目前没有测试过 |
 
@@ -132,7 +132,7 @@ xdesk enable-app-start
 - **键盘：**按键按键码发送，快捷键都能用；Mac 和 iPad 键盘上 Command 当作 Ctrl。输入法打出的文字（中文、点 ⌨ 弹出的 iPad 软键盘）按文字发送。
 - **防误操作：**顶部的工具栏（鼠标移到顶边，或者点屏幕顶边）有全屏、键盘、声音和断开。浏览器的后退被拦住，离开前会先确认；页面不会缩放、滚动、选中文字或弹出菜单。Chrome 全屏时，Esc 和浏览器快捷键也交给外屏。iPad 上**添加到主屏幕**后，可以像 App 一样全屏打开。
 
-和无线显示是同一套，所以：同一时间只能有一个浏览器或接收端，需要注入服务，手机上要开着 XDesk。用的是普通 HTTP 加配对令牌，只适合可信的网络。视频是 H.264：浏览器允许时用 WebCodecs 解码（localhost、HTTPS），否则用 Media Source Extensions，普通 HTTP 下 Safari、Chrome、Edge、Firefox 都能用。网页和协议见 `lorie-app/src/main/assets/web/` 和 [receiver/PROTOCOL.md](receiver/PROTOCOL.md)。
+和无线显示是同一套，所以：同一时间只能有一个浏览器或接收端，需要注入服务，手机上要开着 XDesk。用的是普通 HTTP 加配对令牌，画面、声音和键鼠都不加密，只适合可信的网络。想让它像单独的窗口，可以用浏览器全屏，桌面版 Chrome 也可以创建快捷方式并在窗口中打开。视频是 H.264：浏览器允许时用 WebCodecs 解码（localhost、HTTPS），否则用 Media Source Extensions，普通 HTTP 下 Safari、Chrome、Edge、Firefox 都能用。网页和协议见 `lorie-app/src/main/assets/web/` 和 [receiver/PROTOCOL.md](receiver/PROTOCOL.md)。
 
 ## 功能
 
@@ -166,7 +166,7 @@ xdesk enable-app-start
 - **一个 App，两个窗口。** 上游的 `MainActivity` 原样放在外接屏上。`XDeskActivity` 在手机屏上，和它在同一个进程，直接调用 `LorieView.sendMouseEvent`、`sendKeyEvent`、`sendTextEvent`。
 - **X 服务器在 Termux 里运行**，用的是为这个包名构建的启动器。
 - **安卓应用** 由注入服务（`InjectorService`）放到外接屏上，它以 shell 用户运行，用 `injectInputEvent` 发送事件。光标由 `CursorOverlay` 绘制。
-- **声音** 从 PulseAudio 的 null sink 走 47130 端口，由 App 用 `AudioTrack` 播放，所以不需要特殊权限就能选输出设备。这个端口只绑定本机，但没有验证，手机上的其他 App 理论上能读到桌面的声音。
+- **声音** 从 PulseAudio 的 null sink 走 Termux 私有目录里的 socket，由 X 服务器把连接转交给 App，App 用 `AudioTrack` 播放，所以不需要特殊权限就能选输出设备。proot 或 chroot 里的客户端用 cookie 连 `127.0.0.1:4713`，因为手机上所有 App 都能连到这个端口。`xdesk` 会给自己的会话设好 `PULSE_COOKIE`，并给 proot-distro 的会话加上。自己配的 chroot 等环境，要把 `PULSE_COOKIE` 设成从环境里看到的 `$PREFIX/tmp/xdesk-pulse-cookie`。实在做不到的话，`touch ~/.config/xdesk/pulse-anonymous` 可以恢复不要 cookie 的旧端口，但手机上任何 App 都能借此录下桌面声音、控制 PulseAudio。
 - **无线显示：** 注入服务创建一块公开显示器，它的 Surface 就是 MediaCodec H.264 编码器的输入，再用 `REMOTE_SUBMIX` 录下手机的声音输出（`WirelessDisplay`、`OutputCapture`）。XDesk 连接接收器的 47140 端口，把这块显示器当作外接屏。
 
 改动几乎都在 `lorie-app/` 和 `xdesk/`，合并上游比较简单。

@@ -5,4 +5,6 @@ interface ICmdEntryInterface {
     ParcelFileDescriptor getXConnection();
     ParcelFileDescriptor getLogcatOutput();
     void reportFatalError(String message);
+    // A connection to the desktop sound (PCM), or null. Last, so an older X server just answers null.
+    ParcelFileDescriptor getAudioConnection();
 }
