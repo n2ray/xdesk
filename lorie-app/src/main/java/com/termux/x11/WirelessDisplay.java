@@ -76,6 +76,7 @@ final class WirelessDisplay {
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
+    private static final long BYE_WAIT_MS = 1500;
     private static final int MAX_PAYLOAD = 16 << 20;
     /** New injectors after one died, before giving up. */
     private static final int MAX_INJECTOR_RETRIES = 3;
@@ -112,6 +113,9 @@ final class WirelessDisplay {
     private volatile long lastWrite;
     private final LinkedBlockingQueue<String> codes = new LinkedBlockingQueue<>();
     private Thread worker;
+    /** A start() waiting for the previous session to end; stop() or a newer start() replaces it. */
+    private volatile Thread starting;
+    private Thread byeThread;
 
     static synchronized WirelessDisplay get(Context c) {
         if (instance == null) instance = new WirelessDisplay(c.getApplicationContext());
@@ -182,37 +186,70 @@ final class WirelessDisplay {
      *
      * @param name and id as the receiver announces them, null for an address the user typed
      */
-    void start(final String host, final int port, String name, String id) {
+    /**
+     * Main thread. Also while streaming to another receiver: the state of one session (socket, output, display) is
+     * shared, so the new one only begins once the old one has ended.
+     */
+    void start(final String host, final int port, final String name, final String id) {
         stop();
+        final Thread previous = worker, bye = byeThread;
+        final Socket oldSocket = socket;
         if (name == null) prefs.edit().putString("last_address", host).apply();
-        receiverId = id != null ? id : prefs.getString("id_at_" + host, null);
-        address = host;
-        running = true;
-        web = false;
-        receiverName = name != null ? name : host;
-        codes.clear();
+        final String shownName = name != null ? name : host;
+        receiverName = shownName;
         setState(CONNECTING);
         context.startForegroundService(new Intent(context, DesktopService.class)
-            .putExtra(DesktopService.EXTRA_TITLE, context.getString(R.string.xd_wireless_title, receiverName)));
-        worker = new Thread(() -> run(host, port), "xdesk-wireless");
-        worker.start();
+            .putExtra(DesktopService.EXTRA_TITLE, context.getString(R.string.xd_wireless_title, shownName)));
+        Thread t = new Thread(() -> {
+            finish(previous, bye, oldSocket);
+            if (starting != Thread.currentThread()) {
+                // stop() came first; a newer start() has its own state
+                if (starting == null && !running) setState(IDLE);
+                return;
+            }
+            starting = null;
+            receiverId = id != null ? id : prefs.getString("id_at_" + host, null);
+            address = host;
+            web = false;
+            endReason = null;
+            receiverName = shownName;
+            codes.clear();
+            running = true;
+            run(host, port);
+        }, "xdesk-wireless");
+        starting = t;
+        worker = t;
+        t.start();
+    }
+
+    /** Waits for an ended session's threads. Its BYE may hang on a dead network, so the socket gets closed after a while. */
+    private static void finish(Thread previous, Thread bye, Socket socket) {
+        try {
+            if (bye != null) bye.join(BYE_WAIT_MS);
+            closeQuietly(socket);
+            if (previous != null) previous.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** Main thread. */
     void stop() {
+        starting = null;
         if (!running) return;
         running = false;
         codes.offer("");
         final Socket s = socket;
         final WebSocket w = webSocket;
         // Off the main thread: a write may block on a slow network
-        new Thread(() -> {
+        byeThread = new Thread(() -> {
             try {
                 writeMessage(BYE, new byte[0], 0, 0);
             } catch (IOException ignored) { }
             if (w != null) w.close();
             closeQuietly(s);
-        }, "xdesk-wireless-bye").start();
+        }, "xdesk-wireless-bye");
+        byeThread.start();
     }
 
     private void setState(final int s) {
@@ -259,6 +296,10 @@ final class WirelessDisplay {
         } catch (IOException e) {
             Log.i(TAG, "ended: " + e);
             if (running) message(R.string.xd_wireless_lost, receiverName);
+        } catch (RuntimeException e) {
+            // The encoder or the display refused this size, or the like: ends this stream, not XDesk
+            Log.w(TAG, "stream failed", e);
+            finalMessage(R.string.xd_wireless_no_display, String.valueOf(e.getMessage()));
         } finally {
             ended(s);
         }
@@ -301,7 +342,8 @@ final class WirelessDisplay {
         // A drag or a held Ctrl from the browser must not stay pressed on the desktop
         if (web) ui.post(this::releaseWebInput);
         WebServer.get(context).sessionEnded();
-        setState(IDLE);
+        // A start() waiting for this session goes on from here, in CONNECTING
+        if (starting == null) setState(IDLE);
     }
 
     // --- 网页显示：浏览器经 WebServer 配对后，从这里开始和接收端走同一套消息 ---
@@ -357,6 +399,9 @@ final class WirelessDisplay {
             } catch (IOException e) {
                 Log.i(TAG, "web ended: " + e);
                 if (running) message(R.string.xd_wireless_lost, receiverName);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "web stream failed", e);
+                finalMessage(R.string.xd_wireless_no_display, String.valueOf(e.getMessage()));
             } finally {
                 ended(s);
             }
@@ -452,7 +497,9 @@ final class WirelessDisplay {
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
                 in.readUnsignedByte();   // codecs: H.264 is always there
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
-                return new int[]{w, h, dpi};
+                // It comes from the network: even, and a size encoders take, as for a browser
+                int[] size = WebServer.fit(w, h);
+                return new int[]{size[0], size[1], dpi};
             }
             if (status == PAIR) {
                 String code = askCode(wrong);

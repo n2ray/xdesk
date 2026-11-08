@@ -28,7 +28,8 @@ trap 'rm -r "${TMP:?}"' EXIT
 for f in xdesk loader.apk xdesk.apk SHA256SUMS; do
     curl -fL --progress-bar -o "$TMP/$f" "https://github.com/$REPO/releases/download/$TAG/$f"
 done
-(cd "$TMP" && sha256sum -c --quiet SHA256SUMS)
+# The list also has files this script does not download; all three of these must be in it
+(cd "$TMP" && grep -E '  (xdesk|loader\.apk|xdesk\.apk)$' SHA256SUMS > wanted && [ "$(wc -l < wanted)" -eq 3 ] && sha256sum -c --quiet wanted)
 
 install -m 755 "$TMP/xdesk" "$PREFIX/bin/xdesk"
 mkdir -p "$(dirname "$LOADER")"

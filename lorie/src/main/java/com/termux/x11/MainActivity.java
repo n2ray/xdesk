@@ -744,7 +744,8 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Anyone can send ACTION_START with a Binder of their own and would then get the keyboard. The socket of the X
-     * connection says which uid made it, and that has to be Termux's, where the X server runs, or this app's own.
+     * connection says which uid made it, and that has to be Termux's, where the X server runs, this app's own, or root
+     * or the shell (an X server started from a root shell or chroot, or over adb), which no ordinary app can be.
      */
     private boolean madeByXServer(ParcelFileDescriptor fd) {
         try {
@@ -752,7 +753,8 @@ public class MainActivity extends AppCompatActivity {
             Object cred = Os.class.getMethod("getsockoptUcred", FileDescriptor.class, int.class, int.class)
                     .invoke(null, fd.getFileDescriptor(), OsConstants.SOL_SOCKET, OsConstants.SO_PEERCRED);
             int uid = cred.getClass().getField("uid").getInt(cred);
-            if (uid == Process.myUid() || uid == getPackageManager().getPackageUid("com.termux", 0))
+            if (uid == Process.myUid() || uid == 0 || uid == Process.SHELL_UID
+                    || uid == getPackageManager().getPackageUid("com.termux", 0))
                 return true;
             Log.e("MainActivity", "Refusing an X connection made by uid " + uid);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError | PackageManager.NameNotFoundException e) {
