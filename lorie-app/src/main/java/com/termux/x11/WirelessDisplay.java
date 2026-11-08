@@ -757,8 +757,7 @@ final class WirelessDisplay {
         return c;
     }
 
-    /** The phone's sound output into AUDIO_DATA. Without it the picture still goes, and sound stays on the phone. */
-    /** Under soundLock. Sets soundPipe. */
+    /** The phone's sound output into AUDIO_DATA, sets soundPipe; under soundLock. Without it the picture still goes, and sound stays on the phone. */
     private void captureSound(IInjector i) {
         final ParcelFileDescriptor pfd;
         try {
