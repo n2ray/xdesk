@@ -184,7 +184,10 @@ public class XDeskActivity extends Activity {
     }
 
     private final TouchpadView.Output output = new TouchpadView.Output() {
-        @Override public void move(int dx, int dy) { if (client != null) client.move(dx, dy); }
+        @Override public void move(int dx, int dy) {
+            wireless.phonePointerMoved();
+            if (client != null) client.move(dx, dy);
+        }
         @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
         @Override public void click(int b) { if (client != null) client.click(b); }
         @Override public void scroll(int dy, int dx) { if (client != null) client.scroll(dy, dx); }
@@ -516,6 +519,8 @@ public class XDeskActivity extends Activity {
             digits.setLetterSpacing(0.3f);
             digits.setPadding(0, dp(16), 0, dp(16));
             webCodeDialog = ui().sheet(getString(R.string.xd_web_code_title), getString(R.string.xd_web_code_note, browserName), digits);
+            // A stray touch must not lose the code: it goes when the pairing ends (onWebCodeDone), at most 2 minutes
+            webCodeDialog.setCancelable(false);
         }
         @Override public void onWebCodeDone() {
             if (webCodeDialog != null) webCodeDialog.dismiss();

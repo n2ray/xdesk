@@ -29,7 +29,7 @@ const T = zh ? {
 };
 
 // ---------------------------------------------------------------- protocol
-const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9;
+const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10;
 const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
 
 const $ = id => document.getElementById(id);
@@ -168,6 +168,7 @@ function onStatus(m) {
         pageVersion = m.version;
       }
       streamW = m.w; streamH = m.h;
+      stage.classList.remove('phone-pointer');
       retryDelay = 1500;
       gotPicture = false;
       startSession();
@@ -318,6 +319,7 @@ function onMessage(v) {
     case AUDIO_DATA: sound.data(new Uint8Array(v.buffer, v.byteOffset + 13, len - 8)); break;
     case PING: break;
     case TIME: if (len >= 16) onTime(v); break;
+    case POINTER: stage.classList.toggle('phone-pointer', len >= 1 && p[0] === 1); break;
     case BYE: quitting = true; show(T.ended, { button: T.reconnect }); ws.close(); break;
   }
 }
@@ -708,7 +710,7 @@ stage.addEventListener('pointerdown', e => {
   if (sound) sound.unlock();
   if (e.pointerType === 'mouse') {
     e.preventDefault();
-    if (!LOCK) sendAbsolute(e);
+    if (!LOCK) { stage.classList.remove('phone-pointer'); sendAbsolute(e); }
     if (LOCK && !locked() && stage.requestPointerLock && !mouseUnlockedOnPurpose) {
       // The first click only captures the mouse
       try {
@@ -737,7 +739,15 @@ let mouseUnlockedOnPurpose = false;
 document.addEventListener('mousemove', e => {
   if (!live) return;
   if (!locked() && !e.buttons && document.activeElement !== kbd && !stage.contains(e.target)) return;
-  if (!locked()) { sendAbsolute(e); return; }
+  if (!locked()) {
+    // The phone's touchpad has the pointer until this mouse really moves; browsers also send moves for layout changes
+    if (stage.classList.contains('phone-pointer')) {
+      if (!e.movementX && !e.movementY) return;
+      stage.classList.remove('phone-pointer');
+    }
+    sendAbsolute(e);
+    return;
+  }
   const f = toRemote();
   queueMove(e.movementX * f, e.movementY * f);
 });

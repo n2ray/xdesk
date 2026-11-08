@@ -74,6 +74,8 @@ final class WirelessDisplay {
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
+    /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
+    private static final int POINTER = 10;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
@@ -105,6 +107,8 @@ final class WirelessDisplay {
     private final Object soundLock = new Object();
     private volatile Socket socket;
     private volatile WebSocket webSocket;
+    /** The browser has been told that the phone's touchpad has the pointer. */
+    private volatile boolean phonePointer;
     private volatile InputSink webInput;
     /** Why the stream ended for good, for a browser (see finalMessage); null for a lost connection. */
     private volatile String endReason;
@@ -381,6 +385,7 @@ final class WirelessDisplay {
         }
         running = true;
         web = true;
+        phonePointer = false;
         endReason = null;
         address = null;
         receiverName = name;
@@ -413,6 +418,17 @@ final class WirelessDisplay {
     // What the browser holds down, main thread: released when the session ends (releaseWebInput)
     private final java.util.Set<Integer> webButtons = new java.util.HashSet<>(), webKeys = new java.util.HashSet<>();
 
+    /** The phone's touchpad moved. Main thread: the write goes elsewhere. */
+    void phonePointerMoved() {
+        if (!web || state != STREAMING || phonePointer) return;
+        phonePointer = true;
+        new Thread(() -> {
+            try {
+                writeMessage(POINTER, new byte[]{1}, 0, 1);
+            } catch (IOException ignored) { }
+        }, "xdesk-web-pointer").start();
+    }
+
     private void releaseWebInput() {
         InputSink sink = webInput;
         if (sink != null) {
@@ -438,6 +454,7 @@ final class WirelessDisplay {
                 break;
             case IN_ABS:
                 if (b.length < 4) return;
+                phonePointer = false;
                 final float fx = (p.getShort() & 0xffff) / 65535f, fy = (p.getShort() & 0xffff) / 65535f;
                 r = () -> sink.moveToFraction(fx, fy);
                 break;
