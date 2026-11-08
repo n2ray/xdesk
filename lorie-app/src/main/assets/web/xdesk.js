@@ -729,7 +729,12 @@ stage.addEventListener('pointerdown', e => {
   if (sound) sound.unlock();
   if (e.pointerType === 'mouse') {
     e.preventDefault();
-    if (!LOCK) { stage.classList.remove('phone-pointer'); sendAbsolute(e); }
+    if (!LOCK) {
+      stage.classList.remove('phone-pointer');
+      sendAbsolute(e);
+      // Keeps the moves and the release coming when the mouse leaves the window during a drag
+      try { stage.setPointerCapture(e.pointerId); } catch (x) { /* it ended already */ }
+    }
     if (LOCK && !locked() && stage.requestPointerLock && !mouseUnlockedOnPurpose) {
       // The first click only captures the mouse
       try {
@@ -753,12 +758,19 @@ window.addEventListener('pointerup', e => {
     if (b) sendButton(b, false);
   } else touchUp(e);
 });
-window.addEventListener('pointercancel', e => { if (e.pointerType !== 'mouse') touchUp(e, true); });
+window.addEventListener('pointercancel', e => {
+  if (e.pointerType !== 'mouse') touchUp(e, true);
+  else for (const b of [...buttonsDown]) sendButton(b, false);
+});
+// A browser's own drag and drop would swallow the moves and the release, and leave the button held on the desktop
+document.addEventListener('dragstart', e => e.preventDefault());
 let mouseUnlockedOnPurpose = false;
 document.addEventListener('mousemove', e => {
   if (!live) return;
   if (!locked() && !e.buttons && document.activeElement !== kbd && !stage.contains(e.target)) return;
   if (!locked()) {
+    // A release the page never saw: the button must not stay held on the desktop
+    if (!e.buttons && buttonsDown.size) for (const b of [...buttonsDown]) sendButton(b, false);
     // The phone's touchpad has the pointer until this mouse really moves; browsers also send moves for layout changes
     if (stage.classList.contains('phone-pointer')) {
       if (!e.movementX && !e.movementY) return;
