@@ -18,6 +18,8 @@ final class DesktopSession {
         /** X 服务器没了。byUser：用户运行了 xdesk stop。 */
         void onDesktopStopped(boolean byUser);
         void onSessionError(String message);
+        /** xdesk stop has finished, or the wait for it gave up. Main thread. */
+        void onDesktopStopFinished();
     }
 
     private static final String TAG = "XDesk";
@@ -28,6 +30,8 @@ final class DesktopSession {
     private static final long POLL_MS = 500;
     /** 窗口重建时也会短暂断开，断开这么久才算 X 服务器没了。 */
     private static final long SERVER_LOST_MS = 3000;
+    /** xdesk stop takes up to about 15 s (a logout that hangs, then kills). Past this it is treated as finished. */
+    private static final long STOP_TIMEOUT_MS = 40000;
     private static final String ACTION_STOPPED = "io.github.n2ray.xdesk.STOPPED", EXTRA_NONCE = "nonce";
     /**
      * Any app can send ACTION_STOPPED. xdesk saves this in its run dir, which other apps cannot read, when XDesk
@@ -48,6 +52,15 @@ final class DesktopSession {
     private Listener listener;
     private AudioPlayer audio;
     private boolean active, connected, stoppedByUser;
+    /** The session xdesk stop is ending, or "" if unknown; null when none is. */
+    private String stopping;
+    private final Runnable stopTimeout = this::stopFinished;
+    /** Its own receiver: abandon() unregisters the other one before xdesk stop runs. */
+    private final BroadcastReceiver stopDone = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (NONCE.equals(i.getStringExtra(EXTRA_NONCE))) stopFinished();
+        }
+    };
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -144,9 +157,26 @@ final class DesktopSession {
     }
 
     /** 结束桌面（运行 xdesk stop）。只由用户明确操作触发，XDesk 打开或退出都不会结束桌面。 */
-    void stop() {
+    void stop(String name) {
+        if (stopping != null) return;
         if (active) abandon();
-        run("stop");
+        stopping = name != null ? name : "";
+        context.registerReceiver(stopDone, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);
+        ui.postDelayed(stopTimeout, STOP_TIMEOUT_MS);
+        if (!run("stop")) stopFinished();
+    }
+
+    /** What xdesk stop is ending, "" if not known by name, null when nothing is being stopped. */
+    String stopping() {
+        return stopping;
+    }
+
+    private void stopFinished() {
+        if (stopping == null) return;
+        stopping = null;
+        ui.removeCallbacks(stopTimeout);
+        context.unregisterReceiver(stopDone);
+        if (listener != null) listener.onDesktopStopFinished();
     }
 
     private boolean run(String... args) {

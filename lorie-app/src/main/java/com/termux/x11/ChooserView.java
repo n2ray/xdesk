@@ -72,7 +72,7 @@ final class ChooserView extends LinearLayout {
         AppCatalog.App app;
         Runnable action;
         /** Linux 桌面的状态和按钮。 */
-        boolean isSession, running;
+        boolean isSession, running, stopping;
         String sessionName;
     }
 
@@ -89,6 +89,8 @@ final class ChooserView extends LinearLayout {
     private String runningSession, defaultSession, termuxHint, current, query = "";
     private boolean onCar;
     private boolean xRunning;
+    /** The session being stopped, "" if not known by name, null when none is. Nothing can start until it is gone. */
+    private String stoppingSession;
     private List<AppCatalog.App> apps = new ArrayList<>();
     private List<String> dockKeys = new ArrayList<>();
 
@@ -271,6 +273,12 @@ final class ChooserView extends LinearLayout {
         rebuild();
     }
 
+    void setStopping(String name) {
+        if (java.util.Objects.equals(name, stoppingSession)) return;
+        stoppingSession = name;
+        rebuild();
+    }
+
     void setApps(List<AppCatalog.App> a) {
         apps = a;
         rebuild();
@@ -301,7 +309,9 @@ final class ChooserView extends LinearLayout {
         r.isSession = true;
         r.sessionName = name;
         r.running = name.equals(runningSession);
-        if (r.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
+        r.stopping = name.equals(stoppingSession);
+        if (r.stopping) r.subtitle = str(R.string.xd_chooser_stopping);
+        else if (r.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
         else if (r.running) r.subtitle = str(R.string.xd_chooser_running);
         else if (name.equals(defaultSession)) r.subtitle = str(R.string.xd_chooser_default);
         r.action = () -> host.onSessionChosen(name);
@@ -336,7 +346,7 @@ final class ChooserView extends LinearLayout {
                 desktops.add(hint);
             }
             // 环境都在列表里。只有 xdesk run 的程序，或者读不到 Termux 的状态时，才需要直接接上 X
-            if ((xRunning && runningSession == null) || termuxHint != null) {
+            if (stoppingSession == null && ((xRunning && runningSession == null) || termuxHint != null)) {
                 Row attach = new Row();
                 attach.title = str(xRunning ? R.string.xd_chooser_reattach_x : R.string.xd_chooser_attach_x);
                 attach.subtitle = str(xRunning ? R.string.xd_chooser_reattach_x_note : R.string.xd_chooser_attach_x_note);
@@ -443,7 +453,10 @@ final class ChooserView extends LinearLayout {
             if (r.isSession) h.dot.setBackground(Style.dot(r.running ? Style.OK : Style.SURFACE_RAISED));
             if (r.isSession) {
                 h.action.setVisibility(VISIBLE);
-                h.action.setText(r.running ? R.string.xd_chooser_stop : R.string.xd_chooser_start);
+                h.action.setText(r.stopping ? R.string.xd_chooser_stopping_short : r.running ? R.string.xd_chooser_stop : R.string.xd_chooser_start);
+                boolean busy = stoppingSession != null;
+                h.action.setEnabled(!busy);
+                h.action.setAlpha(busy ? 0.4f : 1f);
                 h.action.setOnClickListener(view -> {
                     Style.tick(view);
                     if (r.running) host.onSessionStop(r.sessionName);

@@ -70,7 +70,6 @@ public class XDeskActivity extends Activity {
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
     private static final long TERMUX_SWITCH_WAIT_MS = 3000;
     /** xdesk stop 要等桌面退出，过一会再看状态。 */
-    private static final long STOP_REFRESH_MS = 4000;
     private static final int[] WIDTH_LABELS = {R.string.xd_width_native, R.string.xd_width_1920, R.string.xd_width_1280};
     private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
     private static final int DEFAULT_WIDTH = 1920;
@@ -331,6 +330,10 @@ public class XDeskActivity extends Activity {
             String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
             Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
             chooser.setNotice(getString(byUser ? R.string.xd_desktop_ended_notice : R.string.xd_desktop_crashed_notice));
+        }
+        @Override public void onDesktopStopFinished() {
+            chooser.setStopping(null);
+            if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
         }
         @Override public void onSessionError(String message) {
             showSetup(getString(R.string.xd_termux_unreachable), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
@@ -629,6 +632,10 @@ public class XDeskActivity extends Activity {
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
+            if (session.stopping() != null) {
+                Toast.makeText(XDeskActivity.this, R.string.xd_desktop_stopping, Toast.LENGTH_SHORT).show();
+                return;
+            }
             if (externalDisplay() == null) {
                 needDisplayNotice();
                 return;
@@ -2203,6 +2210,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void refreshChooser() {
+        chooser.setStopping(session.stopping());
         updateActivationPrompt();
         updateChooserDisplay();
         refreshTermux();
@@ -2788,18 +2796,16 @@ public class XDeskActivity extends Activity {
 
     /** 只结束桌面。XDesk 留着，外接屏上的安卓应用也不受影响。 */
     private void stopDesktop() {
+        if (session.stopping() != null) return;
+        String name = runningSession != null ? runningSession : desktopName;
         if (session.isActive()) desktopGone();
-        session.stop();
+        session.stop(name);
+        chooser.setStopping(session.stopping());
         // 切到安卓应用时桌面窗口留在了后面
         MainActivity m = MainActivity.getInstance("");
         if (m != null) m.finishAndRemoveTask();
         runningSession = null;
         desktopName = null;
-        ui.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
-            }
-        }, STOP_REFRESH_MS);
         if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
     }
 

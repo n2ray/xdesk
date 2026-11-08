@@ -159,6 +159,9 @@
     <string name="xd_chooser_search">搜索应用名或包名</string>
     <string name="xd_chooser_clear">清除</string>
     <string name="xd_chooser_no_display">没有外接屏。用 USB-C 接显示器、连车机，或者点这里通过 Wi-Fi 投到 XDesk 接收器。</string>
+    <string name="xd_chooser_stopping">正在结束，请稍候…</string>
+    <string name="xd_chooser_stopping_short">结束中</string>
+    <string name="xd_desktop_stopping">桌面还在结束中</string>
     <string name="xd_chooser_running">正在运行，点按接回</string>
     <string name="xd_chooser_default">默认</string>
     <string name="xd_chooser_reattach_x">接回正在运行的 X 显示</string>

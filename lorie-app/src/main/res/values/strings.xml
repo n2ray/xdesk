@@ -167,6 +167,9 @@
     <string name="xd_chooser_search">Search by app or package name</string>
     <string name="xd_chooser_clear">Clear</string>
     <string name="xd_chooser_no_display">No display. Plug one into USB-C, use a car, or tap here to show on XDesk Receiver over Wi-Fi.</string>
+    <string name="xd_chooser_stopping">Stopping, please wait…</string>
+    <string name="xd_chooser_stopping_short">Stopping</string>
+    <string name="xd_desktop_stopping">The desktop is still stopping</string>
     <string name="xd_chooser_running">Running, tap to reattach</string>
     <string name="xd_chooser_default">Default</string>
     <string name="xd_chooser_reattach_x">Reattach the running X display</string>
