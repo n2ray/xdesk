@@ -490,7 +490,7 @@ class MsePlayer {
   }
   format(w, h) { this.w = w; this.h = h; this.reset(); }
   reset() {
-    this.sb = null; this.queue = []; this.pending = null; this.base = -1; this.seq = 1; this.waitKey = true; this.codec = null;
+    this.sb = null; this.queue = []; this.pending = null; this.lastT = -1; this.lastMoved = performance.now(); this.base = -1; this.seq = 1; this.waitKey = true; this.codec = null;
     if (this.ms && this.ms.readyState === 'open') { try { this.ms.endOfStream(); } catch (e) { /* closed */ } }
     this.ms = null;
     if (video.src) { URL.revokeObjectURL(video.src); video.removeAttribute('src'); video.srcObject = null; try { video.load(); } catch (e) { /* none */ } }
@@ -522,11 +522,21 @@ class MsePlayer {
       if (!sps || !pps) return;
       const codec = codecOf(sps);
       this.reset();
-      this.open(codec, initSegment(this.w || streamW, this.h || streamH, sps, pps));
+      this.init = initSegment(this.w || streamW, this.h || streamH, sps, pps);
+      this.open(codec, this.init);
       return;
     }
     const key = (flags & 2) !== 0;
     if (!this.ms) { needKeyFrame(); return; }
+    if (this.stalled()) {
+      // Frames keep coming but the picture stopped: the only way back is a new MediaSource and a key frame
+      noteError('mse stalled, restarting');
+      const codec = this.codec, init = this.init;
+      this.reset();
+      this.open(codec, init);
+      needKeyFrame();
+      return;
+    }
     if (this.waitKey && !key) return;
     this.waitKey = false;
     // Length-prefixed NAL units, without parameter sets and delimiters
@@ -544,6 +554,15 @@ class MsePlayer {
     this.pending = { pts, key, sample };
     if (prev) this.append(prev, Math.max(1000, pts - prev.pts));
     if (this.queue.length > 30) { this.waitKey = true; this.pending = null; needKeyFrame(); }
+  }
+  // Nothing buffered although frames went in, or the position stuck for a while with data ahead of it
+  stalled() {
+    const now = performance.now(), t = video.currentTime;
+    if (t !== this.lastT) { this.lastT = t; this.lastMoved = now; }
+    if (!this.sb || this.sb.updating || this.seq < 8 || !this.ms || this.ms.readyState !== 'open') { this.lastMoved = Math.max(this.lastMoved || 0, now - 1500); return false; }
+    const b = video.buffered;
+    if (now - this.lastMoved < 2500) return false;
+    return !b.length || b.end(b.length - 1) - t > 0.1;
   }
   append(f, duration) {
     this.queue.push(mediaSegment(this.seq++, f.pts - this.base, duration, f.key, f.sample));

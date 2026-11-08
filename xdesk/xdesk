@@ -56,9 +56,14 @@ x_pid() { pgrep -f '^xdesk-x11 ' | head -1; }
 # Whatever holds the X lock file of our display is still alive (another X server, or ours under
 # a name pgrep does not know).
 x_lock_alive() {
-    local p
-    p=$(tr -d ' ' <"$PREFIX/tmp/.X${DPY#:}-lock" 2>/dev/null) || return 1
-    [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+    local p c f=$PREFIX/tmp/.X${DPY#:}-lock
+    [ -f "$f" ] || return 1
+    p=$(tr -d ' ' <"$f" 2>/dev/null)
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null || return 1
+    # A lock left behind whose pid now belongs to something else: only an X server counts (unreadable: assume it is one)
+    c=$(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null)
+    case "$c" in ""|*termux-x11*|*xdesk-x11*|*com.termux.x11*|*Xorg*|*Xvfb*|*Xwayland*) return 0 ;; esac
+    return 1
 }
 
 # Commands the X and session commands need, with the Termux package that has them
