@@ -61,6 +61,8 @@ final class WebServer {
     private static final int HEADER_MAX = 16384, REQUEST_TIMEOUT_MS = 15000, PAIRING_MS = 120000, MAX_TRIES = 3;
     /** A connection that has not paired: its requests, all of them, and its hello must be done by then. */
     private static final int CONNECTION_MS = 60000, HELLO_MS = 15000;
+    /** Tenths of a second to wait for the session before answering busy. */
+    private static final int BUSY_WAITS = 20;
     /** Before pairing, messages are a hello or a code. */
     private static final int SMALL_MESSAGE = 8192, PAIRED_MESSAGE = 1 << 20;
     /** Unpaired connections at a time, all and from one address. More are closed at once. */
@@ -532,6 +534,8 @@ final class WebServer {
             int w = clampEven(hello.optInt("w", 1280)), hh = clampEven(hello.optInt("h", 720));
             int[] size = fit(w, hh);
             WirelessDisplay wd = WirelessDisplay.get(context);
+            // A reloaded page is here before its old connection has ended
+            for (int i = 0; i < BUSY_WAITS && wd.isActive(); i++) android.os.SystemClock.sleep(100);
             if (listener == null) {
                 ws.sendText(status("closed"));
                 ws.close();

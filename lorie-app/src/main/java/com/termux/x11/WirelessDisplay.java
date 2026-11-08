@@ -635,6 +635,7 @@ final class WirelessDisplay {
     }
 
     private void startReader(final DataInputStream in) {
+        final Socket mine = socket;
         new Thread(() -> {
             try {
                 while (running) {
@@ -660,8 +661,10 @@ final class WirelessDisplay {
             } catch (IOException e) {
                 if (running) Log.i(TAG, "reader: " + e);
             }
-            // The worker notices on its next write
-            closeQuietly(socket);
+            // The worker must not wait for its next write: with the phone locked the display may make no more frames.
+            // Only this session: the next one may already have started if the worker got here first
+            closeQuietly(mine);
+            if (socket == mine) running = false;
         }, "xdesk-wireless-reader").start();
     }
 
