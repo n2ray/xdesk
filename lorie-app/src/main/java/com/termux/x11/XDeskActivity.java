@@ -460,28 +460,29 @@ public class XDeskActivity extends Activity {
                             host = text.substring(0, colon);
                         } catch (NumberFormatException ignored) { }
                     }
-                    startWireless(host, port, null, null);
+                    startWireless(host, port, null);
                 }, null);
         });
         d[0] = s.sheet(getString(R.string.xd_wireless), getString(R.string.xd_wireless_picker_note), c);
         d[0].setOnDismissListener(x -> finder.stop());
         finder.start(r -> {
-            String key = r.id != null ? r.id : r.host;
+            // Anyone can announce an id: one that is already listed must not hide this address, or the other way round
+            String key = r.id + "@" + r.host;
             if (!shown.add(key)) return;
             searching.setVisibility(View.GONE);
             s.valueRow(found, r.name, r.host, "", () -> {
                 d[0].dismiss();
-                startWireless(r.host, r.port, r.name, r.id);
+                startWireless(r.host, r.port, r.name);
             });
         });
     }
 
-    private void startWireless(String host, int port, String name, String id) {
+    private void startWireless(String host, int port, String name) {
         if (!apps.injectorReady()) {
             Toast.makeText(this, R.string.xd_wireless_need_injector, Toast.LENGTH_LONG).show();
             return;
         }
-        wireless.start(host, port, name, id);
+        wireless.start(host, port, name);
     }
 
     // --- 网页显示 ---

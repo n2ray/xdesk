@@ -67,6 +67,8 @@ final class WebServer {
     private static final int MAX_UNPAIRED = 16, MAX_UNPAIRED_PER_ADDRESS = 4;
     /** Wrong codes, dropped pairings included: per address before a lockout, and for everyone together. */
     private static final int ADDRESS_FAILURES = MAX_TRIES, ALL_FAILURES = 10;
+    /** In all until a pairing succeeds, however slowly they come: pairing then stays closed until the switch is turned off and on. */
+    private static final int TOTAL_FAILURES = 30;
     private static final long LOCKOUT_MS = 60000, ALL_WINDOW_MS = 600000, ALL_LOCKOUT_MS = 600000;
     private static final long ALLOWED_REFRESH_MS = 5000;
 
@@ -85,6 +87,8 @@ final class WebServer {
     private final Map<String, Long> lockedUntil = new HashMap<>();
     private final java.util.ArrayDeque<Long> allFailures = new java.util.ArrayDeque<>();
     private long allLockedUntil;
+    private int totalFailures;
+    private boolean pairingClosed;
 
     // Unpaired connections, under unpairedLock
     private final Object unpairedLock = new Object();
@@ -116,6 +120,12 @@ final class WebServer {
 
     void setEnabled(boolean on) {
         prefs.edit().putBoolean("enabled", on).apply();
+        synchronized (pairingLock) {
+            pairingClosed = false;
+            totalFailures = 0;
+            allLockedUntil = 0;
+            allFailures.clear();
+        }
         if (on) start();
         else stop();
     }
@@ -309,6 +319,13 @@ final class WebServer {
             allowedAt = now;
         }
         return allowed.contains(local.getHostAddress());
+    }
+
+    private void webMessage(final int id) {
+        ui.post(() -> {
+            Listener l = listener;
+            if (l != null) l.onWebMessage(context.getString(id));
+        });
     }
 
     private boolean enterUnpaired(String ip) {
@@ -637,8 +654,12 @@ final class WebServer {
         } finally {
             synchronized (pairingLock) {
                 pairing = false;
-                if (paired) addressFailures.remove(ip);
-                else if (wrong == 0) fail(ip);
+                if (paired) {
+                    addressFailures.remove(ip);
+                    totalFailures = 0;
+                } else if (wrong == 0) {
+                    fail(ip);
+                }
             }
             ui.post(() -> {
                 Listener l = listener;
@@ -649,7 +670,7 @@ final class WebServer {
 
     /** Under pairingLock. */
     private boolean lockedOut(String ip, long now) {
-        if (allLockedUntil > now) return true;
+        if (pairingClosed || allLockedUntil > now) return true;
         Long until = lockedUntil.get(ip);
         if (until == null) return false;
         if (until > now) return true;
@@ -672,10 +693,12 @@ final class WebServer {
         if (allFailures.size() >= ALL_FAILURES && allLockedUntil <= now) {
             allFailures.clear();
             allLockedUntil = now + ALL_LOCKOUT_MS;
-            ui.post(() -> {
-                Listener l = listener;
-                if (l != null) l.onWebMessage(context.getString(com.termux.x11.app.R.string.xd_web_pairing_paused));
-            });
+            webMessage(com.termux.x11.app.R.string.xd_web_pairing_paused);
+        }
+        // A window alone lets a slow guesser go on for ever
+        if (++totalFailures >= TOTAL_FAILURES && !pairingClosed) {
+            pairingClosed = true;
+            webMessage(com.termux.x11.app.R.string.xd_web_pairing_closed);
         }
         return lockedOut(ip, now);
     }

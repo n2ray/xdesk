@@ -1,5 +1,6 @@
 package io.github.n2ray.xdesk.receiver;
 
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Surface;
 
@@ -7,10 +8,13 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** The TCP server: accepts phones, lets one at a time stream, and holds the pairing code. */
@@ -18,6 +22,12 @@ final class Receiver {
     static final int PORT = 47140;
     static final int CODE_OK = 0, CODE_WRONG = 1, CODE_REFUSED = 2;
     private static final int MAX_WRONG = 3;
+    // Connections that have not proved themselves, all and from one address. More are closed at once
+    private static final int MAX_UNPAIRED = 16, MAX_UNPAIRED_PER_ADDRESS = 4;
+    // Failed pairings: per address before a lockout, for everyone within a window, and in all until one succeeds.
+    // After the last one pairing stays closed until the app is opened again
+    private static final int ADDRESS_FAILURES = MAX_WRONG, ALL_FAILURES = 10, TOTAL_FAILURES = 30;
+    private static final long LOCKOUT_MS = 60_000, ALL_WINDOW_MS = 600_000, ALL_LOCKOUT_MS = 600_000;
 
     /** Called from network threads; only for the session that holds the receiver */
     interface Ui {
@@ -49,6 +59,13 @@ final class Receiver {
     private final Set<Session> sessions = new HashSet<>();
     private String code;
     private int wrong;
+    private int unpaired, totalFailures;
+    private boolean pairingClosed;
+    private long allLockedUntil;
+    private final Map<String, Integer> unpairedPerAddress = new HashMap<>();
+    private final Map<String, Integer> addressFailures = new HashMap<>();
+    private final Map<String, Long> lockedUntil = new HashMap<>();
+    private final ArrayDeque<Long> allFailures = new ArrayDeque<>();
 
     Receiver(Store store, Ui ui) {
         this.store = store;
@@ -85,6 +102,8 @@ final class Receiver {
             running = true;
             this.surface = surface;
             my = ++gen;
+            pairingClosed = false;
+            totalFailures = 0;
         }
         new Thread(() -> serve(my), "server").start();
     }
@@ -151,15 +170,31 @@ final class Receiver {
                 ui.portBusy(false);
                 while (true) {
                     Socket c = ss.accept();
-                    Session s = new Session(this, c);
+                    String ip = c.getInetAddress().getHostAddress();
+                    if (!enterUnpaired(ip)) {
+                        closeQuietly(c);
+                        continue;
+                    }
+                    Session s = new Session(this, c, ip);
                     synchronized (this) {
                         if (!alive(my)) {
+                            leaveUnpaired(ip);
                             closeQuietly(c);
                             break;
                         }
                         sessions.add(s);
                     }
-                    s.start();
+                    try {
+                        s.start();
+                    } catch (OutOfMemoryError e) {
+                        // No thread left: this connection goes, the one streaming stays
+                        Log.w(MainActivity.TAG, "no thread for a connection");
+                        synchronized (this) {
+                            sessions.remove(s);
+                        }
+                        leaveUnpaired(ip);
+                        closeQuietly(c);
+                    }
                 }
             } catch (IOException e) {
                 if (alive(my)) {
@@ -173,20 +208,20 @@ final class Receiver {
     }
 
     /**
-     * Gives the receiver to this session after its HELLO. False (BUSY) while another phone holds it. The same phone
-     * connecting again takes over at once: it reconnects after a network change long before its old connection
-     * would time out.
+     * Gives the receiver to this session after its HELLO. False (BUSY) while another phone holds it. A phone that has
+     * proved itself takes over from its own old connection at once (it reconnects after a network change long before
+     * that would time out) and from a connection still pairing. Nothing unproved replaces anything.
      */
     boolean claim(Session s) {
         Session old;
         synchronized (this) {
             if (!running) return false;
             old = active;
-            if (old != null && !old.phoneId.equals(s.phoneId)) return false;
+            if (old != null && !(s.authenticated && (old.phoneId.equals(s.phoneId) || !old.authenticated))) return false;
             active = s;
         }
         if (old != null) {
-            Log.i(MainActivity.TAG, "same phone again, closing its old connection");
+            Log.i(MainActivity.TAG, "a paired phone takes over, closing the old connection");
             old.kill(false);
             try {
                 old.join(2000);
@@ -215,16 +250,70 @@ final class Receiver {
         return code;
     }
 
-    synchronized int checkCode(String typed) {
+    synchronized int checkCode(String typed, String ip) {
         if (code != null && code.equals(typed.trim())) {
             code = null;
+            addressFailures.remove(ip);
+            totalFailures = 0;
             return CODE_OK;
         }
-        if (++wrong >= MAX_WRONG) {
+        boolean locked = failed(ip);
+        if (locked || ++wrong >= MAX_WRONG) {
             code = null;
             return CODE_REFUSED;
         }
         return CODE_WRONG;
+    }
+
+    /** Whether this address may not try a code now. Phones with a valid token do not ask. */
+    synchronized boolean lockedOut(String ip) {
+        long now = SystemClock.elapsedRealtime();
+        if (pairingClosed || allLockedUntil > now) return true;
+        Long until = lockedUntil.get(ip);
+        if (until == null) return false;
+        if (until > now) return true;
+        lockedUntil.remove(ip);
+        return false;
+    }
+
+    /** A wrong code, or a pairing given up without one. Returns whether that locks this address out. */
+    synchronized boolean failed(String ip) {
+        long now = SystemClock.elapsedRealtime();
+        Integer n = addressFailures.get(ip);
+        int mine = n == null ? 1 : n + 1;
+        if (mine >= ADDRESS_FAILURES) {
+            addressFailures.remove(ip);
+            lockedUntil.put(ip, now + LOCKOUT_MS);
+        } else {
+            addressFailures.put(ip, mine);
+        }
+        allFailures.addLast(now);
+        while (!allFailures.isEmpty() && now - allFailures.peekFirst() > ALL_WINDOW_MS) allFailures.removeFirst();
+        if (allFailures.size() >= ALL_FAILURES && allLockedUntil <= now) {
+            allFailures.clear();
+            allLockedUntil = now + ALL_LOCKOUT_MS;
+        }
+        if (++totalFailures >= TOTAL_FAILURES && !pairingClosed) {
+            Log.w(MainActivity.TAG, "too many failed pairings, closed until the app is opened again");
+            pairingClosed = true;
+        }
+        return lockedOut(ip);
+    }
+
+    private synchronized boolean enterUnpaired(String ip) {
+        Integer n = unpairedPerAddress.get(ip);
+        int mine = n == null ? 0 : n;
+        if (unpaired >= MAX_UNPAIRED || mine >= MAX_UNPAIRED_PER_ADDRESS) return false;
+        unpaired++;
+        unpairedPerAddress.put(ip, mine + 1);
+        return true;
+    }
+
+    synchronized void leaveUnpaired(String ip) {
+        unpaired = Math.max(0, unpaired - 1);
+        Integer n = unpairedPerAddress.get(ip);
+        if (n == null || n <= 1) unpairedPerAddress.remove(ip);
+        else unpairedPerAddress.put(ip, n - 1);
     }
 
     static void closeQuietly(ServerSocket s) {

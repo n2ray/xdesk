@@ -439,5 +439,6 @@
     <string name="xd_web_receiver_name">网页：%1$s</string>
     <string name="xd_web_service_title">XDesk 网页显示已开启</string>
     <string name="xd_web_no_service">手机不让 XDesk 在后台启动。请在手机上打开 XDesk，再重新连接。</string>
+    <string name="xd_web_pairing_closed">失败次数太多，网页显示的配对已关闭。在设置里把网页显示关掉再打开即可恢复；已配对的浏览器不受影响。</string>
     <string name="xd_web_pairing_paused">浏览器输错配对码太多次：网页显示的配对暂停 10 分钟，已配对的浏览器不受影响。</string>
 </resources>

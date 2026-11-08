@@ -23,13 +23,26 @@ bytes are an error.
 
 1. Phone → receiver, `HELLO`:
    - 4 bytes magic `XDSK`
-   - u8 version, `1`
+   - u8 version, `2`
    - string phone id (random, made once per XDesk install, 32 hex characters)
    - string phone name (shown on the receiver while pairing and streaming)
-   - string token (from an earlier pairing with this receiver, empty if none)
-2. Receiver → phone, `WELCOME`:
+   - string phone nonce: 32 random bytes as 64 hex characters, new for each connection
+2. Receiver → phone, `CHALLENGE`:
+   - u8 status `5`
+   - string receiver id
+   - string receiver name
+   - string receiver nonce (like the phone's)
+   - string receiver proof: `proof("receiver")` with the token paired with this phone id, empty if there is none
+
+   The phone looks up the token for that receiver id. Only if it has one and the receiver proof is right does it send
+   `ANSWER`, a string `proof("phone")`; otherwise it sends an empty string. The token itself is never sent.
+
+   `proof(label)` is HMAC-SHA256, keyed with the token's UTF-8 bytes, over the UTF-8 of `label \n phone id \n receiver id
+   \n phone nonce \n receiver nonce`, as 64 lowercase hex characters.
+3. Receiver → phone, `WELCOME`:
    - u8 status: `0` OK, `1` PAIR (a code is now on the receiver's screen), `2` BUSY (another phone is streaming),
-     `3` VERSION (unsupported version), `4` REFUSED (too many wrong codes)
+     `3` VERSION (unsupported version, sent right after the version byte, instead of `CHALLENGE`), `4` REFUSED (too
+     many failed pairings)
    - string receiver id (random, made once per receiver install, 32 hex characters)
    - string receiver name
    - only with status OK:
@@ -39,17 +52,26 @@ bytes are an error.
      - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
      - u16 refresh rate in frames per second, rounded
      - u8 codecs: bit 0 H.264 (always set), bit 1 H.265
-3. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
+4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
    with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
    REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.
+   Failed pairings count across connections, a pairing that ends without any code included: 3 lock the address out for
+   a minute, 10 from anyone within 10 minutes pause pairing for 10 minutes, and 30 in all until one succeeds close
+   pairing until the receiver app is opened again. A phone with a valid answer is not affected.
    Either side may close at any time; the user cancelling on the phone closes the socket.
 
-Pairing: the receiver stores phone id → token (32 random bytes as 64 hex characters) and accepts a HELLO whose token
-matches without asking. The phone stores receiver id → token. A HELLO with a wrong or unknown token gets PAIR. The
-receiver offers "Forget paired phones". The token travels unencrypted: it keeps other phones on the same network from
-casting by accident or casually, it is not protection against someone who can read the network.
+Pairing: the receiver stores phone id → token (32 random bytes as 64 hex characters) and accepts a right answer
+without asking. The phone stores receiver id → token. A wrong or empty answer gets PAIR. The receiver offers "Forget
+paired phones". The new token in the OK after a pairing, the codes and the stream all travel unencrypted, so this does
+not protect against someone who can read the network. A device that only announces a receiver's id learns nothing
+about the token.
 
-Any status other than OK and PAIR ends the connection after the WELCOME.
+Limits: at most 16 connections that have not proved themselves, 4 per address; more are closed at once. The HELLO and
+answer must arrive within 10 seconds, and a pairing ends 2 minutes after it began, however slowly bytes come. A
+connection holding the receiver is only replaced by a phone with a right answer: its own earlier connection, or one
+still pairing. Everything else gets BUSY.
+
+Any status other than OK, PAIR and CHALLENGE ends the connection after it.
 
 ## Messages
 

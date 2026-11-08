@@ -67,8 +67,8 @@ final class WirelessDisplay {
     static final int PORT = 47140;
     static final String SERVICE_TYPE = "_xdesk-display._tcp";
     private static final byte[] MAGIC = {'X', 'D', 'S', 'K'};
-    private static final int VERSION = 1;
-    private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4;
+    private static final int VERSION = 2;
+    private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4, CHALLENGE = 5;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
         SIZE = 7, KEY_FRAME = 8;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
@@ -95,7 +95,7 @@ final class WirelessDisplay {
     private Listener listener;
 
     private volatile int state = IDLE;
-    private volatile String receiverName, receiverId, address;
+    private volatile String receiverName, address;
     private volatile boolean running, keyFrameWanted, soundCaptured, web;
     /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
     private volatile IInjector injector;
@@ -190,7 +190,7 @@ final class WirelessDisplay {
      * Main thread. Also while streaming to another receiver: the state of one session (socket, output, display) is
      * shared, so the new one only begins once the old one has ended.
      */
-    void start(final String host, final int port, final String name, final String id) {
+    void start(final String host, final int port, final String name) {
         stop();
         final Thread previous = worker, bye = byeThread;
         final Socket oldSocket = socket;
@@ -208,7 +208,6 @@ final class WirelessDisplay {
                 return;
             }
             starting = null;
-            receiverId = id != null ? id : prefs.getString("id_at_" + host, null);
             address = host;
             web = false;
             endReason = null;
@@ -382,7 +381,6 @@ final class WirelessDisplay {
         web = true;
         endReason = null;
         address = null;
-        receiverId = null;
         receiverName = name;
         codes.clear();
         setState(CONNECTING);
@@ -473,13 +471,13 @@ final class WirelessDisplay {
 
     /** Returns width, height and density, or null when the receiver said no or the user gave up. */
     private int[] handshake(DataInputStream in) throws IOException {
+        final String phoneNonce = randomHex(32);
         synchronized (writeLock) {
             out.write(MAGIC);
             out.writeByte(VERSION);
             writeString(phoneId());
             writeString(phoneName());
-            String id = receiverId;
-            writeString(id != null ? prefs.getString("token_" + id, "") : "");
+            writeString(phoneNonce);
             out.flush();
         }
         boolean wrong = false;
@@ -487,12 +485,26 @@ final class WirelessDisplay {
             int status = in.readUnsignedByte();
             String id = readString(in), name = readString(in);
             if (!name.isEmpty()) receiverName = name;
+            if (status == CHALLENGE) {
+                // The id is only a claim: anyone can announce it. The token is used, never sent, and only for a
+                // receiver that has shown it holds it; otherwise it is a new pairing, and the code decides
+                String nonce = readString(in), theirs = readString(in);
+                String token = prefs.getString("token_" + id, "");
+                String answer = "";
+                if (!token.isEmpty() && !theirs.isEmpty() && java.security.MessageDigest.isEqual(
+                        proof(token, "receiver", id, phoneNonce, nonce).getBytes(StandardCharsets.UTF_8),
+                        theirs.getBytes(StandardCharsets.UTF_8))) {
+                    answer = proof(token, "phone", id, phoneNonce, nonce);
+                }
+                synchronized (writeLock) {
+                    writeString(answer);
+                    out.flush();
+                }
+                continue;
+            }
             if (status == OK) {
                 String token = readString(in);
-                SharedPreferences.Editor e = prefs.edit().putString("id_at_" + address, id);
-                if (!token.isEmpty()) e.putString("token_" + id, token);
-                e.apply();
-                receiverId = id;
+                if (!token.isEmpty()) prefs.edit().putString("token_" + id, token).apply();
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
                 in.readUnsignedByte();   // codecs: H.264 is always there
@@ -549,6 +561,30 @@ final class WirelessDisplay {
     private String phoneName() {
         String n = Settings.Global.getString(context.getContentResolver(), "device_name");
         return n != null && !n.isEmpty() ? n : Build.MODEL;
+    }
+
+    /** See receiver/PROTOCOL.md, Handshake. */
+    private String proof(String token, String label, String receiverId, String phoneNonce, String receiverNonce) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return hex(mac.doFinal((label + "\n" + phoneId() + "\n" + receiverId + "\n" + phoneNonce + "\n" + receiverNonce)
+                .getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String randomHex(int bytes) {
+        byte[] b = new byte[bytes];
+        new java.security.SecureRandom().nextBytes(b);
+        return hex(b);
+    }
+
+    private static String hex(byte[] b) {
+        StringBuilder s = new StringBuilder(b.length * 2);
+        for (byte x : b) s.append(Character.forDigit((x >> 4) & 15, 16)).append(Character.forDigit(x & 15, 16));
+        return s.toString();
     }
 
     private void writeString(String s) throws IOException {

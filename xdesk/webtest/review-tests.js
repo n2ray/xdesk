@@ -5,6 +5,8 @@
 // concurrent: while one pairing waits, a second browser gets "pairing" at once.
 // flood: 20 idle TCP connections; those over the limit are closed at once.
 // It never sends the phone's real code. Afterwards this address is locked out for a minute.
+// Failures add up on the phone: 10 within 10 minutes pause pairing for 10 minutes, 30 in all (until a pairing succeeds)
+// close it until Web display is turned off and on, so don't run lockout over and over.
 'use strict';
 const net = require('net');
 const host = process.argv[2], test = process.argv[3], port = 47150;

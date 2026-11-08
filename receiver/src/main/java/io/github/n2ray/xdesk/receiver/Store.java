@@ -6,8 +6,11 @@ import android.os.Build;
 import android.provider.Settings;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /** The receiver's id and name, and the tokens of paired phones (phone id → token). */
 final class Store {
@@ -43,11 +46,24 @@ final class Store {
         prefs.edit().putString("name", name.trim()).apply();
     }
 
-    synchronized boolean tokenMatches(String phoneId, String token) {
-        if (token.isEmpty()) return false;
-        String stored = prefs.getString(TOKEN + phoneId, null);
-        return stored != null && MessageDigest.isEqual(stored.getBytes(StandardCharsets.UTF_8),
-                token.getBytes(StandardCharsets.UTF_8));
+    /** The token paired with this phone, or null. */
+    synchronized String token(String phoneId) {
+        return prefs.getString(TOKEN + phoneId, null);
+    }
+
+    /** See PROTOCOL.md, Handshake. label says who proves, so one side's answer is no use as the other's. */
+    static String proof(String token, String label, String phoneId, String receiverId, String phoneNonce, String receiverNonce) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] b = mac.doFinal((label + "\n" + phoneId + "\n" + receiverId + "\n" + phoneNonce + "\n" + receiverNonce)
+                    .getBytes(StandardCharsets.UTF_8));
+            StringBuilder s = new StringBuilder(b.length * 2);
+            for (byte x : b) s.append(Character.forDigit((x >> 4) & 15, 16)).append(Character.forDigit(x & 15, 16));
+            return s.toString();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     synchronized String newToken(String phoneId) {
