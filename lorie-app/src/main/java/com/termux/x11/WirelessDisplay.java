@@ -74,7 +74,7 @@ final class WirelessDisplay {
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24;
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
@@ -434,6 +434,11 @@ final class WirelessDisplay {
                 if (b.length < 4) return;
                 final int dx = p.getShort(), dy = p.getShort();
                 r = () -> sink.move(dx, dy);
+                break;
+            case IN_ABS:
+                if (b.length < 4) return;
+                final float fx = (p.getShort() & 0xffff) / 65535f, fy = (p.getShort() & 0xffff) / 65535f;
+                r = () -> sink.moveToFraction(fx, fy);
                 break;
             case IN_BUTTON:
                 if (b.length < 2) return;

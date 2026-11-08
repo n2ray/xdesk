@@ -20,6 +20,7 @@ interface IInjector {
 
     // The phone UI: touchpad, shortcut row and soft keyboard. Buttons are X numbered (1 left, 2 middle, 3 right).
     oneway void move(int dx, int dy) = 6;
+    oneway void moveToFraction(float x, float y) = 37;
     oneway void button(int button, boolean down) = 7;
     oneway void scroll(int dy, int dx) = 8;
     oneway void key(int scan, boolean down) = 9;

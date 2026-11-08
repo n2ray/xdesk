@@ -443,6 +443,10 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    @Override public void moveToFraction(final float x, final float y) {
+        post(() -> injector.moveTo(x, y));
+    }
+
     @Override public void button(final int button, final boolean down) {
         final int bit = button == 1 ? MotionEvent.BUTTON_PRIMARY : button == 3 ? MotionEvent.BUTTON_SECONDARY : button == 2 ? MotionEvent.BUTTON_TERTIARY : 0;
         if (bit != 0) post(() -> {

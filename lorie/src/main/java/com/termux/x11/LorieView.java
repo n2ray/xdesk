@@ -465,6 +465,11 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     /** Aspect ratio of the X screen, null if its size is not known yet. */
+    /** The X screen's size, zero until it is known. */
+    public Point screenSize() {
+        return new Point(p);
+    }
+
     public Rational getScreenAspectRatio() {
         return p.x == 0 || p.y == 0 ? null : new Rational(p.x, p.y);
     }

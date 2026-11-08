@@ -140,6 +140,7 @@ display sends:
 | Type | Name | Payload |
 |---|---|---|
 | 20 | MOVE | i16 dx, i16 dy: relative pointer movement in the display's pixels |
+| 25 | POSITION | u16 x, u16 y: where the pointer is, 0 to 65535 across and down the picture |
 | 21 | BUTTON | u8 button (1 left, 2 middle, 3 right), u8 down |
 | 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
 | 23 | KEY | u16 Linux input key code, u8 down |

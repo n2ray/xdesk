@@ -19,6 +19,13 @@ final class DesktopInput implements InputSink {
         if (v != null) v.sendMouseEvent(dx, dy, InputStub.BUTTON_UNDEFINED, false, true);
     }
 
+    @Override public void moveToFraction(float x, float y) {
+        LorieView v = view();
+        if (v == null) return;
+        android.graphics.Point s = v.screenSize();
+        if (s.x > 0 && s.y > 0) v.sendMouseEvent(x * (s.x - 1), y * (s.y - 1), InputStub.BUTTON_UNDEFINED, false, false);
+    }
+
     @Override public void button(int button, boolean down) {
         LorieView v = view();
         if (v != null) v.sendMouseEvent(0, 0, button, down, true);

@@ -230,6 +230,12 @@ final class AppSession {
     private final Runnable bindTimeout = () -> fail(text(viaShell ? R.string.xd_app_no_answer : R.string.xd_app_shizuku_no_start));
 
     private final InputSink input = new InputSink() {
+        @Override public void moveToFraction(float x, float y) {
+            IInjector i = injector;
+            try {
+                if (i != null) i.moveToFraction(x, y);
+            } catch (RemoteException ignored) { }
+        }
         @Override public void move(int dx, int dy) {
             IInjector i = injector;
             try {

@@ -490,6 +490,7 @@ public class XDeskActivity extends Activity {
     /** The browser's mouse and keyboard, as the phone's touchpad and keyboard would. */
     private final InputSink webInput = new InputSink() {
         @Override public void move(int dx, int dy) { if (client != null) client.move(dx, dy); }
+        @Override public void moveToFraction(float x, float y) { if (client != null) client.moveToFraction(x, y); }
         @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
         @Override public void click(int b) { if (client != null) client.click(b); }
         @Override public void scroll(int dy, int dx) { if (client != null) client.scroll(dy, dx); }

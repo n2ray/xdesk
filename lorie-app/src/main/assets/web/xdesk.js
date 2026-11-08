@@ -30,7 +30,7 @@ const T = zh ? {
 
 // ---------------------------------------------------------------- protocol
 const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9;
-const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24;
+const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
 
 const $ = id => document.getElementById(id);
 const stage = $('stage'), video = $('video'), canvas = $('canvas'), kbd = $('kbd');
@@ -225,6 +225,17 @@ function median(a) {
 }
 function noteError(e) { stats.errors++; stats.lastError = String(e && e.message || e).slice(0, 160); }
 let debugEl = null;
+function copyText(text, button) {
+  const done = () => { button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 1200); };
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, () => {}); return; }
+  // Plain HTTP has no clipboard API
+  const t = document.createElement('textarea');
+  t.value = text;
+  document.body.appendChild(t);
+  t.select();
+  try { if (document.execCommand('copy')) done(); } catch (e) { /* the text stays selectable */ }
+  t.remove();
+}
 function debugTick() {
   if (player && player.extra) Object.assign(stats, player.extra());
   const best = bestTime();
@@ -232,9 +243,17 @@ function debugTick() {
   askTime();
   const s = JSON.stringify(stats);
   if (!debugEl) {
+    // Outside the stage, so a click here does not take the mouse. It is rewritten every second, hence the button
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:6px;bottom:6px;padding:6px 8px;background:rgba(0,0,0,.7);z-index:20;max-width:90vw';
+    const copy = document.createElement('button');
+    copy.textContent = 'Copy';
+    copy.style.cssText = 'font:12px monospace;margin-bottom:4px';
+    copy.addEventListener('click', () => copyText(JSON.stringify(stats), copy));
     debugEl = document.createElement('pre');
-    debugEl.style.cssText = 'position:fixed;left:6px;bottom:6px;margin:0;padding:6px 8px;font:12px monospace;background:rgba(0,0,0,.7);color:#7f7;z-index:20;pointer-events:none;white-space:pre-wrap;max-width:90vw';
-    document.body.appendChild(debugEl);
+    debugEl.style.cssText = 'margin:0;font:12px monospace;color:#7f7;white-space:pre-wrap;-webkit-user-select:text;user-select:text';
+    box.append(copy, debugEl);
+    document.body.appendChild(box);
   }
   debugEl.textContent = s.replace(/,/g, ', ');
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ debug: stats }));
@@ -662,12 +681,29 @@ function toRemote() { const r = pictureRect(); return r.scale ? 1 / r.scale : 1;
 const locked = () => document.pointerLockElement === stage;
 const BUTTON = [1, 2, 3];   // DOM 0 left, 1 middle, 2 right → X 1, 2, 3
 
+// The computer's own pointer, at its own speed and with no delay: the page sends where it is. ?lock captures the mouse
+// instead and sends movement, for games that need it.
+const LOCK = /[?&]lock\b/.test(location.search);
+if (!LOCK) stage.classList.add('free');
+let lastAbs = -1;
+function sendAbsolute(e) {
+  const r = pictureRect();
+  if (!r.width || !r.height) return;
+  const x = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 65535);
+  const y = Math.round(Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) * 65535);
+  const both = x * 65536 + y;
+  if (both === lastAbs) return;
+  lastAbs = both;
+  send(IN_ABS, new Uint8Array([x >> 8, x & 255, y >> 8, y & 255]));
+}
+
 stage.addEventListener('pointerdown', e => {
   if (!live) return;
   if (sound) sound.unlock();
   if (e.pointerType === 'mouse') {
     e.preventDefault();
-    if (!locked() && stage.requestPointerLock && !mouseUnlockedOnPurpose) {
+    if (!LOCK) sendAbsolute(e);
+    if (LOCK && !locked() && stage.requestPointerLock && !mouseUnlockedOnPurpose) {
       // The first click only captures the mouse
       try {
         const p = stage.requestPointerLock({ unadjustedMovement: true });
@@ -695,6 +731,7 @@ let mouseUnlockedOnPurpose = false;
 document.addEventListener('mousemove', e => {
   if (!live) return;
   if (!locked() && !e.buttons && document.activeElement !== kbd && !stage.contains(e.target)) return;
+  if (!locked()) { sendAbsolute(e); return; }
   const f = toRemote();
   queueMove(e.movementX * f, e.movementY * f);
 });

@@ -127,7 +127,7 @@ Any device with a browser can be the display: an iPad, a laptop, a smart TV. No 
 
 The first time, the browser asks for a 4-digit code that XDesk shows on the phone; it remembers the phone from then on. You get the picture, the phone's sound, and the browser's mouse, keyboard and touch:
 
-- **Mouse:** the first click captures it (Pointer Lock), Esc releases it. Buttons and the wheel go to the display.
+- **Mouse:** your computer's own pointer, shown as a dot, at its own speed and with no delay; the desktop's pointer follows it in the picture. Buttons and the wheel go to the display. Adding `?lock` to the address captures the mouse instead (Pointer Lock, Esc releases it), for games that need relative movement.
 - **Touch** works as the phone's touchpad: one finger moves, tap clicks, tap and drag drags, two fingers scroll, a two-finger tap is a right click, three fingers a middle click.
 - **Keyboard:** keys go as key codes, so shortcuts work; on Mac and iPad keyboards Command acts as Ctrl. Text from input methods (Chinese, the iPad's soft keyboard through ⌨) goes as text.
 - **Staying on the page:** the toolbar at the top (move the mouse up or touch the top edge) has full screen, keyboard, sound and disconnect. Back is blocked and leaving asks first; the page does not zoom, scroll, select or show menus. In Chrome full screen, Esc and browser shortcuts go to the display too. On the iPad, **Add to Home Screen** opens it full screen like an app.

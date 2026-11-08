@@ -3,6 +3,8 @@ package com.termux.x11;
 /** Where the phone's touchpad and keyboard go: a Termux desktop (DesktopInput) or an Android app (AppSession). */
 interface InputSink {
     void move(int dx, int dy);
+    /** To this place on the display, 0 to 1 across and down. Only for pointers that know where they are, as a browser's. */
+    default void moveToFraction(float x, float y) { }
     /** X numbered: 1 left, 2 middle, 3 right. */
     void button(int button, boolean down);
     void click(int button);

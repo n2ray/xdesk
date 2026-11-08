@@ -458,6 +458,11 @@ final class InputInjector {
         cursor.onCursor((int) x, (int) y);
     }
 
+    /** To this place, 0 to 1 across and down. */
+    void moveTo(float fx, float fy) throws ReflectiveOperationException, InterruptedException {
+        moveBy(fx * (width - 1) - x, fy * (height - 1) - y);
+    }
+
     /** @param vertical wheel steps, positive is up. @param horizontal wheel steps, positive is right. */
     void scroll(float vertical, float horizontal) throws ReflectiveOperationException, InterruptedException {
         if (touching()) swipe(vertical, horizontal);
