@@ -114,7 +114,7 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 3. The first time, type the 4-digit code shown on the receiver. Paired devices connect without a code from then on.
 
 - **Needs the injector service** (built-in or Shizuku): it creates the display that is streamed. The wireless display has its own session in the service, so apps starting and ending do not touch it, and XDesk makes the display again if the service drops it.
-- **Video** is H.264 at the receiver's screen size, capped at 1920 on the long side and to what its decoder handles, at about 12 Mbit/s for 1080p, decoded with low latency. **Sound** is the phone's whole output, captured as PCM and played on the receiver; the phone is silent meanwhile, and the output choice does not apply.
+- **Video** is H.264 at the receiver's screen size, capped at 1920 on the long side and to what its decoder handles, at about 12 Mbit/s for 1080p, decoded with low latency. **Sound** is the phone's whole output, captured as PCM and played on the receiver while the phone is silent. To keep it on the phone instead, e.g. in headphones, choose one of the phone's outputs under the sound output; **The receiver** sends it back. This works while streaming, and is kept for the next time.
 - **Stop** from the same settings row, with **End XDesk**, or by closing the receiver.
 - The pairing token travels unencrypted. It keeps other phones on the network from casting by accident, it does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 

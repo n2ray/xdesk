@@ -238,6 +238,10 @@ final class AudioRoute {
         return car || wireless;
     }
 
+    boolean isCar() {
+        return car;
+    }
+
     boolean isWireless() {
         return wireless;
     }

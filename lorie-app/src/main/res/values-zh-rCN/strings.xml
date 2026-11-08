@@ -282,7 +282,8 @@
     <string name="xd_wireless_no_display">无法创建无线显示器：%1$s</string>
     <string name="xd_wireless_no_sound">声音留在手机上：%1$s</string>
     <string name="xd_audio_short_wireless">无线</string>
-    <string name="xd_output_wireless">无线显示时，手机的声音从接收器播放，没有输出可选</string>
+    <string name="xd_output_receiver">接收端（%1$s）</string>
+    <string name="xd_output_note_wireless">无线显示时，手机的所有声音默认从接收端播放。选手机上的输出就留在手机上，比如用耳机听。</string>
     <string name="xd_status_desktop_taken">键盘在外接屏：%1$s</string>
     <string name="xd_take_over_needs_injector">接管要用注入服务：Shizuku 或内置服务</string>
     <string name="xd_density_need_injector">需要注入服务</string>

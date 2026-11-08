@@ -303,7 +303,8 @@
     <string name="xd_wireless_no_display">Can\'t create the wireless display: %1$s</string>
     <string name="xd_wireless_no_sound">Sound stays on the phone: %1$s</string>
     <string name="xd_audio_short_wireless">Wireless</string>
-    <string name="xd_output_wireless">On a wireless display the phone\'s sound plays on the receiver. There is no output to choose</string>
+    <string name="xd_output_receiver">The receiver (%1$s)</string>
+    <string name="xd_output_note_wireless">On the wireless display the receiver plays all of the phone\'s sound. Choose an output of the phone to keep it here, e.g. in headphones.</string>
     <string name="xd_status_desktop_taken">Keyboard on the display: %1$s</string>
     <string name="xd_take_over_needs_injector">Taking over needs the input service: Shizuku or the built-in one</string>
     <string name="xd_density_need_injector">Needs the input service</string>

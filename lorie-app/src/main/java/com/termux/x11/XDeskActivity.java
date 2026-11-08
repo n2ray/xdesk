@@ -1592,25 +1592,34 @@ public class XDeskActivity extends Activity {
 
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
     private void chooseOutput() {
-        if (audioRoute.isRemote()) {
-            Toast.makeText(this, audioRoute.isWireless() ? R.string.xd_output_wireless : R.string.xd_output_car, Toast.LENGTH_LONG).show();
+        if (audioRoute.isCar()) {
+            Toast.makeText(this, R.string.xd_output_car, Toast.LENGTH_LONG).show();
             return;
         }
+        // On a wireless or web display the receiver is one more output: the phone's ones keep the sound here, e.g. in headphones
+        final boolean receiver = wireless.isActive();
+        final int extra = receiver ? 1 : 0;
         final List<AudioRoute.Output> outputs = audioRoute.outputs();
-        String[] labels = new String[outputs.size() + 1];
-        labels[0] = getString(R.string.xd_output_system);
+        String[] labels = new String[outputs.size() + 1 + extra];
+        if (receiver) labels[0] = getString(R.string.xd_output_receiver, wireless.receiverName());
+        labels[extra] = getString(R.string.xd_output_system);
         String selected = audioRoute.selectedKey();
-        int checked = selected.isEmpty() ? 0 : -1;
+        int checked = selected.isEmpty() ? extra : -1;
         int selectedType = selected.isEmpty() ? -1 : Integer.parseInt(selected.substring(0, selected.indexOf('|')));
         for (int i = 0; i < outputs.size(); i++) {
             AudioRoute.Output o = outputs.get(i);
-            labels[i + 1] = o.label;
-            if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1;
+            labels[i + 1 + extra] = o.label;
+            if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1 + extra;
         }
+        if (receiver && wireless.soundToReceiver()) checked = 0;
         String note = getString(apps.injectorReady() ? R.string.xd_output_note_shared : R.string.xd_output_note_desktop_only)
             + "\n" + getString(R.string.xd_output_note_unverified);
+        if (receiver) note = getString(R.string.xd_output_note_wireless) + "\n" + note;
         outputDialog = ui().choice(getString(R.string.xd_output_title), note, labels, checked, which -> {
-            audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
+            if (receiver) wireless.setSoundToReceiver(which == 0);
+            if (which < extra) return;
+            int k = which - extra;
+            audioRoute.select(k == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(k - 1).key);
             if (audioRoute.isMissing()) setStatus(Style.WARN, getString(R.string.xd_output_missing));
         });
     }

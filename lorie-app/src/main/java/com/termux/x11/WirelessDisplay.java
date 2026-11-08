@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit;
  * of its own (public and trusted, like AppDisplay), so XDesk uses it like a cable-connected external display: desktop,
  * Android apps, cursor, dashboard and density all work as there, TargetDisplay counts it as real. Its picture goes into
  * a hardware H.264 encoder. Sound is the phone's whole output, recorded by that injector (OutputCapture), so nothing
- * plays on the phone meanwhile.
+ * plays on the phone meanwhile; or, by choice (setSoundToReceiver), it stays on the phone, e.g. in headphones.
  *
  * If that injector dies (Shizuku killed, the built-in server restarted), the connection to the receiver stays and a new
  * injector makes a new display, a few times. Apps on the old display go to the phone as from an unplugged display.
@@ -96,6 +96,12 @@ final class WirelessDisplay {
     private volatile int state = IDLE;
     private volatile String receiverName, receiverId, address;
     private volatile boolean running, keyFrameWanted, soundCaptured, web;
+    /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
+    private volatile IInjector injector;
+    private volatile ParcelFileDescriptor soundPipe;
+    private final Object soundLock = new Object();
+    /** Whether the phone's sound goes to the receiver; off keeps it on the phone, e.g. in headphones. */
+    private static final String PREF_SOUND = "sound_to_receiver";
     private volatile Socket socket;
     private volatile WebSocket webSocket;
     private volatile InputSink webInput;
@@ -139,6 +145,25 @@ final class WirelessDisplay {
     /** Whether the phone's sound goes to the receiver. */
     boolean capturesSound() {
         return soundCaptured;
+    }
+
+    /** The choice, kept for the next connection; capturesSound says whether it worked. */
+    boolean soundToReceiver() {
+        return prefs.getBoolean(PREF_SOUND, true);
+    }
+
+    /** Also while streaming: the recording starts or stops, and the phone's own outputs take the sound back. */
+    void setSoundToReceiver(final boolean on) {
+        prefs.edit().putBoolean(PREF_SOUND, on).apply();
+        // captureOutput is a Binder call that starts a recording, not for the main thread
+        new Thread(() -> {
+            synchronized (soundLock) {
+                IInjector i = injector;
+                if (i == null || state != STREAMING) return;
+                if (on && soundPipe == null) captureSound(i);
+                else if (!on && soundPipe != null) stopSound();
+            }
+        }, "xdesk-wireless-sound-switch").start();
     }
 
     String receiverName() {
@@ -605,7 +630,6 @@ final class WirelessDisplay {
         IBinder.DeathRecipient death = () -> died[0] = true;
         MediaCodec encoder = null;
         Surface input = null;
-        ParcelFileDescriptor sound = null;
         try {
             i.asBinder().linkToDeath(death, 0);
             // Linked to XDesk: if XDesk dies, the display and the recording end with it
@@ -626,8 +650,11 @@ final class WirelessDisplay {
             }
             displayId = id;
             Log.i(TAG, "display " + id + ", " + width + "x" + height + " " + dpi + " dpi, receiver " + receiverDpi + " dpi");
-            sound = captureSound(i);
-            setState(STREAMING);
+            synchronized (soundLock) {
+                injector = i;
+                if (soundToReceiver()) captureSound(i);
+                setState(STREAMING);
+            }
             final int shown = id;
             ui.post(() -> {
                 if (listener != null) listener.onWirelessDisplay(shown);
@@ -641,8 +668,10 @@ final class WirelessDisplay {
             return true;
         } finally {
             displayId = Display.INVALID_DISPLAY;
-            soundCaptured = false;
-            if (sound != null) closeQuietly(sound);
+            synchronized (soundLock) {
+                injector = null;
+                if (soundPipe != null) stopSound();
+            }
             if (encoder != null) {
                 try {
                     encoder.stop();
@@ -727,24 +756,27 @@ final class WirelessDisplay {
     }
 
     /** The phone's sound output into AUDIO_DATA. Without it the picture still goes, and sound stays on the phone. */
-    private ParcelFileDescriptor captureSound(IInjector i) {
+    /** Under soundLock. Sets soundPipe. */
+    private void captureSound(IInjector i) {
         final ParcelFileDescriptor pfd;
         try {
             pfd = i.captureOutput();
         } catch (RemoteException | RuntimeException e) {
             Log.w(TAG, "no sound capture", e);
             message(R.string.xd_wireless_no_sound, ShellText.localize(context, String.valueOf(e.getMessage())));
-            return null;
+            return;
         }
+        soundPipe = pfd;
         soundCaptured = true;
         new Thread(() -> {
             byte[] buf = new byte[OutputCapture.RATE * 4 / 50];
             try (InputStream in = new FileInputStream(pfd.getFileDescriptor())) {
+                // Again after the sound came back from the phone: the receiver starts a new player
                 ByteBuffer format = ByteBuffer.allocate(6).putInt(OutputCapture.RATE).put((byte) 2).put((byte) 1);
                 writeMessage(AUDIO_FORMAT, format.array(), 0, 6);
-                while (running) {
+                while (running && soundPipe == pfd) {
                     int n = in.read(buf);
-                    if (n < 0) break;
+                    if (n < 0 || soundPipe != pfd) break;
                     byte[] head = ByteBuffer.allocate(8).putLong(System.nanoTime() / 1000).array();
                     writeMessage(AUDIO_DATA, head, ByteBuffer.wrap(buf, 0, n), n);
                 }
@@ -755,7 +787,17 @@ final class WirelessDisplay {
         ui.post(() -> {
             if (listener != null) listener.onWirelessChanged();
         });
-        return pfd;
+    }
+
+    /** Under soundLock. Closing XDesk's end makes the injector stop recording, and the system plays on the phone again. */
+    private void stopSound() {
+        ParcelFileDescriptor pfd = soundPipe;
+        soundPipe = null;
+        soundCaptured = false;
+        if (pfd != null) closeQuietly(pfd);
+        ui.post(() -> {
+            if (listener != null) listener.onWirelessChanged();
+        });
     }
 
     /** The injector only needs XDesk's binder to notice XDesk dying; it sends nothing here. */
