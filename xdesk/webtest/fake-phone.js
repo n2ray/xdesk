@@ -91,6 +91,7 @@ server.on('upgrade', (req, sock) => {
         const t = p[0];
         if (t === 8) { console.log('KEY_FRAME requested'); }
         else if (t === 9) { const c = Buffer.alloc(8); c.writeBigUInt64BE(BigInt(Math.round((Date.now() - t0) * 1000))); send(2, message(9, Buffer.concat([p.subarray(5, 13), c]))); }
+        else if (t >= 20 && process.env.LOG_INPUT) console.log('in', t, p.subarray(5).toString('hex'));
         else if (t >= 20) { inputs++; if (inputs % 50 === 1) console.log('input type', t, 'count', inputs); }
       }
     }

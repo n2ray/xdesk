@@ -194,7 +194,7 @@ const stats = { path: '', framesIn: 0, keys: 0, configs: 0, decoded: 0, errors: 
 // offset from this one comes from TIME messages, keeping the sample with the shortest round trip, as NTP does.
 // rttMs: to the phone and back. arriveMs: capture to here (encoding, sending, network). decodeMs: here to handed to the
 // display. totalMs: capture to handed to the display. The monitor's own delay comes on top and cannot be seen from here.
-const lat = { times: [], arrivals: new Map(), arrive: [], decode: [], total: [] };
+const lat = { times: [], arrivals: new Map(), arrive: [], decode: [], total: [], input: [], inputAt: 0, lastInput: 0 };
 function askTime() {
   const b = new DataView(new ArrayBuffer(8));
   b.setFloat64(0, performance.now());
@@ -216,7 +216,18 @@ function noteArrival(pts) {
   const age = ageOf(pts, now);
   if (age !== null) lat.arrive.push(age);
 }
+// inputMs: from the first move after a pause to the next frame shown. Only what the desktop answers shows up: the pointer
+// itself is the computer's, so moving over an empty area makes no frame. Ignored if nothing came within a second.
+function noteInput() {
+  const now = performance.now();
+  if (now - lat.lastInput > 400) lat.inputAt = now;
+  lat.lastInput = now;
+}
 function noteShown(pts, at) {
+  if (lat.inputAt && at >= lat.inputAt) {
+    if (at - lat.inputAt < 1000) lat.input.push(at - lat.inputAt);
+    lat.inputAt = 0;
+  }
   const came = lat.arrivals.get(pts);
   if (came === undefined) return;
   lat.arrivals.delete(pts);
@@ -246,7 +257,7 @@ function copyText(text, button) {
 function debugTick() {
   if (player && player.extra) Object.assign(stats, player.extra());
   const best = bestTime();
-  Object.assign(stats, { rttMs: best ? Math.round(best.rtt) : null, arriveMs: median(lat.arrive), decodeMs: median(lat.decode), totalMs: median(lat.total) });
+  Object.assign(stats, { rttMs: best ? Math.round(best.rtt) : null, arriveMs: median(lat.arrive), decodeMs: median(lat.decode), totalMs: median(lat.total), inputMs: median(lat.input) });
   askTime();
   const s = JSON.stringify(stats);
   if (!debugEl) {
@@ -721,6 +732,7 @@ function sendAbsolute(e) {
   const both = x * 65536 + y;
   if (both === lastAbs) return;
   lastAbs = both;
+  if (DEBUG) noteInput();
   send(IN_ABS, new Uint8Array([x >> 8, x & 255, y >> 8, y & 255]));
 }
 
@@ -765,8 +777,9 @@ window.addEventListener('pointercancel', e => {
 // A browser's own drag and drop would swallow the moves and the release, and leave the button held on the desktop
 document.addEventListener('dragstart', e => e.preventDefault());
 let mouseUnlockedOnPurpose = false;
-document.addEventListener('mousemove', e => {
-  if (!live) return;
+// pointermove, not mousemove: the pointerdown above is canceled, and browsers then send no mousemove while a button is down
+document.addEventListener('pointermove', e => {
+  if (!live || e.pointerType !== 'mouse') return;
   if (!locked() && !e.buttons && document.activeElement !== kbd && !stage.contains(e.target)) return;
   if (!locked()) {
     // A release the page never saw: the button must not stay held on the desktop
