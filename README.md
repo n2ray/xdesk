@@ -1,42 +1,94 @@
-| Android apps get no input on Xiaomi | Turn on **USB debugging (Security settings)** in Developer options |
-| Flickering blocks in GPU programs on the car | Turnip's tiled rendering is interrupted by the composition of Android Auto's display. Start them with `TU_DEBUG=sysmem`; for Chromium, `--use-angle=gl --disable-features=Vulkan` is also faster |
 # XDesk
 
-**Put apps on the big screen from an Android phone, with no root.** XDesk runs an Android app full screen on an external display, or a Linux desktop from Termux, proot or chroot. The phone is the control surface: launcher and switcher, touchpad, keyboard and settings. Android apps need wireless debugging once to activate, or Shizuku if you already run it. Linux desktops need neither.
+<p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="XDesk on a car's screen through Android Auto"></p>
 
-XDesk's lifetime is separate from any desktop. Opening or swiping away XDesk never starts or stops XFCE. A Termux desktop is one entry in the launcher, and you start and stop it yourself.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, or use any browser as the display.
 
-[中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0
+| Screen | How it connects |
+|---|---|
+| Monitor, portable screen or dock | USB-C video output, the lowest latency |
+| Car | Android Auto, parked only (experimental) |
+| Projector, TV box or old phone | Wi-Fi, to XDesk Receiver |
+| iPad, laptop or smart TV | Any browser, nothing to install there |
+
+**[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by n2ray and Claude](#built-by-a-person-and-an-ai)
 
 > **Status:** an early personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently. The UI follows the system language: English, or Simplified Chinese when the phone is set to it. On Android 13 and later you can also pick the language in XDesk's settings. Reports from other devices are very welcome.
 
-## Install
+## Quick start
 
-In [Termux](https://github.com/termux/termux-app):
+Android 11 or newer (only tested on Android 16). No root, no computer and no other app needed.
+
+### 1 Install the app
+
+Download `xdesk.apk` from the [latest release](https://github.com/n2ray/xdesk/releases/latest) and install it. If your file manager reports "app not installed", use `adb install -r xdesk.apk`; on Xiaomi phones, first turn on **USB install** in Developer options.
+
+From v0.2.0 the APK is signed with XDesk's own release key. v0.1.x used upstream's public test key, so Android refuses to update it: uninstall the old XDesk first.
+
+### 2 Activate it once
+
+Android doesn't let normal apps send input to other apps, so XDesk starts a small service of its own through wireless debugging. Open XDesk and follow its activation page:
+
+1. Connect to Wi-Fi. It is only needed while activating, and the phone's own hotspot probably doesn't count.
+2. In Developer options, turn on **Wireless debugging** and tap **Pair device with pairing code**.
+3. Type the 6-digit code into XDesk, in its notification or on its activation page.
+4. Allow the overlay permission when XDesk asks, so it can draw a cursor on the display.
+
+On Xiaomi phones, also turn on **USB debugging (Security settings)** in Developer options and allow the permission to get installed apps. Already using [Shizuku](https://shizuku.rikka.app/)? XDesk can use it instead. A reboot needs activation again.
+
+### 3 Connect a screen
+
+Connect a monitor with a USB-C to HDMI cable or dock, and open **XDesk**. The phone needs **video output over USB-C** (DisplayPort Alt Mode): if plugging in a monitor mirrors the screen, it qualifies. Then tap an app. Nothing starts until you choose.
+
+<p align="center"><img src="docs/img/app-android.jpg" width="560" alt="An Android browser full screen on the display"> <img src="docs/img/phone-touchpad.jpg" width="150" alt="The phone as a touchpad"></p>
+
+### Then add what you want
+
+- [Linux desktops](#linux-desktops-with-termux), through Termux
+- [Another Android device as the display](#wireless-display), over Wi-Fi with XDesk Receiver
+- [Any browser as the display](#web-display)
+- A car through Android Auto, parked only (see [What you get](#what-you-get))
+
+## Android apps on the display
+
+Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. With a physical keyboard, taking over also moves the input method's candidates to the display, next to the text, and giving back returns them to the phone. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
+
+- **Activation, with no other app.** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user. It reads `/dev/input` and injects events. XDesk starts it itself through wireless debugging (Android 11 or later). You turn on wireless debugging and enter the pairing code once, in the notification or on XDesk's activation page. Then XDesk starts the service whenever it opens with wireless debugging on. Termux sessions need none of this.
+  - Activating needs a Wi-Fi connection: Android switches wireless debugging off without one, and the phone's own hotspot probably does not count. Once the service runs, Wi-Fi can go away.
+  - A reboot needs activation again. If the service managed to give XDesk the `WRITE_SECURE_SETTINGS` permission, XDesk turns wireless debugging on when you open it with Wi-Fi connected, and off again once the service runs. Otherwise, it says what to do. Some systems refuse that permission.
+  - Do not turn off USB debugging or developer options while it runs.
+  - The service stays running after you end XDesk, holding no input, sound route or display setting, and only XDesk's uid can call it. It stops at a reboot, when XDesk is updated or removed, or with **Stop built-in service** in the settings.
+  - XDesk's key stays paired until you revoke it in the developer options. With wireless debugging on, that key can open a shell on the phone, as for any paired device.
+- **[Shizuku](https://shizuku.rikka.app/) still works.** If it is running and has allowed XDesk, XDesk uses it instead and the service runs through it, as before.
+- **Needs the overlay permission,** because Android keeps its own pointer on the phone and XDesk draws a cursor on the display.
+- **Dock and switching.** The chooser has search by name or package. The star on a row adds it to a dock. Long pressing an icon, in the dock or the list, opens a card with what is remembered for that app: dock position, interface size, mouse or finger, and closing it. The dock stays on the touchpad screen, and one tap switches what is on the display without going back to the chooser. An app that is already running comes to the front with its state. A desktop keeps running behind an app and an app's task stays behind a desktop, as long as Android does not close it. Desktop audio is silent while an app is in front.
+- **Cursor in RustDesk.** During a remote session XDesk's cursor is a small faint dot over the remote picture, so it stays out of the way of the remote cursor but still shows on RustDesk's own screens. It is the normal cursor over the toolbar and for a few seconds after a toolbar click. It detects a session from a window flag seen in one version. If that is wrong, turn on the setting to always show the cursor.
+- **Android Back.** The **Back** key sends Back to the app on the display, for apps that rely on the edge swipe, and a mouse's side buttons send Back and Forward. In a RustDesk session the side buttons keep going to RustDesk. If Back leaves no app on the display, the list opens. It also goes to an app that Back uncovers.
+- **Two input modes, per app, and the cursor shows which.** **Mouse & keyboard** has XDesk's black arrow and is keyboard and mouse: the phone's touchpad, buttons and keys, and a physical mouse and keyboard. **Touch** is for apps and pages that only listen to touch, and has a rounded black arrowhead, which hides when still, so you can keep watching the big screen: one finger moves the cursor, a tap is a tap at the cursor, tap then press and slide is a drag, and press and hold is a long press. Two or more fingers, up to five, are real fingers placed around the cursor, with a dot on the display for each, so pinches and swipes pass through. A physical mouse then acts as fingers, left as one, right as two, and the wheel as a swipe. XDesk remembers the mode per app, the default is Mouse & keyboard, and RustDesk stays at Mouse & keyboard.
+- **Full screen touch area.** An icon in the touch area's corner makes it the whole phone screen, with the system bars hidden, and XDesk remembers this. Small translucent corner icons give Back and the keyboard, and leave full screen, as does the phone's Back. In Mouse & keyboard mode the left and right buttons go away, since tap, two-finger tap and hold-to-drag cover them.
+- **Keyboard.** Apps raise the phone's soft keyboard on the phone. The display's input method setting changes only while you have taken over with a physical keyboard, and is put back when you give back, when the session ends, or when the service dies.
+- **Dashboard.** With XDesk open and a display connected, the display shows a clock and status under whatever runs on it, and that is what appears when an app exits. **End XDesk** removes it, and mirroring returns.
+- **Ending the session.** The display stays as it is until you end XDesk with **End XDesk** (in the settings), or by swiping it away from recent tasks. Then apps on the display move back to the phone, not closed, the display returns to mirroring, input is released, and the sound route and interface size are reset. A Termux desktop keeps running without its window, and the launcher shows it as running. Moving apps needs the injector service. Without it they stay on the display, and XDesk says so. Going to the launcher or to the home screen ends nothing: taken input stays taken, and Ctrl+Alt+M still works.
+- **XDesk never restarts a desktop by itself.** If the X server stops, the launcher says so and the session can be started again with a tap.
+- **Interface size of the display.** A number in settings sets the default density from 120 to 220 dpi while an Android app is on the display, remembered per physical display. An app can have its own number on its card, which applies before it starts and whenever you switch to it. Density only changes when the value differs, because apps reconfigure. The cursor keeps its size, set from the display's height. It is reset when the session ends, so mirroring is normal again. While a Termux desktop is showing, the display uses a separate number, 168 dpi by default and set in the same place. It only sizes Android's windows there, such as the input method's candidates; the desktop has its own DPI setting. On HyperOS a cleared density falls back to the phone's own, so XDesk sets the display's own value instead. It needs the injector service.
+- **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
+- **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
+
+## Linux desktops with Termux
+
+<p align="center"><img src="docs/img/desktop-xfce.jpg" width="640" alt="An XFCE desktop on the display"></p>
+
+Optional, and Android apps need none of it. This part needs [Termux](https://github.com/termux/termux-app). Run this in Termux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-It installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app. Then:
+It installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app, which you can ignore if it is already installed. No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`. Your sessions then appear in XDesk's launcher.
 
-1. Install the app it downloaded. If your file manager reports "app not installed", use `adb install -r xdesk.apk`. On Xiaomi phones, first turn on **USB install** in Developer options.
-2. Plug in a display and open **XDesk**.
-3. Choose what to run: a Termux session or an Android app. Nothing starts until you choose.
+> Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh).
 
-No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
-
-> Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh). From v0.2.0 the APK is signed with XDesk's own release key. v0.1.x used upstream's public test key, so Android refuses to update it: uninstall the old XDesk first.
-
-## Requirements
-
-- An Android phone with **video output over USB-C** (DisplayPort Alt Mode). If plugging in a monitor mirrors the screen, it qualifies
-- Or, without a cable: another Android device on the same network running XDesk Receiver (see Wireless display)
-- USB-C to HDMI cable or dock
-- Android 11 or newer (only tested on Android 16)
-- Termux
-
-## Use it with any environment
+XDesk's lifetime is separate from any desktop. Opening or swiping away XDesk never starts or stops XFCE. A Termux desktop is one entry in the launcher, and you start and stop it yourself.
 
 XDesk only provides the display. Anything that can reach its X socket can show up on it.
 
@@ -79,32 +131,6 @@ This sets `allow-external-apps = true` in Termux, so apps can ask to run command
 
 A session that is already running is marked in the launcher. Tapping it reattaches without restarting anything. Its **Stop** button, or **End Termux desktop** in the settings, is how you stop it, because leaving XDesk does not. `xdesk stop` also works.
 
-## Android apps on the display
-
-Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. With a physical keyboard, taking over also moves the input method's candidates to the display, next to the text, and giving back returns them to the phone. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
-
-- **Activation, with no other app.** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user. It reads `/dev/input` and injects events. XDesk starts it itself through wireless debugging (Android 11 or later). You turn on wireless debugging and enter the pairing code once, in the notification or on XDesk's activation page. Then XDesk starts the service whenever it opens with wireless debugging on. Termux sessions need none of this.
-  - Activating needs a Wi-Fi connection: Android switches wireless debugging off without one, and the phone's own hotspot probably does not count. Once the service runs, Wi-Fi can go away.
-  - A reboot needs activation again. If the service managed to give XDesk the `WRITE_SECURE_SETTINGS` permission, XDesk turns wireless debugging on when you open it with Wi-Fi connected, and off again once the service runs. Otherwise, it says what to do. Some systems refuse that permission.
-  - Do not turn off USB debugging or developer options while it runs.
-  - The service stays running after you end XDesk, holding no input, sound route or display setting, and only XDesk's uid can call it. It stops at a reboot, when XDesk is updated or removed, or with **Stop built-in service** in the settings.
-  - XDesk's key stays paired until you revoke it in the developer options. With wireless debugging on, that key can open a shell on the phone, as for any paired device.
-- **[Shizuku](https://shizuku.rikka.app/) still works.** If it is running and has allowed XDesk, XDesk uses it instead and the service runs through it, as before.
-- **Needs the overlay permission,** because Android keeps its own pointer on the phone and XDesk draws a cursor on the display.
-- **Dock and switching.** The chooser has search by name or package. The star on a row adds it to a dock. Long pressing an icon, in the dock or the list, opens a card with what is remembered for that app: dock position, interface size, mouse or finger, and closing it. The dock stays on the touchpad screen, and one tap switches what is on the display without going back to the chooser. An app that is already running comes to the front with its state. A desktop keeps running behind an app and an app's task stays behind a desktop, as long as Android does not close it. Desktop audio is silent while an app is in front.
-- **Cursor in RustDesk.** During a remote session XDesk's cursor is a small faint dot over the remote picture, so it stays out of the way of the remote cursor but still shows on RustDesk's own screens. It is the normal cursor over the toolbar and for a few seconds after a toolbar click. It detects a session from a window flag seen in one version. If that is wrong, turn on the setting to always show the cursor.
-- **Android Back.** The **Back** key sends Back to the app on the display, for apps that rely on the edge swipe, and a mouse's side buttons send Back and Forward. In a RustDesk session the side buttons keep going to RustDesk. If Back leaves no app on the display, the list opens. It also goes to an app that Back uncovers.
-- **Two input modes, per app, and the cursor shows which.** **Mouse & keyboard** has XDesk's black arrow and is keyboard and mouse: the phone's touchpad, buttons and keys, and a physical mouse and keyboard. **Touch** is for apps and pages that only listen to touch, and has a rounded black arrowhead, which hides when still, so you can keep watching the big screen: one finger moves the cursor, a tap is a tap at the cursor, tap then press and slide is a drag, and press and hold is a long press. Two or more fingers, up to five, are real fingers placed around the cursor, with a dot on the display for each, so pinches and swipes pass through. A physical mouse then acts as fingers, left as one, right as two, and the wheel as a swipe. XDesk remembers the mode per app, the default is Mouse & keyboard, and RustDesk stays at Mouse & keyboard.
-- **Full screen touch area.** An icon in the touch area's corner makes it the whole phone screen, with the system bars hidden, and XDesk remembers this. Small translucent corner icons give Back and the keyboard, and leave full screen, as does the phone's Back. In Mouse & keyboard mode the left and right buttons go away, since tap, two-finger tap and hold-to-drag cover them.
-- **Keyboard.** Apps raise the phone's soft keyboard on the phone. The display's input method setting changes only while you have taken over with a physical keyboard, and is put back when you give back, when the session ends, or when the service dies.
-- **Dashboard.** With XDesk open and a display connected, the display shows a clock and status under whatever runs on it, and that is what appears when an app exits. **End XDesk** removes it, and mirroring returns.
-- **Ending the session.** The display stays as it is until you end XDesk with **End XDesk** (in the settings), or by swiping it away from recent tasks. Then apps on the display move back to the phone, not closed, the display returns to mirroring, input is released, and the sound route and interface size are reset. A Termux desktop keeps running without its window, and the launcher shows it as running. Moving apps needs the injector service. Without it they stay on the display, and XDesk says so. Going to the launcher or to the home screen ends nothing: taken input stays taken, and Ctrl+Alt+M still works.
-- **XDesk never restarts a desktop by itself.** If the X server stops, the launcher says so and the session can be started again with a tap.
-- **Interface size of the display.** A number in settings sets the default density from 120 to 220 dpi while an Android app is on the display, remembered per physical display. An app can have its own number on its card, which applies before it starts and whenever you switch to it. Density only changes when the value differs, because apps reconfigure. The cursor keeps its size, set from the display's height. It is reset when the session ends, so mirroring is normal again. While a Termux desktop is showing, the display uses a separate number, 168 dpi by default and set in the same place. It only sizes Android's windows there, such as the input method's candidates; the desktop has its own DPI setting. On HyperOS a cleared density falls back to the phone's own, so XDesk sets the display's own value instead. It needs the injector service.
-- **Tested on one phone only,** and only with RustDesk.
-- **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
-- **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
-
 ## Wireless display
 
 No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](https://github.com/n2ray/xdesk/releases)) on another device on the same network: an old phone, a projector or a TV box, Android 5.0 or later. XDesk then streams a display to it over Wi-Fi, and everything works as on a cable: Android apps, a Termux desktop and the sound. The receiver only shows the picture and plays the sound; all input stays on the phone.
@@ -116,7 +142,7 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 - **Needs the injector service** (built-in or Shizuku): it creates the display that is streamed. The wireless display has its own session in the service, so apps starting and ending do not touch it, and XDesk makes the display again if the service drops it.
 - **Video** is H.264 at the receiver's screen size, capped at 1920 on the long side and to what its decoder handles, at about 12 Mbit/s for 1080p, decoded with low latency. **Sound** is the phone's whole output, captured as PCM and played on the receiver while the phone is silent. It follows the same sound output setting as a cable: system default goes with the display, here the receiver; choosing one of the phone's outputs, e.g. headphones, keeps the sound on the phone. It can be changed while streaming.
 - **Stop** from the same settings row, with **End XDesk**, or by closing the receiver.
-- The pairing token travels unencrypted. It keeps other phones on the network from casting by accident, it does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
+- Once paired, each side proves it holds the token without sending it. The pairing code, the token issued at pairing, and the picture and sound still travel unencrypted, so pairing keeps other phones from casting by accident but does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 
 ## Web display
 
@@ -132,7 +158,7 @@ The first time, the browser asks for a 4-digit code that XDesk shows on the phon
 - **Keyboard:** keys go as key codes, so shortcuts work; on Mac and iPad keyboards Command acts as Ctrl. Text from input methods (Chinese, the iPad's soft keyboard through ⌨) goes as text.
 - **Staying on the page:** the toolbar at the top (move the mouse up or touch the top edge) has full screen, keyboard, sound and disconnect. Back is blocked and leaving asks first; the page does not zoom, scroll, select or show menus. In Chrome full screen, Esc and browser shortcuts go to the display too. On the iPad, **Add to Home Screen** opens it full screen like an app.
 
-Same as the wireless display, which it shares with: one browser or receiver at a time, it needs the injector service, and XDesk must stay open on the phone. Plain HTTP and a pairing token: the picture, sound and input are not encrypted, so only for networks you trust. To keep it as a window of its own, use the browser's full screen or, in desktop Chrome, a shortcut opened as a window. Video is H.264, decoded with WebCodecs where the browser allows it (localhost, HTTPS) and otherwise with Media Source Extensions, which works on plain HTTP in Safari, Chrome, Edge and Firefox. The page and protocol are in `lorie-app/src/main/assets/web/` and [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
+It shares its machinery with the wireless display, so there is one browser or receiver at a time, it needs the injector service, and XDesk must stay open on the phone. The page is plain HTTP: the pairing token, picture, sound and input are not encrypted, so use it only on networks you trust. To keep it as a window of its own, use the browser's full screen or, in desktop Chrome, a shortcut opened as a window. Video is H.264, decoded with WebCodecs where the browser allows it (localhost, HTTPS) and otherwise with Media Source Extensions, which works on plain HTTP in Safari, Chrome, Edge and Firefox. The page and protocol are in `lorie-app/src/main/assets/web/` and [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 
 ## What you get
 
@@ -189,14 +215,16 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 | Phone's own cursor appears | Mouse capture was lost. Tap the XDesk touch screen |
 | No sound | Check the output in the top bar. Many monitors have no speakers |
 | Ctrl + letter does nothing on the soft keyboard | Pinyin mode keeps the letter in the IME. Switch to the English layout or use a physical keyboard |
+| Android apps get no input on Xiaomi | Turn on **USB debugging (Security settings)** in Developer options |
+| Flickering blocks in GPU programs on the car | Turnip's tiled rendering is interrupted by the composition of Android Auto's display. Start them with `TU_DEBUG=sysmem`; for Chromium, `--use-angle=gl --disable-features=Vulkan` is also faster |
 
 ## Limitations
 
-- Android apps need activation through wireless debugging or Shizuku, and only one full screen app or desktop can use the display at a time. Moving between them goes through the chooser
+- Android apps need activation through wireless debugging or Shizuku, and only one full screen app or desktop can use the display at a time
 - Android Auto: only while parked. When Android Auto closes XDesk or disconnects, the desktop keeps running without its window, and Android apps keep running and come back when XDesk is opened on the car again. DRM video (some streaming apps) may be black on the car. Android apps on the car need activation, as on an external display, and go back to the phone when the session ends
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
 - Wireless display: one phone per receiver, picture and sound only, and only as smooth as the Wi-Fi. Tested with a 32-bit Android 9 projector
-- Tested on a single phone, the European Xiaomi 15 Ultra
+- Used daily on a single phone, the European Xiaomi 15 Ultra, and barely tested on others
 
 ## Building
 
@@ -215,6 +243,10 @@ git fetch upstream && git merge upstream/master
 ```
 
 XDesk relies on upstream's manifest, class names under `com.termux.x11` and the `LorieView` API. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
+
+## Built by a person and an AI
+
+XDesk is a project by [n2ray](https://github.com/n2ray) and Claude, an AI. n2ray decides what XDesk should do and tests it on real phones, monitors, projectors and cars. Claude wrote most of the code and documentation, including this README.
 
 ## License
 

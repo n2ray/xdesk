@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XDesk</title>
+<meta name="description" content="Install one app, activate it once, connect a screen. Android apps full screen on any display, with the phone as touchpad and keyboard. No root.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<script>if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');</script>
+<style>
+/* Centred, black and white bands with blue accents. The three bars of the logo stay on screen and become phone, display and step marker. */
+:root {
+  color-scheme: dark;
+  --black: #000; --white: #f5f5f7; --blue: #3d7ef5;
+  --on-dark: #f5f5f7; --dim-dark: #a1a1a6; --link-dark: #7fabfa; --panel: #1d1d1f;
+  --on-light: #1d1d1f; --dim-light: #6e6e73; --link-light: #2563d8;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "PingFang SC", "Segoe UI", Roboto, "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; background: var(--black); scroll-padding-top: 44px; }
+body { margin: 0; background: var(--black); color: var(--on-dark); font: 17px/1.5 var(--sans); overflow-x: clip; text-align: center; -webkit-font-smoothing: antialiased; }
+body:not(.zh) [lang="zh-CN"], body.zh [lang="en"] { display: none; }
+a { color: var(--link-dark); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+code { font-family: var(--mono); font-size: .9em; }
+h1, h2, h3 { font-weight: 650; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(42px, 7.2vw, 96px); line-height: 1.05; letter-spacing: -.028em; }
+h1 em { font-style: normal; color: var(--blue); }
+h2 { font-size: clamp(32px, 5.2vw, 64px); line-height: 1.08; letter-spacing: -.024em; }
+h3 { font-size: clamp(21px, 2.2vw, 28px); line-height: 1.2; letter-spacing: -.012em; }
+h1, h2 { margin-inline: auto; }
+h1 { max-width: 10em; }
+h2 { max-width: 14em; }
+#scenes h2 { max-width: 18em; }
+.nb { display: block; }
+
+.wrap { position: relative; z-index: 1; width: 100%; max-width: 1040px; margin: 0 auto; padding-inline: max(22px, env(safe-area-inset-left, 0px)) max(22px, env(safe-area-inset-right, 0px)); }
+.light { background: var(--white); color: var(--on-light); }
+.light a { color: var(--link-light); }
+.light .dim, .light .step p, .light .three p { color: var(--dim-light); }
+.dim { color: var(--dim-dark); }
+
+nav { position: sticky; top: 0; z-index: 10; height: 44px; display: flex; align-items: center; justify-content: center; gap: 32px; padding-inline: 16px; background: rgba(0, 0, 0, .72); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); font-size: 13px; }
+nav a { color: var(--on-dark); opacity: .85; }
+nav a:hover { opacity: 1; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 7px; font-weight: 600; opacity: 1; }
+.brand img { width: 20px; height: 20px; border-radius: 5px; display: block; }
+#lang { background: none; border: 0; color: var(--on-dark); opacity: .85; font: inherit; cursor: pointer; padding: 4px; }
+
+.hero { position: relative; min-height: calc(100svh - 44px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding-block: 34px 56px; }
+.lead { color: var(--dim-dark); font-size: clamp(19px, 2vw, 25px); line-height: 1.32; letter-spacing: -.008em; margin: 20px auto 26px; max-width: 26em; text-wrap: balance; }
+.actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 24px; }
+.btn { display: inline-block; padding: 11px 24px; border-radius: 999px; background: var(--blue); color: #fff; font-weight: 500; }
+.btn:hover { text-decoration: none; filter: brightness(1.1); }
+.more::after { content: " ›"; }
+.slot { aspect-ratio: 1; width: min(34vh, 300px); margin: 32px auto 0; }
+.slot img { display: block; width: 100%; height: auto; border-radius: 22%; }
+.motion .slot img { visibility: hidden; }
+.slot.mark { width: 64px; margin: 0 auto 30px; }
+.hint { position: absolute; left: 50%; bottom: 16px; width: 30px; height: 7px; margin-left: -15px; border-radius: 4px; background: var(--blue); display: none; }
+.motion .hint { display: block; animation: drop 1.8s ease-in-out infinite; }
+@keyframes drop { 0%, 100% { transform: translateY(-5px) rotate(-45deg); } 50% { transform: translateY(5px) rotate(45deg); } }
+
+section { padding-block: 104px; }
+.band { display: flex; flex-direction: column; justify-content: center; }
+.motion .band { min-height: 100vh; min-height: 100svh; }
+.sub { font-size: clamp(18px, 1.8vw, 22px); line-height: 1.35; margin: 16px auto 0; max-width: 26em; text-wrap: balance; }
+
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; margin-top: 64px; }
+.num { font-size: clamp(52px, 6.4vw, 80px); line-height: 1; font-weight: 650; letter-spacing: -.03em; color: var(--blue); margin-bottom: 14px; }
+.three p { margin: 10px auto 0; color: var(--dim-dark); max-width: 22em; }
+.three .note { font-size: 15px; }
+
+/* Pinned scenes: a stack at rest, one step at a time with motion */
+.steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px; margin-top: 44px; }
+.step p { margin: 8px auto 0; color: var(--dim-dark); max-width: 36em; }
+.step .need { display: block; margin-top: 8px; font-size: 15px; color: var(--blue); }
+.step img { display: block; width: 100%; max-width: 640px; height: auto; border-radius: 16px; margin: 24px auto 0; }
+.step img.tall { max-width: 240px; }
+.dots { display: none; }
+.motion .pin { padding-block: 0; }
+.motion #scenes { height: 620vh; }
+.motion #control { height: 380vh; }
+.motion .sticky { position: sticky; top: 0; height: 100vh; height: 100svh; display: flex; flex-direction: column; justify-content: space-between; padding-block: 66px 22px; }
+.motion .pin h2 { font-size: clamp(24px, 3.2vw, 40px); }
+.motion .steps { display: block; position: relative; height: 148px; margin-top: 0; }
+.motion .step { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+.motion .step img { display: none; }
+.motion .dots { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+.dots i { width: 28px; height: 4px; border-radius: 2px; background: rgba(245, 245, 247, .22); }
+.light .dots i { background: rgba(29, 29, 31, .16); }
+
+#stage { display: none; }
+.motion #stage { display: block; position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+#stage > * { position: absolute; left: 0; top: 0; will-change: transform, width, height; overflow: hidden; }
+#b0 { z-index: 3; }
+#b1 { z-index: 2; }
+.lay { position: absolute; display: flex; align-items: center; justify-content: center; opacity: 0; color: #fff; font-size: clamp(20px, 3vw, 40px); font-weight: 650; letter-spacing: -.02em; line-height: 1.2; overflow: hidden; border-radius: inherit; }
+.lay.screen { inset: .9%; }
+.lay.phone { inset: 2.4%; }
+.lay small { display: block; font: 500 clamp(12px, 1.2vw, 15px)/1.4 var(--mono); letter-spacing: 0; opacity: .9; margin-top: 8px; }
+.lay img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+
+.cmd { display: flex; align-items: center; gap: 10px; max-width: 760px; background: var(--panel); border-radius: 14px; padding: 8px 8px 8px 18px; margin: 34px auto 18px; text-align: left; }
+.cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 14px/2 var(--mono); }
+.cmd button { flex: none; background: var(--blue); color: #fff; border: 0; border-radius: 9px; padding: 8px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+.small { font-size: 15px; max-width: 38em; margin: 0 auto; }
+
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 42px 56px; margin-top: 56px; }
+.facts h3 { font-size: clamp(19px, 1.8vw, 22px); }
+.facts p { margin: 8px auto 0; max-width: 26em; }
+.credit p { margin: 16px auto 0; max-width: 34em; color: var(--dim-dark); }
+.credit strong { color: var(--on-dark); font-weight: 600; }
+.credit .slot { width: min(30vh, 230px); margin: 0 auto 36px; }
+footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim-dark); font-size: 13px; }
+
+@media (max-width: 760px), (max-aspect-ratio: 1/1) {
+  nav { gap: 22px; }
+  section { padding-block: 72px; }
+  .three, .facts { grid-template-columns: minmax(0, 1fr); gap: 38px; }
+  .three { margin-top: 44px; }
+  .motion .steps { height: 172px; }
+  .motion .sticky { padding-block: 60px 18px; }
+  .step p { font-size: 16px; }
+}
+</style>
+</head>
+<body>
+<div id="stage" aria-hidden="true">
+  <i id="b0"></i>
+  <div id="b1">
+    <div class="lay phone"><img src="img/phone-touchpad.jpg" alt=""></div>
+    <div class="lay phone"><img src="img/phone-launcher.jpg" alt=""></div>
+    <div class="lay phone"><img src="img/phone-settings.jpg" alt=""></div>
+  </div>
+  <div id="b2">
+    <div class="lay screen"><img src="img/app-android.jpg" alt=""></div>
+    <div class="lay screen"><img src="img/desktop-xfce.jpg" alt=""></div>
+    <div class="lay screen"><img src="img/desktop-receiver.jpg" alt=""></div>
+    <div class="lay screen"><img src="img/desktop-browser.jpg" alt=""></div>
+    <div class="lay screen"><img src="img/car-dashboard.jpg" alt=""></div>
+  </div>
+</div>
+
+<nav>
+  <a class="brand" href="#"><img src="icon.svg" alt="">XDesk</a>
+  <a href="#start"><span lang="en">Get started</span><span lang="zh-CN">开始使用</span></a>
+  <a href="#status"><span lang="en">Status</span><span lang="zh-CN">现状</span></a>
+  <a href="https://github.com/n2ray/xdesk">GitHub</a>
+  <button id="lang" type="button" aria-label="Switch language / 切换语言">中文</button>
+</nav>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="rv-hero">
+      <h1>
+        <span lang="en"><span class="nb">Your phone</span><span class="nb">on <em>any screen</em></span></span>
+        <span lang="zh-CN"><span class="nb">手机里的应用</span><em class="nb">搬上大屏</em></span>
+      </h1>
+      <p class="lead">
+        <span lang="en">Install one app, activate it once, connect a screen. Your Android apps run full screen, and the phone becomes the touchpad and keyboard.</span>
+        <span lang="zh-CN">装个 App，激活一次，插上显示器。应用在大屏上全屏运行，手机拿来当触摸板和键盘。</span>
+      </p>
+      <div class="actions">
+        <a class="btn" href="#start"><span lang="en">Get started</span><span lang="zh-CN">开始使用</span></a>
+        <a class="more" href="https://github.com/n2ray/xdesk"><span lang="en">Source on GitHub</span><span lang="zh-CN">查看源码</span></a>
+      </div>
+    </div>
+    <div class="slot" id="s-hero"><img src="icon.svg" alt="XDesk logo"></div>
+    <span class="hint" aria-hidden="true"></span>
+  </header>
+</div>
+
+<section class="band light" id="start">
+  <div class="wrap">
+    <div class="slot mark" id="s-start"><img src="icon.svg" alt=""></div>
+    <h2 class="rv"><span lang="en">Three steps to a big screen</span><span lang="zh-CN">三步用起来</span></h2>
+    <p class="sub dim rv">
+      <span lang="en">Android 11 or newer. No root, no computer, nothing else to install.</span>
+      <span lang="zh-CN">安卓 11 及以上就行。不用 root，不用电脑，也不用装别的。</span>
+    </p>
+    <div class="three">
+      <div class="rv">
+        <div class="num" aria-hidden="true">1</div>
+        <h3><span lang="en">Install the app</span><span lang="zh-CN">安装 App</span></h3>
+        <p>
+          <span lang="en">Download <code>xdesk.apk</code> from the <a href="https://github.com/n2ray/xdesk/releases/latest">latest release</a> and install it.</span>
+          <span lang="zh-CN">到<a href="https://github.com/n2ray/xdesk/releases/latest">发布页</a>下载 <code>xdesk.apk</code>，装上就行。</span>
+        </p>
+        <p class="note">
+          <span lang="en">If your file manager refuses, use <code>adb install -r xdesk.apk</code>.</span>
+          <span lang="zh-CN">文件管理器装不了的话，用 <code>adb install -r xdesk.apk</code>。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <div class="num" aria-hidden="true">2</div>
+        <h3><span lang="en">Activate it once</span><span lang="zh-CN">激活一次</span></h3>
+        <p>
+          <span lang="en">On Wi-Fi, turn on Wireless debugging and type the pairing code into XDesk. Then allow its overlay permission.</span>
+          <span lang="zh-CN">连上 Wi-Fi，打开无线调试，把配对码输进 XDesk，再给它悬浮窗权限。</span>
+        </p>
+        <p class="note">
+          <span lang="en">On Xiaomi, also turn on USB debugging (Security settings). Shizuku works too. A reboot needs activation again.</span>
+          <span lang="zh-CN">小米手机还要打开“USB 调试（安全设置）”。已经在用 Shizuku 的话，直接用它也行。手机重启后要重新激活。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <div class="num" aria-hidden="true">3</div>
+        <h3><span lang="en">Connect a screen</span><span lang="zh-CN">接上屏幕</span></h3>
+        <p>
+          <span lang="en">Plug in a monitor over USB-C, open XDesk and tap an app.</span>
+          <span lang="zh-CN">用 USB-C 线连上显示器，打开 XDesk，点一个应用。</span>
+        </p>
+        <p class="note">
+          <span lang="en">If plugging in a monitor mirrors your screen, your phone qualifies. No cable? Keep scrolling.</span>
+          <span lang="zh-CN">插上显示器能镜像手机画面，就说明支持。没有线也没关系，往下看。</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pin" id="scenes">
+  <div class="sticky">
+    <div class="wrap">
+      <h2><span lang="en"><span class="nb">Not just monitors</span><span class="nb">Here is what else it can do</span></span><span lang="zh-CN"><span class="nb">不只能接显示器</span><span class="nb">还能这样用</span></span></h2>
+    </div>
+    <div class="wrap">
+      <div class="steps">
+        <div class="step">
+          <h3><span lang="en">Android apps in full screen</span><span lang="zh-CN">安卓应用全屏运行</span></h3>
+          <p>
+            <span lang="en">The apps already on your phone, on the display. A Bluetooth mouse and keyboard work too.</span>
+            <span lang="zh-CN">手机里现成的应用，直接放到大屏上用，也能接蓝牙鼠标和键盘。</span>
+            <span class="need" lang="en">Needs USB-C video output</span>
+            <span class="need" lang="zh-CN">手机要支持 USB-C 视频输出</span>
+          </p>
+          <img src="img/app-android.jpg" width="1600" height="900" loading="lazy" alt="An Android browser full screen on the display">
+        </div>
+        <div class="step">
+          <h3><span lang="en">Linux desktops</span><span lang="zh-CN">Linux 桌面</span></h3>
+          <p>
+            <span lang="en">XFCE and more from Termux, proot or chroot, with GPU acceleration in Termux on Adreno.</span>
+            <span lang="zh-CN">Termux、proot、chroot 里的 XFCE 等桌面都能跑，骁龙手机上的 Termux 还有 GPU 加速。</span>
+            <span class="need" lang="en">Optional. Needs Termux</span>
+            <span class="need" lang="zh-CN">可选，要装 Termux</span>
+          </p>
+          <img src="img/desktop-xfce.jpg" width="1600" height="900" loading="lazy" alt="An XFCE desktop on the display">
+        </div>
+        <div class="step">
+          <h3><span lang="en">Another Android device</span><span lang="zh-CN">另一台安卓设备</span></h3>
+          <p>
+            <span lang="en">No cable? Cast over Wi-Fi to XDesk Receiver on a projector, TV box or old phone, picture and sound.</span>
+            <span lang="zh-CN">没有线的话，用 Wi-Fi 投到投影、电视盒子或旧手机上，画面声音都有。对方装个 XDesk 接收器就行。</span>
+            <span class="need" lang="en">Receiver runs on Android 5.0 or later</span>
+            <span class="need" lang="zh-CN">接收器要求安卓 5.0 及以上</span>
+          </p>
+          <img src="img/desktop-receiver.jpg" width="1600" height="900" loading="lazy" alt="An XFCE desktop with a 3D demo and a terminal">
+        </div>
+        <div class="step">
+          <h3><span lang="en">Any browser</span><span lang="zh-CN">用浏览器当显示器</span></h3>
+          <p>
+            <span lang="en">An iPad, laptop or smart TV, with nothing to install on it. Turn on Web display in the settings.</span>
+            <span lang="zh-CN">iPad、电脑、智能电视，有浏览器就行，什么都不用装。在设置里打开“网页显示”。</span>
+            <span class="need" lang="en">For networks you trust</span>
+            <span class="need" lang="zh-CN">只在信得过的网络里用</span>
+          </p>
+          <img src="img/desktop-browser.jpg" width="1600" height="1200" loading="lazy" alt="An XFCE desktop with a 3D landscape and a terminal">
+        </div>
+        <div class="step">
+          <h3><span lang="en">In the car</span><span lang="zh-CN">车机</span></h3>
+          <p>
+            <span lang="en">Through Android Auto, with sound in the car. Experimental.</span>
+            <span lang="zh-CN">通过 Android Auto 投到车机，声音也从车里出。目前还是实验功能。</span>
+            <span class="need" lang="en">Parked only</span>
+            <span class="need" lang="zh-CN">只能停车时用</span>
+          </p>
+          <img src="img/car-dashboard.jpg" width="1400" height="1050" loading="lazy" alt="A car's touch screen showing XDesk's clock and connection status">
+        </div>
+      </div>
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+  </div>
+</section>
+
+<section class="pin light" id="control">
+  <div class="sticky">
+    <div class="wrap">
+      <h2><span lang="en">The phone stays in charge</span><span lang="zh-CN"><span class="nb">所有操作</span><span class="nb">都在手机上</span></span></h2>
+    </div>
+    <div class="wrap">
+      <div class="steps">
+        <div class="step">
+          <h3><span lang="en">Touchpad and keyboard</span><span lang="zh-CN">触摸板和键盘</span></h3>
+          <p>
+            <span lang="en">Move, tap, drag and scroll. On Linux desktops the phone's input method can type Chinese and other languages.</span>
+            <span lang="zh-CN">移动、点按、拖动、滚动都在手机上完成。在 Linux 桌面里，可以直接用手机输入法打中文。</span>
+          </p>
+          <img class="tall" src="img/phone-touchpad.jpg" width="720" height="1525" loading="lazy" alt="XDesk's touchpad screen on the phone">
+        </div>
+        <div class="step">
+          <h3><span lang="en">Launcher and dock</span><span lang="zh-CN">切换应用</span></h3>
+          <p>
+            <span lang="en">Search your apps and pin favourites. One tap switches what's on the display.</span>
+            <span lang="zh-CN">搜索应用，把常用的固定下来，点一下就能换掉大屏上的内容。</span>
+          </p>
+          <img class="tall" src="img/phone-launcher.jpg" width="720" height="1525" loading="lazy" alt="XDesk's app launcher on the phone">
+        </div>
+        <div class="step">
+          <h3><span lang="en">One sound setting</span><span lang="zh-CN">声音想从哪儿出就从哪儿出</span></h3>
+          <p>
+            <span lang="en">Speaker, Bluetooth, the display or the car. The same setting works for every kind of screen.</span>
+            <span lang="zh-CN">手机扬声器、蓝牙耳机、显示器还是车机，在一个地方选，所有屏幕通用。</span>
+          </p>
+          <img class="tall" src="img/phone-settings.jpg" width="720" height="1525" loading="lazy" alt="XDesk's settings on the phone">
+        </div>
+      </div>
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="linux">
+  <div class="wrap">
+    <div class="slot mark" id="s-linux"><img src="icon.svg" alt=""></div>
+    <h2 class="rv"><span lang="en">Add a Linux desktop</span><span lang="zh-CN">还想要 Linux 桌面</span></h2>
+    <p class="sub dim rv">
+      <span lang="en">Optional. Install <a href="https://github.com/termux/termux-app">Termux</a> and run this in it. Your desktops then appear in XDesk's launcher.</span>
+      <span lang="zh-CN">装好 <a href="https://github.com/termux/termux-app">Termux</a>，运行下面这行命令，桌面就会出现在 XDesk 的启动器里。</span>
+    </p>
+    <div class="cmd rv">
+      <code id="cmd">curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash</code>
+      <button id="copy" type="button"><span lang="en">Copy</span><span lang="zh-CN">复制</span></button>
+    </div>
+    <p class="small dim rv">
+      <span lang="en">No desktop yet? <code>pkg install xfce4 xfce4-terminal &amp;&amp; xdesk setup</code>. Please <a href="https://github.com/n2ray/xdesk/blob/xdesk/xdesk/install.sh">read the script</a> first. The <a href="https://github.com/n2ray/xdesk#readme">README</a> covers everything else.</span>
+      <span lang="zh-CN">还没装桌面的话，运行 <code>pkg install xfce4 xfce4-terminal &amp;&amp; xdesk setup</code>。运行前建议先<a href="https://github.com/n2ray/xdesk/blob/xdesk/xdesk/install.sh">看看脚本</a>，更多说明见 <a href="https://github.com/n2ray/xdesk/blob/xdesk/README.zh-CN.md">README</a>。</span>
+    </p>
+  </div>
+</section>
+
+<section class="band light" id="status">
+  <div class="wrap">
+    <div class="slot mark" id="s-status"><img src="icon.svg" alt=""></div>
+    <h2 class="rv"><span lang="en">Where it stands</span><span lang="zh-CN">用之前先了解一下</span></h2>
+    <div class="facts">
+      <div class="rv">
+        <h3><span lang="en">Tested on very few devices</span><span lang="zh-CN">目前只在很少的设备上测过</span></h3>
+        <p class="dim">
+          <span lang="en">It is used daily on one phone, the European Xiaomi 15 Ultra. <a href="https://github.com/n2ray/xdesk/issues">Reports</a> from other devices are very welcome.</span>
+          <span lang="zh-CN">平时只在欧版小米 15 Ultra 上用。别的手机不一定一样，欢迎<a href="https://github.com/n2ray/xdesk/issues">告诉我们</a>结果。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">Wireless and web are not encrypted</span><span lang="zh-CN">无线和网页模式没有加密</span></h3>
+        <p class="dim">
+          <span lang="en">Use them only on networks you trust.</span>
+          <span lang="zh-CN">只在信得过的网络里用。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">Park before using it in a car</span><span lang="zh-CN">在车上要先停车</span></h3>
+        <p class="dim">
+          <span lang="en">Never while driving.</span>
+          <span lang="zh-CN">开车时不要用。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">Android apps need a shell service</span><span lang="zh-CN">安卓应用要靠一个 shell 权限的服务</span></h3>
+        <p class="dim">
+          <span lang="en">It injects input, which Android doesn't allow normal apps to do, and only XDesk can call it.</span>
+          <span lang="zh-CN">安卓不让普通应用给别的应用发送键鼠操作，所以需要它。只有 XDesk 能调用这个服务。</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="credit">
+  <div class="wrap credit">
+    <div class="slot" id="s-credit"><img src="icon.svg" alt=""></div>
+    <h2 class="rv"><span lang="en">Built by a person and an AI</span><span lang="zh-CN"><span class="nb">一个人和一个 AI</span><span class="nb">一起做的</span></span></h2>
+    <p class="rv" lang="en"><strong>XDesk is a project by <a href="https://github.com/n2ray">n2ray</a> and Claude, an AI.</strong> n2ray decides what XDesk should do and tests it on real phones, monitors, projectors and cars. Claude wrote most of the code and documentation, including this page.</p>
+    <p class="rv" lang="zh-CN"><strong>XDesk 是 <a href="https://github.com/n2ray">n2ray</a> 和 AI Claude 一起做的。</strong>n2ray 决定做什么，并在真实的手机、显示器、投影和车机上测试。大部分代码和文档是 Claude 写的，这个页面也是。</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span lang="en">Based on <a href="https://github.com/termux/termux-x11">Termux:X11</a>, whose authors deserve the credit for the X server and rendering. GPL-3.0.</span>
+    <span lang="zh-CN">基于 <a href="https://github.com/termux/termux-x11">Termux:X11</a> 开发，X 服务器和渲染都是它的作者们的功劳。GPL-3.0 开源。</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var button = document.getElementById('lang');
+  var relayout = function () {};
+  function setLang(zh) {
+    document.body.classList.toggle('zh', zh);
+    root.lang = zh ? 'zh-CN' : 'en';
+    button.textContent = zh ? 'English' : '中文';
+    relayout();
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('lang'); } catch (e) {}
+  var asked = new URLSearchParams(location.search).get('lang');
+  setLang(asked ? asked === 'zh' : saved ? saved === 'zh' : /^zh/i.test(navigator.language || ''));
+  button.addEventListener('click', function () {
+    var zh = !document.body.classList.contains('zh');
+    setLang(zh);
+    try { localStorage.setItem('lang', zh ? 'zh' : 'en'); } catch (e) {}
+  });
+
+  var copy = document.getElementById('copy');
+  copy.addEventListener('click', function () {
+    var text = document.getElementById('cmd').textContent;
+    function done() {
+      var old = copy.innerHTML;
+      copy.textContent = '✓';
+      setTimeout(function () { copy.innerHTML = old; }, 1400);
+    }
+    function select() {
+      var range = document.createRange();
+      range.selectNodeContents(document.getElementById('cmd'));
+      var s = getSelection(); s.removeAllRanges(); s.addRange(range);
+    }
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, select); else select();
+  });
+
+  if (!root.classList.contains('motion')) return;
+
+  // Each bar has a pose: centre, size, rotation, corner radius, colour, opacity, and how much of its picture shows.
+  var bars = [document.getElementById('b0'), document.getElementById('b1'), document.getElementById('b2')];
+  var screenLayers = [].slice.call(document.querySelectorAll('.lay.screen'));
+  var phoneLayers = [].slice.call(document.querySelectorAll('.lay.phone'));
+  var reveals = [].slice.call(document.querySelectorAll('.rv'));
+  var heroCopy = document.querySelector('.rv-hero');
+  var scenes = document.getElementById('scenes'), control = document.getElementById('control');
+  var sceneSteps = [].slice.call(scenes.querySelectorAll('.step'));
+  var controlSteps = [].slice.call(control.querySelectorAll('.step'));
+  var WHITE = [245, 245, 247], BLACK = [29, 29, 31], BLUE = [61, 126, 245];
+  var KEYS = ['x', 'y', 'w', 'h', 'r', 'rad', 'c0', 'c1', 'c2', 'o', 'p'];
+  var W, H, wide, max, points, sceneStart, sceneRange, controlStart, controlRange;
+
+  function bar(x, y, w, h, r, rad, c, o, p) {
+    return { x: x, y: y, w: w, h: h, r: r, rad: rad, c0: c[0], c1: c[1], c2: c[2], o: o === undefined ? 1 : o, p: p || 0 };
+  }
+  // The logo, on its 108-unit grid: one stroke crossing two blue pieces.
+  function logo(x, y, s, stroke) {
+    return [
+      bar(x, y, 61.9 * s, 11 * s, 45, 5.5 * s, stroke),
+      bar(x - 13.7 * s, y + 13.7 * s, 23.2 * s, 11 * s, -45, 5.5 * s, BLUE),
+      bar(x + 13.7 * s, y - 13.7 * s, 23.2 * s, 11 * s, -45, 5.5 * s, BLUE)
+    ];
+  }
+  function top(el) { return el.getBoundingClientRect().top + scrollY; }
+  function centred(el) { return Math.min(max, Math.max(0, top(el) + el.offsetHeight / 2 - H / 2)); }
+  function atSlot(id, y, stroke) {
+    var r = document.getElementById(id).getBoundingClientRect();
+    return logo(r.left + r.width / 2, r.top + scrollY + r.height / 2 - y, r.width / 52, stroke);
+  }
+  // The stroke becomes the marker on the step dots, wherever those sit once the section is pinned.
+  function marker(section, i, colour) {
+    var sticky = section.querySelector('.sticky').getBoundingClientRect();
+    var d = section.querySelectorAll('.dots i')[i].getBoundingClientRect();
+    return bar(d.left + d.width / 2, d.top - sticky.top + d.height / 2, d.width, d.height, 0, 2, colour);
+  }
+  // A centred display with the phone in front of its corner. The display's proportions are the medium's.
+  function scene(i) {
+    var aspect = [16 / 9, 16 / 9, 16 / 9, 4 / 3, 4 / 3][i], sw, sy, ph, py;
+    if (wide) { sw = Math.min([.5, .5, .44, .36, .42][i] * W, .5 * H * aspect); sy = .48 * H; ph = .42 * H; py = .52 * H; }
+    else { sw = [.92, .92, .82, .7, .76][i] * W; sy = .32 * H; ph = .29 * H; py = .49 * H; }
+    var sx = W / 2, pw = ph * .472;
+    var px = Math.min(W - pw / 2 - 12, sx + sw / 2 - pw * .25);
+    return [
+      marker(scenes, i, WHITE),
+      bar(px, py, pw, ph, 0, pw * .13, BLUE, 1, 1),
+      bar(sx, sy, sw, sw / aspect, 0, [.012, .012, .006, .026, .03][i] * sw, BLUE)
+    ];
+  }
+  // The phone alone, centred.
+  function phoneScene(i) {
+    var h = wide ? .54 * H : .54 * H, w = h * .472, y = wide ? .48 * H : .44 * H;
+    return [
+      marker(control, i, BLACK),
+      bar(W / 2, y, w, h, 0, w * .13, BLUE, 1, 1),
+      bar(W / 2, y, w * .4, h * .1, 0, w * .05, BLUE, 0)
+    ];
+  }
+
+  function build() {
+    W = innerWidth; H = innerHeight;
+    wide = W > 760 && W / H > 1;
+    max = document.documentElement.scrollHeight - H;
+    sceneStart = top(scenes); sceneRange = scenes.offsetHeight - H;
+    controlStart = top(control); controlRange = control.offsetHeight - H;
+    points = [];
+    function at(y, pose) {
+      var last = points[points.length - 1];
+      points.push({ y: last ? Math.max(y, last.y + 1) : y, pose: pose });
+    }
+    // In a band the logo rides with the page; between bands it travels on its own.
+    function held(band, slot, stroke) {
+      var y = centred(document.getElementById(band)), d = H * .12;
+      at(y - d, atSlot(slot, y - d, stroke));
+      at(y + d, atSlot(slot, y + d, stroke));
+    }
+    var i;
+    at(0, atSlot('s-hero', 0, WHITE));
+    at(H * .05, atSlot('s-hero', H * .05, WHITE));
+    held('start', 's-start', BLACK);
+    for (i = 0; i < 5; i++) {
+      at(sceneStart + sceneRange * (i + .2) / 5, scene(i));
+      at(sceneStart + sceneRange * (i + .8) / 5, scene(i));
+    }
+    for (i = 0; i < 3; i++) {
+      at(controlStart + controlRange * (i + .2) / 3, phoneScene(i));
+      at(controlStart + controlRange * (i + .8) / 3, phoneScene(i));
+    }
+    held('linux', 's-linux', WHITE);
+    held('status', 's-status', BLACK);
+    at(max, atSlot('s-credit', max, WHITE));
+  }
+
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+  function target(y) {
+    var a = points[0], b = points[points.length - 1];
+    if (y <= a.y) return a.pose;
+    if (y >= b.y) return b.pose;
+    for (var i = 0; i < points.length - 1; i++) if (y < points[i + 1].y) { a = points[i]; b = points[i + 1]; break; }
+    var t = (y - a.y) / (b.y - a.y); t = t * t * (3 - 2 * t);
+    return a.pose.map(function (p, n) {
+      var q = {}; KEYS.forEach(function (k) { q[k] = p[k] + (b.pose[n][k] - p[k]) * t; }); return q;
+    });
+  }
+  // How far through a pinned section: 0 to n - 1, as a fraction between steps
+  function position(y, start, range, n) { return clamp((y - start) / range * n - .5, 0, n - 1); }
+  function nearness(f, i) { return clamp(1 - (Math.abs(f - i) - .22) / .26, 0, 1); }
+  function steps(list, f) {
+    list.forEach(function (el, i) {
+      el.style.opacity = nearness(f, i);
+      el.style.transform = 'translateY(' + clamp(i - f, -1, 1) * 28 + 'px)';
+    });
+  }
+
+  var shown = null, frame = 0;
+  function paint() {
+    frame = 0;
+    var y = scrollY, want = target(y), moving = false;
+    if (!shown) shown = want.map(function (p) { return Object.assign({}, p); });
+    shown.forEach(function (s, n) {
+      KEYS.forEach(function (k) {
+        var d = want[n][k] - s[k];
+        if (Math.abs(d) > .02) { s[k] += d * .18; moving = true; } else s[k] = want[n][k];
+      });
+      var el = bars[n];
+      el.style.width = s.w + 'px'; el.style.height = s.h + 'px'; el.style.borderRadius = s.rad + 'px';
+      el.style.transform = 'translate(' + (s.x - s.w / 2) + 'px,' + (s.y - s.h / 2) + 'px) rotate(' + s.r + 'deg)';
+      el.style.background = 'rgb(' + Math.round(s.c0) + ',' + Math.round(s.c1) + ',' + Math.round(s.c2) + ')';
+      el.style.opacity = s.o;
+    });
+
+    var fs = position(y, sceneStart, sceneRange, 5), fc = position(y, controlStart, controlRange, 3);
+    var present = clamp((y - (sceneStart - H * .25)) / (H * .25), 0, 1) * clamp(1 - (y - (sceneStart + sceneRange)) / (H * .25), 0, 1);
+    screenLayers.forEach(function (el, i) { el.style.opacity = nearness(fs, i) * present; });
+    var onControl = y > sceneStart + sceneRange + H * .3;
+    phoneLayers.forEach(function (el, i) { el.style.opacity = nearness(onControl ? fc : 0, i) * shown[1].p; });
+    steps(sceneSteps, fs); steps(controlSteps, fc);
+
+    var fade = clamp(y / (H * .6), 0, 1);
+    heroCopy.style.transform = 'translateY(' + y * -.12 + 'px) scale(' + (1 - fade * .06) + ')';
+    heroCopy.style.opacity = 1 - fade;
+    reveals.forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      var v = clamp((H - r.top) / (H * .22), 0, 1);
+      el.style.opacity = .1 + .9 * v;
+      el.style.transform = 'translateY(' + (1 - v) * 30 + 'px)';
+    });
+    if (moving) frame = requestAnimationFrame(paint);
+  }
+  function kick() { if (!frame) frame = requestAnimationFrame(paint); }
+  relayout = function () { build(); kick(); };
+
+  var lastW = 0, lastH = 0;
+  function resized() {
+    // A phone's address bar changes the height while scrolling; that is not a new layout.
+    if (innerWidth === lastW && Math.abs(innerHeight - lastH) < 130) return;
+    lastW = innerWidth; lastH = innerHeight;
+    build(); kick();
+  }
+  addEventListener('scroll', kick, { passive: true });
+  addEventListener('resize', resized);
+  addEventListener('load', relayout);
+  lastW = innerWidth; lastH = innerHeight;
+  build(); paint();
+})();
+</script>
+</body>
+</html>
