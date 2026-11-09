@@ -42,7 +42,7 @@ final class InputInjector {
     /** Android button bits, in the order they are released. */
     private static final int[] ALL_BUTTONS = {MotionEvent.BUTTON_PRIMARY, MotionEvent.BUTTON_SECONDARY, MotionEvent.BUTTON_TERTIARY,
         MotionEvent.BUTTON_BACK, MotionEvent.BUTTON_FORWARD};
-    private static final int KEY_LEFTCTRL = 29, KEY_LEFTALT = 56;
+    private static final int KEY_LEFTCTRL = 29, KEY_LEFTALT = 56, KEY_BACKSLASH = 43, KEY_102ND = 86;
 
     private static void map(int... pairs) {
         for (int i = 0; i < pairs.length; i += 2) KEYS.put(pairs[i], pairs[i + 1]);
@@ -59,7 +59,8 @@ final class InputInjector {
         map(11, KeyEvent.KEYCODE_0, 1, KeyEvent.KEYCODE_ESCAPE, 12, KeyEvent.KEYCODE_MINUS, 13, KeyEvent.KEYCODE_EQUALS,
             14, KeyEvent.KEYCODE_DEL, 15, KeyEvent.KEYCODE_TAB, 26, KeyEvent.KEYCODE_LEFT_BRACKET, 27, KeyEvent.KEYCODE_RIGHT_BRACKET,
             28, KeyEvent.KEYCODE_ENTER, KEY_LEFTCTRL, KeyEvent.KEYCODE_CTRL_LEFT, 39, KeyEvent.KEYCODE_SEMICOLON,
-            40, KeyEvent.KEYCODE_APOSTROPHE, 41, KeyEvent.KEYCODE_GRAVE, 42, KeyEvent.KEYCODE_SHIFT_LEFT, 43, KeyEvent.KEYCODE_BACKSLASH,
+            40, KeyEvent.KEYCODE_APOSTROPHE, 41, KeyEvent.KEYCODE_GRAVE, 42, KeyEvent.KEYCODE_SHIFT_LEFT, KEY_BACKSLASH, KeyEvent.KEYCODE_BACKSLASH,
+            KEY_102ND, KeyEvent.KEYCODE_BACKSLASH,
             51, KeyEvent.KEYCODE_COMMA, 52, KeyEvent.KEYCODE_PERIOD, 53, KeyEvent.KEYCODE_SLASH, 54, KeyEvent.KEYCODE_SHIFT_RIGHT,
             KEY_LEFTALT, KeyEvent.KEYCODE_ALT_LEFT, 57, KeyEvent.KEYCODE_SPACE, 58, KeyEvent.KEYCODE_CAPS_LOCK,
             97, KeyEvent.KEYCODE_CTRL_RIGHT, 100, KeyEvent.KEYCODE_ALT_RIGHT, 102, KeyEvent.KEYCODE_MOVE_HOME, 103, KeyEvent.KEYCODE_DPAD_UP,
@@ -646,7 +647,9 @@ final class InputInjector {
         if (keyboard != null) {
             // KEYS gives the key's place on a US keyboard. The keyboard's own layout, chosen in the system settings, says what
             // that place means, and the event must come from that keyboard for apps to read the layout's characters.
-            int mapped = keyboard.getKeyCodeForKeyLocation(code);
+            // Two keys share the US place BACKSLASH: this one, and 86 beside left Shift. The system answers for just one of them,
+            // and that is 86, which a layout such as German moves elsewhere.
+            int mapped = linuxCode == KEY_BACKSLASH ? code : keyboard.getKeyCodeForKeyLocation(code);
             if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
             device = keyboard.getId();
         }

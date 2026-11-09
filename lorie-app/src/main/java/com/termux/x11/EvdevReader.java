@@ -22,6 +22,8 @@ final class EvdevReader extends Thread {
         void onWheel(int vertical, int horizontal);
         void onButton(int code, boolean down);
         void onKey(int code, int value);
+        /** A key went down on a keyboard, which Android delivers by itself to the display with the focus. */
+        void onKeyboardUsed();
     }
 
     private static final String TAG = "XDeskInjector";
@@ -35,6 +37,11 @@ final class EvdevReader extends Thread {
     private final Sink sink;
     private final HashMap<String, Integer> devices = new HashMap<>();
     private final HashSet<String> skipped = new HashSet<>();
+    /**
+     * Keyboards and nothing else. They are never grabbed: Android knows each keyboard's layout and gives its keys to the
+     * display with the focus, input method included. A key sent on by hand could only guess at the layout.
+     */
+    private final HashSet<Integer> keyboards = new HashSet<>();
     /** Devices whose event buffer overflowed: their events are dropped up to the next SYN_REPORT. */
     private final HashSet<Integer> dropping = new HashSet<>();
     // Written under the lock (setGrabbed), read without it on this thread for every event.
@@ -80,7 +87,8 @@ final class EvdevReader extends Thread {
         }
     }
 
-    private static void applyGrab(int fd, boolean on) {
+    private void applyGrab(int fd, boolean on) {
+        if (keyboards.contains(fd)) return;
         int r = Evdev.grab(fd, on);
         if (r < 0) Log.w(TAG, "grab " + on + " failed: " + r);
     }
@@ -101,13 +109,15 @@ final class EvdevReader extends Thread {
                 continue;
             }
             // The phone's own touch screen, buttons and sensors have no capability that matches and stay untouched
-            if (Evdev.capabilities(fd) == 0) {
+            int capabilities = Evdev.capabilities(fd);
+            if (capabilities == 0) {
                 Evdev.close(fd);
                 skipped.add(n);
                 continue;
             }
             Log.i(TAG, "using " + n + ": " + Evdev.name(fd));
             devices.put(n, fd);
+            if (capabilities == Evdev.CAP_KEYBOARD) keyboards.add(fd);
             if (grabbed) {
                 applyGrab(fd, true);
                 sink.onDeviceCount(devices.size(), false);
@@ -120,6 +130,7 @@ final class EvdevReader extends Thread {
         for (java.util.Map.Entry<String, Integer> e : devices.entrySet()) if (e.getValue() == fd) found = e.getKey();
         if (found != null) devices.remove(found);
         Evdev.close(fd);
+        keyboards.remove(fd);
         dropping.remove(fd);
         Log.i(TAG, "device gone: " + found);
         // Its keys will never report going up
@@ -154,6 +165,7 @@ final class EvdevReader extends Thread {
             Evdev.close(fd);
         }
         devices.clear();
+        keyboards.clear();
         dropping.clear();
         grabbed = false;
     }
@@ -208,7 +220,7 @@ final class EvdevReader extends Thread {
             return;
         }
         if (type == Evdev.EV_KEY) {
-            handleKey(code, value);
+            handleKey(fd, code, value);
         } else if (!grabbed) {
             return;
         } else if (type == Evdev.EV_REL) {
@@ -240,7 +252,7 @@ final class EvdevReader extends Thread {
         if (grabbed) sink.onDeviceCount(devices.size(), true);
     }
 
-    private void handleKey(int code, int value) {
+    private void handleKey(int fd, int code, int value) {
         boolean down = value != 0;
         boolean modifier = true;
         switch (code) {
@@ -270,6 +282,10 @@ final class EvdevReader extends Thread {
             return;
         }
         if (!grabbed) return;
+        if (keyboards.contains(fd)) {
+            if (value == 1) sink.onKeyboardUsed();
+            return;
+        }
         if (code >= FIRST_BUTTON) {
             if (value != 2) sink.onButton(code, down);
         } else {

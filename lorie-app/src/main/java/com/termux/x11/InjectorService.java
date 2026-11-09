@@ -169,6 +169,13 @@ public class InjectorService extends IInjector.Stub {
                 if (value == 1) startRepeat(code);
             });
         }
+        @Override public void onKeyboardUsed() {
+            post(() -> {
+                if (!focusStale) return;
+                injector.focus(injector.displayId());
+                focusStale = false;
+            });
+        }
     };
 
     /** Started by name by Shizuku, which also decides who gets the Binder. */
