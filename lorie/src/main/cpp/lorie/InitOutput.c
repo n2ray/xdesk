@@ -846,6 +846,16 @@ static void lorieWorkingQueueCallback(int fd, int __unused ready, void __unused 
 void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
     AChoreographer_postFrameCallback(d, (AChoreographer_frameCallback) lorieChoreographerFrameCallback, d);
     if (pScreenPtr) {
+        // These ticks follow the phone's own screen, whatever the X display is. A display of 30 Hz or less (the car) must
+        // not get more: the reported rate alone doesn't stop Present clients from being woken on every tick.
+        // The margin is an eighth of a frame, so that vsync jitter can't push a tick into the next one.
+        static uint64_t lastTick;
+        if (pvfb->root.framerate <= 30) {
+            uint64_t now = GetTimeInMicros();
+            if (now - lastTick < pvfb->vblank_interval - pvfb->vblank_interval / 8)
+                return;
+            lastTick = now;
+        }
         QueueWorkProc(lorieRedraw, NULL, NULL);
         lorieWakeServer();
     }

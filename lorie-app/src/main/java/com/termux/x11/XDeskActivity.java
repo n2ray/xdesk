@@ -2636,6 +2636,7 @@ public class XDeskActivity extends Activity {
         desktopOnCar = TargetDisplay.isCar(d);
         audioRoute.setCar(desktopOnCar);
         if (desktopOnCar) Log.i(TAG, "desktop on the car, display=" + d.getDisplayId() + " size=" + desktopSize(d));
+        LorieView.capFramerate(desktopOnCar ? d.getDisplayId() : Display.INVALID_DISPLAY, (int) AppSession.CAR_REFRESH_HZ);
         placeX11(d.getDisplayId());
         applySize(d);
         session.attach();

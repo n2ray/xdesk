@@ -122,7 +122,7 @@ final class AppSession {
      * Android Auto encodes about 30 frames a second. At 60 the apps' display keeps feeding it more, unevenly: the picture
      * stuttered as soon as a finger moved, and the encoder fell to about 10 (measured with a browser playing video).
      */
-    private static final float CAR_REFRESH_HZ = 30f;
+    static final float CAR_REFRESH_HZ = 30f;
 
     private final CarActivity.AppScreen carScreen = new CarActivity.AppScreen() {
         @Override public void onSurface(Surface s) {

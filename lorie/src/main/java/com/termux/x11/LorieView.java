@@ -426,9 +426,20 @@ public class LorieView extends SurfaceView implements InputStub {
             mCallback.inputTransformChanged(p.x, p.y, getInputTransform());
     }
 
+    private static volatile int cappedDisplay = Display.INVALID_DISPLAY;
+    private static volatile int cappedFramerate;
+
+    /** The X desktop runs at no more than this on that display, whatever the display says. INVALID_DISPLAY for none. */
+    public static void capFramerate(int displayId, int framerate) {
+        cappedFramerate = framerate;
+        cappedDisplay = displayId;
+    }
+
     private void sendWindowChange() {
         String name;
         int framerate = (int) (getDisplay() != null ? getDisplay().getRefreshRate() : 30);
+        if (getDisplay() != null && getDisplay().getDisplayId() == cappedDisplay)
+            framerate = Math.min(framerate, cappedFramerate);
 
         if (getDisplay() == null || getDisplay().getDisplayId() == Display.DEFAULT_DISPLAY)
             name = "builtin";
