@@ -1,5 +1,6 @@
 package com.termux.x11;
 
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.InputDevice;
@@ -640,11 +641,30 @@ final class InputInjector {
             meta &= ~m;
             held.remove(linuxCode);
         }
+        int device = KeyCharacterMap.VIRTUAL_KEYBOARD;
+        InputDevice keyboard = physicalKeyboard();
+        if (keyboard != null) {
+            // KEYS gives the key's place on a US keyboard. The keyboard's own layout, chosen in the system settings, says what
+            // that place means, and the event must come from that keyboard for apps to read the layout's characters.
+            int mapped = keyboard.getKeyCodeForKeyLocation(code);
+            if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
+            device = keyboard.getId();
+        }
         long now = SystemClock.uptimeMillis();
         KeyEvent e = new KeyEvent(now, now, value == 0 ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN, code, value == 2 ? 1 : 0, meta,
-            KeyCharacterMap.VIRTUAL_KEYBOARD, linuxCode, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
+            device, linuxCode, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
         setDisplayKey.invoke(e, display);
         send(e);
+    }
+
+    /** The plugged-in keyboard whose layout applies, or null to keep the virtual keyboard's US layout. */
+    private static InputDevice physicalKeyboard() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;  // getKeyCodeForKeyLocation
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d != null && d.isExternal() && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return d;
+        }
+        return null;
     }
 
     /** Held down now, and not a modifier: what auto-repeat applies to. */
