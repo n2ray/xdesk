@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Typeface;
 import android.os.BatteryManager;
 import android.os.Handler;
@@ -12,12 +13,18 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.format.DateFormat;
 import android.util.TypedValue;
+import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ScrollView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
@@ -34,6 +41,11 @@ final class DashboardView extends FrameLayout {
     /** Burn-in: the content moves this far (part of the shorter side) every SHIFT_MS, and dims after DIM_AFTER_MS. */
     private static final float SHIFT_RANGE = 0.04f, DIM_ALPHA = 0.35f;
     private static final long SHIFT_MS = 60000, DIM_AFTER_MS = 300000, STATUS_MS = 2000;
+    /** With favourites the clock steps aside for them. Parts of the shorter side, or of the height for GRID_HEIGHT. */
+    private static final float GRID_CLOCK = 0.09f, GRID_DATE = 0.03f, GRID_STATUS = 0.024f, CELL = 0.18f, ICON = 0.105f, TILE_TEXT = 0.024f, GRID_HEIGHT = 0.62f, GRID_WIDTH = 0.84f;
+    private static final float TILE_HOVER = 1.07f;
+    private static final int TILE_BACK = 0x22FFFFFF, MIN_COLUMNS = 3, MAX_COLUMNS = 9;
+    private static final long TILE_ZOOM_MS = 110;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
@@ -43,7 +55,10 @@ final class DashboardView extends FrameLayout {
     private String lastInput;
     private int sizedW = -1, sizedH = -1;
     private final boolean showInput;
-    private boolean started;
+    private boolean started, gridShown;
+    private final ScrollView grid;
+    private final LinearLayout gridRows;
+    private final Runnable favoritesChanged = this::buildGrid;
 
     private final BroadcastReceiver timeChanged = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { updateClock(); }
@@ -79,6 +94,15 @@ final class DashboardView extends FrameLayout {
         hint = text(0.6f);
         hint.setText(hintText);
         status = text(0.5f);
+        grid = new ScrollView(c);
+        grid.setVerticalScrollBarEnabled(false);
+        grid.setFocusable(false);
+        grid.setVisibility(GONE);
+        gridRows = new LinearLayout(c);
+        gridRows.setOrientation(LinearLayout.VERTICAL);
+        gridRows.setGravity(Gravity.CENTER_HORIZONTAL);
+        grid.addView(gridRows, new ScrollView.LayoutParams(-1, -2));
+        column.addView(grid, 2, new LinearLayout.LayoutParams(-2, -2));
         LayoutParams p = new LayoutParams(-2, -2);
         p.gravity = Gravity.CENTER;
         addView(column, p);
@@ -101,14 +125,99 @@ final class DashboardView extends FrameLayout {
             sizedW = w;
             sizedH = h;
             float side = Math.min(w, h);
-            clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * CLOCK);
-            date.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * DATE);
+            clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * (gridShown ? GRID_CLOCK : CLOCK));
+            date.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * (gridShown ? GRID_DATE : DATE));
             hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * HINT);
-            status.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * STATUS);
+            status.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * (gridShown ? GRID_STATUS : STATUS));
             hint.setPadding(0, Math.round(side * 0.06f), 0, 0);
             status.setPadding(0, Math.round(side * 0.04f), 0, 0);
         }
         super.onMeasure(widthSpec, heightSpec);
+    }
+
+    @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+        super.onSizeChanged(w, h, oldW, oldH);
+        // Not during layout: this adds and removes views
+        post(favoritesChanged);
+    }
+
+    /** "My favourites" from the phone, as a grid. Only on XDesk's own home window, and edited only on the phone. */
+    private void buildGrid() {
+        if (!showInput || getWidth() == 0) return;
+        Context c = getContext();
+        ExternalLauncher.Host host = ExternalLauncher.host();
+        List<String> keys = new ArrayList<>();
+        if (host != null) for (String key : host.favorites()) if (ExternalLauncher.exists(c, key)) keys.add(key);
+        boolean show = !keys.isEmpty();
+        if (show != gridShown) {
+            gridShown = show;
+            sizedW = -1;
+        }
+        grid.setVisibility(show ? VISIBLE : GONE);
+        hint.setVisibility(show ? GONE : VISIBLE);
+        gridRows.removeAllViews();
+        if (show) {
+            float side = Math.min(getWidth(), getHeight());
+            int cell = Math.round(side * CELL), columns = Math.max(MIN_COLUMNS, Math.min(MAX_COLUMNS, (int) (getWidth() * GRID_WIDTH / cell)));
+            int across = Math.min(columns, keys.size());
+            int rows = (keys.size() + columns - 1) / columns;
+            LinearLayout row = null;
+            for (int i = 0; i < keys.size(); i++) {
+                if (i % columns == 0) {
+                    row = new LinearLayout(c);
+                    row.setClipChildren(false);
+                    gridRows.addView(row, new LinearLayout.LayoutParams(-2, -2));
+                }
+                row.addView(tile(keys.get(i), Math.round(side * ICON), side), new LinearLayout.LayoutParams(cell, cell));
+            }
+            grid.setLayoutParams(new LinearLayout.LayoutParams(cell * across, Math.min(cell * rows, Math.round(getHeight() * GRID_HEIGHT))));
+            ((LinearLayout.LayoutParams) grid.getLayoutParams()).topMargin = Math.round(side * 0.05f);
+        }
+        requestLayout();
+    }
+
+    private View tile(final String key, int iconSize, float side) {
+        final Context c = getContext();
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setClickable(true);
+        box.setFocusable(false);
+        int pad = Math.round(side * 0.012f);
+        box.setPadding(pad, pad, pad, pad);
+        final GradientDrawable back = new GradientDrawable();
+        back.setCornerRadius(side * 0.024f);
+        back.setColor(Color.TRANSPARENT);
+        box.setBackground(back);
+        box.addView(ExternalLauncher.icon(c, key, iconSize), new LinearLayout.LayoutParams(iconSize, iconSize));
+        TextView name = new TextView(c);
+        name.setText(ExternalLauncher.label(c, key));
+        name.setTextColor(Color.WHITE);
+        name.setAlpha(0.85f);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        name.setGravity(Gravity.CENTER);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * TILE_TEXT);
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2);
+        at.topMargin = Math.round(side * 0.012f);
+        box.addView(name, at);
+        box.setOnHoverListener((v, e) -> {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_HOVER_ENTER) {
+                brighten();
+                back.setColor(TILE_BACK);
+                v.animate().scaleX(TILE_HOVER).scaleY(TILE_HOVER).setDuration(TILE_ZOOM_MS).start();
+            } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                back.setColor(Color.TRANSPARENT);
+                v.animate().scaleX(1f).scaleY(1f).setDuration(TILE_ZOOM_MS).start();
+            }
+            return false;
+        });
+        box.setOnClickListener(v -> {
+            brighten();
+            ExternalLauncher.open(c, key);
+        });
+        return box;
     }
 
     private void brighten() {
@@ -163,6 +272,8 @@ final class DashboardView extends FrameLayout {
         brighten();
         ui.post(statusTick);
         ui.postDelayed(shift, SHIFT_MS);
+        ExternalLauncher.listen(favoritesChanged);
+        buildGrid();
     }
 
     /** Covered by an app or a desktop, or removed: nothing to update. */
@@ -171,5 +282,6 @@ final class DashboardView extends FrameLayout {
         started = false;
         getContext().unregisterReceiver(timeChanged);
         ui.removeCallbacksAndMessages(null);
+        ExternalLauncher.unlisten(favoritesChanged);
     }
 }

@@ -373,6 +373,7 @@ final class AppSession {
     /** 正在外接屏上的应用。 */
     AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
+    void raiseCursor() { cursor.raise(); }
     ShellActivation shell() { return shell; }
     /** The current or last injector came from the built-in server, not Shizuku. */
     boolean usesShell() { return viaShell; }

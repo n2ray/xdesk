@@ -308,6 +308,9 @@
     <string name="xd_share_sending">Sending to %1$s</string>
     <string name="xd_share_sent">Sent to the computer\'s Downloads: %1$s</string>
     <string name="xd_share_failed">Could not send: %1$s</string>
+    <string name="xd_launcher_need_phone">Open XDesk on the phone first</string>
+    <string name="xd_external_dock">Dock at the bottom of the display</string>
+    <string name="xd_external_dock_note">Rest the pointer on the bottom edge over Android apps. Not on Linux desktops</string>
     <string name="xd_wireless">Connect to a receiver</string>
     <string name="xd_wireless_note">Show XDesk over Wi-Fi on another device running XDesk Receiver</string>
     <string name="xd_wireless_off">Off</string>

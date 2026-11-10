@@ -112,6 +112,18 @@ final class CursorOverlay {
         params.setTitle("XDesk cursor");
     }
 
+    /** Above a window that was added after the cursor's. */
+    void raise() {
+        if (!shown || view == null) return;
+        try {
+            windows.removeViewImmediate(view);
+            windows.addView(view, params);
+        } catch (RuntimeException e) {
+            shown = false;
+            Log.w(TAG, "cannot raise cursor", e);
+        }
+    }
+
     /** The cursor shows the input mode: a rounded arrowhead in 触控, the arrow with a tail in 键鼠. Takes effect at once. */
     void setTouchStyle(boolean on) {
         if (touchStyle == on) return;

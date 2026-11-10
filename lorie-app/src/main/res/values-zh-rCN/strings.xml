@@ -287,6 +287,9 @@
     <string name="xd_share_sending">正在发送到 %1$s</string>
     <string name="xd_share_sent">已发送到电脑的“下载”：%1$s</string>
     <string name="xd_share_failed">发送失败：%1$s</string>
+    <string name="xd_launcher_need_phone">先打开手机上的 XDesk</string>
+    <string name="xd_external_dock">外接屏底部 Dock</string>
+    <string name="xd_external_dock_note">鼠标移到安卓应用的屏幕底边并停一下就会出现。Linux 桌面上没有</string>
     <string name="xd_wireless">连接接收器</string>
     <string name="xd_wireless_note">通过 Wi-Fi 把 XDesk 显示到装了 XDesk 接收器的另一台设备上</string>
     <string name="xd_wireless_off">关</string>

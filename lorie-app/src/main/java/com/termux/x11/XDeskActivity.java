@@ -60,7 +60,7 @@ public class XDeskActivity extends Activity {
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
-        PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_ALWAYS_CURSOR = "always_cursor",
+        PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
         PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density";
     /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
     private static final int DESKTOP_DENSITY = 168;
@@ -140,6 +140,13 @@ public class XDeskActivity extends Activity {
     /** The code a browser should type, shown on the phone while it pairs. */
     private android.app.Dialog webCodeDialog;
     private DockBar runningDock;
+    private ExternalDock externalDock;
+    private final ExternalLauncher.Host launcherHost = new ExternalLauncher.Host() {
+        @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
+        @Override public String current() { return currentKey(); }
+        @Override public String previous() { return previousKey(); }
+        @Override public void open(String key) { chooseKey(key); }
+    };
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
     private TextView settingsOutputValue;
@@ -862,8 +869,10 @@ public class XDeskActivity extends Activity {
         session = DesktopSession.get(this);
         apps = AppSession.get(this);
         catalog = AppCatalog.get(this);
+        ExternalLauncher.setHost(launcherHost);
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
+        externalDock = new ExternalDock(this, () -> apps.raiseCursor());
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
@@ -957,6 +966,8 @@ public class XDeskActivity extends Activity {
     @Override protected void onDestroy() {
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
+        if (externalDock != null) externalDock.setDisplay(null);
+        if (ExternalLauncher.host() == launcherHost) ExternalLauncher.setHost(null);
         ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
         if (desktopTaken) {
@@ -1568,6 +1579,13 @@ public class XDeskActivity extends Activity {
         updateStatus();
     }
 
+    /** 只在外接屏的安卓应用上有：Linux 桌面的鼠标由窗口独占，车机没有鼠标。 */
+    private void updateExternalDock() {
+        if (externalDock == null) return;
+        Display d = apps.isActive() && !session.isActive() && prefs.getBoolean(PREF_EXTERNAL_DOCK, true) && Settings.canDrawOverlays(this) ? externalDisplay() : null;
+        externalDock.setDisplay(d != null && !TargetDisplay.isCar(d) ? d : null);
+    }
+
     private void toggleKeyboard() {
         WindowInsets w = getWindow().getDecorView().getRootWindowInsets();
         if (w != null && w.isVisible(WindowInsets.Type.ime())) {
@@ -1597,6 +1615,7 @@ public class XDeskActivity extends Activity {
     /** 接管在两种模式下都有：应用模式抓实体键鼠，桌面模式把键盘焦点和输入法放到外接屏上。 */
     private void applyModeToTopBar() {
         boolean app = apps.isActive();
+        updateExternalDock();
         // 应用接手了外接屏：桌面的接管不再有意义，输入法也放回去
         if (desktopTaken && app) takeDesktopWhenBack = true;
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
@@ -1996,6 +2015,10 @@ public class XDeskActivity extends Activity {
                     if (!apps.resetFullscreen()) Toast.makeText(this, R.string.xd_fullscreen_reset_need_injector, Toast.LENGTH_LONG).show();
                 }));
         }
+        s.switchRow(external, getString(R.string.xd_external_dock), getString(R.string.xd_external_dock_note), prefs.getBoolean(PREF_EXTERNAL_DOCK, true), on -> {
+            prefs.edit().putBoolean(PREF_EXTERNAL_DOCK, on).apply();
+            updateExternalDock();
+        });
         String cover = getString(Settings.canDrawOverlays(this) ? R.string.xd_cover_note : R.string.xd_cover_note_no_overlay);
         s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
@@ -2269,6 +2292,7 @@ public class XDeskActivity extends Activity {
 
     private void refreshRunningDock() {
         if (runningDock != null) runningDock.setItems(savedLines(PREF_DOCK), previousKey(), currentKey());
+        ExternalLauncher.changed();
     }
 
     private void refreshDocks() {
