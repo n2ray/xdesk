@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="通过 Android Auto 运行在车机屏幕上的 XDesk"></p>
 
-**手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。想要更多的话，还可以用 Termux 跑 Linux 桌面，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。
+**手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。外接屏首页是你的收藏，鼠标移到屏幕底边会升起 Dock，用起来很像一台电脑。想要更多的话，还可以用 Termux 跑 Linux 桌面，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。
 
 | 屏幕 | 连接方式 |
 |---|---|
@@ -12,7 +12,7 @@
 | Mac（Apple 芯片） | USB 或 Wi-Fi，装 [XDesk Mac 版](#mac-接收端)，键鼠直接用 Mac 的 |
 | iPad、电脑或智能电视 | 任意浏览器，那边什么都不用装 |
 
-**[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [English](README.md) · 基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0 · [n2ray 和 Claude 一起做的](#一个人和一个-ai-一起做的)
+**[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [English](README.md) · Linux 桌面基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0 · [n2ray 和 Claude 一起做的](#一个人和一个-ai-一起做的)
 
 > **现状：** 这还是个早期的个人项目，平时只在一台手机上用：欧版（EEA）小米 15 Ultra（型号 25010PN30G，骁龙 8 Elite，HyperOS 3，安卓 16，BL 未解锁）。其他机型基本没有测试过，包括这款手机的国行版，表现可能不一样，很欢迎告诉我们结果。界面语言跟随系统，简体中文显示中文，其他语言显示英文，安卓 13 及以上也可以在 XDesk 的设置里单独选。
 
@@ -53,6 +53,8 @@ v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测
 ## 外接屏上的安卓应用
 
 在选择界面点一个应用，它就在外接屏上全屏运行，手机当它的触摸板和键盘。
+
+外接屏的首页以宫格显示手机上的“我的收藏”，点一下就打开，收藏在手机上管理。打开应用后，把鼠标移到屏幕最底边停一下，会升起 Dock，里面是当前应用、上一个应用和收藏，移开后自动收起。输入法打开时，Dock 显示在输入法上方。可以在设置 → **外屏**里关掉 Dock。Linux 桌面上没有 Dock。
 
 实体鼠标和键盘默认归手机。想让外接屏直接用，点顶部的**接管**或按 Ctrl+Alt+M，点**交还**或再按一次就还给手机。接着实体键盘时，接管后输入法的候选词也会显示在外接屏上，就在输入框旁边。点**启动器**只是在手机上打开应用列表，外接屏上的内容不变，点**回到触摸板**关掉。
 

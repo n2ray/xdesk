@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="XDesk on a car's screen through Android Auto"></p>
 
-**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display gets a home screen of your favourites and a dock at the bottom edge, so it feels much like a computer. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
 
 | Screen | How it connects |
 |---|---|
@@ -12,7 +12,7 @@
 | Mac with Apple silicon | USB or Wi-Fi, with the [XDesk Mac app](#mac-receiver) and the Mac's keyboard and mouse |
 | iPad, laptop or smart TV | Any browser, nothing to install there |
 
-**[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by n2ray and Claude](#built-by-a-person-and-an-ai)
+**[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · The Linux desktop is based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by n2ray and Claude](#built-by-a-person-and-an-ai)
 
 > **Status:** an early personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently. The UI follows the system language: English, or Simplified Chinese when the phone is set to it. On Android 13 and later you can also pick the language in XDesk's settings. Reports from other devices are very welcome.
 
@@ -51,6 +51,8 @@ Connect a monitor with a USB-C to HDMI cable or dock, and open **XDesk**. The ph
 - A car through Android Auto, parked only (see [What you get](#what-you-get))
 
 ## Android apps on the display
+
+The home screen of the external display shows the phone's favourites as a grid: click one to open it, and manage them on the phone. Over an app, rest the pointer on the very bottom of the screen and a dock comes up with the current app, the previous app and the favourites, and goes away when you move off it. With the input method open the dock sits above it. It can be turned off in the settings, and there is no dock on Linux desktops.
 
 Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. With a physical keyboard, taking over also moves the input method's candidates to the display, next to the text, and giving back returns them to the phone. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
 

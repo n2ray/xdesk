@@ -55,6 +55,7 @@ nav a:hover { opacity: 1; text-decoration: none; }
 .lead { color: var(--dim-dark); font-size: clamp(19px, 2vw, 25px); line-height: 1.32; letter-spacing: -.008em; margin: 20px auto 26px; max-width: 26em; text-wrap: balance; }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 24px; }
 .btn { display: inline-block; padding: 11px 24px; border-radius: 999px; background: var(--blue); color: #fff; font-weight: 500; }
+.light a.btn { color: #fff; }
 .btn:hover { text-decoration: none; filter: brightness(1.1); }
 .more::after { content: " ›"; }
 .slot { aspect-ratio: 1; width: min(34vh, 300px); margin: 32px auto 0; }
@@ -115,9 +116,6 @@ section { padding-block: 104px; }
 .facts p { margin: 8px auto 0; max-width: 26em; }
 .credit p { margin: 16px auto 0; max-width: 34em; color: var(--dim-dark); }
 .credit strong { color: var(--on-dark); font-weight: 600; }
-.light .credit strong { color: var(--on-light); }
-.light .credit p { color: var(--dim-light); }
-.light .cmd code { color: #fff; }
 .credit .slot { width: min(30vh, 230px); margin: 0 auto 36px; }
 footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim-dark); font-size: 13px; }
 
@@ -152,6 +150,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
 <nav>
   <a class="brand" href="#"><img src="icon.svg" alt="">XDesk</a>
   <a href="#start"><span lang="en">Get started</span><span lang="zh-CN">开始使用</span></a>
+  <a href="#desk"><span lang="en">Desktop</span><span lang="zh-CN">桌面体验</span></a>
   <a href="#mac">Mac</a>
   <a href="#status"><span lang="en">Status</span><span lang="zh-CN">现状</span></a>
   <a href="https://github.com/n2ray/xdesk">GitHub</a>
@@ -294,7 +293,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
 <section class="pin light" id="control">
   <div class="sticky">
     <div class="wrap">
-      <h2><span lang="en">The phone stays in charge</span><span lang="zh-CN"><span class="nb">所有操作</span><span class="nb">都在手机上</span></span></h2>
+      <h2><span lang="en">Or run it all from the phone</span><span lang="zh-CN"><span class="nb">也可以</span><span class="nb">全靠手机操作</span></span></h2>
     </div>
     <div class="wrap">
       <div class="steps">
@@ -328,7 +327,48 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
   </div>
 </section>
 
-<section class="band" id="mac">
+<section class="band" id="desk">
+  <div class="wrap">
+    <div class="slot mark" id="s-desk"><img src="icon.svg" alt=""></div>
+    <h2 class="rv"><span lang="en">It feels like a computer</span><span lang="zh-CN">用起来像一台电脑</span></h2>
+    <p class="sub dim rv">
+      <span lang="en">Connect a mouse and keyboard, and the big screen has what you expect from a desktop.</span>
+      <span lang="zh-CN">接上鼠标键盘，大屏上就有你熟悉的桌面操作。</span>
+    </p>
+    <div class="facts">
+      <div class="rv">
+        <h3><span lang="en">Your favourites up front</span><span lang="zh-CN">首页就是你的收藏</span></h3>
+        <p class="dim">
+          <span lang="en">The display's home screen is a grid of the apps you pinned on the phone. One click opens them.</span>
+          <span lang="zh-CN">手机上收藏的应用，在大屏首页排成宫格，点一下就打开。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">A dock at the bottom</span><span lang="zh-CN">底部的 Dock</span></h3>
+        <p class="dim">
+          <span lang="en">Rest the pointer on the bottom edge and it comes up with your current and previous app and favourites. Move away and it goes.</span>
+          <span lang="zh-CN">鼠标移到屏幕底边停一下，Dock 就升起来，当前、上一个应用和收藏都在上面，移开自动收起。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">Keyboard and mouse straight through</span><span lang="zh-CN">键盘鼠标直接用</span></h3>
+        <p class="dim">
+          <span lang="en">Take over and they go straight to the display, with the input method's candidates there too.</span>
+          <span lang="zh-CN">点一下接管，键鼠直接操作大屏，输入法的选词框也在大屏上。</span>
+        </p>
+      </div>
+      <div class="rv">
+        <h3><span lang="en">Apps and Linux side by side</span><span lang="zh-CN">安卓应用和 Linux 随时切换</span></h3>
+        <p class="dim">
+          <span lang="en">Switch between Android apps and a Linux desktop whenever you like. Both keep running and pick up where they were.</span>
+          <span lang="zh-CN">安卓应用和 Linux 桌面可以来回切，两边都继续运行，切回来接着用。</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band light" id="mac">
   <div class="wrap">
     <div class="slot mark" id="s-mac"><img src="icon.svg" alt=""></div>
     <h2 class="rv"><span lang="en">Your Mac as the big screen</span><span lang="zh-CN">Mac 也能当大屏</span></h2>
@@ -376,7 +416,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
   </div>
 </section>
 
-<section class="band light" id="linux">
+<section class="band" id="linux">
   <div class="wrap">
     <div class="slot mark" id="s-linux"><img src="icon.svg" alt=""></div>
     <h2 class="rv"><span lang="en">Add a Linux desktop</span><span lang="zh-CN">还想要 Linux 桌面</span></h2>
@@ -395,7 +435,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
   </div>
 </section>
 
-<section class="band" id="status">
+<section class="band light" id="status">
   <div class="wrap">
     <div class="slot mark" id="s-status"><img src="icon.svg" alt=""></div>
     <h2 class="rv"><span lang="en">Where it stands</span><span lang="zh-CN">用之前先了解一下</span></h2>
@@ -432,7 +472,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
   </div>
 </section>
 
-<section class="band light" id="credit">
+<section class="band" id="credit">
   <div class="wrap credit">
     <div class="slot" id="s-credit"><img src="icon.svg" alt=""></div>
     <h2 class="rv"><span lang="en">Built by a person and an AI</span><span lang="zh-CN"><span class="nb">一个人和一个 AI</span><span class="nb">一起做的</span></span></h2>
@@ -443,8 +483,8 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
 
 <footer>
   <div class="wrap">
-    <span lang="en">Based on <a href="https://github.com/termux/termux-x11">Termux:X11</a>, whose authors deserve the credit for the X server and rendering. GPL-3.0.</span>
-    <span lang="zh-CN">基于 <a href="https://github.com/termux/termux-x11">Termux:X11</a> 开发，X 服务器和渲染都是它的作者们的功劳。GPL-3.0 开源。</span>
+    <span lang="en">The Linux desktop is based on <a href="https://github.com/termux/termux-x11">Termux:X11</a>, whose authors deserve the credit for the X server and rendering. GPL-3.0.</span>
+    <span lang="zh-CN">Linux 桌面基于 <a href="https://github.com/termux/termux-x11">Termux:X11</a>，X 服务器和渲染都是它的作者们的功劳。GPL-3.0 开源。</span>
   </div>
 </footer>
 
@@ -575,10 +615,11 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
       at(controlStart + controlRange * (i + .2) / 3, phoneScene(i));
       at(controlStart + controlRange * (i + .8) / 3, phoneScene(i));
     }
-    held('mac', 's-mac', WHITE);
-    held('linux', 's-linux', BLACK);
-    held('status', 's-status', WHITE);
-    at(max, atSlot('s-credit', max, BLACK));
+    held('desk', 's-desk', WHITE);
+    held('mac', 's-mac', BLACK);
+    held('linux', 's-linux', WHITE);
+    held('status', 's-status', BLACK);
+    at(max, atSlot('s-credit', max, WHITE));
   }
 
   function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
