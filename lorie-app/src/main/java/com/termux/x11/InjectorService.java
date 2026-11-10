@@ -58,6 +58,10 @@ public class InjectorService extends IInjector.Stub {
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
     private final ImePlacement imes = new ImePlacement();
+    /** All three on the worker: the browser's layout (null without one), whether input is taken over, and the keyboard for that. */
+    private String webLayout;
+    private boolean takenOver;
+    private UhidKeyboard webKeyboard;
     private final OutputCapture output = new OutputCapture();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
@@ -97,14 +101,31 @@ public class InjectorService extends IInjector.Stub {
         }), BACK_CHECK_MS, TimeUnit.MILLISECONDS);
     }
 
+    /** The web keyboard exists while a browser is here and input is taken over. On the worker. */
+    private void updateWebKeyboard() {
+        String wanted = takenOver ? webLayout : null;
+        if (webKeyboard != null && !webKeyboard.layout().equals(wanted)) {
+            webKeyboard.close();
+            webKeyboard = null;
+        }
+        if (wanted != null && webKeyboard == null) webKeyboard = UhidKeyboard.create(wanted);
+    }
+
+    private void closeWebKeyboard() {
+        if (webKeyboard != null) webKeyboard.close();
+        webKeyboard = null;
+    }
+
     private final EvdevReader.Sink physical = new EvdevReader.Sink() {
         @Override public void onForwarding(final boolean on, final int devices) {
             post(() -> {
+                takenOver = on;
+                updateWebKeyboard();
                 if (on) {
                     injector.take();
                     focusStale = false;
                     // Candidates for the physical keyboard next to the text, not on the phone
-                    if (ImePlacement.hasPhysicalKeyboard()) imes.place(injector.displayId(), true);
+                    if (webKeyboard != null || ImePlacement.hasPhysicalKeyboard()) imes.place(injector.displayId(), true);
                 } else {
                     injector.releaseAll();
                     injector.hoverExit();
@@ -356,6 +377,7 @@ public class InjectorService extends IInjector.Stub {
                     output.stop();
                     imes.restoreAll();
                     density.clearOurs();
+                    closeWebKeyboard();
                 }
                 if (onlyUid == NO_UID) System.exit(0);
                 if (!wasOver) shutdown();
@@ -399,6 +421,15 @@ public class InjectorService extends IInjector.Stub {
     @Override public void setImeOnDisplay(int display, boolean on) {
         if (sessionOver) return;
         imes.place(display, on);
+    }
+
+    @Override public void setWebKeyboard(final String layout) {
+        if (sessionOver) return;
+        post(() -> {
+            webLayout = layout;
+            updateWebKeyboard();
+            if (takenOver) imes.place(injector.displayId(), webKeyboard != null || ImePlacement.hasPhysicalKeyboard());
+        });
     }
 
     @Override public int displayDefaultDensity(int display) {
@@ -692,6 +723,7 @@ public class InjectorService extends IInjector.Stub {
         output.stop();
         imes.restoreAll();
         density.clearOurs();
+        closeWebKeyboard();
         enabled = false;
         listener = null;
         stopSessionWatcher();

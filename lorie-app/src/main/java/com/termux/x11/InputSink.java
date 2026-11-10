@@ -7,6 +7,8 @@ interface InputSink {
     default void moveToFraction(float x, float y) { }
     /** That pointer is gone: the display's own cursor comes back. */
     default void pointerGone() { }
+    /** A browser is here, with a keyboard of this layout: de, fr, it, es, gb or us. Again when it finds out better. */
+    default void browserLayout(String layout) { }
     /** X numbered: 1 left, 2 middle, 3 right. */
     void button(int button, boolean down);
     void click(int button);

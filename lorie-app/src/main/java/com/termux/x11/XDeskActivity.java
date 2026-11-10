@@ -501,6 +501,12 @@ public class XDeskActivity extends Activity {
             // Whichever it was on, the client may have changed since
             session.input().pointerGone();
             apps.input().pointerGone();
+            apps.browserGone();
+            updateStatus();
+        }
+        @Override public void browserLayout(String layout) {
+            apps.setBrowserLayout(layout);
+            updateStatus();
         }
         @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
         @Override public void click(int b) { if (client != null) client.click(b); }

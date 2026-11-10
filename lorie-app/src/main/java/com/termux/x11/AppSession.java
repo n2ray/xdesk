@@ -621,6 +621,7 @@ final class AppSession {
             }
             if (!current(i, gen)) return;
             i.setEnabled(true);
+            i.setWebKeyboard(browserLayout);
             i.setTouchMode(touchModeFor(a));
             i.setWatchSession(!alwaysShowCursor);
             ui.post(() -> {
@@ -666,7 +667,7 @@ final class AppSession {
                 return;
             }
             started = true;
-            if (forwardOnReturn) setForwarding(true);
+            if (forwardOnReturn || browserLayout != null) setForwarding(true);
             forwardOnReturn = false;
             if (listener != null) listener.onAppStarted();
         });
@@ -764,6 +765,33 @@ final class AppSession {
         IInjector i = injector;
         try {
             if (i != null) i.setForwarding(on);
+        } catch (RemoteException ignored) { }
+    }
+
+    /** The layout of the browser's keyboard, null without a browser. */
+    private String browserLayout;
+    private boolean forwardingBeforeBrowser;
+
+    /** A browser means someone at a computer with a keyboard and mouse: it takes over when it comes. */
+    void setBrowserLayout(String layout) {
+        boolean first = browserLayout == null;
+        if (first) forwardingBeforeBrowser = forwarding;
+        browserLayout = layout;
+        sendWebKeyboard();
+        if (first && !forwarding) setForwarding(true);
+    }
+
+    void browserGone() {
+        if (browserLayout == null) return;
+        browserLayout = null;
+        sendWebKeyboard();
+        if (!forwardingBeforeBrowser) setForwarding(false);
+    }
+
+    private void sendWebKeyboard() {
+        IInjector i = injector;
+        try {
+            if (i != null) i.setWebKeyboard(browserLayout);
         } catch (RemoteException ignored) { }
     }
 

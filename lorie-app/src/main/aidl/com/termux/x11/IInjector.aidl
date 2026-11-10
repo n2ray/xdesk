@@ -78,6 +78,8 @@ interface IInjector {
     oneway void focusDisplay(int displayId) = 34;
     /** Input method windows on this display (on) or back where they were (off). Put back when the session ends. */
     oneway void setImeOnDisplay(int displayId, boolean on) = 35;
+    /** A browser with a keyboard of this layout is here, null when not. While input is taken over, a keyboard of that layout exists. */
+    oneway void setWebKeyboard(String layout) = 38;
     /** The phone's whole sound output as 48 kHz stereo 16-bit PCM, for the wireless display; nothing plays on the phone meanwhile. Close the stream to stop. Throws with the reason. */
     ParcelFileDescriptor captureOutput() = 36;
 }

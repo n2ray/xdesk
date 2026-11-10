@@ -663,11 +663,15 @@ final class InputInjector {
     /** The plugged-in keyboard whose layout applies, or null to keep the virtual keyboard's US layout. */
     private static InputDevice physicalKeyboard() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;  // getKeyCodeForKeyLocation
+        InputDevice found = null;
         for (int id : InputDevice.getDeviceIds()) {
             InputDevice d = InputDevice.getDevice(id);
-            if (d != null && d.isExternal() && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return d;
+            if (d == null || !d.isExternal() || d.isVirtual() || d.getKeyboardType() != InputDevice.KEYBOARD_TYPE_ALPHABETIC) continue;
+            // Keys that come through here are the browser's when it has its keyboard: one plugged in delivers its own
+            if (UhidKeyboard.NAME.equals(d.getName())) return d;
+            if (found == null) found = d;
         }
-        return null;
+        return found;
     }
 
     /** Held down now, and not a modifier: what auto-repeat applies to. */
@@ -686,9 +690,16 @@ final class InputInjector {
         }
     }
 
-    /** Text from the phone's input method. Returns how many characters have no key on a keyboard and were dropped. */
+    /**
+     * Text from an input method or a browser, typed on the keyboard whose layout has the most characters: a real one if there
+     * is one. Returns how many characters have no key on a keyboard and were dropped.
+     */
     int text(String s) throws ReflectiveOperationException {
-        KeyCharacterMap map = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+        InputDevice keyboard = physicalKeyboard();
+        KeyCharacterMap map = keyboard != null ? keyboard.getKeyCharacterMap() : KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+        int device = keyboard != null ? keyboard.getId() : KeyCharacterMap.VIRTUAL_KEYBOARD;
+        // The text already says upper case or AltGr: a Shift or Option held for it must not count twice
+        int held = meta & ~(KeyEvent.META_SHIFT_MASK | KeyEvent.META_ALT_MASK);
         int dropped = 0;
         for (int i = 0; i < s.length(); i++) {
             KeyEvent[] events = map.getEvents(new char[]{s.charAt(i)});
@@ -698,7 +709,7 @@ final class InputInjector {
             }
             for (KeyEvent k : events) {
                 KeyEvent e = new KeyEvent(k.getDownTime(), k.getEventTime(), k.getAction(), k.getKeyCode(), k.getRepeatCount(),
-                    k.getMetaState() | meta, k.getDeviceId(), k.getScanCode(), k.getFlags(), k.getSource());
+                    k.getMetaState() | held, device, k.getScanCode(), k.getFlags(), k.getSource());
                 setDisplayKey.invoke(e, display);
                 send(e);
             }

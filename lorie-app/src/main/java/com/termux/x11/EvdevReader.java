@@ -110,7 +110,7 @@ final class EvdevReader extends Thread {
             }
             // The phone's own touch screen, buttons and sensors have no capability that matches and stay untouched
             int capabilities = Evdev.capabilities(fd);
-            if (capabilities == 0) {
+            if (capabilities == 0 || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
                 Evdev.close(fd);
                 skipped.add(n);
                 continue;

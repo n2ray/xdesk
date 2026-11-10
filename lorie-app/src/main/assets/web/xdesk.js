@@ -30,7 +30,7 @@ const T = zh ? {
 
 // ---------------------------------------------------------------- protocol
 const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10;
-const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
+const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
 
 const $ = id => document.getElementById(id);
 const stage = $('stage'), video = $('video'), canvas = $('canvas'), kbd = $('kbd');
@@ -289,6 +289,7 @@ function debugTick() {
 let pingTimer = 0, debugTimer = 0;
 function startSession() {
   live = true;
+  announceLayout();
   panel.classList.add('hidden');
   if (!player) {
     player = makePlayer();
@@ -721,6 +722,7 @@ function sendScroll(dy, dx) { send(IN_SCROLL, new Uint8Array([...i16(dy), ...i16
 function releaseAll() {
   for (const b of [...buttonsDown]) sendButton(b, false);
   for (const k of [...keysDown]) sendKey(k, false);
+  typedKeys.clear();
 }
 // Movement in the page's CSS pixels → the display's pixels, so the remote cursor keeps up with the hand
 function toRemote() { const r = pictureRect(); return r.scale ? 1 / r.scale : 1; }
@@ -899,15 +901,79 @@ function sendText(s) {
   send(IN_TEXT, new TextEncoder().encode(s));
 }
 
+// What the computer's keyboard is. No browser says which model it is, so each way that may work is tried, best first:
+//   1. the layout the browser reports (Chromium, on localhost or https only)
+//   2. what the keys typed so far have shown, also remembered from last time
+//   3. the language of the browser, a weak hint: an English system can have a German keyboard
+//   4. a US keyboard
+// The phone only needs this for a layout with the right characters. What is typed is always what the computer typed.
+const LAYOUT_LANGUAGES = { de: 'de', fr: 'fr', it: 'it', es: 'es' };
+let keyboardLayout = '';
+
+function layoutFromKey(code, key) {
+  const k = (key || '').toLowerCase();
+  if (k.length !== 1) return '';
+  if ((code === 'KeyY' && k === 'z') || (code === 'KeyZ' && k === 'y') || 'äöüß'.includes(k)) return 'de';
+  if ((code === 'KeyQ' && k === 'a') || (code === 'KeyA' && k === 'q')) return 'fr';
+  if (k === 'ñ') return 'es';
+  if ('òì'.includes(k)) return 'it';
+  if (k === '£') return 'gb';
+  return '';
+}
+function layoutFromLanguage() {
+  const tag = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+  if (/^en-gb/i.test(tag)) return 'gb';
+  return LAYOUT_LANGUAGES[tag.slice(0, 2).toLowerCase()] || '';
+}
+function setLayout(layout, remember) {
+  if (remember) store.set('layout', layout);
+  if (layout === keyboardLayout) return;
+  keyboardLayout = layout;
+  if (live) send(IN_LAYOUT, new TextEncoder().encode(layout));
+}
+// Every session tells the phone at once, which is also how it knows a browser is here
+function announceLayout() {
+  keyboardLayout = '';
+  setLayout(store.get('layout') || layoutFromLanguage() || 'us', false);
+  if (!navigator.keyboard || !navigator.keyboard.getLayoutMap) return;
+  navigator.keyboard.getLayoutMap().then(map => {
+    for (const [code, key] of map) {
+      const found = layoutFromKey(code, key);
+      if (found) { setLayout(found, true); return; }
+    }
+    setLayout('us', true);
+  }).catch(() => { /* not allowed here: the keys typed will show it */ });
+}
+
+// A key that types a character here sends that character, whatever the layout, so Option+L on a German Mac is @.
+// Shortcuts and keys that type nothing go as the key's place.
+function typedChar(e) {
+  if (!e.key || [...e.key].length !== 1 || e.key === ' ' || e.metaKey) return '';
+  const altGr = e.getModifierState && e.getModifierState('AltGraph');
+  if (e.ctrlKey && !altGr) return '';
+  if (e.altKey && !altGr && !apple) return '';
+  return e.key;
+}
+const typedKeys = new Set();
+
 window.addEventListener('keydown', e => {
   if (!live || document.activeElement === codeIn) return;
   if (e.isComposing || e.keyCode === 229) return;   // an input method is composing: its text comes at the end
-  const scan = scanOf(e);
-  if (!scan) {
-    // A key without a code, as from some soft keyboards: send what it types
-    if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); sendText(e.key); }
+  // Not with Option: on a US Mac Option+S also types ß
+  const found = e.altKey ? '' : layoutFromKey(e.code, e.key);
+  if (found) setLayout(found, true);
+  const ch = typedChar(e);
+  if (ch) {
+    e.preventDefault();
+    e.stopPropagation();
+    // The Option or AltGr that made this character must not be held with it on the other side
+    if (e.altKey || e.ctrlKey) for (const s of [29, 97, 56, 100]) sendKey(s, false);
+    typedKeys.add(e.code || e.key);
+    sendText(ch);
     return;
   }
+  const scan = scanOf(e);
+  if (!scan) return;
   e.preventDefault();
   e.stopPropagation();
   if (!e.repeat || !keysDown.has(scan)) sendKey(scan, true);
@@ -915,6 +981,7 @@ window.addEventListener('keydown', e => {
 }, true);
 window.addEventListener('keyup', e => {
   if (!live || document.activeElement === codeIn) return;
+  if (typedKeys.delete(e.code || e.key)) { e.preventDefault(); return; }
   const scan = scanOf(e);
   if (scan) { e.preventDefault(); sendKey(scan, false); }
   // Mac: no keyup for other keys while Command is held

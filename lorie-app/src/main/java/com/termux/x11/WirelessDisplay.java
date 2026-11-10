@@ -76,7 +76,7 @@ final class WirelessDisplay {
     private static final int TIME = 9;
     /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
     private static final int POINTER = 10;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25;
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
@@ -511,6 +511,11 @@ final class WirelessDisplay {
                 if (b.length == 0 || b.length > 4096) return;
                 final String text = new String(b, StandardCharsets.UTF_8);
                 r = () -> sink.text(text);
+                break;
+            case IN_LAYOUT:
+                if (b.length == 0 || b.length > 8) return;
+                final String layout = new String(b, StandardCharsets.US_ASCII);
+                r = () -> sink.browserLayout(layout);
                 break;
             default:
                 return;
