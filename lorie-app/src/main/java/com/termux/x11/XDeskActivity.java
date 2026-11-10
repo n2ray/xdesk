@@ -1520,6 +1520,10 @@ public class XDeskActivity extends Activity {
             setStatus(Style.DANGER, getString(apps.usesShell() ? R.string.xd_status_injector_gone_shell : R.string.xd_status_injector_gone_shizuku));
         } else if (!apps.hasDisplay()) {
             setStatus(Style.WARN, getString(R.string.xd_status_display_gone_app, apps.label()));
+        } else if (wireless.reconnecting()) {
+            setStatus(Style.WARN, getString(R.string.xd_status_reconnecting, wireless.inputSource()));
+        } else if (apps.isForwarding() && wireless.inputSource() != null) {
+            setStatus(Style.OK, getString(R.string.xd_status_input_computer, apps.label(), wireless.inputSource()));
         } else if (apps.isForwarding() && apps.deviceCount() == 0) {
             setStatus(Style.WARN, getString(R.string.xd_status_no_devices, apps.label()));
         } else if (apps.isForwarding()) {

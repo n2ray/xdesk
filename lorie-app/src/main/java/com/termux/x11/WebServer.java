@@ -723,7 +723,12 @@ final class WebServer {
 
     /** At most 1920 on the long side and 1088 on the short one, as the receiver asks, aspect kept, even. */
     static int[] fit(int w, int h) {
-        float scale = Math.min(1f, Math.min(1920f / Math.max(w, h), 1088f / Math.min(w, h)));
+        return fit(w, h, false);
+    }
+
+    /** @param wired over a cable, which carries a bigger picture than a network can be trusted with */
+    static int[] fit(int w, int h, boolean wired) {
+        float scale = Math.min(1f, Math.min((wired ? 2560f : 1920f) / Math.max(w, h), (wired ? 1600f : 1088f) / Math.min(w, h)));
         int sw = Math.round(w * scale) & ~1, sh = Math.round(h * scale) & ~1;
         return new int[]{Math.max(320, sw), Math.max(240, sh)};
     }

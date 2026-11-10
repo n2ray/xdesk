@@ -249,6 +249,8 @@
     <string name="xd_status_no_devices">%1$s: no mouse or keyboard plugged in. Plug one in to take over</string>
     <string name="xd_status_input_display">%1$s · Mouse &amp; keyboard on the display</string>
     <string name="xd_status_input_phone">%1$s · Mouse &amp; keyboard on the phone</string>
+    <string name="xd_status_input_computer">%1$s · Mouse &amp; keyboard on %2$s</string>
+    <string name="xd_status_reconnecting">Reconnecting to %1$s</string>
     <string name="xd_status_desktop_car">On the car: %1$s</string>
     <string name="xd_status_desktop_display">On the display: %1$s</string>
     <string name="xd_status_desktop_connected">Desktop connected</string>

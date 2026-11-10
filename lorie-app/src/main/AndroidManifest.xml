@@ -76,6 +76,8 @@
         <!-- 用户在系统设置里配对时找端口、收配对码。启动 shell 服务不靠它 -->
         <service android:name="com.termux.x11.PairingService" android:exported="false" android:foregroundServiceType="shortService" />
         <receiver android:name="com.termux.x11.TermuxResultReceiver" android:exported="false" />
+        <!-- 电脑端经 USB 调试发来，只有 shell 身份有这个权限 -->
+        <receiver android:name="com.termux.x11.ConnectReceiver" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <!-- 上游给 termux-x11-preference 用的，导出后任何应用都能改设置，比如悄悄打开无障碍服务。XDesk 和 xdesk 命令都不用它 -->
         <receiver android:name="com.termux.x11.LoriePreferences$Receiver" android:exported="false" tools:node="merge" tools:replace="android:exported" />
         <provider

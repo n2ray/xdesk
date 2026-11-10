@@ -151,3 +151,13 @@ display sends:
 | 9 | TIME | Only with `?debug`. 8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
 
 Input goes where the phone's touchpad and keyboard go: the Termux desktop or the Android app on the display.
+
+## XDesk for a computer
+
+A receiver with bit 7 of its codecs set is XDesk for a computer. It sends the input messages of the web display, as well as:
+
+| Type | Name | Payload |
+|---|---|---|
+| 11 | ADDRESSES | Receiver → phone. UTF-8, comma-separated IPv4 addresses where this receiver can also be reached |
+
+If the connection to such a receiver is lost the phone keeps the session for 8 seconds and connects again: to the address in use, then to the others. Over USB the computer forwards the port with `adb reverse` and sends the broadcast `com.termux.x11.ConnectReceiver` (extras `host`, `port`, `name`), which only the shell user may send. A session on `127.0.0.1` allows a picture up to 2560 by 1600.

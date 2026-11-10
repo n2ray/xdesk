@@ -234,6 +234,8 @@
     <string name="xd_status_no_devices">%1$s：没有外接键鼠，插上后接管</string>
     <string name="xd_status_input_display">%1$s · 键鼠在外接屏</string>
     <string name="xd_status_input_phone">%1$s · 键鼠在手机</string>
+    <string name="xd_status_input_computer">%1$s · 键鼠在 %2$s</string>
+    <string name="xd_status_reconnecting">正在重新连接 %1$s</string>
     <string name="xd_status_desktop_car">车机上：%1$s</string>
     <string name="xd_status_desktop_display">外接屏上：%1$s</string>
     <string name="xd_status_desktop_connected">桌面已连接</string>

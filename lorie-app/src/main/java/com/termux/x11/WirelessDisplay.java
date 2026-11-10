@@ -34,6 +34,7 @@ import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -70,7 +71,7 @@ final class WirelessDisplay {
     private static final int VERSION = 2;
     private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4, CHALLENGE = 5;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-        SIZE = 7, KEY_FRAME = 8;
+        SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -80,6 +81,8 @@ final class WirelessDisplay {
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
+    private static final String LOOPBACK = "127.0.0.1";
+    private static final int RECONNECT_PAUSE_MS = 300, RECONNECT_CONNECT_MS = 1500;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
     private static final long BYE_WAIT_MS = 1500;
     private static final int MAX_PAYLOAD = 16 << 20;
@@ -106,6 +109,10 @@ final class WirelessDisplay {
     private volatile boolean inputReceiver;
     /** A new picture size the receiver asked for, taken up by the stream. */
     private volatile int[] resizeTo;
+    /** Where a computer can be reached besides the address in use, and where it asked to be reached next. */
+    private volatile String[] receiverAddresses = new String[0];
+    private volatile String preferHost;
+    private volatile int receiverPort;
     /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
     private volatile IInjector injector;
     private volatile ParcelFileDescriptor soundPipe;
@@ -231,6 +238,7 @@ final class WirelessDisplay {
             }
             starting = null;
             address = host;
+            receiverPort = port;
             web = false;
             inputReceiver = false;
             resizeTo = null;
@@ -571,7 +579,7 @@ final class WirelessDisplay {
                 inputReceiver = (in.readUnsignedByte() & CODECS_SENDS_INPUT) != 0;   // H.264 is always there
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
-                int[] size = WebServer.fit(w, h);
+                int[] size = WebServer.fit(w, h, wired());
                 return new int[]{size[0], size[1], dpi};
             }
             if (status == PAIR) {
@@ -690,12 +698,16 @@ final class WirelessDisplay {
 
     /** Under writeLock. True if this is a browser's session, which now waits for the browser to return. */
     private boolean connectionLost() {
-        if (!web || !running) return false;
+        if (!(web || inputReceiver) || !running) return false;
         if (!webLost) {
             webLost = true;
             graceUntil = SystemClock.uptimeMillis() + GRACE_MS;
             Log.i(TAG, "browser gone, keeping the display for " + GRACE_MS + " ms");
             ui.post(() -> releaseWebInput(false));
+            if (inputReceiver) {
+                reconnectReceiver();
+                notifyChanged();
+            }
         }
         return true;
     }
@@ -723,20 +735,108 @@ final class WirelessDisplay {
             webSocket = ws;
             out = new DataOutputStream(ws.output());
             webLost = false;
-            ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
-            writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
-            byte[] config = lastConfig;
-            if (config != null) {
-                byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
-                writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(config), config.length);
-            }
-            lastSyncRequest = 0;
-            keyFrameWanted = true;
+            restartStream();
             startReader(new DataInputStream(ws.input()));
             Log.i(TAG, "browser back, same display");
             return true;
         } catch (IOException e) {
             Log.i(TAG, "resume: " + e);
+            return false;
+        }
+    }
+
+    /** Under writeLock, on a new connection: the stream starts over from a key frame. */
+    private void restartStream() throws IOException {
+        ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
+        writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+        byte[] config = lastConfig;
+        if (config != null) {
+            byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
+            writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(config), config.length);
+        }
+        lastSyncRequest = 0;
+        keyFrameWanted = true;
+    }
+
+    private void notifyChanged() {
+        ui.post(() -> {
+            if (listener != null) listener.onWirelessChanged();
+        });
+    }
+
+    /** The computer or browser whose keyboard and mouse this stream takes, null without one. */
+    String inputSource() {
+        return (web || inputReceiver) && state == STREAMING ? receiverName : null;
+    }
+
+    /** A computer's connection is gone and is being looked for. */
+    boolean reconnecting() {
+        return inputReceiver && webLost;
+    }
+
+    private boolean wired() {
+        return LOOPBACK.equals(address);
+    }
+
+    /** Main thread. A computer found a cable: to it, keeping the session if it is already streaming there another way. */
+    void connectFromComputer(String host, int port, String name) {
+        if (running && inputReceiver) {
+            if (host.equals(address)) return;
+            preferHost = host;
+            closeQuietly(socket);
+            return;
+        }
+        if (running && host.equals(address)) return;
+        start(host, port, name);
+    }
+
+    /** A computer's connection is gone, as when a cable is pulled: the session waits and looks for another way there. */
+    private void reconnectReceiver() {
+        new Thread(() -> {
+            while (running && webLost && SystemClock.uptimeMillis() <= graceUntil) {
+                ArrayList<String> hosts = new ArrayList<>();
+                String preferred = preferHost;
+                if (preferred != null) hosts.add(preferred);
+                if (address != null && !hosts.contains(address)) hosts.add(address);
+                for (String a : receiverAddresses) if (!a.isEmpty() && !hosts.contains(a)) hosts.add(a);
+                for (String host : hosts) {
+                    if (!running || !webLost) return;
+                    if (backTo(host)) return;
+                }
+                SystemClock.sleep(RECONNECT_PAUSE_MS);
+            }
+        }, "xdesk-wireless-reconnect").start();
+    }
+
+    private boolean backTo(String host) {
+        Socket s = new Socket();
+        String before = address;
+        try {
+            s.setTcpNoDelay(true);
+            s.connect(new InetSocketAddress(host, receiverPort), RECONNECT_CONNECT_MS);
+            s.setSoTimeout(TIMEOUT_MS);
+            DataInputStream in = new DataInputStream(new BufferedInputStream(s.getInputStream(), 1 << 16));
+            synchronized (writeLock) {
+                address = host;
+                socket = s;
+                out = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 1 << 16));
+            }
+            int[] size = handshake(in);
+            if (size == null) throw new IOException("refused");
+            synchronized (writeLock) {
+                webLost = false;
+                preferHost = null;
+                restartStream();
+                startReader(in);
+            }
+            if (size[0] != streamWidth || size[1] != streamHeight) resizeTo = new int[]{size[0], size[1]};
+            Log.i(TAG, "receiver back on " + host);
+            notifyChanged();
+            return true;
+        } catch (IOException e) {
+            Log.i(TAG, "not back on " + host + ": " + e);
+            address = before;
+            closeQuietly(s);
             return false;
         }
     }
@@ -780,8 +880,10 @@ final class WirelessDisplay {
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;
                         break;
+                    } else if (type == ADDRESSES) {
+                        receiverAddresses = new String(b, StandardCharsets.UTF_8).split(",");
                     } else if (type == SIZE && size >= 4) {
-                        int[] wanted = WebServer.fit(ByteBuffer.wrap(b).getShort() & 0xffff, ByteBuffer.wrap(b, 2, 2).getShort() & 0xffff);
+                        int[] wanted = WebServer.fit(ByteBuffer.wrap(b).getShort() & 0xffff, ByteBuffer.wrap(b, 2, 2).getShort() & 0xffff, wired());
                         if (wanted[0] != streamWidth || wanted[1] != streamHeight) resizeTo = wanted;
                     }
                 }
