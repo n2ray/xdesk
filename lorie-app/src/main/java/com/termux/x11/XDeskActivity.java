@@ -2008,7 +2008,7 @@ public class XDeskActivity extends Activity {
                 x11Changed("displayFilteringMode");
             });
         s.percentRow(card, getString(R.string.xd_x11_mouse_speed), null, p.capturedPointerSpeedFactor.get(), v -> {
-            p.capturedPointerSpeedFactor.put(v);
+            p.putInt("capturedPointerSpeedFactor", v);
             x11Changed("capturedPointerSpeedFactor");
         });
         s.switchRow(card, getString(R.string.xd_x11_scancodes), getString(R.string.xd_x11_scancodes_note), p.preferScancodes.get(), on -> {
