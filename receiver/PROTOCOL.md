@@ -51,7 +51,7 @@ bytes are an error.
        already capped to what its decoder handles (see below), both even
      - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
      - u16 refresh rate in frames per second, rounded
-     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265
+     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
 4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
    with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
    REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.

@@ -76,6 +76,7 @@ final class WirelessDisplay {
     private static final int TIME = 9;
     /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
     private static final int POINTER = 10;
+    private static final int CODECS_SENDS_INPUT = 0x80;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
@@ -101,6 +102,10 @@ final class WirelessDisplay {
     private volatile int state = IDLE;
     private volatile String receiverName, address;
     private volatile boolean running, keyFrameWanted, soundCaptured, web;
+    /** The receiver sends a keyboard and mouse as a browser does: XDesk for a computer. Said by bit 7 of its codecs. */
+    private volatile boolean inputReceiver;
+    /** A new picture size the receiver asked for, taken up by the stream. */
+    private volatile int[] resizeTo;
     /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
     private volatile IInjector injector;
     private volatile ParcelFileDescriptor soundPipe;
@@ -227,6 +232,8 @@ final class WirelessDisplay {
             starting = null;
             address = host;
             web = false;
+            inputReceiver = false;
+            resizeTo = null;
             endReason = null;
             receiverName = shownName;
             codes.clear();
@@ -359,7 +366,7 @@ final class WirelessDisplay {
         displayId = Display.INVALID_DISPLAY;
         soundCaptured = false;
         // A drag or a held Ctrl from the browser must not stay pressed on the desktop
-        if (web) ui.post(this::releaseWebInput);
+        if (web || inputReceiver) ui.post(this::releaseWebInput);
         WebServer.get(context).sessionEnded();
         // A start() waiting for this session goes on from here, in CONNECTING
         if (starting == null) setState(IDLE);
@@ -467,7 +474,7 @@ final class WirelessDisplay {
     /** Browser → phone input, inside the same framing; only a browser sends these. */
     private void webInput(int type, byte[] b) {
         final InputSink sink = webInput;
-        if (sink == null || !web) return;
+        if (sink == null || !(web || inputReceiver)) return;
         final ByteBuffer p = ByteBuffer.wrap(b);
         Runnable r;
         switch (type) {
@@ -561,7 +568,7 @@ final class WirelessDisplay {
                 if (!token.isEmpty()) prefs.edit().putString("token_" + id, token).apply();
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
-                in.readUnsignedByte();   // codecs: H.264 is always there
+                inputReceiver = (in.readUnsignedByte() & CODECS_SENDS_INPUT) != 0;   // H.264 is always there
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h);
@@ -773,7 +780,10 @@ final class WirelessDisplay {
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;
                         break;
-                    } else if (type == SIZE) Log.i(TAG, "receiver changed its size, staying at the first one");
+                    } else if (type == SIZE && size >= 4) {
+                        int[] wanted = WebServer.fit(ByteBuffer.wrap(b).getShort() & 0xffff, ByteBuffer.wrap(b, 2, 2).getShort() & 0xffff);
+                        if (wanted[0] != streamWidth || wanted[1] != streamHeight) resizeTo = wanted;
+                    }
                 }
             } catch (SocketTimeoutException e) {
                 if (running) Log.i(TAG, "receiver silent");
@@ -878,8 +888,32 @@ final class WirelessDisplay {
             });
             ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
             writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
-            pump(encoder, died, id);
-            return died[0];
+            while (true) {
+                pump(encoder, died, id);
+                int[] size = resizeTo;
+                resizeTo = null;
+                if (size == null || !running || died[0]) return died[0];
+                if (size[0] == width && size[1] == height) continue;
+                // The display stays, with its apps: only the size changes, and the encoder that has it
+                width = size[0];
+                height = size[1];
+                MediaCodec resized = encoder(width, height);
+                Surface resizedInput = resized.createInputSurface();
+                resized.start();
+                i.resizeVirtualDisplay(id, width, height, Math.max(120, Math.round(width * 213f / 2560f)), resizedInput);
+                try {
+                    encoder.stop();
+                } catch (IllegalStateException ignored) { }
+                encoder.release();
+                input.release();
+                encoder = resized;
+                input = resizedInput;
+                streamWidth = width;
+                streamHeight = height;
+                Log.i(TAG, "display " + id + " now " + width + "x" + height);
+                format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
+                writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+            }
         } catch (RemoteException e) {
             // The injector died while being set up
             return true;
@@ -915,7 +949,7 @@ final class WirelessDisplay {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         android.hardware.display.DisplayManager dm = context.getSystemService(android.hardware.display.DisplayManager.class);
         long checked = SystemClock.uptimeMillis();
-        while (running && !died[0]) {
+        while (running && !died[0] && resizeTo == null) {
             // The injector may be alive with its display gone, as when its session was ended: treat it as dead
             if (SystemClock.uptimeMillis() - checked > 1000) {
                 checked = SystemClock.uptimeMillis();

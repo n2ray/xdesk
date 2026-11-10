@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * A keyboard made in the kernel while a browser has taken over: Android then treats the session as one with a real
@@ -103,7 +104,7 @@ final class UhidKeyboard {
 
     /** Linux key code → HID usage. */
     private static final int[] USAGE = new int[128];
-    private static final HashMap<Integer, Integer> MODIFIER_OF_SCAN = new HashMap<>(), MODIFIER_OF_KEYCODE = new HashMap<>();
+    private static final HashMap<Integer, Integer> MODIFIER_OF_SCAN = new HashMap<>();
 
     private static void usage(int... pairs) {
         for (int i = 0; i < pairs.length; i += 2) USAGE[pairs[i]] = pairs[i + 1];
@@ -119,21 +120,21 @@ final class UhidKeyboard {
             74, 0x56, 78, 0x57, 96, 0x58, 79, 0x59, 80, 0x5A, 81, 0x5B, 75, 0x5C, 76, 0x5D, 77, 0x5E, 71, 0x5F, 72, 0x60, 73, 0x61,
             82, 0x62, 83, 0x63, 86, 0x64, 127, 0x65);
         for (int i = 0; i < 10; i++) USAGE[59 + i] = 0x3A + i;
-        int[][] modifiers = {
-            {29, KeyEvent.KEYCODE_CTRL_LEFT, 0x01}, {42, KeyEvent.KEYCODE_SHIFT_LEFT, 0x02}, {56, KeyEvent.KEYCODE_ALT_LEFT, 0x04},
-            {125, KeyEvent.KEYCODE_META_LEFT, 0x08}, {97, KeyEvent.KEYCODE_CTRL_RIGHT, 0x10}, {54, KeyEvent.KEYCODE_SHIFT_RIGHT, 0x20},
-            {100, KeyEvent.KEYCODE_ALT_RIGHT, 0x40}, {126, KeyEvent.KEYCODE_META_RIGHT, 0x80},
-        };
-        for (int[] m : modifiers) {
-            MODIFIER_OF_SCAN.put(m[0], m[2]);
-            MODIFIER_OF_KEYCODE.put(m[1], m[2]);
-        }
+        int[][] modifiers = {{29, 0x01}, {42, 0x02}, {56, 0x04}, {125, 0x08}, {97, 0x10}, {54, 0x20}, {100, 0x40}, {126, 0x80}};
+        for (int[] m : modifiers) MODIFIER_OF_SCAN.put(m[0], m[1]);
     }
 
     private int modifiers;
     private final ArrayList<Integer> pressed = new ArrayList<>();
-    private final HashMap<Integer, Integer> scanOfKeyCode = new HashMap<>();
+    private final HashMap<Character, int[]> keysOfChar = new HashMap<>();
     private int mappedDevice = -1;
+    /** Android meta state and the HID modifier bits for it: none, Shift, AltGr, Shift+AltGr. */
+    private static final int[][] LEVELS = {
+        {0, 0},
+        {KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON, 0x02},
+        {KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON, 0x40},
+        {KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON | KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON, 0x42},
+    };
 
     private void report(int mods, List<Integer> keys) {
         ByteBuffer b = ByteBuffer.allocate(4 + 2 + REPORT_SIZE).order(ByteOrder.LITTLE_ENDIAN);
@@ -163,39 +164,41 @@ final class UhidKeyboard {
         report(modifiers, pressed);
     }
 
-    /** What each key code comes from on this keyboard's layout, which may have moved it, as German does with Z. */
+    /**
+     * Which key and modifiers make each character on this keyboard's layout, read off its real keys. KeyCharacterMap.getEvents
+     * would answer with keys no keyboard has, such as KEYCODE_POUND for #. Lowest code first, so the main keys before the keypad.
+     */
     private void mapKeys(InputDevice keyboard) {
         if (mappedDevice == keyboard.getId()) return;
         mappedDevice = keyboard.getId();
-        scanOfKeyCode.clear();
-        for (Map.Entry<Integer, Integer> e : InputInjector.KEYS.entrySet()) {
-            int produced = keyboard.getKeyCodeForKeyLocation(e.getValue());
-            scanOfKeyCode.put(produced != KeyEvent.KEYCODE_UNKNOWN ? produced : e.getValue(), e.getKey());
+        keysOfChar.clear();
+        KeyCharacterMap map = keyboard.getKeyCharacterMap();
+        for (Map.Entry<Integer, Integer> e : new TreeMap<>(InputInjector.KEYS).entrySet()) {
+            int scan = e.getKey();
+            int usage = scan < USAGE.length ? USAGE[scan] : 0;
+            if (usage == 0) continue;
+            // Two keys share the place BACKSLASH on a US keyboard, and the system answers for just the other one
+            int produced = scan == 43 ? e.getValue() : keyboard.getKeyCodeForKeyLocation(e.getValue());
+            int keyCode = produced != KeyEvent.KEYCODE_UNKNOWN ? produced : e.getValue();
+            for (int[] level : LEVELS) {
+                int c = map.get(keyCode, level[0]);
+                if (c > 0) keysOfChar.putIfAbsent((char) c, new int[]{usage, level[1]});
+            }
         }
-        // Two keys share the place BACKSLASH on a US keyboard, and the system answers for just the other one
-        scanOfKeyCode.put(KeyEvent.KEYCODE_BACKSLASH, 43);
     }
 
     /** Types the keys that make this text in the layout. Returns how many characters it has no key for. */
     int text(String s, InputDevice keyboard) {
         if (keyboard == null) return s.length();
         mapKeys(keyboard);
-        KeyCharacterMap map = keyboard.getKeyCharacterMap();
         int dropped = 0;
         for (int i = 0; i < s.length(); i++) {
-            KeyEvent[] events = map.getEvents(new char[]{s.charAt(i)});
-            int mods = 0, usage = 0;
-            if (events != null) for (KeyEvent k : events) {
-                if (k.getAction() != KeyEvent.ACTION_DOWN) continue;
-                Integer bit = MODIFIER_OF_KEYCODE.get(k.getKeyCode());
-                Integer scan = scanOfKeyCode.get(k.getKeyCode());
-                if (bit != null) mods |= bit;
-                else if (scan != null && scan < USAGE.length) usage = USAGE[scan];
-            }
-            if (usage == 0) {
+            int[] key = keysOfChar.get(s.charAt(i));
+            if (key == null) {
                 dropped++;
                 continue;
             }
+            int usage = key[0], mods = key[1];
             report(mods, Collections.singletonList(usage));
             report(mods, Collections.emptyList());
             report(modifiers, pressed);

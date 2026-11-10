@@ -72,6 +72,8 @@ interface IInjector {
     int createVirtualDisplay(String name, int width, int height, int dpi, in Surface surface, float refreshRate) = 31;
     /** Null detaches: the display and its apps stay, as with the screen off. Returns when done. */
     void setVirtualDisplaySurface(int displayId, in Surface surface) = 32;
+    /** A new size for a display of this session, drawing on this surface from now on. Its apps stay. */
+    void resizeVirtualDisplay(int displayId, int width, int height, int dpi, in Surface surface) = 39;
     /** The car's touch screen: fingers at absolute pixels on the display, in any input mode. Action and ids as in MotionEvent. */
     oneway void screenTouch(int action, in int[] ids, in float[] x, in float[] y) = 33;
     /** Keyboard focus to the top task of this display, the phone is 0. */

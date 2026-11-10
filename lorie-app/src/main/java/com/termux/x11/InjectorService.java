@@ -574,6 +574,15 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    @Override public void resizeVirtualDisplay(int id, int width, int height, int dpi, Surface surface) {
+        synchronized (appDisplays) {
+            VirtualDisplay d = appDisplays.get(id);
+            if (d == null) throw new IllegalArgumentException("no display " + id);
+            d.resize(width, height, dpi);
+            d.setSurface(surface);
+        }
+    }
+
     /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
     private void releaseDisplays() {
         synchronized (appDisplays) {
