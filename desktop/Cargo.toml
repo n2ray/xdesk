@@ -1,6 +1,6 @@
 [package]
 name = "xdesk-desktop"
-version = "0.3.9"
+version = "0.5.0"
 edition = "2021"
 description = "XDesk display for a computer: the phone's picture and sound, the computer's keyboard and mouse"
 license = "GPL-3.0-only"
