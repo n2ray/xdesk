@@ -452,7 +452,15 @@ public class InjectorService extends IInjector.Stub {
     @Override public void setDisplay(final int displayId, final int width, final int height) {
         if (sessionOver) return;
         this.displayId = displayId;
-        post(() -> injector.setDisplay(displayId, width, height));
+        post(() -> {
+            int before = injector.displayId();
+            injector.setDisplay(displayId, width, height);
+            // The candidates follow a taken-over session to its new display, as after a browser reconnects
+            if (takenOver && before != displayId) {
+                imes.place(before, false);
+                if (webKeyboard != null || ImePlacement.hasPhysicalKeyboard()) imes.place(displayId, true);
+            }
+        });
     }
 
     @Override public void setForwarding(boolean on) {
@@ -510,8 +518,27 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    /** On the web keyboard while there is one, which goes where the focus is like any real keyboard. Otherwise injected. */
+    private void typed(final Task onKeyboard, final Task injected) {
+        post(() -> {
+            if (webKeyboard == null) {
+                injector.focus(injector.displayId());
+                Thread.sleep(FOCUS_SETTLE_MS);
+                focusStale = false;
+                injected.run();
+                return;
+            }
+            if (focusStale) {
+                injector.focus(injector.displayId());
+                Thread.sleep(FOCUS_SETTLE_MS);
+                focusStale = false;
+            }
+            onKeyboard.run();
+        });
+    }
+
     @Override public void key(final int scan, final boolean down) {
-        fromPhone(() -> injector.key(scan, down ? 1 : 0));
+        typed(() -> webKeyboard.key(scan, down), () -> injector.key(scan, down ? 1 : 0));
     }
 
     @Override public void touchFrame(final int action, final int[] ids, final float[] x, final float[] y) {
@@ -563,14 +590,19 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void tapKey(final int scan) {
-        fromPhone(() -> {
+        typed(() -> {
+            webKeyboard.key(scan, true);
+            webKeyboard.key(scan, false);
+        }, () -> {
             injector.key(scan, 1);
             injector.key(scan, 0);
         });
     }
 
     @Override public void text(final String s) {
-        fromPhone(() -> {
+        typed(() -> {
+            if (webKeyboard.text(s, InputInjector.physicalKeyboard()) > 0) message(ShellText.code(ShellText.TEXT_NOT_SENT));
+        }, () -> {
             if (injector.text(s) > 0) message(ShellText.code(ShellText.TEXT_NOT_SENT));
         });
     }

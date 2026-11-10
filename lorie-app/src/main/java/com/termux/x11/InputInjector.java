@@ -38,7 +38,8 @@ final class InputInjector {
     private static final int SWIPE_MOVE_MS = 6;
     /** Ticks closer together than this are one gesture. Long enough that the lift causes no fling. */
     static final long SWIPE_IDLE_MS = 250;
-    private static final HashMap<Integer, Integer> KEYS = new HashMap<>();
+    /** Linux key code → the Android key code at that place on a US keyboard. */
+    static final HashMap<Integer, Integer> KEYS = new HashMap<>();
     /** Android button bits, in the order they are released. */
     private static final int[] ALL_BUTTONS = {MotionEvent.BUTTON_PRIMARY, MotionEvent.BUTTON_SECONDARY, MotionEvent.BUTTON_TERTIARY,
         MotionEvent.BUTTON_BACK, MotionEvent.BUTTON_FORWARD};
@@ -661,7 +662,7 @@ final class InputInjector {
     }
 
     /** The plugged-in keyboard whose layout applies, or null to keep the virtual keyboard's US layout. */
-    private static InputDevice physicalKeyboard() {
+    static InputDevice physicalKeyboard() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;  // getKeyCodeForKeyLocation
         InputDevice found = null;
         for (int id : InputDevice.getDeviceIds()) {
