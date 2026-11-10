@@ -148,7 +148,7 @@ display sends:
 | 23 | KEY | u16 Linux input key code, u8 down |
 | 24 | TEXT | UTF-8 text from an input method, at most 4096 bytes |
 | 10 | POINTER | Phone → browser. u8 1: the phone's touchpad took the pointer, the page hides the computer's until that moves |
-| 9 | TIME | Only with `?debug`. 8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
+| 9 | TIME | With `?debug`, and from a computer.  8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
 
 Input goes where the phone's touchpad and keyboard go: the Termux desktop or the Android app on the display.
 
@@ -159,5 +159,10 @@ A receiver with bit 7 of its codecs set is XDesk for a computer. It sends the in
 | Type | Name | Payload |
 |---|---|---|
 | 11 | ADDRESSES | Receiver → phone. UTF-8, comma-separated IPv4 addresses where this receiver can also be reached |
+| 12 | CLIPBOARD | Both ways. The clipboard as UTF-8 text, at most 256 KiB, when it changes |
+| 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
+| 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
+| 28 | CHOOSE | Receiver → phone. A key from APPS |
+| 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Receiver → phone. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads |
 
 If the connection to such a receiver is lost the phone keeps the session for 8 seconds and connects again: to the address in use, then to the others. Over USB the computer forwards the port with `adb reverse` and sends the broadcast `com.termux.x11.ConnectReceiver` (extras `host`, `port`, `name`), which only the shell user may send. A session on `127.0.0.1` allows a picture up to 2560 by 1600.

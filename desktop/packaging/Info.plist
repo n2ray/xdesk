@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>XDesk</string>
+    <key>CFBundleDisplayName</key><string>XDesk</string>
+    <key>CFBundleIdentifier</key><string>io.github.n2ray.xdesk.desktop</string>
+    <key>CFBundleExecutable</key><string>xdesk-desktop</string>
+    <key>CFBundleIconFile</key><string>XDesk</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+    <key>CFBundleVersion</key><string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key><string>12.0</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>XDesk 用本地网络让手机找到这台电脑并连接。</string>
+    <key>NSBonjourServices</key>
+    <array><string>_xdesk-display._tcp</string></array>
+</dict>
+</plist>

@@ -574,6 +574,30 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    private ShellClipboard clipboard;
+
+    private synchronized ShellClipboard clipboard() throws ReflectiveOperationException {
+        if (clipboard == null) clipboard = new ShellClipboard();
+        return clipboard;
+    }
+
+    @Override public String clipboardText() {
+        try {
+            return clipboard().text();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "clipboard", e);
+            return null;
+        }
+    }
+
+    @Override public void setClipboardText(String text) {
+        try {
+            clipboard().setText(text);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "clipboard", e);
+        }
+    }
+
     @Override public void resizeVirtualDisplay(int id, int width, int height, int dpi, Surface surface) {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(id);

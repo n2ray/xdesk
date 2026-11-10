@@ -144,6 +144,15 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 - **Stop** from the same settings row, with **End XDesk**, or by closing the receiver.
 - Once paired, each side proves it holds the token without sending it. The pairing code, the token issued at pairing, and the picture and sound still travel unencrypted, so pairing keeps other phones from casting by accident but does not protect against someone who can read the network. The protocol is in [receiver/PROTOCOL.md](receiver/PROTOCOL.md).
 
+## Mac receiver
+
+Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboard and mouse. For Macs with Apple silicon: `XDesk-macos-arm64.dmg` under Releases.
+
+- **First start:** the app is self-signed, so macOS stops it. Choose **Open Anyway** in **System Settings → Privacy & Security**. Then turn on XDesk under **Accessibility** so that the keyboard can go to the phone. The window says so, and there is no need to restart.
+- **Connecting:** with a cable and USB debugging it connects over USB, and back over Wi-Fi when the cable is pulled. Without a cable, pick this Mac under Connect to a receiver in XDesk on the phone. The first time asks for a pairing code.
+- **Use:** rest the pointer on the window's top edge for Back, Home, Recents, Full screen and Disconnect, also in the Phone menu. Drop a file on the window to send it to the phone's Downloads. Text on the clipboard is shared; it can be turned off under Connect to a receiver.
+- **Keys:** Control+Option with Esc (give the keyboard and mouse back to the Mac), F (full screen), B (back), H (home), R (recents), D (latency panel), L (low latency).
+
 ## Web display
 
 Any device with a browser can be the display: an iPad, a laptop, a smart TV. No app to install. Turn on settings → **Display** → **Web display**; XDesk then serves a page on port 47150 and lists the addresses to open, by network:

@@ -81,6 +81,7 @@ final class SettingsUi {
         d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         d.getWindow().setStatusBarColor(Style.BACKGROUND);
         d.getWindow().setNavigationBarColor(Style.BACKGROUND);
+        d.getWindow().setWindowAnimations(android.R.style.Animation_Activity);
         d.show();
         return d;
     }

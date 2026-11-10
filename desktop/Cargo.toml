@@ -1,0 +1,26 @@
+[package]
+name = "xdesk-desktop"
+version = "0.3.7"
+edition = "2021"
+description = "XDesk display for a computer: the phone's picture and sound, the computer's keyboard and mouse"
+license = "GPL-3.0-only"
+
+[dependencies]
+sdl2 = { version = "0.38", default-features = false }
+openh264 = "0.9"
+hmac = "0.12"
+sha2 = "0.10"
+mdns-sd = "0.13"
+ab_glyph = "0.2"
+if-addrs = "0.15"
+
+[features]
+default = ["system-sdl"]
+# For building at home, with the SDL of Homebrew
+system-sdl = ["sdl2/use-pkgconfig"]
+# For the packaged app: SDL inside the program
+bundled-sdl = ["sdl2/bundled", "sdl2/static-link"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -77,3 +77,56 @@ jobs:
         case "$TAG" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
         gh release create "$TAG" $PRE --title "XDesk $TAG" --generate-notes \
           out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/SHA256SUMS
+
+  mac:
+    # The phone's files are out by then, whatever happens here
+    needs: release
+    continue-on-error: true
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: false
+        fetch-depth: 1
+    - name: Version
+      env:
+        TAG: ${{ github.ref_name }}
+        INPUT: ${{ inputs.version }}
+      run: |
+        if [ "${{ github.event_name }}" = push ]; then V="${TAG#v}"; else V="$INPUT"; fi
+        echo "VERSION=$V" >> "$GITHUB_ENV"
+    - name: Signing certificate
+      env:
+        CERT_B64: ${{ secrets.XDESK_MAC_CERT_B64 }}
+        CERT_PASSWORD: ${{ secrets.XDESK_MAC_CERT_PASSWORD }}
+      run: |
+        [ -n "$CERT_B64" ] || { echo "The XDESK_MAC_CERT_B64 secret is missing"; exit 1; }
+        kc="$RUNNER_TEMP/xdesk.keychain-db"
+        security create-keychain -p "" "$kc"
+        security set-keychain-settings "$kc"
+        security unlock-keychain -p "" "$kc"
+        echo "$CERT_B64" | base64 -d > "$RUNNER_TEMP/xdesk.p12"
+        security import "$RUNNER_TEMP/xdesk.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign > /dev/null
+        rm -f "$RUNNER_TEMP/xdesk.p12"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$kc" > /dev/null
+        security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+        echo "IDENTITY=$(security find-identity -p codesigning "$kc" | awk '/\)/ {print $2; exit}')" >> "$GITHUB_ENV"
+    - name: Build
+      run: bash desktop/packaging/build-app.sh "$VERSION" "$IDENTITY"
+    - name: Collect
+      run: |
+        mkdir out
+        cp desktop/target/package/XDesk.dmg out/XDesk-macos-arm64.dmg
+        (cd out && shasum -a 256 XDesk-macos-arm64.dmg > XDesk-macos-arm64.dmg.sha256)
+    - name: Upload (manual runs)
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-artifact@v7
+      with:
+        name: xdesk-mac-${{ env.VERSION }}
+        path: out/
+    - name: Publish
+      if: github.event_name == 'push'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
+      run: gh release upload "$TAG" out/XDesk-macos-arm64.dmg out/XDesk-macos-arm64.dmg.sha256 -R "$GITHUB_REPOSITORY"

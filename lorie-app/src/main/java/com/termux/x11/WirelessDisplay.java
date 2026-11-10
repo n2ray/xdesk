@@ -71,17 +71,19 @@ final class WirelessDisplay {
     private static final int VERSION = 2;
     private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4, CHALLENGE = 5;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-        SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11;
+        SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11, CLIPBOARD = 12;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
     /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
     private static final int POINTER = 10;
     private static final int CODECS_SENDS_INPUT = 0x80;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
+        IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final String LOOPBACK = "127.0.0.1";
+    private static final int CLIPBOARD_POLL_MS = 500, MAX_CLIPBOARD = 256 * 1024;
     private static final int RECONNECT_PAUSE_MS = 300, RECONNECT_CONNECT_MS = 1500;
     private static final int TIMEOUT_MS = 6000, CONNECT_MS = 5000, PAIRING_MS = 120000, INJECTOR_MS = 15000;
     private static final long BYE_WAIT_MS = 1500;
@@ -89,7 +91,12 @@ final class WirelessDisplay {
     /** New injectors after one died, before giving up. */
     private static final int MAX_INJECTOR_RETRIES = 3;
     /** Pixels per second at 1920x1080 and 60 fps; text on a desktop needs a fair rate. */
-    private static final int BITRATE_1080P = 12_000_000, MIN_BITRATE = 4_000_000;
+    private static final int BITRATE_1080P = 12_000_000, MIN_BITRATE = 4_000_000, WIRED_FPS = 120;
+    private static final int CALM_SECONDS_TO_RISE = 4;
+    /** Over a network the bit rate follows how much of each second went into waiting for the socket. */
+    private volatile int fullBitrate, currentBitrate, calmSeconds;
+    private volatile boolean receiverBehind;
+    private final java.util.concurrent.atomic.AtomicLong writeNanos = new java.util.concurrent.atomic.AtomicLong();
 
     static final int IDLE = 0, CONNECTING = 1, STREAMING = 2;
 
@@ -113,6 +120,7 @@ final class WirelessDisplay {
     private volatile String[] receiverAddresses = new String[0];
     private volatile String preferHost;
     private volatile int receiverPort;
+    private volatile String lastClipboard;
     /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
     private volatile IInjector injector;
     private volatile ParcelFileDescriptor soundPipe;
@@ -340,6 +348,7 @@ final class WirelessDisplay {
     private void session(DataInputStream in, int width, int height, int dpi) throws IOException {
         startReader(in);
         startPings();
+        startClipboardSync();
         int retries = 0;
         while (running) {
             boolean injectorDied = stream(width, height, dpi);
@@ -450,7 +459,7 @@ final class WirelessDisplay {
     }
 
     // What the browser holds down, main thread: released when the session ends (releaseWebInput)
-    private final java.util.Set<Integer> webButtons = new java.util.HashSet<>(), webKeys = new java.util.HashSet<>();
+    private final java.util.Set<Integer> webButtons = java.util.concurrent.ConcurrentHashMap.newKeySet(), webKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** The phone's touchpad moved. Main thread: the write goes elsewhere. */
     void phonePointerMoved() {
@@ -532,10 +541,86 @@ final class WirelessDisplay {
                 final String layout = new String(b, StandardCharsets.US_ASCII);
                 r = () -> sink.browserLayout(layout);
                 break;
+            case IN_ANDROID:
+                if (b.length != 1) return;
+                final int androidButton = b[0];
+                r = () -> sink.androidButton(androidButton);
+                break;
+            case IN_CHOOSE:
+                final String chosen = new String(b, StandardCharsets.UTF_8);
+                r = () -> sink.chooseApp(chosen);
+                break;
             default:
                 return;
         }
-        ui.post(r);
+        boolean plainInput = type == IN_MOVE || type == IN_ABS || type == IN_BUTTON || type == IN_SCROLL || type == IN_KEY || type == IN_TEXT;
+        if (plainInput && inputReceiver && sink.anyThread()) r.run();
+        else ui.post(r);
+    }
+
+    /** The apps a computer can switch to, as lines of key, tab, label. */
+    void sendApps(String lines) {
+        new Thread(() -> {
+            try {
+                byte[] b = lines.getBytes(StandardCharsets.UTF_8);
+                writeMessage(APPS, b, 0, b.length);
+            } catch (IOException ignored) { }
+        }, "xdesk-wireless-apps").start();
+    }
+
+    // A file dropped on a computer's window, into Downloads. On the reader thread, in order.
+    private android.net.Uri fileUri;
+    private java.io.OutputStream fileOut;
+    private String fileName;
+
+    private void fileStart(String name) {
+        fileEnd(false);
+        if (name.isEmpty()) return;
+        fileName = name.replace('/', '_');
+        android.content.ContentValues v = new android.content.ContentValues();
+        v.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName);
+        v.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+        android.content.ContentResolver r = context.getContentResolver();
+        try {
+            fileUri = r.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            fileOut = fileUri != null ? r.openOutputStream(fileUri) : null;
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "file", e);
+            fileOut = null;
+        }
+    }
+
+    private void fileData(byte[] b) {
+        if (fileOut == null) return;
+        try {
+            fileOut.write(b);
+        } catch (IOException e) {
+            Log.w(TAG, "file", e);
+            fileEnd(false);
+        }
+    }
+
+    private void fileEnd(boolean complete) {
+        android.content.ContentResolver r = context.getContentResolver();
+        if (fileOut != null) {
+            try {
+                fileOut.close();
+            } catch (IOException e) {
+                complete = false;
+            }
+        }
+        if (fileUri != null) {
+            if (complete) {
+                android.content.ContentValues v = new android.content.ContentValues();
+                v.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                r.update(fileUri, v, null, null);
+                message(R.string.xd_file_saved, fileName);
+            } else {
+                r.delete(fileUri, null, null);
+            }
+        }
+        fileOut = null;
+        fileUri = null;
     }
 
     /** Returns width, height and density, or null when the receiver said no or the user gave up. */
@@ -577,6 +662,7 @@ final class WirelessDisplay {
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
                 inputReceiver = (in.readUnsignedByte() & CODECS_SENDS_INPUT) != 0;   // H.264 is always there
+                if (inputReceiver) prefs.edit().putString("auto_receiver", id).apply();
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h, wired());
@@ -678,6 +764,7 @@ final class WirelessDisplay {
             DataOutputStream o = out;
             if (o == null) throw new IOException("not connected");
             try {
+                long began = System.nanoTime();
                 o.writeByte(type);
                 o.writeInt(head.length + size);
                 o.write(head);
@@ -687,6 +774,7 @@ final class WirelessDisplay {
                     o.write(b);
                 }
                 o.flush();
+                writeNanos.addAndGet(System.nanoTime() - began);
             } catch (IOException e) {
                 if (!connectionLost()) throw e;
                 closeQuietly(socket);
@@ -756,6 +844,49 @@ final class WirelessDisplay {
         }
         lastSyncRequest = 0;
         keyFrameWanted = true;
+    }
+
+    boolean clipboardSyncOn() {
+        return prefs.getBoolean("clipboard_sync", true);
+    }
+
+    void setClipboardSync(boolean on) {
+        prefs.edit().putBoolean("clipboard_sync", on).apply();
+    }
+
+    /** A computer that was connected to and may be again without asking. Null if there is none or it was disconnected by hand. */
+    String autoReceiverId() {
+        return prefs.getString("auto_receiver", null);
+    }
+
+    void forgetAutoReceiver() {
+        prefs.edit().remove("auto_receiver").apply();
+    }
+
+    /** The phone's clipboard to a computer, when it changes: what it had when the session began stays. */
+    private void startClipboardSync() {
+        if (!inputReceiver) return;
+        new Thread(() -> {
+            boolean first = true;
+            while (running && inputReceiver) {
+                SystemClock.sleep(CLIPBOARD_POLL_MS);
+                IInjector i = injector;
+                if (i == null || webLost || !clipboardSyncOn()) continue;
+                try {
+                    String text = i.clipboardText();
+                    if (first) {
+                        lastClipboard = text;
+                        first = false;
+                    } else if (text != null && !text.equals(lastClipboard)) {
+                        lastClipboard = text;
+                        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+                        if (bytes.length <= MAX_CLIPBOARD) writeMessage(CLIPBOARD, bytes, 0, bytes.length);
+                    }
+                } catch (RemoteException | IOException e) {
+                    Log.i(TAG, "clipboard: " + e);
+                }
+            }
+        }, "xdesk-clipboard").start();
     }
 
     private void notifyChanged() {
@@ -829,7 +960,8 @@ final class WirelessDisplay {
                 restartStream();
                 startReader(in);
             }
-            if (size[0] != streamWidth || size[1] != streamHeight) resizeTo = new int[]{size[0], size[1]};
+            // Also at the same size: a cable and a network get different encoders
+            resizeTo = new int[]{size[0], size[1]};
             Log.i(TAG, "receiver back on " + host);
             notifyChanged();
             return true;
@@ -870,16 +1002,33 @@ final class WirelessDisplay {
                     if (size < 0 || size > MAX_PAYLOAD) throw new IOException("bad size " + size);
                     byte[] b = new byte[size];
                     in.readFully(b);
-                    if (type >= IN_MOVE) webInput(type, b);
-                    else if (type == KEY_FRAME) keyFrameWanted = true;
-                    else if (type == TIME && web && size == 8) {
+                    if (type == FILE_START && inputReceiver) fileStart(new String(b, StandardCharsets.UTF_8));
+                    else if (type == FILE_DATA && inputReceiver) fileData(b);
+                    else if (type == FILE_END && inputReceiver) fileEnd(true);
+                    else if (type >= IN_MOVE) webInput(type, b);
+                    else if (type == KEY_FRAME) {
+                        keyFrameWanted = true;
+                        receiverBehind = true;
+                    }
+                    else if (type == TIME && (web || inputReceiver) && size == 8) {
                         ByteBuffer reply = ByteBuffer.allocate(16).put(b).putLong(System.nanoTime() / 1000);
                         writeMessage(TIME, reply.array(), 0, 16);
                     }
                     else if (type == BYE) {
+                        // Ended from the computer on purpose: not to be connected back by itself
+                        if (inputReceiver) forgetAutoReceiver();
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;
                         break;
+                    } else if (type == CLIPBOARD && size <= MAX_CLIPBOARD && clipboardSyncOn()) {
+                        String text = new String(b, StandardCharsets.UTF_8);
+                        lastClipboard = text;
+                        IInjector i = injector;
+                        if (i != null) {
+                            try {
+                                i.setClipboardText(text);
+                            } catch (RemoteException ignored) { }
+                        }
                     } else if (type == ADDRESSES) {
                         receiverAddresses = new String(b, StandardCharsets.UTF_8).split(",");
                     } else if (type == SIZE && size >= 4) {
@@ -892,6 +1041,7 @@ final class WirelessDisplay {
             } catch (IOException e) {
                 if (running) Log.i(TAG, "reader: " + e);
             }
+            fileEnd(false);
             // The worker must not wait for its next write: with the phone locked the display may make no more frames.
             // Only this session: the next one may already have started if the worker got here first
             closeQuietly(mine);
@@ -964,14 +1114,15 @@ final class WirelessDisplay {
             // Linked to XDesk: if XDesk dies, the display and the recording end with it
             i.attach(NO_EVENTS, context.getPackageName());
             i.setEnabled(false);
-            encoder = encoder(width, height);
+            boolean encoderWired = wired();
+            encoder = encoder(width, height, encoderWired);
             input = encoder.createInputSurface();
             encoder.start();
             // As an external monitor of that width: 2560 wide is about 213 dpi, 1920 is 160
             int dpi = Math.max(120, Math.round(width * 213f / 2560f));
             int id;
             try {
-                id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input, 0);
+                id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input, encoderWired ? WIRED_FPS : 0);
             } catch (IllegalStateException e) {
                 finalMessage(R.string.xd_wireless_no_display, ShellText.localize(context, String.valueOf(e.getMessage())));
                 running = false;
@@ -995,14 +1146,15 @@ final class WirelessDisplay {
                 int[] size = resizeTo;
                 resizeTo = null;
                 if (size == null || !running || died[0]) return died[0];
-                if (size[0] == width && size[1] == height) continue;
+                if (size[0] == width && size[1] == height && encoderWired == wired()) continue;
                 // The display stays, with its apps: only the size changes, and the encoder that has it
                 width = size[0];
                 height = size[1];
-                MediaCodec resized = encoder(width, height);
+                encoderWired = wired();
+                MediaCodec resized = encoder(width, height, encoderWired);
                 Surface resizedInput = resized.createInputSurface();
                 resized.start();
-                i.resizeVirtualDisplay(id, width, height, Math.max(120, Math.round(width * 213f / 2560f)), resizedInput);
+                i.resizeVirtualDisplay(id, width, height, dpi, resizedInput);
                 try {
                     encoder.stop();
                 } catch (IllegalStateException ignored) { }
@@ -1047,6 +1199,29 @@ final class WirelessDisplay {
         }
     }
 
+    private long lastBitrateCheck;
+
+    private void adjustBitrate(MediaCodec encoder) {
+        double busy = writeNanos.getAndSet(0) / 1e9;
+        boolean behind = receiverBehind;
+        receiverBehind = false;
+        if (wired() || webLost) return;
+        int next = currentBitrate;
+        if (behind || busy > 0.45) {
+            next = Math.max(MIN_BITRATE, currentBitrate * 7 / 10);
+            calmSeconds = 0;
+        } else if (busy < 0.15 && ++calmSeconds >= CALM_SECONDS_TO_RISE) {
+            next = Math.min(fullBitrate, currentBitrate * 115 / 100);
+            calmSeconds = 0;
+        }
+        if (next == currentBitrate) return;
+        currentBitrate = next;
+        Log.i(TAG, "bit rate " + next);
+        Bundle b = new Bundle();
+        b.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, next);
+        encoder.setParameters(b);
+    }
+
     private void pump(MediaCodec encoder, boolean[] died, int id) throws IOException {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         android.hardware.display.DisplayManager dm = context.getSystemService(android.hardware.display.DisplayManager.class);
@@ -1060,6 +1235,10 @@ final class WirelessDisplay {
                     died[0] = true;
                     break;
                 }
+            }
+            if (SystemClock.uptimeMillis() - lastBitrateCheck >= 1000) {
+                lastBitrateCheck = SystemClock.uptimeMillis();
+                adjustBitrate(encoder);
             }
             if (webLost && SystemClock.uptimeMillis() > graceUntil) {
                 Log.i(TAG, "browser did not come back");
@@ -1097,16 +1276,30 @@ final class WirelessDisplay {
     }
 
     /** Low latency H.264 as h10cast's sender: no B-frames, a frame every 100 ms even when nothing moves. */
-    private static MediaCodec encoder(int w, int h) throws IOException {
+    private MediaCodec encoder(int w, int h, boolean wired) throws IOException {
+        if (wired) {
+            try {
+                return encoderAt(w, h, WIRED_FPS);
+            } catch (IllegalStateException | IllegalArgumentException e) {
+                Log.i(TAG, "no " + WIRED_FPS + " fps at " + w + "x" + h + ": " + e);
+            }
+        }
+        return encoderAt(w, h, 60);
+    }
+
+    private MediaCodec encoderAt(int w, int h, int fps) throws IOException {
         MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
         f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         long rate = (long) BITRATE_1080P * w * h / (1920L * 1080L);
-        f.setInteger(MediaFormat.KEY_BIT_RATE, (int) Math.max(MIN_BITRATE, rate));
-        f.setInteger(MediaFormat.KEY_FRAME_RATE, 60);
+        fullBitrate = (int) Math.max(MIN_BITRATE, rate);
+        currentBitrate = fullBitrate;
+        calmSeconds = 0;
+        f.setInteger(MediaFormat.KEY_BIT_RATE, fullBitrate);
+        f.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
         f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10);
         // The receiver would otherwise keep an old picture until something moves
         f.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000);
-        f.setFloat("max-fps-to-encoder", 60);
+        f.setFloat("max-fps-to-encoder", fps);
         f.setInteger(MediaFormat.KEY_PRIORITY, 0);
         f.setInteger(MediaFormat.KEY_LATENCY, 1);
         // B-frames make the decoder hold frames back to reorder them
@@ -1114,7 +1307,12 @@ final class WirelessDisplay {
         // Qualcomm's low latency mode; other vendors ignore the key
         f.setInteger("vendor.qti-ext-enc-low-latency.enable", 1);
         MediaCodec c = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-        c.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        try {
+            c.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            c.release();
+            throw e;
+        }
         return c;
     }
 

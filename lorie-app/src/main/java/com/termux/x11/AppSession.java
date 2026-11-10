@@ -117,7 +117,7 @@ final class AppSession {
     private Surface carSurface;
     private final Object carLock = new Object();
     /** A browser's pointer is on top, so the display's cursor stays hidden. Main thread. */
-    private boolean webPointer;
+    private volatile boolean webPointer;
     /**
      * Android Auto encodes about 30 frames a second. At 60 the apps' display keeps feeding it more, unevenly: the picture
      * stuttered as soon as a finger moved, and the encoder fell to about 10 (measured with a browser playing video).
@@ -237,8 +237,9 @@ final class AppSession {
             webPointer = false;
         }
         @Override public void moveToFraction(float x, float y) {
+            // May be on the network thread, and the overlay is a window
+            if (!webPointer) ui.post(cursor::hide);
             webPointer = true;
-            cursor.hide();
             IInjector i = injector;
             try {
                 if (i != null) i.moveToFraction(x, y);
