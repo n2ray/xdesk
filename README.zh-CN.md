@@ -12,9 +12,9 @@
 | Mac（Apple 芯片） | USB 或 Wi-Fi，装 [XDesk Mac 版](#mac-接收端)，键鼠直接用 Mac 的 |
 | iPad、电脑或智能电视 | 任意浏览器，那边什么都不用装 |
 
-**[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [English](README.md) · Linux 桌面基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0 · [n2ray 和 Claude 一起做的](#一个人和一个-ai-一起做的)
+**[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [English](README.md) · Linux 桌面基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0 · [我和 AI Claude 一起做的](#我和-ai-一起做的)
 
-> **现状：** 这还是个早期的个人项目，平时只在一台手机上用：欧版（EEA）小米 15 Ultra（型号 25010PN30G，骁龙 8 Elite，HyperOS 3，安卓 16，BL 未解锁）。其他机型基本没有测试过，包括这款手机的国行版，表现可能不一样，很欢迎告诉我们结果。界面语言跟随系统，简体中文显示中文，其他语言显示英文，安卓 13 及以上也可以在 XDesk 的设置里单独选。
+> **现状：** 这还是个早期的个人项目，平时只在一台手机上用：欧版（EEA）小米 15 Ultra（型号 25010PN30G，骁龙 8 Elite，HyperOS 3，安卓 16，BL 未解锁）。其他机型基本没有测试过，包括这款手机的国行版，表现可能不一样，很欢迎告诉我结果。界面语言跟随系统，简体中文显示中文，其他语言显示英文，安卓 13 及以上也可以在 XDesk 的设置里单独选。
 
 ## 快速开始
 
@@ -172,7 +172,7 @@ xdesk enable-app-start
 
 ## Mac 接收端
 
-手机的画面和声音显示在 Mac 窗口里，键盘鼠标直接用 Mac 的。支持 Apple 芯片的 Mac，[下载 `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg)，手机和 Mac 两边的版本要一致。我们测试时，USB 下从手机到 Mac 约 15 到 20 毫秒。
+手机的画面和声音显示在 Mac 窗口里，键盘鼠标直接用 Mac 的。支持 Apple 芯片的 Mac，[下载 `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg)，手机和 Mac 两边的版本要一致。我测试时，USB 下从手机到 Mac 约 15 到 20 毫秒。
 
 - **第一次打开：** 应用是自签名的，macOS 会拦下，到 **系统设置 → 隐私与安全性** 里点“仍要打开”。然后在 **辅助功能** 里打开 XDesk，键盘才能交给手机，窗口里会有提示，不用重开。
 - **连接：** 插上数据线并打开 USB 调试，会自动走 USB，拔线后回到 Wi-Fi。没插线时，在手机 XDesk 的“连接接收器”里选这台 Mac。第一次要输配对码。
@@ -287,9 +287,9 @@ Mac 版的代码在 `desktop/`，用 Rust 写的。在 Mac 上装好 Rust 和 `s
 
 XDesk 依赖上游的 manifest、`com.termux.x11` 下的类名和 `LorieView` 接口。包名在 `lorie-app/build.gradle` 和 `shell-loader/build.gradle` 里设置，两边要一致。
 
-## 一个人和一个 AI 一起做的
+## 我和 AI 一起做的
 
-XDesk 是 [n2ray](https://github.com/n2ray) 和 AI Claude 一起做的。n2ray 决定做什么，并在真实的手机、显示器、投影、车机和 Mac 上测试。大部分代码和文档是 Claude 写的，这份 README 也是。
+我是 [n2ray](https://github.com/n2ray)，XDesk 是我和 AI Claude 一起做的。我决定做什么，并在真实的手机、显示器、投影、车机和 Mac 上测试。大部分代码和文档是 Claude 写的，这份 README 也是。
 
 ## 许可证
 

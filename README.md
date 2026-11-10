@@ -12,7 +12,7 @@
 | Mac with Apple silicon | USB or Wi-Fi, with the [XDesk Mac app](#mac-receiver) and the Mac's keyboard and mouse |
 | iPad, laptop or smart TV | Any browser, nothing to install there |
 
-**[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · The Linux desktop is based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by n2ray and Claude](#built-by-a-person-and-an-ai)
+**[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · The Linux desktop is based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by me and Claude](#built-by-me-and-an-ai)
 
 > **Status:** an early personal project that works daily on one device, the European (EEA) Xiaomi 15 Ultra (model 25010PN30G, Snapdragon 8 Elite, HyperOS 3, Android 16, locked bootloader). It has not been tried anywhere else, including the Chinese version of the same phone. Other phones and ROMs may behave differently. The UI follows the system language: English, or Simplified Chinese when the phone is set to it. On Android 13 and later you can also pick the language in XDesk's settings. Reports from other devices are very welcome.
 
@@ -149,7 +149,7 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 
 ## Mac receiver
 
-Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboard and mouse. For Macs with Apple silicon: [download `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg), the same version as on the phone. In our tests it took about 15 to 20 ms from the phone to the Mac over USB.
+Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboard and mouse. For Macs with Apple silicon: [download `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg), the same version as on the phone. In my tests it took about 15 to 20 ms from the phone to the Mac over USB.
 
 - **First start:** the app is self-signed, so macOS stops it. Choose **Open Anyway** in **System Settings → Privacy & Security**. Then turn on XDesk under **Accessibility** so that the keyboard can go to the phone. The window says so, and there is no need to restart.
 - **Connecting:** with a cable and USB debugging it connects over USB, and back over Wi-Fi when the cable is pulled. Without a cable, pick this Mac under Connect to a receiver in XDesk on the phone. The first time asks for a pairing code.
@@ -262,9 +262,9 @@ The Mac app is in `desktop/`, written in Rust. On a Mac with Rust and Homebrew's
 
 XDesk relies on upstream's manifest, class names under `com.termux.x11` and the `LorieView` API. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
 
-## Built by a person and an AI
+## Built by me and an AI
 
-XDesk is a project by [n2ray](https://github.com/n2ray) and Claude, an AI. n2ray decides what XDesk should do and tests it on real phones, monitors, projectors, cars and Macs. Claude wrote most of the code and documentation, including this README.
+I'm [n2ray](https://github.com/n2ray), and I build XDesk together with Claude, an AI. I decide what XDesk should do and test it on real phones, monitors, projectors, cars and Macs. Claude wrote most of the code and documentation, including this README.
 
 ## License
 
