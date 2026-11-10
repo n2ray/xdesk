@@ -34,6 +34,38 @@ final class WindowDump {
         return find(dump, display, (header, attrs) -> attrs.contains("ty=PRESENTATION") || attrs.contains("ty=PRIVATE_PRESENTATION"));
     }
 
+    /** Where the input method's own area begins on this display, -1 while it is not showing. */
+    static int imeTop(String dump, int display) {
+        String want = "mDisplayId=" + display + " ";
+        boolean ime = false, onDisplay = false, visible = false, ready = false;
+        int top = -1;
+        for (String line : (dump + "\n  Window #end").split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("Window #")) {
+                if (ime && onDisplay && visible && ready) return top;
+                ime = t.contains(" InputMethod}");
+                onDisplay = visible = ready = false;
+                top = -1;
+            } else if (ime) {
+                if (t.contains(want)) onDisplay = true;
+                if (t.startsWith("mViewVisibility=0x0 ")) visible = true;
+                if (t.contains("isReadyForDisplay()=true")) ready = true;
+                int region = t.indexOf("touchable region=SkRegion((");
+                if (region >= 0) top = secondNumber(t.substring(region + 27));
+            }
+        }
+        return -1;
+    }
+
+    private static int secondNumber(String list) {
+        String[] parts = list.split("[,)]");
+        try {
+            return parts.length > 1 ? Integer.parseInt(parts[1].trim()) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     /** Whether a window of this package on this display has the KEEP_SCREEN_ON flag. */
     static boolean hasKeepScreenOn(String dump, final String pkg, int display) {
         return find(dump, display, (header, attrs) -> header.contains(" " + pkg + "/") && attrs.contains("KEEP_SCREEN_ON")) != null;

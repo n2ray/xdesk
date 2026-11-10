@@ -76,6 +76,8 @@ interface IInjector {
     /** The phone's clipboard as text, null without any. */
     String clipboardText() = 40;
     void setClipboardText(String text) = 41;
+    /** Where the input method begins on a display, -1 while it is not showing. Slow. */
+    int imeTop(int displayId) = 42;
     void resizeVirtualDisplay(int displayId, int width, int height, int dpi, in Surface surface) = 39;
     /** The car's touch screen: fingers at absolute pixels on the display, in any input mode. Action and ids as in MotionEvent. */
     oneway void screenTouch(int action, in int[] ids, in float[] x, in float[] y) = 33;

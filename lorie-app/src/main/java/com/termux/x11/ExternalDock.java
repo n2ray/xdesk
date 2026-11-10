@@ -25,6 +25,8 @@ import java.util.List;
 final class ExternalDock {
     private static final String TAG = "XDesk";
     private static final long DWELL_MS = 250, LEAVE_MS = 450, SLIDE_MS = 180;
+    /** The input method covers the strip: the pointer's place is the only sign, and from the edge it has far to go to the dock. */
+    private static final long EDGE_DWELL_MS = 350, LONG_WAY_MS = 1800;
     private static final float EDGE_DP = 3, ICON_DP = 54, ITEM_GAP_DP = 8, PAD_DP = 10, ROOM_BELOW_DP = 10, RADIUS_DP = 24;
     private static final float HOVER_ZOOM = 1.16f, WIDTH_USED = 0.9f;
     private static final long ZOOM_MS = 110;
@@ -33,6 +35,8 @@ final class ExternalDock {
 
     private final Context context;
     private final Runnable shown;
+    private final ImeProbe ime;
+    private int lift;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private int displayId = Display.INVALID_DISPLAY;
     private Context dc;
@@ -41,13 +45,45 @@ final class ExternalDock {
     private Panel panel;
     private boolean closing;
 
-    private final Runnable open = this::open;
+    private final Runnable open = () -> open(0);
     private final Runnable close = this::close;
+    private final Runnable openFromEdge = this::openFromEdge;
+
+    interface ImeProbe {
+        /** Where the input method begins on this display, -1 while it is not showing. May take a while. */
+        int top(int display);
+    }
 
     /** @param shown after the dock appears, for what must stay above it */
-    ExternalDock(Context c, Runnable shown) {
+    ExternalDock(Context c, Runnable shown, ImeProbe ime) {
         context = c.getApplicationContext();
         this.shown = shown;
+        this.ime = ime;
+    }
+
+    /** The pointer's place, for when the input method lies over the strip and the strip hears nothing. */
+    void atBottom(boolean at) {
+        if (windows == null) return;
+        if (at) {
+            ui.removeCallbacks(close);
+            if (panel == null) later(openFromEdge, EDGE_DWELL_MS);
+        } else {
+            ui.removeCallbacks(openFromEdge);
+            if (panel != null && lift > 0) later(close, LONG_WAY_MS);
+        }
+    }
+
+    private void openFromEdge() {
+        if (panel != null || windows == null) return;
+        final int asked = displayId;
+        new Thread(() -> {
+            final int top = ime.top(asked);
+            ui.post(() -> {
+                if (asked != displayId || panel != null || windows == null) return;
+                int height = windows.getCurrentWindowMetrics().getBounds().height();
+                open(top > 0 && top < height ? height - top : 0);
+            });
+        }, "xdesk-dock-ime").start();
     }
 
     private int dp(float v) {
@@ -102,18 +138,21 @@ final class ExternalDock {
         return p;
     }
 
-    private void open() {
+    private void open(int above) {
         ExternalLauncher.Host h = ExternalLauncher.host();
         if (h == null || panel != null || windows == null) return;
         Panel fresh = new Panel(h);
         if (fresh.empty()) return;
         try {
-            windows.addView(fresh, params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, "XDesk dock"));
+            WindowManager.LayoutParams p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, "XDesk dock");
+            p.y = above;
+            windows.addView(fresh, p);
         } catch (RuntimeException e) {
             Log.w(TAG, "no dock", e);
             return;
         }
         panel = fresh;
+        lift = above;
         closing = false;
         fresh.slideIn();
         shown.run();

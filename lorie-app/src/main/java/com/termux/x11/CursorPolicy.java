@@ -32,6 +32,10 @@ final class CursorPolicy {
         inSession = in;
     }
 
+    int height() {
+        return height;
+    }
+
     void setHeight(int h) {
         height = h;
     }

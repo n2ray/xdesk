@@ -143,6 +143,7 @@ final class AppSession {
                 lastCursorX = x;
                 lastCursorY = y;
                 cursorPolicy.moved(y);
+                pointerAtHeight(y);
                 // Only what a computer does not place comes here: a touchpad or a mouse on the phone
                 webPointer = false;
                 cursor.moveTo(x, y);
@@ -238,6 +239,7 @@ final class AppSession {
             webPointer = false;
         }
         @Override public void moveToFraction(float x, float y) {
+            pointerAtHeight(y * cursorPolicy.height());
             // May be on the network thread, and the overlay is a window
             if (!webPointer) ui.post(cursor::hide);
             webPointer = true;
@@ -375,6 +377,38 @@ final class AppSession {
     AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
     void raiseCursor() { cursor.raise(); }
+
+    interface BottomEdgeListener {
+        void atBottom(boolean at);
+    }
+
+    private static final int BOTTOM_EDGE_PX = 4;
+    private volatile BottomEdgeListener bottomEdge;
+    private volatile boolean pointerAtBottom;
+
+    void setBottomEdgeListener(BottomEdgeListener l) {
+        bottomEdge = l;
+    }
+
+    private void pointerAtHeight(float y) {
+        boolean at = y >= cursorPolicy.height() - BOTTOM_EDGE_PX;
+        if (at == pointerAtBottom) return;
+        pointerAtBottom = at;
+        ui.post(() -> {
+            BottomEdgeListener l = bottomEdge;
+            if (l != null) l.atBottom(at);
+        });
+    }
+
+    /** Where the input method begins, -1 while it is not showing. Blocks. */
+    int imeTop(int display) {
+        IInjector i = injector;
+        try {
+            return i != null ? i.imeTop(display) : -1;
+        } catch (RemoteException e) {
+            return -1;
+        }
+    }
     ShellActivation shell() { return shell; }
     /** The current or last injector came from the built-in server, not Shizuku. */
     boolean usesShell() { return viaShell; }

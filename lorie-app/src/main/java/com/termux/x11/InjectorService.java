@@ -649,6 +649,11 @@ public class InjectorService extends IInjector.Stub {
         return r[1].contains("Error") ? r[1].trim() : null;
     }
 
+    @Override public int imeTop(int displayId) {
+        String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
+        return r[0] != null ? -1 : WindowDump.imeTop(r[1], displayId);
+    }
+
     @Override public String findPresentation(int displayId) {
         String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
         if (r[0] != null) return null;
