@@ -1,6 +1,6 @@
 # XDesk
 
-<p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="通过 Android Auto 运行在车机屏幕上的 XDesk"></p>
+<p align="center"><img src="docs/img/projector-home.jpg" width="640" alt="投影到客厅墙上的 XDesk：浏览器全屏，底部是 Dock"></p>
 
 **手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。外接屏首页是你的收藏，鼠标移到屏幕底边会升起 Dock，用起来很像一台电脑。想要更多的话，还可以用 Termux 跑 Linux 桌面，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。
 
