@@ -97,6 +97,8 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 pub static VIA_USB: AtomicBool = AtomicBool::new(false);
 /// This computer asked to end the session: nothing to wait for afterwards.
 static USER_ENDED: AtomicBool = AtomicBool::new(false);
+/// The same, for the cable: no connecting over it again until it is plugged in again.
+static USB_ON_HOLD: AtomicBool = AtomicBool::new(false);
 static APPS_LIST: Mutex<Option<Vec<(String, String)>>> = Mutex::new(None);
 static FILES_WAITING: AtomicUsize = AtomicUsize::new(0);
 static FILES: OnceLock<Sender<PathBuf>> = OnceLock::new();
@@ -230,9 +232,88 @@ struct Sinks {
 #[derive(Default)]
 struct Stream {
     dropping: bool,
+    incoming: Option<IncomingFile>,
+}
+
+/// A file from the phone on its way to Downloads, under a hidden name until all of it is there.
+struct IncomingFile {
+    file: std::fs::File,
+    part: PathBuf,
+    name: String,
+}
+
+fn downloads() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Downloads")
+}
+
+/// No way out of the folder, and not hidden.
+fn clean_file_name(name: &str) -> String {
+    let clean = name.replace(['/', '\\', ':', '\0'], "_");
+    let clean = clean.trim().trim_start_matches('.').to_string();
+    if clean.is_empty() { "文件".to_string() } else { clean }
+}
+
+/// The name in that folder, with a number when it is taken.
+fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    (1..).map(|n| dir.join(format!("{stem} ({n}){extension}"))).find(|p| !p.exists()).unwrap()
 }
 
 impl Stream {
+    fn drop_file(&mut self) {
+        if let Some(i) = self.incoming.take() {
+            drop(i.file);
+            let _ = std::fs::remove_file(&i.part);
+        }
+    }
+
+    fn file_start(&mut self, name: &str) {
+        self.drop_file();
+        if name.is_empty() {
+            return;
+        }
+        let name = clean_file_name(name);
+        let part = downloads().join(format!(".{name}.{}.xdesk-part", random_hex(4)));
+        match std::fs::File::create(&part) {
+            Ok(file) => {
+                toast(&format!("正在接收：{name}"));
+                self.incoming = Some(IncomingFile { file, part, name });
+            }
+            Err(e) => {
+                eprintln!("file: {e}");
+                toast(&format!("保存失败：{name}"));
+            }
+        }
+    }
+
+    fn file_data(&mut self, data: &[u8]) {
+        let Some(i) = self.incoming.as_mut() else { return };
+        if i.file.write_all(data).is_err() {
+            toast(&format!("保存失败：{}", i.name));
+            self.drop_file();
+        }
+    }
+
+    fn file_end(&mut self) {
+        let Some(i) = self.incoming.take() else { return };
+        drop(i.file);
+        let target = free_path(&downloads(), &i.name);
+        match std::fs::rename(&i.part, &target) {
+            Ok(()) => toast(&format!("已收到，在“下载”里：{}", i.name)),
+            Err(_) => {
+                let _ = std::fs::remove_file(&i.part);
+                toast(&format!("保存失败：{}", i.name));
+            }
+        }
+    }
+
     /// One message of the stream. False when the phone ended it.
     fn message(&mut self, kind: u8, p: &[u8], sinks: &Sinks) -> bool {
         match kind {
@@ -264,6 +345,9 @@ impl Stream {
             BYE => return false,
             CLIPBOARD => crate::clip::set(&String::from_utf8_lossy(p)),
             TIME => crate::stats::time_reply(p),
+            FILE_START => self.file_start(&String::from_utf8_lossy(p)),
+            FILE_DATA => self.file_data(p),
+            FILE_END => self.file_end(),
             APPS => {
                 let text = String::from_utf8_lossy(p);
                 let list = text.lines().filter_map(|l| l.split_once('\t')).map(|(k, n)| (k.to_string(), n.to_string())).collect();
@@ -417,6 +501,7 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
                 break;
             }
         }
+        stream.drop_file();
         reader_done.store(true, Ordering::Relaxed);
         let _ = input.shutdown(Shutdown::Both);
     });
@@ -505,6 +590,7 @@ static LOST_AT: Mutex<Option<Instant>> = Mutex::new(None);
 pub fn disconnect() {
     if STREAMING.load(Ordering::Relaxed) {
         USER_ENDED.store(true, Ordering::Relaxed);
+        USB_ON_HOLD.store(true, Ordering::Relaxed);
         out(Out::Bye);
     }
 }
@@ -656,6 +742,9 @@ fn watch_usb(path: Option<String>, name: String) {
             tries = USB_TRIES;
         }
         was_up = up;
+        if USB_ON_HOLD.swap(false, Ordering::Relaxed) {
+            tries = 0;
+        }
         let streaming = STREAMING.load(Ordering::Relaxed);
         if up && tries > 0 && !VIA_USB.load(Ordering::Relaxed) {
             tries -= 1;

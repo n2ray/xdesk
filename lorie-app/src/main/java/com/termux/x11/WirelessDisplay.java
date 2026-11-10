@@ -558,6 +558,52 @@ final class WirelessDisplay {
         else ui.post(r);
     }
 
+    static final class OutgoingFile {
+        final String name;
+        final ParcelFileDescriptor file;
+
+        OutgoingFile(String name, ParcelFileDescriptor file) {
+            this.name = name;
+            this.file = file;
+        }
+    }
+
+    private static final int FILE_CHUNK = 64 * 1024;
+    private final java.util.concurrent.ExecutorService fileSender = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    boolean canSendFiles() {
+        return inputReceiver && state == STREAMING && !webLost;
+    }
+
+    /** To the computer's Downloads, one after the other. Takes over the files. */
+    void sendFiles(java.util.List<OutgoingFile> files) {
+        for (OutgoingFile f : files) fileSender.execute(() -> sendFile(f));
+    }
+
+    private void sendFile(OutgoingFile f) {
+        Socket session = socket;
+        try (java.io.InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(f.file)) {
+            byte[] name = f.name.getBytes(StandardCharsets.UTF_8);
+            if (!canSendFiles()) throw new IOException("not connected");
+            writeMessage(FILE_START, name, 0, name.length);
+            byte[] chunk = new byte[FILE_CHUNK];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                if (!canSendFiles() || socket != session) throw new IOException("connection changed");
+                writeMessage(FILE_DATA, chunk, 0, n);
+            }
+            writeMessage(FILE_END, chunk, 0, 0);
+            message(R.string.xd_share_sent, f.name);
+        } catch (IOException e) {
+            Log.i(TAG, "file not sent: " + e);
+            try {
+                // An empty name: the computer forgets what it has of this file
+                writeMessage(FILE_START, new byte[0], 0, 0);
+            } catch (IOException ignored) { }
+            message(R.string.xd_share_failed, f.name);
+        }
+    }
+
     /** The apps a computer can switch to, as lines of key, tab, label. */
     void sendApps(String lines) {
         new Thread(() -> {

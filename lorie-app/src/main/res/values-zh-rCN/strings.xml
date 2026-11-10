@@ -281,6 +281,12 @@
     <string name="xd_x11_meta_note">否则由手机系统处理</string>
     <string name="xd_x11_all">全部 Termux:X11 设置</string>
     <string name="xd_x11_all_note">英文，改错可能影响输入</string>
+    <string name="xd_share_label">发送到电脑</string>
+    <string name="xd_share_no_computer">没有连接电脑，先在 XDesk 里连上电脑</string>
+    <string name="xd_share_nothing">这个内容不是文件，发送不了</string>
+    <string name="xd_share_sending">正在发送到 %1$s</string>
+    <string name="xd_share_sent">已发送到电脑的“下载”：%1$s</string>
+    <string name="xd_share_failed">发送失败：%1$s</string>
     <string name="xd_wireless">连接接收器</string>
     <string name="xd_wireless_note">通过 Wi-Fi 把 XDesk 显示到装了 XDesk 接收器的另一台设备上</string>
     <string name="xd_wireless_off">关</string>

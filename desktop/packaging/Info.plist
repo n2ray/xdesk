@@ -14,6 +14,7 @@
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key><string>XDesk 用本地网络让手机找到这台电脑并连接。</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>XDesk 把手机发来的文件保存到“下载”。</string>
     <key>NSBonjourServices</key>
     <array><string>_xdesk-display._tcp</string></array>
 </dict>

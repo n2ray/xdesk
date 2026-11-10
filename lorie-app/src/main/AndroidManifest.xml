@@ -46,6 +46,15 @@
             </intent-filter>
         </activity>
         <!-- stopWithTask 必须是 false，否则划掉任务时收不到 onTaskRemoved -->
+        <activity android:name="com.termux.x11.ShareToComputerActivity" android:exported="true" android:label="@string/xd_share_label"
+            android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true" android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <service android:name="com.termux.x11.DesktopService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
         <!-- 外接屏最底层的仪表盘。自己一个任务，不进最近任务 -->
         <activity

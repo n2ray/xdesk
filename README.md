@@ -150,7 +150,7 @@ Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboar
 
 - **First start:** the app is self-signed, so macOS stops it. Choose **Open Anyway** in **System Settings → Privacy & Security**. Then turn on XDesk under **Accessibility** so that the keyboard can go to the phone. The window says so, and there is no need to restart.
 - **Connecting:** with a cable and USB debugging it connects over USB, and back over Wi-Fi when the cable is pulled. Without a cable, pick this Mac under Connect to a receiver in XDesk on the phone. The first time asks for a pairing code.
-- **Use:** rest the pointer on the window's top edge for Back, Home, Recents, Full screen and Disconnect, also in the Phone menu. Drop a file on the window to send it to the phone's Downloads. Text on the clipboard is shared; it can be turned off under Connect to a receiver.
+- **Use:** rest the pointer on the window's top edge for Back, Home, Recents, Full screen and Disconnect, also in the Phone menu. Drop a file on the window to send it to the phone's Downloads, and choose Send to computer in the phone's share sheet to send one to the Mac's Downloads. Text on the clipboard is shared; it can be turned off under Connect to a receiver.
 - **Keys:** Control+Option with Esc (give the keyboard and mouse back to the Mac), F (full screen), B (back), H (home), R (recents), D (latency panel), L (low latency).
 
 ## Web display

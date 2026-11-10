@@ -163,6 +163,6 @@ A receiver with bit 7 of its codecs set is XDesk for a computer. It sends the in
 | 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
 | 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
 | 28 | CHOOSE | Receiver → phone. A key from APPS |
-| 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Receiver → phone. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads |
+| 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Both ways. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads. An empty name drops what came of the file so far |
 
 If the connection to such a receiver is lost the phone keeps the session for 8 seconds and connects again: to the address in use, then to the others. Over USB the computer forwards the port with `adb reverse` and sends the broadcast `com.termux.x11.ConnectReceiver` (extras `host`, `port`, `name`), which only the shell user may send. A session on `127.0.0.1` allows a picture up to 2560 by 1600.
