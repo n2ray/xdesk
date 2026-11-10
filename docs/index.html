@@ -50,6 +50,9 @@ nav a:hover { opacity: 1; text-decoration: none; }
 .brand { display: flex; align-items: center; gap: 7px; font-weight: 600; opacity: 1; }
 .brand img { width: 20px; height: 20px; border-radius: 5px; display: block; }
 #lang { background: none; border: 0; color: var(--on-dark); opacity: .85; font: inherit; cursor: pointer; padding: 4px; }
+nav a, #lang { white-space: nowrap; flex: none; }
+.links { display: flex; align-items: center; gap: inherit; }
+#lang .short { display: none; }
 
 .hero { position: relative; min-height: calc(100svh - 44px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding-block: 34px 56px; }
 .lead { color: var(--dim-dark); font-size: clamp(19px, 2vw, 25px); line-height: 1.32; letter-spacing: -.008em; margin: 20px auto 26px; max-width: 26em; text-wrap: balance; }
@@ -120,7 +123,12 @@ section { padding-block: 104px; }
 footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim-dark); font-size: 13px; }
 
 @media (max-width: 760px), (max-aspect-ratio: 1/1) {
-  nav { gap: 22px; }
+  nav { justify-content: space-between; gap: 18px; padding-inline: max(14px, env(safe-area-inset-left, 0px)) max(14px, env(safe-area-inset-right, 0px)); }
+  .links { flex: 1; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 22px), transparent); padding-inline: 10px 22px; }
+  .links::-webkit-scrollbar { display: none; }
+  #lang { border: 1px solid rgba(245, 245, 247, .35); border-radius: 999px; padding: 3px 10px; }
+  #lang .long { display: none; }
+  #lang .short { display: inline; }
   section { padding-block: 72px; }
   .three, .facts { grid-template-columns: minmax(0, 1fr); gap: 38px; }
   .three { margin-top: 44px; }
@@ -149,11 +157,13 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
 
 <nav>
   <a class="brand" href="#"><img src="icon.svg" alt="">XDesk</a>
+  <div class="links">
   <a href="#start"><span lang="en">Get started</span><span lang="zh-CN">开始使用</span></a>
   <a href="#desk"><span lang="en">Desktop</span><span lang="zh-CN">桌面体验</span></a>
   <a href="#mac">Mac</a>
   <a href="#status"><span lang="en">Status</span><span lang="zh-CN">现状</span></a>
   <a href="https://github.com/n2ray/xdesk">GitHub</a>
+  </div>
   <button id="lang" type="button" aria-label="Switch language / 切换语言">中文</button>
 </nav>
 
@@ -496,7 +506,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
   function setLang(zh) {
     document.body.classList.toggle('zh', zh);
     root.lang = zh ? 'zh-CN' : 'en';
-    button.textContent = zh ? 'English' : '中文';
+    button.innerHTML = zh ? '<span class="long">English</span><span class="short">EN</span>' : '中文';
     relayout();
   }
   var saved = null;
@@ -598,7 +608,18 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
       points.push({ y: last ? Math.max(y, last.y + 1) : y, pose: pose });
     }
     // In a band the logo rides with the page; between bands it travels on its own.
+    function seen(pose, o) { return pose.map(function (p) { return Object.assign({}, p, { o: o }); }); }
     function held(band, slot, stroke) {
+      if (!wide) {
+        // On a phone a band is taller than the screen: the mark stays with its slot and fades near the edges, so it never crosses the text between bands.
+        var r = document.getElementById(slot).getBoundingClientRect(), t = r.top + scrollY;
+        var enter = t + r.height - H, leave = t - 44, f = H * .15;
+        at(enter, seen(atSlot(slot, enter, stroke), 0));
+        at(enter + f, atSlot(slot, enter + f, stroke));
+        at(leave - f, atSlot(slot, leave - f, stroke));
+        at(leave, seen(atSlot(slot, leave, stroke), 0));
+        return;
+      }
       var y = centred(document.getElementById(band)), d = H * .12;
       at(y - d, atSlot(slot, y - d, stroke));
       at(y + d, atSlot(slot, y + d, stroke));
@@ -607,10 +628,13 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
     at(0, atSlot('s-hero', 0, WHITE));
     at(H * .05, atSlot('s-hero', H * .05, WHITE));
     held('start', 's-start', BLACK);
+    // On a phone the pinned scenes appear in place instead of morphing over the text above and below them.
+    if (!wide) at(sceneStart - H * .1, seen(scene(0), 0));
     for (i = 0; i < 5; i++) {
       at(sceneStart + sceneRange * (i + .2) / 5, scene(i));
       at(sceneStart + sceneRange * (i + .8) / 5, scene(i));
     }
+    if (!wide) { at(sceneStart + sceneRange + H * .1, seen(scene(4), 0)); at(controlStart - H * .1, seen(phoneScene(0), 0)); }
     for (i = 0; i < 3; i++) {
       at(controlStart + controlRange * (i + .2) / 3, phoneScene(i));
       at(controlStart + controlRange * (i + .8) / 3, phoneScene(i));
@@ -619,6 +643,11 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
     held('mac', 's-mac', BLACK);
     held('linux', 's-linux', WHITE);
     held('status', 's-status', BLACK);
+    if (!wide) {
+      var c = document.getElementById('s-credit').getBoundingClientRect(), ce = c.top + scrollY + c.height - H;
+      at(ce, seen(atSlot('s-credit', ce, WHITE), 0));
+      at(ce + H * .15, atSlot('s-credit', ce + H * .15, WHITE));
+    }
     at(max, atSlot('s-credit', max, WHITE));
   }
 
