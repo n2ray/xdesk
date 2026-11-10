@@ -873,7 +873,7 @@ public class XDeskActivity extends Activity {
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
-        apps.setBottomEdgeListener(at -> externalDock.atBottom(at));
+        apps.setBottomEdgeListener(externalDock);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;

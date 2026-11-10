@@ -144,6 +144,7 @@ final class AppSession {
                 lastCursorY = y;
                 cursorPolicy.moved(y);
                 pointerAtHeight(y);
+                pointerPlaced(x, y);
                 // Only what a computer does not place comes here: a touchpad or a mouse on the phone
                 webPointer = false;
                 cursor.moveTo(x, y);
@@ -240,6 +241,11 @@ final class AppSession {
         }
         @Override public void moveToFraction(float x, float y) {
             pointerAtHeight(y * cursorPolicy.height());
+            BottomEdgeListener l = bottomEdge;
+            if (l != null && l.wantsPlace()) {
+                final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
+                ui.post(() -> pointerPlaced(px, py));
+            }
             // May be on the network thread, and the overlay is a window
             if (!webPointer) ui.post(cursor::hide);
             webPointer = true;
@@ -380,11 +386,20 @@ final class AppSession {
 
     interface BottomEdgeListener {
         void atBottom(boolean at);
+        /** Whether anything is on the screen that needs to know where the pointer is. */
+        boolean wantsPlace();
+        void placed(int x, int y);
     }
 
     private static final int BOTTOM_EDGE_PX = 4;
     private volatile BottomEdgeListener bottomEdge;
     private volatile boolean pointerAtBottom;
+    private volatile int pointerWidth;
+
+    private void pointerPlaced(int x, int y) {
+        BottomEdgeListener l = bottomEdge;
+        if (l != null && l.wantsPlace()) l.placed(x, y);
+    }
 
     void setBottomEdgeListener(BottomEdgeListener l) {
         bottomEdge = l;
@@ -498,6 +513,7 @@ final class AppSession {
 
     private void attachOverlays(Display d) {
         cursorPolicy.setHeight(logicalSize(d)[1]);
+        pointerWidth = logicalSize(d)[0];
         cursor.attach(d);
         touchDots.attach(d);
     }
@@ -1428,6 +1444,7 @@ final class AppSession {
         if (d == null || i == null || d.getDisplayId() != id) return;
         int[] size = logicalSize(d);
         cursorPolicy.setHeight(size[1]);
+        pointerWidth = size[0];
         cursor.displayChanged(d);
         touchDots.displayChanged(d);
         try {

@@ -21,11 +21,14 @@ import java.util.List;
  * The dock at the bottom of the external display over Android apps: the current and the previous app, then the
  * favourites. A strip a few pixels high along the bottom edge notices the pointer resting there; the dock then slides
  * up and goes again when the pointer leaves it. It never takes the keyboard focus.
+ *
+ * An app in touch mode gets no hover events, and the input method can cover the strip, so where the pointer is comes
+ * from the phone as well; a mouse the phone handles itself is only heard through hover.
  */
-final class ExternalDock {
+final class ExternalDock implements AppSession.BottomEdgeListener {
     private static final String TAG = "XDesk";
     private static final long DWELL_MS = 250, LEAVE_MS = 450, SLIDE_MS = 180;
-    /** The input method covers the strip: the pointer's place is the only sign, and from the edge it has far to go to the dock. */
+    /** No hover heard at the edge: the pointer's place is the only sign, and over the input method it has far to go to the dock. */
     private static final long EDGE_DWELL_MS = 350, LONG_WAY_MS = 1800;
     private static final float EDGE_DP = 3, ICON_DP = 54, ITEM_GAP_DP = 8, PAD_DP = 10, ROOM_BELOW_DP = 10, RADIUS_DP = 24;
     private static final float HOVER_ZOOM = 1.16f, WIDTH_USED = 0.9f;
@@ -37,6 +40,8 @@ final class ExternalDock {
     private final Runnable shown;
     private final ImeProbe ime;
     private int lift;
+    private boolean atEdge;
+    private volatile boolean showing;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private int displayId = Display.INVALID_DISPLAY;
     private Context dc;
@@ -62,7 +67,8 @@ final class ExternalDock {
     }
 
     /** The pointer's place, for when the input method lies over the strip and the strip hears nothing. */
-    void atBottom(boolean at) {
+    @Override public void atBottom(boolean at) {
+        atEdge = at;
         if (windows == null) return;
         if (at) {
             ui.removeCallbacks(close);
@@ -71,6 +77,15 @@ final class ExternalDock {
             ui.removeCallbacks(openFromEdge);
             if (panel != null && lift > 0) later(close, LONG_WAY_MS);
         }
+    }
+
+    @Override public boolean wantsPlace() {
+        return showing;
+    }
+
+    @Override public void placed(int x, int y) {
+        Panel p = panel;
+        if (p != null && !closing) p.placed(x, y);
     }
 
     private void openFromEdge() {
@@ -152,6 +167,7 @@ final class ExternalDock {
             return;
         }
         panel = fresh;
+        showing = true;
         lift = above;
         closing = false;
         fresh.slideIn();
@@ -164,7 +180,10 @@ final class ExternalDock {
         closing = true;
         p.slideOut(() -> {
             remove(p);
-            if (panel == p) panel = null;
+            if (panel == p) {
+                panel = null;
+                showing = false;
+            }
             closing = false;
         });
     }
@@ -179,6 +198,7 @@ final class ExternalDock {
         ui.removeCallbacksAndMessages(null);
         if (panel != null) remove(panel);
         panel = null;
+        showing = false;
         closing = false;
         if (strip != null) remove(strip);
         strip = null;
@@ -190,6 +210,9 @@ final class ExternalDock {
         private final LinearLayout bar;
         private final TextView name;
         private int items;
+        private View over;
+        private boolean visited;
+        private final int[] place = new int[2];
 
         Panel(ExternalLauncher.Host h) {
             super(dc);
@@ -269,6 +292,7 @@ final class ExternalDock {
             box.setFocusable(false);
             box.setClipChildren(false);
             final View icon = ExternalLauncher.icon(dc, key, dp(ICON_DP));
+            box.setTag(icon);
             box.addView(icon, new LayoutParams(dp(ICON_DP), dp(ICON_DP)));
             icon.setPivotX(dp(ICON_DP) / 2f);
             icon.setPivotY(dp(ICON_DP));
@@ -286,13 +310,8 @@ final class ExternalDock {
             box.setContentDescription(label);
             box.setOnHoverListener((v, e) -> {
                 int action = e.getActionMasked();
-                if (action == MotionEvent.ACTION_HOVER_ENTER) {
-                    icon.animate().scaleX(HOVER_ZOOM).scaleY(HOVER_ZOOM).setDuration(ZOOM_MS).start();
-                    showName(label, v);
-                } else if (action == MotionEvent.ACTION_HOVER_EXIT) {
-                    icon.animate().scaleX(1f).scaleY(1f).setDuration(ZOOM_MS).start();
-                    name.animate().alpha(0f).setDuration(ZOOM_MS).start();
-                }
+                if (action == MotionEvent.ACTION_HOVER_ENTER) setOver(v);
+                else if (action == MotionEvent.ACTION_HOVER_EXIT && over == v) setOver(null);
                 return false;
             });
             box.setOnClickListener(v -> {
@@ -303,6 +322,41 @@ final class ExternalDock {
             at.leftMargin = at.rightMargin = dp(ITEM_GAP_DP / 2);
             box.setLayoutParams(at);
             return box;
+        }
+
+        private void setOver(View v) {
+            if (v == over) return;
+            if (over != null) ((View) over.getTag()).animate().scaleX(1f).scaleY(1f).setDuration(ZOOM_MS).start();
+            over = v;
+            if (v == null) {
+                name.animate().alpha(0f).setDuration(ZOOM_MS).start();
+                return;
+            }
+            ((View) v.getTag()).animate().scaleX(HOVER_ZOOM).scaleY(HOVER_ZOOM).setDuration(ZOOM_MS).start();
+            CharSequence label = v.getContentDescription();
+            showName(label != null ? label.toString() : "", v);
+        }
+
+        private boolean holds(View v, int x, int y) {
+            v.getLocationOnScreen(place);
+            return x >= place[0] && x < place[0] + v.getWidth() && y >= place[1] && y < place[1] + v.getHeight();
+        }
+
+        /** The pointer's place when no hover events tell it. */
+        void placed(int x, int y) {
+            if (!holds(this, x, y)) {
+                setOver(null);
+                if (!atEdge && !ui.hasCallbacks(close)) later(close, lift > 0 && !visited ? LONG_WAY_MS : LEAVE_MS);
+                return;
+            }
+            visited = true;
+            ui.removeCallbacks(close);
+            View found = null;
+            for (int i = 0; i < bar.getChildCount() && found == null; i++) {
+                View child = bar.getChildAt(i);
+                if (child.getTag() != null && holds(child, x, y)) found = child;
+            }
+            setOver(found);
         }
 
         private void showName(String label, View over) {
