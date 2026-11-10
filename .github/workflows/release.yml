@@ -82,12 +82,16 @@ jobs:
     # The phone's files are out by then, whatever happens here
     needs: release
     continue-on-error: true
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v7
       with:
         submodules: false
         fetch-depth: 1
+    - name: Tools
+      run: |
+        command -v cargo > /dev/null || brew install rust
+        command -v cmake > /dev/null || brew install cmake
     - name: Version
       env:
         TAG: ${{ github.ref_name }}
