@@ -2,13 +2,14 @@
 
 <p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="通过 Android Auto 运行在车机屏幕上的 XDesk"></p>
 
-**手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。想要更多的话，还可以用 Termux 跑 Linux 桌面，用 Wi-Fi 投到另一台安卓设备，或者用浏览器当显示器。
+**手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。想要更多的话，还可以用 Termux 跑 Linux 桌面，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。
 
 | 屏幕 | 连接方式 |
 |---|---|
 | 显示器、便携屏或扩展坞 | USB-C 视频输出，延迟最低 |
 | 车机 | Android Auto，只能停车时用（实验性） |
 | 投影、电视盒子或旧手机 | Wi-Fi，投到 XDesk 接收器 |
+| Mac（Apple 芯片） | USB 或 Wi-Fi，装 [XDesk Mac 版](#mac-接收端)，键鼠直接用 Mac 的 |
 | iPad、电脑或智能电视 | 任意浏览器，那边什么都不用装 |
 
 **[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [English](README.md) · 基于 [Termux:X11](https://github.com/termux/termux-x11)（[上游说明](README.upstream.md)）· GPL-3.0 · [n2ray 和 Claude 一起做的](#一个人和一个-ai-一起做的)
@@ -169,7 +170,7 @@ xdesk enable-app-start
 
 ## Mac 接收端
 
-手机的画面和声音显示在 Mac 窗口里，键盘鼠标直接用 Mac 的。支持 Apple 芯片的 Mac，从 Releases 下载 `XDesk-macos-arm64.dmg`。
+手机的画面和声音显示在 Mac 窗口里，键盘鼠标直接用 Mac 的。支持 Apple 芯片的 Mac，[下载 `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg)，手机和 Mac 两边的版本要一致。我们测试时，USB 下从手机到 Mac 约 15 到 20 毫秒。
 
 - **第一次打开：** 应用是自签名的，macOS 会拦下，到 **系统设置 → 隐私与安全性** 里点“仍要打开”。然后在 **辅助功能** 里打开 XDesk，键盘才能交给手机，窗口里会有提示，不用重开。
 - **连接：** 插上数据线并打开 USB 调试，会自动走 USB，拔线后回到 Wi-Fi。没插线时，在手机 XDesk 的“连接接收器”里选这台 Mac。第一次要输配对码。
@@ -202,6 +203,7 @@ xdesk enable-app-start
 - 支持实体鼠标和键盘。点**接管**后键鼠直接交给桌面窗口，输入法候选词显示在外接屏上，点**交还**回到手机。接管需要注入服务
 - 安卓应用在外接屏上全屏运行
 - 连接接收器：通过 Wi-Fi 把画面和声音投到投影、电视盒子或旧手机上
+- Mac 版：USB 或 Wi-Fi 连接，自动切换线路，文字和文件互传，见 [Mac 接收端](#mac-接收端)
 - 声音输出可选：手机扬声器、HDMI、蓝牙、USB、有线耳机或系统默认，所有模式共用一个设置。注入服务运行时，它会设置系统的首选媒体设备，桌面、安卓应用和其他声音都生效，回到选择界面或退出时清除。没有注入服务时只能尽量指定桌面声音，在测试手机上，接着 HDMI 时没法切回手机扬声器。这里只是选择输出设备，不影响音质或蓝牙编码。如果 XDesk 被强行结束、来不及清除，在 XDesk 里选一次系统默认，或者重启手机
 - 分辨率档位、灵敏度、触控界面横竖屏、闲置时调暗手机屏
 - 拔掉显示器、切换 App、锁屏后都能恢复
@@ -260,6 +262,7 @@ xdesk enable-app-start
 - Termux 和 XDesk 都要保持运行，系统清理可能会杀掉它们
 - 连接接收器：一台接收器同时只接一台手机，只传画面和声音，流畅程度取决于 Wi-Fi。在一台 32 位安卓 9 投影上测试过
 - 日常只在欧版小米 15 Ultra 上使用，别的机型基本没有测试过
+- Mac 版只支持 Apple 芯片，只在一台 M4 Mac 上测试过。应用是自签名的，走 Wi-Fi 时和其他无线模式一样没有加密。在 Linux 桌面里用 Mac 输入法时，候选框在鼠标下方，不跟随文字光标。暂时没有 Windows 和 Linux 版
 
 ## 构建
 
@@ -277,11 +280,13 @@ git remote add upstream https://github.com/termux/termux-x11
 git fetch upstream && git merge upstream/master
 ```
 
+Mac 版的代码在 `desktop/`，用 Rust 写的。在 Mac 上装好 Rust 和 `sdl2`（Homebrew），在这个目录运行 `cargo build --release`。打包脚本是 `desktop/packaging/build-app.sh`。
+
 XDesk 依赖上游的 manifest、`com.termux.x11` 下的类名和 `LorieView` 接口。包名在 `lorie-app/build.gradle` 和 `shell-loader/build.gradle` 里设置，两边要一致。
 
 ## 一个人和一个 AI 一起做的
 
-XDesk 是 [n2ray](https://github.com/n2ray) 和 AI Claude 一起做的。n2ray 决定做什么，并在真实的手机、显示器、投影和车机上测试。大部分代码和文档是 Claude 写的，这份 README 也是。
+XDesk 是 [n2ray](https://github.com/n2ray) 和 AI Claude 一起做的。n2ray 决定做什么，并在真实的手机、显示器、投影、车机和 Mac 上测试。大部分代码和文档是 Claude 写的，这份 README 也是。
 
 ## 许可证
 

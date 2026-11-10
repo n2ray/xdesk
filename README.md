@@ -2,13 +2,14 @@
 
 <p align="center"><img src="docs/img/car-dashboard.jpg" width="640" alt="XDesk on a car's screen through Android Auto"></p>
 
-**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, or use any browser as the display.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
 
 | Screen | How it connects |
 |---|---|
 | Monitor, portable screen or dock | USB-C video output, the lowest latency |
 | Car | Android Auto, parked only (experimental) |
 | Projector, TV box or old phone | Wi-Fi, to XDesk Receiver |
+| Mac with Apple silicon | USB or Wi-Fi, with the [XDesk Mac app](#mac-receiver) and the Mac's keyboard and mouse |
 | iPad, laptop or smart TV | Any browser, nothing to install there |
 
 **[Website](https://n2ray.github.io/xdesk/)** · [中文说明](README.zh-CN.md) · Based on [Termux:X11](https://github.com/termux/termux-x11) ([upstream README](README.upstream.md)) · GPL-3.0 · [Built by n2ray and Claude](#built-by-a-person-and-an-ai)
@@ -146,7 +147,7 @@ No cable? Install **XDesk Receiver** (`xdesk-receiver.apk` from the [releases](h
 
 ## Mac receiver
 
-Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboard and mouse. For Macs with Apple silicon: `XDesk-macos-arm64.dmg` under Releases.
+Shows the phone's picture and sound in a window on a Mac, with the Mac's keyboard and mouse. For Macs with Apple silicon: [download `XDesk-macos-arm64.dmg`](https://github.com/n2ray/xdesk/releases/latest/download/XDesk-macos-arm64.dmg), the same version as on the phone. In our tests it took about 15 to 20 ms from the phone to the Mac over USB.
 
 - **First start:** the app is self-signed, so macOS stops it. Choose **Open Anyway** in **System Settings → Privacy & Security**. Then turn on XDesk under **Accessibility** so that the keyboard can go to the phone. The window says so, and there is no need to restart.
 - **Connecting:** with a cable and USB debugging it connects over USB, and back over Wi-Fi when the cable is pulled. Without a cable, pick this Mac under Connect to a receiver in XDesk on the phone. The first time asks for a pairing code.
@@ -177,6 +178,7 @@ It shares its machinery with the wireless display, so there is one browser or re
 - Physical mouse and keyboard, forwarded to the desktop. **Take over** in the top bar gives the desktop window the keyboard and mouse directly, so a physical keyboard's input method candidates show on the display; **Give back** returns them to the phone. Taking over needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
 - Wireless display: the same over Wi-Fi to XDesk Receiver on a projector, TV box or old phone, with sound
+- Mac app: over USB or Wi-Fi, moving between them by itself, with text and files shared. See [Mac receiver](#mac-receiver)
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
@@ -235,6 +237,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 - Termux and XDesk must both stay alive. Aggressive system cleaners can kill them
 - Wireless display: one phone per receiver, picture and sound only, and only as smooth as the Wi-Fi. Tested with a 32-bit Android 9 projector
 - Used daily on a single phone, the European Xiaomi 15 Ultra, and barely tested on others
+- The Mac app is for Apple silicon and tested on one M4 Mac. It is self-signed, and over Wi-Fi it is not encrypted, like the other wireless modes. Typing on a Linux desktop with the Mac's input method puts the candidates under the pointer, not at the text cursor. There is no Windows or Linux version yet
 
 ## Building
 
@@ -252,11 +255,13 @@ git remote add upstream https://github.com/termux/termux-x11
 git fetch upstream && git merge upstream/master
 ```
 
+The Mac app is in `desktop/`, written in Rust. On a Mac with Rust and Homebrew's `sdl2`, run `cargo build --release` in that directory. `desktop/packaging/build-app.sh` makes the package.
+
 XDesk relies on upstream's manifest, class names under `com.termux.x11` and the `LorieView` API. The app id is set in `lorie-app/build.gradle` and `shell-loader/build.gradle`, and they must match.
 
 ## Built by a person and an AI
 
-XDesk is a project by [n2ray](https://github.com/n2ray) and Claude, an AI. n2ray decides what XDesk should do and tests it on real phones, monitors, projectors and cars. Claude wrote most of the code and documentation, including this README.
+XDesk is a project by [n2ray](https://github.com/n2ray) and Claude, an AI. n2ray decides what XDesk should do and tests it on real phones, monitors, projectors, cars and Macs. Claude wrote most of the code and documentation, including this README.
 
 ## License
 
