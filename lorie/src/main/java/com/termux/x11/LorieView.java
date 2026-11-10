@@ -634,12 +634,23 @@ public class LorieView extends SurfaceView implements InputStub {
         lastClipboardTimestamp = System.currentTimeMillis() + 150;
     }
 
+    private volatile String computerClipboard;
+
+    /** Text copied on a computer, to be what X pastes. Android's clipboard already has it, but cannot be read without the focus. */
+    public void setComputerClipboard(String text) {
+        computerClipboard = text;
+        if (clipboardSyncEnabled) sendClipboardAnnounce(mNativeContext);
+    }
+
     /** @noinspection unused*/ // It is used in native code
     void requestClipboard() {
         ClipDescription desc = clipboardSyncEnabled ? clipboard.getPrimaryClipDescription() : null;
         boolean isText = desc != null && (desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) || desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML));
         CharSequence clip = isText ? clipboard.getText() : null;
-        String text = clip != null ? clip.toString() : "";
+        // Without the focus Android reads nothing here. What a computer just copied is known anyway
+        String fromComputer = computerClipboard;
+        if (fromComputer != null && clip != null && !fromComputer.contentEquals(clip)) fromComputer = computerClipboard = null;
+        String text = fromComputer != null && clipboardSyncEnabled ? fromComputer : clip != null ? clip.toString() : "";
 
         // A requesting X11 client blocks on a SelectionNotify, so this must always answer, even
         // with an empty string, or the request is left unresolved.

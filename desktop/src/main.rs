@@ -56,6 +56,10 @@ const LIST_MAX_ROWS: usize = 14;
 const LIST_TEXT: f32 = 16.0;
 const PANEL_TEXT: f32 = 13.0;
 const TOAST_TOP: u32 = 24;
+/// What is being typed into the Mac's input method: under the pointer, its candidates under that. In window points.
+const COMPOSING_TEXT: f32 = 16.0;
+const COMPOSING_BELOW: i32 = 24;
+const COMPOSING_HEIGHT: u32 = 26;
 
 pub struct Frame {
     width: u32,
@@ -244,6 +248,8 @@ fn main() -> Result<(), String> {
     };
     let window = builder.resizable().allow_highdpi().build().map_err(|e| e.to_string())?;
     menu::install();
+    let text_input = video.text_input();
+    text_input.start();
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
     let mut low_latency = net::load("low_latency") != "0";
     set_vsync(&canvas, !low_latency);
@@ -284,6 +290,7 @@ fn main() -> Result<(), String> {
     let mut bar_scale = 0f32;
     let mut apps: Option<Vec<(String, Words)>> = None;
     let mut apps_hover: Option<usize> = None;
+    let mut composing_image: Option<Words> = None;
 
     let mut events = sdl.event_pump()?;
     let mut scroll = (0f32, 0f32);
@@ -311,6 +318,22 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Quit { .. } => break 'run,
                 Event::DropFile { filename, .. } => net::send_file(filename.into()),
+                Event::TextEditing { text, .. } => {
+                    tap::COMPOSING.store(!text.is_empty(), Ordering::Relaxed);
+                    composing_image = match words.label(&text, COMPOSING_TEXT * scale) {
+                        Some(image) => Some(words_texture(&creator, &image)?),
+                        None => None,
+                    };
+                    dirty = true;
+                }
+                Event::TextInput { text, .. } => {
+                    tap::COMPOSING.store(false, Ordering::Relaxed);
+                    composing_image = None;
+                    dirty = true;
+                    if tap::active() && tap::DESKTOP.load(Ordering::Relaxed) {
+                        out(Out::Text(text));
+                    }
+                }
                 Event::Window { win_event, .. } => match win_event {
                     WindowEvent::FocusGained => tap::FOCUSED.store(true, Ordering::Relaxed),
                     WindowEvent::FocusLost => {
@@ -334,6 +357,10 @@ fn main() -> Result<(), String> {
                 },
                 Event::MouseMotion { x, y, .. } => {
                     mouse = (x, y);
+                    if tap::DESKTOP.load(Ordering::Relaxed) {
+                        // Where the candidates of the Mac's input method go: the X cursor's place is not known here
+                        text_input.set_rect(Rect::new(x, y + COMPOSING_BELOW, 1, COMPOSING_HEIGHT));
+                    }
                     let over_something = apps.is_some() || (bar_open && index_at(&bar, pixel(mouse)).is_some());
                     if over_something || tap::RELEASED.load(Ordering::Relaxed) || picture.0 == 0 {
                         continue;
@@ -575,6 +602,13 @@ fn main() -> Result<(), String> {
             canvas.set_draw_color(Color::RGBA(0, 0, 0, 190));
             canvas.fill_rect(place)?;
             draw_in(&mut canvas, p, place)?;
+        }
+        if let Some(c) = composing_image.as_ref() {
+            let (x, y) = pixel((mouse.0, mouse.1 + COMPOSING_BELOW));
+            let place = Rect::new(x, y, c.width + (8.0 * scale) as u32, c.height + (4.0 * scale) as u32);
+            canvas.set_draw_color(Color::RGBA(0, 0, 0, 210));
+            canvas.fill_rect(place)?;
+            draw_in(&mut canvas, c, place)?;
         }
         if bar_open {
             for (i, r) in bar.iter().enumerate() {

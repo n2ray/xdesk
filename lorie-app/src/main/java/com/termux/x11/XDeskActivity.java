@@ -103,6 +103,17 @@ public class XDeskActivity extends Activity {
     private boolean forwardingBeforeCover;
     /** The Termux desktop has the keyboard: focus and the input method are on the external display, see setDesktopTaken. */
     private boolean desktopTaken, takenBeforeCover;
+    /** 换到安卓应用时桌面是接管着的：切回桌面、窗口接上之后再接管。 */
+    private boolean takeDesktopWhenBack;
+    private int retakeTries;
+    private static final int RETAKE_DELAY_MS = 500, RETAKE_TRIES = 6;
+    private final Runnable retakeDesktop = new Runnable() {
+        @Override public void run() {
+            if (!session.isConnected() || apps.isActive() || desktopTaken) return;
+            if (apps.hasInjector() && desktopDisplay() != null) setDesktopTaken(true);
+            else if (--retakeTries > 0) ui.postDelayed(this, RETAKE_DELAY_MS);
+        }
+    };
     private View keyboardBtn, comboRow;
     private View runningScreen, setupScreen, topBar, keysRow, leftButton, rightButton, leftColumn, rightColumn;
     private Style.IconButton keysHandle;
@@ -309,6 +320,12 @@ public class XDeskActivity extends Activity {
             if (c) {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
+                if (takeDesktopWhenBack) {
+                    takeDesktopWhenBack = false;
+                    retakeTries = RETAKE_TRIES;
+                    ui.removeCallbacks(retakeDesktop);
+                    ui.postDelayed(retakeDesktop, RETAKE_DELAY_MS);
+                }
                 Display shown = desktopDisplay();
                 if (shown != null && !TargetDisplay.isCar(shown)) apps.setDesktopDensity(shown, prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY));
                 bumpIdle();
@@ -940,6 +957,7 @@ public class XDeskActivity extends Activity {
     @Override protected void onDestroy() {
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
+        ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
         if (desktopTaken) {
             desktopTaken = false;
@@ -1580,6 +1598,7 @@ public class XDeskActivity extends Activity {
     private void applyModeToTopBar() {
         boolean app = apps.isActive();
         // 应用接手了外接屏：桌面的接管不再有意义，输入法也放回去
+        if (desktopTaken && app) takeDesktopWhenBack = true;
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
         updatePhoneFocus();
         forwardBtn.setVisibility(app || session.isActive() ? View.VISIBLE : View.GONE);
@@ -1643,6 +1662,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateStatus() {
+        if (wireless != null) wireless.setDesktopShown(session.isConnected() && !apps.isActive());
         audioRoute.setCar(onCar());
         applyFullscreen();
         applyModeToTopBar();
@@ -2588,6 +2608,8 @@ public class XDeskActivity extends Activity {
      */
     private void desktopGone() {
         ui.removeCallbacks(connectTimeout);
+        takeDesktopWhenBack = false;
+        ui.removeCallbacks(retakeDesktop);
         setDesktopTaken(false);
         apps.desktopEnded();
         releaseLatches();
@@ -2857,6 +2879,8 @@ public class XDeskActivity extends Activity {
     /** 把外接屏让给安卓应用。桌面窗口留在后面，桌面继续运行，切回来直接放到前面；这期间桌面没有声音。 */
     private void leaveDesktop() {
         if (!session.isActive()) return;
+        // 这之后 onSessionChanged 会把接管清掉
+        if (desktopTaken) takeDesktopWhenBack = true;
         // 锁定的修饰键是按在桌面上的，换到应用之前在桌面上松开
         releaseLatches();
         ui.removeCallbacks(connectTimeout);

@@ -23,6 +23,14 @@ extern "C" {
     fn CGEventKeyboardGetUnicodeString(event: Ref, max: c_ulong, actual: *mut c_ulong, chars: *mut u16);
 }
 
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    static kTISPropertyInputSourceType: Ref;
+    static kTISTypeKeyboardLayout: Ref;
+    fn TISCopyCurrentKeyboardInputSource() -> Ref;
+    fn TISGetInputSourceProperty(source: Ref, key: Ref) -> Ref;
+}
+
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFRunLoopCommonModes: Ref;
@@ -31,6 +39,7 @@ extern "C" {
     static kCFTypeDictionaryValueCallBacks: u8;
     fn CFDictionaryCreate(allocator: Ref, keys: *const Ref, values: *const Ref, count: isize, key_callbacks: *const u8, value_callbacks: *const u8) -> Ref;
     fn CFRelease(object: Ref);
+    fn CFEqual(a: Ref, b: Ref) -> bool;
     fn CFMachPortCreateRunLoopSource(allocator: Ref, port: Ref, order: i64) -> Ref;
     fn CFRunLoopGetCurrent() -> Ref;
     fn CFRunLoopAddSource(run_loop: Ref, source: Ref, mode: Ref);
@@ -49,6 +58,7 @@ const CONTROL: u64 = 0x40000;
 const OPTION: u64 = 0x80000;
 const COMMAND: u64 = 0x100000;
 const KEY_ESC: i64 = 53;
+const KEY_SPACE: i64 = 49;
 /// What Control+Option with these keys does; the bar on the picture and the menu do the same.
 pub const ACT_BACK: u8 = 11;
 pub const ACT_HOME: u8 = 4;
@@ -63,6 +73,10 @@ const CTRL_ALT: [u16; 4] = [29, 97, 56, 100];
 
 static TAP: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 pub static FOCUSED: AtomicBool = AtomicBool::new(false);
+/// The phone shows the Termux desktop, which takes any text: there the Mac's own input method does the typing.
+pub static DESKTOP: AtomicBool = AtomicBool::new(false);
+/// The Mac's input method is in the middle of something.
+pub static COMPOSING: AtomicBool = AtomicBool::new(false);
 pub static INSIDE: AtomicBool = AtomicBool::new(false);
 pub static RELEASED: AtomicBool = AtomicBool::new(false);
 static ACTIONS: Mutex<Vec<u8>> = Mutex::new(Vec::new());
@@ -80,6 +94,8 @@ struct State {
     held: HashSet<u16>,
     typed: HashSet<i64>,
     modifiers: HashSet<i64>,
+    /// Left to macOS when they went down: their release goes the same way.
+    passed: HashSet<i64>,
 }
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(Mutex::default);
@@ -101,6 +117,7 @@ pub fn release_all() {
         out(Out::Key(scan, false));
     }
     s.typed.clear();
+    s.passed.clear();
 }
 
 /// macOS key code → Linux key code, by place on the keyboard.
@@ -150,6 +167,34 @@ fn printable(text: &str) -> bool {
         (Some(c), None) => c > ' ' && c != '\u{7f}' && !('\u{f700}'..='\u{f8ff}').contains(&c),
         _ => false,
     }
+}
+
+/// An input method, as opposed to a plain keyboard layout such as ABC or German.
+fn input_method_on() -> bool {
+    unsafe {
+        let source = TISCopyCurrentKeyboardInputSource();
+        if source.is_null() {
+            return false;
+        }
+        let kind = TISGetInputSourceProperty(source, kTISPropertyInputSourceType);
+        let layout = !kind.is_null() && CFEqual(kind, kTISTypeKeyboardLayout);
+        CFRelease(source);
+        !layout
+    }
+}
+
+/// Whether this key is for macOS and not the phone: switching input method, and typing into an input method.
+fn for_the_mac(event: Ref, mac: i64, flags: u64) -> bool {
+    if !DESKTOP.load(Ordering::Relaxed) {
+        return false;
+    }
+    if mac == KEY_SPACE && flags & CONTROL != 0 && flags & COMMAND == 0 {
+        return true;
+    }
+    if flags & (COMMAND | CONTROL) != 0 || !input_method_on() {
+        return false;
+    }
+    COMPOSING.load(Ordering::Relaxed) || printable(&typed_text(event))
 }
 
 fn learn_layout(mac: i64, text: &str) {
@@ -232,7 +277,9 @@ extern "C" fn callback(_proxy: Ref, kind: u32, event: Ref, _info: Ref) -> Ref {
     }
     if !active() {
         if kind == KEY_UP {
-            STATE.lock().unwrap().typed.remove(&mac);
+            let mut s = STATE.lock().unwrap();
+            s.typed.remove(&mac);
+            s.passed.remove(&mac);
         }
         return event;
     }
@@ -250,8 +297,19 @@ extern "C" fn callback(_proxy: Ref, kind: u32, event: Ref, _info: Ref) -> Ref {
         return null_mut();
     }
     match kind {
-        KEY_DOWN => key_down(event, mac, flags),
-        KEY_UP => key_up(mac),
+        KEY_DOWN => {
+            if for_the_mac(event, mac, flags) {
+                STATE.lock().unwrap().passed.insert(mac);
+                return event;
+            }
+            key_down(event, mac, flags);
+        }
+        KEY_UP => {
+            if STATE.lock().unwrap().passed.remove(&mac) {
+                return event;
+            }
+            key_up(mac);
+        }
         _ => return event,
     }
     null_mut()

@@ -79,7 +79,7 @@ final class WirelessDisplay {
     private static final int POINTER = 10;
     private static final int CODECS_SENDS_INPUT = 0x80;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
-        IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13;
+        IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final String LOOPBACK = "127.0.0.1";
@@ -881,6 +881,7 @@ final class WirelessDisplay {
 
     /** Under writeLock, on a new connection: the stream starts over from a key frame. */
     private void restartStream() throws IOException {
+        sentInputMode = -1;
         ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
         writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
         byte[] config = lastConfig;
@@ -910,12 +911,45 @@ final class WirelessDisplay {
     }
 
     /** The phone's clipboard to a computer, when it changes: what it had when the session began stays. */
+    /** Whether the computer is looking at the Termux desktop, which takes any text, or at Android apps. */
+    private volatile boolean desktopShown;
+    private volatile int sentInputMode = -1;
+
+    void setDesktopShown(boolean on) {
+        if (on == desktopShown) return;
+        desktopShown = on;
+        if (on) showComputerClipboard();
+    }
+
+    private void sendInputMode() {
+        int mode = desktopShown ? 1 : 0;
+        if (mode == sentInputMode || webLost) return;
+        try {
+            writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);
+            sentInputMode = mode;
+        } catch (IOException e) {
+            Log.i(TAG, "input mode: " + e);
+        }
+    }
+
+    private volatile String computerClipboard;
+
+    private void showComputerClipboard() {
+        final String text = computerClipboard;
+        if (text == null) return;
+        ui.post(() -> {
+            LorieView v = DesktopInput.view();
+            if (v != null) v.setComputerClipboard(text);
+        });
+    }
+
     private void startClipboardSync() {
         if (!inputReceiver) return;
         new Thread(() -> {
             boolean first = true;
             while (running && inputReceiver) {
                 SystemClock.sleep(CLIPBOARD_POLL_MS);
+                sendInputMode();
                 IInjector i = injector;
                 if (i == null || webLost || !clipboardSyncOn()) continue;
                 try {
@@ -1075,6 +1109,8 @@ final class WirelessDisplay {
                                 i.setClipboardText(text);
                             } catch (RemoteException ignored) { }
                         }
+                        computerClipboard = text;
+                        if (desktopShown) showComputerClipboard();
                     } else if (type == ADDRESSES) {
                         receiverAddresses = new String(b, StandardCharsets.UTF_8).split(",");
                     } else if (type == SIZE && size >= 4) {

@@ -26,6 +26,7 @@ const TIME: u8 = 9;
 const ADDRESSES: u8 = 11;
 const CLIPBOARD: u8 = 12;
 const APPS: u8 = 13;
+const INPUT_MODE: u8 = 14;
 const IN_ANDROID: u8 = 27;
 const IN_CHOOSE: u8 = 28;
 const FILE_START: u8 = 29;
@@ -345,6 +346,7 @@ impl Stream {
             BYE => return false,
             CLIPBOARD => crate::clip::set(&String::from_utf8_lossy(p)),
             TIME => crate::stats::time_reply(p),
+            INPUT_MODE if p.len() == 1 => crate::tap::DESKTOP.store(p[0] != 0, Ordering::Relaxed),
             FILE_START => self.file_start(&String::from_utf8_lossy(p)),
             FILE_DATA => self.file_data(p),
             FILE_END => self.file_end(),
@@ -562,6 +564,7 @@ fn connection(mut s: TcpStream, id: &str, name: &str, rx: &Mutex<Receiver<Out>>,
         return;
     }
     *CURRENT.lock().unwrap() = None;
+    crate::tap::DESKTOP.store(false, Ordering::Relaxed);
     STREAMING.store(false, Ordering::Relaxed);
     VIA_USB.store(false, Ordering::Relaxed);
     if ended || USER_ENDED.swap(false, Ordering::Relaxed) {
