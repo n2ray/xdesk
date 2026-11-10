@@ -450,7 +450,7 @@ final class InputInjector {
         if (touching()) {
             if (pressBit == MotionEvent.BUTTON_PRIMARY) finger(MotionEvent.ACTION_MOVE);
             else if (pressBit == MotionEvent.BUTTON_SECONDARY) twoFingers(MotionEvent.ACTION_MOVE, 2);
-            cursor.onCursor((int) x, (int) y);
+            reportCursor();
             return;
         }
         if (pendingButton != 0) {
@@ -458,12 +458,24 @@ final class InputInjector {
             if (Math.abs(x - pendingX) > slop || Math.abs(y - pendingY) > slop) startPendingDrag();
         }
         mouse(inPress() ? MotionEvent.ACTION_MOVE : MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
-        cursor.onCursor((int) x, (int) y);
+        reportCursor();
+    }
+
+    /** A pointer placed from a computer has that computer's own cursor on it: only the others need ours. */
+    private boolean placedFromComputer;
+
+    private void reportCursor() throws ReflectiveOperationException {
+        if (!placedFromComputer) cursor.onCursor((int) x, (int) y);
     }
 
     /** To this place, 0 to 1 across and down. */
     void moveTo(float fx, float fy) throws ReflectiveOperationException, InterruptedException {
-        moveBy(fx * (width - 1) - x, fy * (height - 1) - y);
+        placedFromComputer = true;
+        try {
+            moveBy(fx * (width - 1) - x, fy * (height - 1) - y);
+        } finally {
+            placedFromComputer = false;
+        }
     }
 
     /** @param vertical wheel steps, positive is up. @param horizontal wheel steps, positive is right. */

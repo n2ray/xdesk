@@ -143,7 +143,8 @@ final class AppSession {
                 lastCursorX = x;
                 lastCursorY = y;
                 cursorPolicy.moved(y);
-                if (webPointer) return;
+                // Only what a computer does not place comes here: a touchpad or a mouse on the phone
+                webPointer = false;
                 cursor.moveTo(x, y);
                 updateCursor();
                 scheduleCursorHide();

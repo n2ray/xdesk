@@ -28,6 +28,7 @@ final class ExternalDock {
     private static final float EDGE_DP = 3, ICON_DP = 54, ITEM_GAP_DP = 8, PAD_DP = 10, ROOM_BELOW_DP = 10, RADIUS_DP = 24;
     private static final float HOVER_ZOOM = 1.16f, WIDTH_USED = 0.9f;
     private static final long ZOOM_MS = 110;
+    private static final int MIN_EDGE_PX = 4;
     private static final int PANEL = 0xEB1B1E24, EDGE = 0x33FFFFFF, BUBBLE = 0xF02A2E36, DOT = 0xFFFFFFFF;
 
     private final Context context;
@@ -75,7 +76,7 @@ final class ExternalDock {
             }
             return true;
         });
-        WindowManager.LayoutParams p = params(WindowManager.LayoutParams.MATCH_PARENT, dp(EDGE_DP), "XDesk dock edge");
+        WindowManager.LayoutParams p = params(WindowManager.LayoutParams.MATCH_PARENT, Math.max(MIN_EDGE_PX, dp(EDGE_DP)), "XDesk dock edge");
         try {
             windows.addView(strip, p);
         } catch (RuntimeException e) {

@@ -367,8 +367,9 @@ fn main() -> Result<(), String> {
                     }
                     tap::INSIDE.store(true, Ordering::Relaxed);
                     let (px, py, w, h) = fit(points, picture);
-                    let fx = ((x - px) as f64 / w as f64).clamp(0.0, 1.0);
-                    let fy = ((y - py) as f64 / h as f64).clamp(0.0, 1.0);
+                    // The last point of the window is the last point of the phone's display: its edges must be reachable
+                    let fx = ((x - px) as f64 / (w.max(2) - 1) as f64).clamp(0.0, 1.0);
+                    let fy = ((y - py) as f64 / (h.max(2) - 1) as f64).clamp(0.0, 1.0);
                     out(Out::Abs((fx * 65535.0) as u16, (fy * 65535.0) as u16));
                 }
                 Event::MouseButtonDown { mouse_btn, x, y, .. } => {
