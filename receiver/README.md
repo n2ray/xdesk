@@ -35,8 +35,8 @@ On by default where there is a touch screen; turn it on in the options for a TV 
   Disconnect. Back on this device is Back on the phone; to leave, use Disconnect or go home.
 - Text copied on either side can be pasted on the other, and files sent from the phone with *Send to computer or
   tablet* go to Downloads (on Android 9 and earlier, to this app's own Download folder).
-- Disconnecting here, or leaving the app, ends the stream; otherwise, while XDesk is open on the phone, it connects
-  back by itself when this receiver shows up again.
+- Disconnecting here, or leaving the app, ends the stream; the phone connects here only when you choose this
+  receiver in XDesk, and a Mac plugged into the phone meanwhile does not take the stream over.
 
 ## What is supported
 

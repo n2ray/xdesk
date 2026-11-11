@@ -51,7 +51,7 @@ bytes are an error.
        already capped to what its decoder handles (see below), both even
      - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
      - u16 refresh rate in frames per second, rounded
-     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
+     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 6 with bit 7: not a computer (see below), bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
 4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
    with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
    REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.
@@ -154,7 +154,7 @@ Input goes where the phone's touchpad and keyboard go: the Termux desktop or the
 
 ## XDesk for a computer
 
-A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiver on a device that controls the phone. It sends the input messages of the web display, as well as:
+A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiver on a device that controls the phone. XDesk Receiver also sets bit 6: it is not a computer, so the phone connects to it only when it is chosen, and a computer plugged in over USB while it streams does not take the stream (the phone says so instead). It sends the input messages of the web display, as well as:
 
 | Type | Name | Payload |
 |---|---|---|

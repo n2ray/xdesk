@@ -78,6 +78,8 @@ final class WirelessDisplay {
     /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
     private static final int POINTER = 10;
     private static final int CODECS_SENDS_INPUT = 0x80;
+    /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
+    private static final int CODECS_NOT_COMPUTER = 0x40;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
     private static final int CODEC_H264 = 0x68323634;
@@ -114,6 +116,8 @@ final class WirelessDisplay {
     private volatile boolean running, keyFrameWanted, soundCaptured, web;
     /** The receiver sends a keyboard and mouse as a browser does: XDesk for a computer. Said by bit 7 of its codecs. */
     private volatile boolean inputReceiver;
+    /** An input receiver that is a computer: connected to again by itself, and a cable to it may move the stream there. */
+    private volatile boolean computer;
     /** A new picture size the receiver asked for, taken up by the stream. */
     private volatile int[] resizeTo;
     /** Where a computer can be reached besides the address in use, and where it asked to be reached next. */
@@ -249,6 +253,7 @@ final class WirelessDisplay {
             receiverPort = port;
             web = false;
             inputReceiver = false;
+            computer = false;
             resizeTo = null;
             endReason = null;
             receiverName = shownName;
@@ -707,8 +712,10 @@ final class WirelessDisplay {
                 if (!token.isEmpty()) prefs.edit().putString("token_" + id, token).apply();
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
-                inputReceiver = (in.readUnsignedByte() & CODECS_SENDS_INPUT) != 0;   // H.264 is always there
-                if (inputReceiver) prefs.edit().putString("auto_receiver", id).apply();
+                int codecs = in.readUnsignedByte();   // H.264 is always there
+                inputReceiver = (codecs & CODECS_SENDS_INPUT) != 0;
+                computer = inputReceiver && (codecs & CODECS_NOT_COMPUTER) == 0;
+                if (computer) prefs.edit().putString("auto_receiver", id).apply();
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h, wired());
@@ -991,13 +998,19 @@ final class WirelessDisplay {
 
     /** Main thread. A computer found a cable: to it, keeping the session if it is already streaming there another way. */
     void connectFromComputer(String host, int port, String name) {
-        if (running && inputReceiver) {
+        if (running && computer) {
             if (host.equals(address)) return;
             preferHost = host;
             closeQuietly(socket);
             return;
         }
         if (running && host.equals(address)) return;
+        // Streaming to a tablet, a projector or a browser: a computer that happens to be plugged in does not take it
+        if (running) {
+            Log.i(TAG, "busy with " + receiverName + ", not moving to " + name);
+            message(R.string.xd_wireless_busy, receiverName, name != null ? name : host);
+            return;
+        }
         start(host, port, name);
     }
 
@@ -1096,7 +1109,7 @@ final class WirelessDisplay {
                     }
                     else if (type == BYE) {
                         // Ended from the computer on purpose: not to be connected back by itself
-                        if (inputReceiver) forgetAutoReceiver();
+                        if (computer) forgetAutoReceiver();
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;
                         break;
