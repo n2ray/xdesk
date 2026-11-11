@@ -75,6 +75,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private static final long BAR_OPEN_MS = 6000;
     private Control control;
     private ImeView ime;
+    private TextView modeTool;
+    /** From the phone: the Android app in front takes touches. */
+    private boolean phoneWantsTouch;
+    /** Chosen in the toolbar: true touchpad, false direct touch, null as the phone says. Until the app changes. */
+    private Boolean padOverride;
+    /** This session has told the phone about a real keyboard here. */
+    private boolean layoutSent;
     /** How much of the screen this device's keyboard covers, 0 when it is closed. */
     private int keyboardHeight;
     /** Where on the picture the last touch began, before the keyboard opened: the text box it opened for. */
@@ -151,7 +158,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         ime.setVisibility(View.INVISIBLE);
         root.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
         root.setOnTouchListener((v, e) -> {
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && keyboardHeight == 0) tappedY = e.getY() - view.getTop();
+            // As a touchpad a finger is not where the text box is: the picture then moves up as far as it can
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && keyboardHeight == 0)
+                tappedY = control.touchpad() && e.getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE ? -1 : e.getY() - view.getTop();
             return controlling() && control.onTouch(e);
         });
         root.setOnHoverListener((v, e) -> controlling() && control.onMouse(e));
@@ -206,6 +215,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         tools.setBackground(rounded(0xE61D1D1F, dp(14)));
         tools.setPadding(dp(4), dp(4), dp(4), dp(4));
         tools.addView(tool(R.string.bar_keyboard, v -> showKeyboard()));
+        // Shows the mode a tap switches to
+        modeTool = tool(R.string.bar_direct, v -> {
+            padOverride = !control.touchpad();
+            applyPadMode();
+        });
+        tools.addView(modeTool);
         tools.addView(tool(R.string.bar_back, v -> control.android(Control.ANDROID_BACK)));
         tools.addView(tool(R.string.bar_home, v -> control.android(Control.ANDROID_HOME)));
         tools.addView(tool(R.string.bar_disconnect, v -> {
@@ -290,6 +305,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
      * with V pastes what this device copied, which has gone to the phone already.
      */
     private void typedKey(KeyEvent e, boolean down) {
+        // The first key of a real keyboard: the phone makes its keyboard for it and takes over, as for a computer. Touch
+        // and the soft keyboard alone leave the phone as it is: a projector needs no taking over
+        if (!layoutSent) {
+            layoutSent = true;
+            control.layout(keyboardLayout());
+        }
         int scan = e.getScanCode();
         if (!down) {
             if (!typed.remove(scan)) control.key(scan, false);
@@ -676,7 +697,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     public void streaming() {
         ui.post(() -> {
             state = State.STREAMING;
-            if (receiver.control) control.layout(keyboardLayout());
+            layoutSent = false;
+            padOverride = null;
+            phoneWantsTouch = false;
+            applyPadMode();
             render();
         });
     }
@@ -688,6 +712,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             videoHeight = height;
             fitVideo();
         });
+    }
+
+    @Override
+    public void inputMode(int mode) {
+        ui.post(() -> {
+            boolean touch = mode == 2;
+            if (touch != phoneWantsTouch) padOverride = null;  // another app, or its mode changed on the phone
+            phoneWantsTouch = touch;
+            applyPadMode();
+        });
+    }
+
+    private void applyPadMode() {
+        boolean pad = padOverride != null ? padOverride : !phoneWantsTouch;
+        control.setTouchpad(pad);
+        modeTool.setText(pad ? R.string.bar_direct : R.string.bar_touchpad);
     }
 
     @Override

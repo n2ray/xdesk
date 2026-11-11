@@ -147,7 +147,7 @@ display sends:
 | 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
 | 23 | KEY | u16 Linux input key code, u8 down |
 | 24 | TEXT | UTF-8 text typed on a keyboard or from an input method, at most 4096 bytes. The phone types it with the keyboard of the LAYOUT sent, so the phone's input method sees keys |
-| 26 | LAYOUT | US-ASCII: de, fr, it, es, gb or us. The phone makes a keyboard of that layout in its kernel for this receiver and takes over; sent when streaming begins, and again when the layout is found out better |
+| 26 | LAYOUT | US-ASCII: de, fr, it, es, gb or us. The phone makes a keyboard of that layout in its kernel for this receiver and takes over; a browser sends it when it connects, XDesk Receiver at the first key of a real keyboard |
 | 10 | POINTER | Phone → browser. u8 1: the phone's touchpad took the pointer, the page hides the computer's until that moves |
 | 9 | TIME | With `?debug`, and from a computer.  8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
 
@@ -162,7 +162,7 @@ A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiv
 | 11 | ADDRESSES | Receiver → phone. UTF-8, comma-separated IPv4 addresses where this receiver can also be reached |
 | 12 | CLIPBOARD | Both ways. The clipboard as UTF-8 text, at most 256 KiB, when it changes |
 | 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
-| 14 | INPUT_MODE | Phone → computer. u8: 1 the Termux desktop is showing, 0 Android apps |
+| 14 | INPUT_MODE | Phone → receiver. u8: 1 the Termux desktop is showing, 0 Android apps, 2 (only to XDesk Receiver) an Android app that takes touches rather than a mouse. XDesk Receiver works as a touchpad with the phone's cursor unless it is 2 |
 | 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
 | 28 | CHOOSE | Receiver → phone. A key from APPS |
 | 32 | PASTE | Receiver → phone. UTF-8 text the receiver's own input method finished (XDesk Receiver's soft keyboard), at most 4096 bytes. It goes in as it is, past the phone's input method: Android apps get it through the clipboard and Ctrl+V, the Termux desktop as text |

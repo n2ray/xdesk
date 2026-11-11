@@ -29,7 +29,7 @@ final class Session extends Thread implements Video.Listener {
     private static final int PROTOCOL = 2, NONCE_LENGTH = 64;
     // Message types
     static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
+            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
     /** Codecs bit 7: this receiver sends input as the web display does, and takes the clipboard and files. Bit 6 with
      *  it: not a computer, the phone connects here only when chosen and a computer's cable does not take the stream */
     private static final int SENDS_INPUT = 0x80, NOT_COMPUTER = 0x40, MAX_CLIPBOARD = 256 * 1024;
@@ -265,6 +265,15 @@ final class Session extends Thread implements Video.Listener {
                         if (n > abuf.length) abuf = new byte[n];
                         in.readFully(abuf, 0, n);
                         if (audio != null) audio.write(abuf, 0, n);
+                        break;
+                    }
+                    case INPUT_MODE: {
+                        if (len != 1) {
+                            skip(len);
+                            break;
+                        }
+                        int mode = in.readUnsignedByte();
+                        if (control && r.isActive(this)) r.ui.inputMode(mode);
                         break;
                     }
                     case CLIPBOARD: {

@@ -929,6 +929,13 @@ final class WirelessDisplay {
     private volatile boolean desktopShown;
     private volatile int sentInputMode = -1;
 
+    /** The Android app on the display takes touches, not a mouse: a tablet receiver then passes fingers on, not a touchpad. */
+    private volatile boolean touchMode;
+
+    void setTouchMode(boolean on) {
+        touchMode = on;
+    }
+
     void setDesktopShown(boolean on) {
         if (on == desktopShown) return;
         desktopShown = on;
@@ -936,7 +943,8 @@ final class WirelessDisplay {
     }
 
     private void sendInputMode() {
-        int mode = desktopShown ? 1 : 0;
+        // A computer knows 0 and 1, and takes anything else as the desktop
+        int mode = desktopShown ? 1 : touchMode && !computer ? 2 : 0;
         if (mode == sentInputMode || webLost) return;
         try {
             writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);

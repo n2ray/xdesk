@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
  * two-finger tap is a right click and two fingers scroll. A mouse points where it is on the picture.
  */
 final class Control {
-    static final int BUTTON = 21, SCROLL = 22, KEY = 23, TEXT = 24, POSITION = 25, LAYOUT = 26, ANDROID = 27, PASTE = 32;
+    static final int MOVE = 20, BUTTON = 21, SCROLL = 22, KEY = 23, TEXT = 24, POSITION = 25, LAYOUT = 26, ANDROID = 27, PASTE = 32;
     static final int LEFT = 1, RIGHT = 3;
     static final int ANDROID_BACK = 1, ANDROID_HOME = 2;
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103, SCAN_LEFT = 105,
@@ -57,6 +57,7 @@ final class Control {
     /** A touch on the screen, or a mouse with a button down. */
     boolean onTouch(MotionEvent e) {
         if (e.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) return onMouse(e);
+        if (touchpad) return onPad(e);
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = e.getX();
@@ -138,6 +139,137 @@ final class Control {
         midY = y;
     }
 
+    // Touchpad: what the phone's touchpad does, on this whole screen
+    private static final long TAP_MS = 220, LONG_PRESS_MS = 350, TAP_DRAG_WINDOW_MS = 250;
+    private static final float TAP_SLOP_DP = 8, BASE_GAIN = 1.3f, ACCEL_PER_DP = 0.09f, MAX_GAIN = 5f;
+    /** Fingers move the phone's cursor rather than touching where they are: in mouse mode and on the Linux desktop. */
+    private boolean touchpad = true;
+    private float padLastX, padLastY, travel, restX, restY, padScrollX, padScrollY;
+    private long padDownAt, lastTapUp;
+    private int maxPointers;
+    private boolean padDragging;
+    private final Runnable padLongPress = () -> {
+        if (travel < TAP_SLOP_DP && maxPointers == 1) startPadDrag();
+    };
+
+    void setTouchpad(boolean on) {
+        if (on == touchpad) return;
+        release();
+        touchpad = on;
+    }
+
+    boolean touchpad() {
+        return touchpad;
+    }
+
+    private float density() {
+        return picture.getResources().getDisplayMetrics().density;
+    }
+
+    private void startPadDrag() {
+        padDragging = true;
+        picture.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        button(LEFT, true);
+    }
+
+    private void stopPadDrag() {
+        if (padDragging) button(LEFT, false);
+        padDragging = false;
+    }
+
+    private static float avgX(MotionEvent e) {
+        float s = 0;
+        for (int i = 0; i < e.getPointerCount(); i++) s += e.getX(i);
+        return s / e.getPointerCount();
+    }
+
+    private static float avgY(MotionEvent e) {
+        float s = 0;
+        for (int i = 0; i < e.getPointerCount(); i++) s += e.getY(i);
+        return s / e.getPointerCount();
+    }
+
+    private boolean onPad(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                padDownAt = e.getEventTime();
+                maxPointers = 1;
+                travel = padScrollX = padScrollY = restX = restY = 0;
+                padLastX = e.getX();
+                padLastY = e.getY();
+                if (e.getEventTime() - lastTapUp < TAP_DRAG_WINDOW_MS) startPadDrag();
+                else ui.postDelayed(padLongPress, LONG_PRESS_MS);
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                ui.removeCallbacks(padLongPress);
+                stopPadDrag();
+                maxPointers = Math.max(maxPointers, e.getPointerCount());
+                padLastX = avgX(e);
+                padLastY = avgY(e);
+                break;
+            case MotionEvent.ACTION_POINTER_UP:
+                // The average of the fingers jumps: the next move starts again from where they are
+                padLastX = Float.NaN;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                padMove(e);
+                break;
+            case MotionEvent.ACTION_UP:
+                ui.removeCallbacks(padLongPress);
+                if (padDragging) {
+                    stopPadDrag();
+                } else if (e.getEventTime() - padDownAt < TAP_MS && travel < TAP_SLOP_DP) {
+                    click(maxPointers == 1 ? LEFT : maxPointers == 2 ? RIGHT : 2);
+                    lastTapUp = maxPointers == 1 ? e.getEventTime() : 0;
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                ui.removeCallbacks(padLongPress);
+                stopPadDrag();
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
+
+    private void padMove(MotionEvent e) {
+        float x = avgX(e), y = avgY(e);
+        if (Float.isNaN(padLastX)) {
+            padLastX = x;
+            padLastY = y;
+            return;
+        }
+        float d = density();
+        float dx = (x - padLastX) / d, dy = (y - padLastY) / d;
+        padLastX = x;
+        padLastY = y;
+        travel += Math.abs(dx) + Math.abs(dy);
+        if (travel >= TAP_SLOP_DP) ui.removeCallbacks(padLongPress);
+        if (maxPointers == 1) {
+            float gain = Math.min(MAX_GAIN, BASE_GAIN + ACCEL_PER_DP * (float) Math.hypot(dx, dy));
+            restX += dx * gain;
+            restY += dy * gain;
+            int ix = (int) restX, iy = (int) restY;
+            if (ix != 0 || iy != 0) {
+                restX -= ix;
+                restY -= iy;
+                move(ix, iy);
+            }
+        } else if (e.getPointerCount() == 2) {
+            // Natural scrolling: fingers up move the page up, the wheel turns down
+            float step = scrollStep / d;
+            padScrollY -= dy;
+            padScrollX -= dx;
+            int ty = (int) (padScrollY / step), tx = (int) (padScrollX / step);
+            if (ty != 0 || tx != 0) {
+                padScrollY -= ty * step;
+                padScrollX -= tx * step;
+                scroll(ty, tx);
+            }
+        }
+    }
+
     /** Hover, wheel and buttons of a mouse; touches with a mouse come here from onTouch too. */
     boolean onMouse(MotionEvent e) {
         int a = e.getActionMasked();
@@ -174,6 +306,8 @@ final class Control {
     /** Whatever is still held goes up, as when the session ends or the window loses focus. */
     void release() {
         ui.removeCallbacks(longPressed_);
+        ui.removeCallbacks(padLongPress);
+        stopPadDrag();
         if (dragging) button(LEFT, false);
         dragging = false;
         buttons(0);
@@ -189,6 +323,11 @@ final class Control {
         float fy = Math.max(0, Math.min(1, (y - picture.getTop()) / (h - 1)));
         int px = Math.round(fx * 65535), py = Math.round(fy * 65535);
         r.send(POSITION, new byte[] { (byte) (px >> 8), (byte) px, (byte) (py >> 8), (byte) py });
+    }
+
+    /** Relative, in the phone display's pixels, as the phone's touchpad moves the cursor. */
+    void move(int dx, int dy) {
+        r.send(MOVE, new byte[] { (byte) (dx >> 8), (byte) dx, (byte) (dy >> 8), (byte) dy });
     }
 
     void button(int b, boolean down) {
@@ -226,8 +365,8 @@ final class Control {
     }
 
     /**
-     * Sent when streaming begins, as a browser does: the phone then makes a keyboard of its own in its kernel for this
-     * device, takes over, and types what comes here with it. de, fr, it, es, gb or us.
+     * Sent at the first key of a real keyboard: the phone then makes a keyboard of its own in its kernel for this device,
+     * takes over, and types what comes here with it, as for a computer. de, fr, it, es, gb or us.
      */
     void layout(String l) {
         r.send(LAYOUT, l.getBytes(StandardCharsets.US_ASCII));

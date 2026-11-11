@@ -47,6 +47,9 @@ final class Receiver {
 
         /** The phone's clipboard, when it changes. Only while this device controls the phone. */
         void clipboard(String text);
+
+        /** What is in front on the phone's display: 1 the Linux desktop, 0 an Android app, 2 an Android app in touch mode. */
+        void inputMode(int mode);
     }
 
     final Store store;
