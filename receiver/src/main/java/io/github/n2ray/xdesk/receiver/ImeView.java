@@ -25,6 +25,8 @@ import android.widget.TextView;
 final class ImeView extends TextView {
     /** How much of what was sent stays in the strip. */
     private static final int SHOWN = 60;
+    /** What the input method may see before the cursor. */
+    private static final int CONTEXT = 64;
 
     private final Control control;
     private final StringBuilder sent = new StringBuilder();
@@ -123,6 +125,23 @@ final class ImeView extends TextView {
     private final class Connection extends BaseInputConnection {
         Connection() {
             super(ImeView.this, false);
+        }
+
+        /**
+         * Input methods only delete, and keep deleting while Delete is held, when they see text before the cursor. The
+         * text box is on the phone, so they get what was sent, and spaces before it: there may be more there.
+         */
+        @Override
+        public CharSequence getTextBeforeCursor(int n, int flags) {
+            n = Math.max(0, Math.min(n, CONTEXT));
+            StringBuilder s = new StringBuilder(sent.length() >= n ? sent.substring(sent.length() - n) : sent);
+            while (s.length() < n) s.insert(0, ' ');
+            return s;
+        }
+
+        @Override
+        public CharSequence getTextAfterCursor(int n, int flags) {
+            return "";
         }
 
         @Override
