@@ -310,7 +310,7 @@
     <string name="xd_wireless_busy">%1$s 正在显示另一台手机</string>
     <string name="xd_wireless_version">%1$s 和这个 XDesk 的版本不匹配，请都更新到最新版</string>
     <string name="xd_wireless_refused">%1$s 拒绝了连接：配对码错太多次。重新连接会显示新的配对码</string>
-    <string name="xd_wireless_busy">正在投到 %1$s。要换到 %2$s，先断开，再重新插一次线</string>
+    <string name="xd_wireless_in_use">正在投到 %1$s。要换到 %2$s，先断开，再重新插一次线</string>
     <string name="xd_wireless_closed">%1$s 上的 XDesk 接收器关掉了</string>
     <string name="xd_wireless_no_display">无法创建接收器的显示器：%1$s</string>
     <string name="xd_wireless_no_sound">声音留在手机上：%1$s</string>

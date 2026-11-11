@@ -331,7 +331,7 @@
     <string name="xd_wireless_busy">%1$s is showing another phone</string>
     <string name="xd_wireless_version">%1$s and this XDesk do not match. Update both to the latest version</string>
     <string name="xd_wireless_refused">%1$s refused: too many wrong codes. Connect again for a new code</string>
-    <string name="xd_wireless_busy">Showing on %1$s. To use %2$s, disconnect first and plug the cable in again</string>
+    <string name="xd_wireless_in_use">Showing on %1$s. To use %2$s, disconnect first and plug the cable in again</string>
     <string name="xd_wireless_closed">XDesk Receiver on %1$s was closed</string>
     <string name="xd_wireless_no_display">Can\'t create the display for the receiver: %1$s</string>
     <string name="xd_wireless_no_sound">Sound stays on the phone: %1$s</string>

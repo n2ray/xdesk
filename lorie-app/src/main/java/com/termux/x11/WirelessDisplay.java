@@ -1008,7 +1008,7 @@ final class WirelessDisplay {
         // Streaming to a tablet, a projector or a browser: a computer that happens to be plugged in does not take it
         if (running) {
             Log.i(TAG, "busy with " + receiverName + ", not moving to " + name);
-            message(R.string.xd_wireless_busy, receiverName, name != null ? name : host);
+            message(R.string.xd_wireless_in_use, receiverName, name != null ? name : host);
             return;
         }
         start(host, port, name);
