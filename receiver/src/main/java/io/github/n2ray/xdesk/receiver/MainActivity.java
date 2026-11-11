@@ -77,7 +77,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private ImeView ime;
     /** How much of the screen this device's keyboard covers, 0 when it is closed. */
     private int keyboardHeight;
-    private static final int STRIP_DP = 44, STRIP_GAP_DP = 8;
+    /** Where on the picture the last touch began, before the keyboard opened: the text box it opened for. */
+    private float tappedY = -1;
+    private static final int STRIP_DP = 44, STRIP_GAP_DP = 8, TEXT_ROOM_DP = 28;
     private LinearLayout bar, tools;
     private ClipboardManager clipboard;
     private String clipFromPhone;
@@ -148,7 +150,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         root.addView(ime, ip);
         ime.setVisibility(View.INVISIBLE);
         root.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
-        root.setOnTouchListener((v, e) -> controlling() && control.onTouch(e));
+        root.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && keyboardHeight == 0) tappedY = e.getY() - view.getTop();
+            return controlling() && control.onTouch(e);
+        });
         root.setOnHoverListener((v, e) -> controlling() && control.onMouse(e));
         root.setOnGenericMotionListener((v, e) -> controlling() && e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
                 && control.onMouse(e));
@@ -597,12 +602,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
 
     private void fitVideo() {
         int sw = root.getWidth(), sh = root.getHeight();
-        // With the keyboard open the typing strip sits on it and the whole picture fits above, so the text box stays in view
+        // With the keyboard open the typing strip sits on it. The picture keeps its size and moves up, as Android's own
+        // adjustPan, until the place tapped for the text box is above the strip; it stays where it was if that is already so
+        int stripTop = sh;
         if (keyboardHeight > 0) {
-            int strip = dp(STRIP_DP + 2 * STRIP_GAP_DP);
-            sh -= keyboardHeight + strip;
+            stripTop = Math.max(0, sh - keyboardHeight - dp(STRIP_DP + STRIP_GAP_DP));
             FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ime.getLayoutParams();
-            ip.topMargin = Math.max(0, sh) + dp(STRIP_GAP_DP);
+            ip.topMargin = stripTop;
             ime.setLayoutParams(ip);
         }
         FrameLayout.LayoutParams lp;
@@ -612,9 +618,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             float scale = Math.min((float) sw / videoWidth, (float) sh / videoHeight);
             lp = new FrameLayout.LayoutParams(Math.round(videoWidth * scale), Math.round(videoHeight * scale),
                     Gravity.CENTER_HORIZONTAL | Gravity.TOP);
-            int free = sh - Math.round(videoHeight * scale);
-            // On the strip while typing, where the text box usually is; centred otherwise
-            lp.topMargin = keyboardHeight > 0 ? free : free / 2;
+            int h = Math.round(videoHeight * scale);
+            int top = (sh - h) / 2;
+            if (keyboardHeight > 0) {
+                // The text box with a little room under it; a tap unknown counts as the bottom of the picture
+                float at = tappedY >= 0 && tappedY <= h ? tappedY : h;
+                int wanted = stripTop - dp(STRIP_GAP_DP) - dp(TEXT_ROOM_DP);
+                int shift = Math.round(top + at - wanted);
+                if (shift > 0) top -= Math.min(shift, top + h - (stripTop - dp(STRIP_GAP_DP)));
+            }
+            lp.topMargin = top;
         }
         view.setLayoutParams(lp);
     }
