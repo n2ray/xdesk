@@ -92,19 +92,23 @@ final class TaskMover {
      * Removes the app's tasks like swiping them away from recent tasks. Only when that is not available it force stops
      * the app, which is harsher but also closes it.
      */
+    /** @param pkg a package, with "@<user>" for only that user's tasks (a dual app or the original beside it) */
     static String closeApp(String pkg) {
+        int at = pkg.lastIndexOf('@');
+        int user = at < 0 ? -1 : Integer.parseInt(pkg.substring(at + 1));
+        if (at >= 0) pkg = pkg.substring(0, at);
         try {
             Object atm = taskManager();
             List<?> infos = (List<?>) atm.getClass().getMethod("getAllRootTaskInfos").invoke(atm);
             Method remove = atm.getClass().getMethod("removeTask", int.class);
             for (Object info : infos) {
-                if (belongsTo(info, pkg)) remove.invoke(atm, info.getClass().getField("taskId").getInt(info));
+                if (belongsTo(info, pkg) && (user < 0 || info.getClass().getField("userId").getInt(info) == user)) remove.invoke(atm, info.getClass().getField("taskId").getInt(info));
             }
             return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.i(TAG, "removeTask failed, force stopping: " + e);
         }
-        String[] r = InjectorService.exec(AM_TIMEOUT_MS, "/system/bin/am", "force-stop", pkg);
+        String[] r = InjectorService.exec(AM_TIMEOUT_MS, "/system/bin/am", "force-stop", "--user", user < 0 ? "all" : String.valueOf(user), pkg);
         return r[0];
     }
 

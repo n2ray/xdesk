@@ -78,8 +78,16 @@ final class WirelessDisplay {
     /** Web only: u8 1 when the phone's touchpad took the pointer, so that the page hides the computer's. */
     private static final int POINTER = 10;
     private static final int CODECS_SENDS_INPUT = 0x80;
+    /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
+    private static final int CODECS_NOT_COMPUTER = 0x40;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
+    /** Phone → XDesk Receiver: u16 where the input method begins, 0 to 65535 down the picture; 65535 while it is not showing. */
+    private static final int IME_AREA = 15;
+    private static final int IME_NONE = 0xFFFF;
+    /** After a tap: when to look whether it opened the input method; while it shows, how often to look whether it went. */
+    private static final long[] IME_CHECKS_MS = {300, 900, 1800};
+    private static final long IME_WATCH_MS = 1000;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final String LOOPBACK = "127.0.0.1";
@@ -114,6 +122,8 @@ final class WirelessDisplay {
     private volatile boolean running, keyFrameWanted, soundCaptured, web;
     /** The receiver sends a keyboard and mouse as a browser does: XDesk for a computer. Said by bit 7 of its codecs. */
     private volatile boolean inputReceiver;
+    /** An input receiver that is a computer: connected to again by itself, and a cable to it may move the stream there. */
+    private volatile boolean computer;
     /** A new picture size the receiver asked for, taken up by the stream. */
     private volatile int[] resizeTo;
     /** Where a computer can be reached besides the address in use, and where it asked to be reached next. */
@@ -249,6 +259,7 @@ final class WirelessDisplay {
             receiverPort = port;
             web = false;
             inputReceiver = false;
+            computer = false;
             resizeTo = null;
             endReason = null;
             receiverName = shownName;
@@ -510,6 +521,7 @@ final class WirelessDisplay {
                 if (b.length < 2) return;
                 final int button = b[0] & 0xff;
                 final boolean down = b[1] != 0;
+                if (!down && inputReceiver && !computer) imeCheckSoon();
                 if (button < 1 || button > 3) return;
                 r = () -> {
                     if (down) webButtons.add(button); else webButtons.remove(button);
@@ -707,8 +719,10 @@ final class WirelessDisplay {
                 if (!token.isEmpty()) prefs.edit().putString("token_" + id, token).apply();
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
-                inputReceiver = (in.readUnsignedByte() & CODECS_SENDS_INPUT) != 0;   // H.264 is always there
-                if (inputReceiver) prefs.edit().putString("auto_receiver", id).apply();
+                int codecs = in.readUnsignedByte();   // H.264 is always there
+                inputReceiver = (codecs & CODECS_SENDS_INPUT) != 0;
+                computer = inputReceiver && (codecs & CODECS_NOT_COMPUTER) == 0;
+                if (computer) prefs.edit().putString("auto_receiver", id).apply();
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h, wired());
@@ -915,6 +929,59 @@ final class WirelessDisplay {
     private volatile boolean desktopShown;
     private volatile int sentInputMode = -1;
 
+    // Where the phone's input method is on a tablet's picture: there a tablet touches the keys, elsewhere it may be a
+    // touchpad. Android says nothing about it, so a tap is followed by a few looks, and while it shows it is looked at
+    // every second. dumpsys is not cheap, hence not all the time
+    private volatile int imeSent = -1;
+    private android.os.Handler imeWatch;
+    private final Runnable imeCheck = this::checkIme;
+
+    private synchronized android.os.Handler imeWatch() {
+        if (imeWatch == null) {
+            android.os.HandlerThread t = new android.os.HandlerThread("xdesk-ime");
+            t.start();
+            imeWatch = new android.os.Handler(t.getLooper());
+        }
+        return imeWatch;
+    }
+
+    private void imeCheckSoon() {
+        android.os.Handler h = imeWatch();
+        h.removeCallbacks(imeCheck);
+        for (long ms : IME_CHECKS_MS) h.postDelayed(imeCheck, ms);
+    }
+
+    private void checkIme() {
+        IInjector i = injector;
+        int h = streamHeight, id = displayId;
+        if (i == null || h <= 0 || state != STREAMING || webLost) return;
+        int area = IME_NONE;
+        try {
+            int top = i.imeTop(id);
+            if (top >= 0 && top < h) area = (int) ((long) top * 65535 / h);
+        } catch (RemoteException e) {
+            return;
+        }
+        if (area != IME_NONE) {
+            imeWatch().removeCallbacks(imeCheck);
+            imeWatch().postDelayed(imeCheck, IME_WATCH_MS);
+        }
+        if (area == imeSent) return;
+        try {
+            writeMessage(IME_AREA, new byte[]{(byte) (area >> 8), (byte) area}, 0, 2);
+            imeSent = area;
+        } catch (IOException e) {
+            Log.i(TAG, "input method area: " + e);
+        }
+    }
+
+    /** The Android app on the display takes touches, not a mouse: a tablet receiver then passes fingers on, not a touchpad. */
+    private volatile boolean touchMode;
+
+    void setTouchMode(boolean on) {
+        touchMode = on;
+    }
+
     void setDesktopShown(boolean on) {
         if (on == desktopShown) return;
         desktopShown = on;
@@ -922,7 +989,8 @@ final class WirelessDisplay {
     }
 
     private void sendInputMode() {
-        int mode = desktopShown ? 1 : 0;
+        // A computer knows 0 and 1, and takes anything else as the desktop
+        int mode = desktopShown ? 1 : touchMode && !computer ? 2 : 0;
         if (mode == sentInputMode || webLost) return;
         try {
             writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);
@@ -991,13 +1059,19 @@ final class WirelessDisplay {
 
     /** Main thread. A computer found a cable: to it, keeping the session if it is already streaming there another way. */
     void connectFromComputer(String host, int port, String name) {
-        if (running && inputReceiver) {
+        if (running && computer) {
             if (host.equals(address)) return;
             preferHost = host;
             closeQuietly(socket);
             return;
         }
         if (running && host.equals(address)) return;
+        // Streaming to a tablet, a projector or a browser: a computer that happens to be plugged in does not take it
+        if (running) {
+            Log.i(TAG, "busy with " + receiverName + ", not moving to " + name);
+            message(R.string.xd_wireless_in_use, receiverName, name != null ? name : host);
+            return;
+        }
         start(host, port, name);
     }
 
@@ -1096,7 +1170,7 @@ final class WirelessDisplay {
                     }
                     else if (type == BYE) {
                         // Ended from the computer on purpose: not to be connected back by itself
-                        if (inputReceiver) forgetAutoReceiver();
+                        if (computer) forgetAutoReceiver();
                         message(R.string.xd_wireless_closed, receiverName);
                         running = false;
                         break;
@@ -1210,6 +1284,10 @@ final class WirelessDisplay {
                 running = false;
                 return false;
             }
+            // A tablet or phone is touched where it shows the picture: the phone's input method opens there too, under the
+            // finger, with its own languages. The session gives the policy back when it ends
+            if (inputReceiver && !computer) i.setImeOnDisplay(id, true);
+            imeSent = -1;
             displayId = id;
             Log.i(TAG, "display " + id + ", " + width + "x" + height + " " + dpi + " dpi, receiver " + receiverDpi + " dpi");
             synchronized (soundLock) {

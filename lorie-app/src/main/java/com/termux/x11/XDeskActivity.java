@@ -1639,6 +1639,7 @@ public class XDeskActivity extends Activity {
      */
     private void applyInputMode() {
         boolean touch = apps.isActive() && apps.isTouchMode();
+        if (wireless != null) wireless.setTouchMode(touch);
         if (!touch) directTouch.cancel();
         directTouch.setVisibility(touch ? View.VISIBLE : View.GONE);
         touchpad.setVisibility(touch ? View.GONE : View.VISIBLE);

@@ -1,8 +1,8 @@
 # XDesk wireless display protocol, version 1
 
 XDesk on the phone (the sender) streams one of its displays to XDesk Receiver on another device (a phone without
-video output, a projector, a TV box) over the local network. The receiver only shows the picture and plays the sound;
-all input stays on the phone.
+video output, a projector, a TV box) over the local network. The receiver shows the picture and plays the sound;
+with a touch screen, mouse or keyboard it can also send input, as XDesk for a computer does (see below).
 
 ## Discovery
 
@@ -51,7 +51,7 @@ bytes are an error.
        already capped to what its decoder handles (see below), both even
      - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
      - u16 refresh rate in frames per second, rounded
-     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
+     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 6 with bit 7: not a computer (see below), bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
 4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
    with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
    REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.
@@ -154,14 +154,15 @@ Input goes where the phone's touchpad and keyboard go: the Termux desktop or the
 
 ## XDesk for a computer
 
-A receiver with bit 7 of its codecs set is XDesk for a computer. It sends the input messages of the web display, as well as:
+A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiver on a device that controls the phone. XDesk Receiver also sets bit 6: it is not a computer, so the phone connects to it only when it is chosen, and a computer plugged in over USB while it streams does not take the stream (the phone says so instead). It sends the input messages of the web display, as well as:
 
 | Type | Name | Payload |
 |---|---|---|
 | 11 | ADDRESSES | Receiver → phone. UTF-8, comma-separated IPv4 addresses where this receiver can also be reached |
 | 12 | CLIPBOARD | Both ways. The clipboard as UTF-8 text, at most 256 KiB, when it changes |
 | 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
-| 14 | INPUT_MODE | Phone → computer. u8: 1 the Termux desktop is showing, 0 Android apps |
+| 14 | INPUT_MODE | Phone → receiver. u8: 1 the Termux desktop is showing, 0 Android apps, 2 (only to XDesk Receiver) an Android app that takes touches rather than a mouse. XDesk Receiver works as a touchpad with the phone's cursor unless it is 2 |
+| 15 | IME_AREA | Phone → XDesk Receiver. u16: where the phone's input method begins, 0 to 65535 down the picture, 65535 while it is not showing. Looked at after taps and every second while it shows. There the receiver presses where the finger is, also as a touchpad |
 | 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
 | 28 | CHOOSE | Receiver → phone. A key from APPS |
 | 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Both ways. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads. An empty name drops what came of the file so far |

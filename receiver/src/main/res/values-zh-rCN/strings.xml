@@ -16,4 +16,15 @@
     <string name="forgotten">已忘记所有配对的手机，下次连接要重新输入配对码。</string>
     <string name="ok">确定</string>
     <string name="cancel">取消</string>
+    <string name="menu_control_on">用这台设备操作手机</string>
+    <string name="menu_control_off">不再用这台设备操作手机</string>
+    <string name="control_on">下次连接时，这台设备的触屏、鼠标和键盘可以操作手机</string>
+    <string name="control_off">下次连接时只显示画面，不操作手机</string>
+    <string name="bar_keyboard">键盘</string>
+    <string name="bar_touchpad">触摸板</string>
+    <string name="bar_direct">直接点</string>
+    <string name="bar_back">返回</string>
+    <string name="bar_home">主页</string>
+    <string name="bar_disconnect">断开</string>
+    <string name="file_saved">已保存到 %1$s</string>
 </resources>

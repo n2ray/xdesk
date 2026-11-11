@@ -11,9 +11,14 @@ import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
+import android.os.UserHandle;
+import android.os.UserManager;
+import android.content.pm.LauncherActivityInfo;
+import android.content.pm.LauncherApps;
 import android.util.Log;
 import android.util.LruCache;
 import android.widget.ImageView;
+import com.termux.x11.app.R;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -31,15 +36,41 @@ import java.util.concurrent.Executors;
 final class AppCatalog {
     static final class App {
         final String label, packageName, activityName;
+        /** The user it is installed in: one of XDesk's own profiles (a dual app, a work profile), or OWN_USER. */
+        final int user;
 
         App(String label, String packageName, String activityName) {
+            this(label, packageName, activityName, OWN_USER);
+        }
+
+        App(String label, String packageName, String activityName, int user) {
             this.label = label;
             this.packageName = packageName;
             this.activityName = activityName;
+            this.user = user;
         }
 
+        /** Its key everywhere, docks and recent lists included: "package/activity", with "@<user>" for another profile. */
         String component() {
+            return user == OWN_USER ? flat() : flat() + "@" + user;
+        }
+
+        /** Without the user, as ComponentName.flattenToString. */
+        String flat() {
             return packageName + "/" + activityName;
+        }
+
+        /** For the injector's closeApp: only this user's tasks. */
+        String packageInUser() {
+            return packageName + "@" + (user == OWN_USER ? Process.myUserHandle().hashCode() : user);
+        }
+
+        boolean inOtherProfile() {
+            return user != OWN_USER;
+        }
+
+        UserHandle userHandle() {
+            return user == OWN_USER ? Process.myUserHandle() : UserHandle.getUserHandleForUid(user * PER_USER_RANGE);
         }
 
         /** 不分大小写，按名字和包名。 */
@@ -48,6 +79,9 @@ final class AppCatalog {
         }
     }
 
+    static final int OWN_USER = -1;
+    /** UserHandle.PER_USER_RANGE, hidden. */
+    private static final int PER_USER_RANGE = 100000;
     private static final String TAG = "XDesk";
     private static final String CACHE_FILE = "apps.txt", FIELD = "\t";
     private static final float ICON_DP = 40;
@@ -123,9 +157,34 @@ final class AppCatalog {
             if (context.getPackageName().equals(ri.activityInfo.packageName)) continue;
             out.add(new App(String.valueOf(ri.loadLabel(pm)), ri.activityInfo.packageName, ri.activityInfo.name));
         }
+        addOtherProfiles(out);
         final Collator collator = Collator.getInstance();
         Collections.sort(out, (a, b) -> collator.compare(a.label, b.label));
         return out;
+    }
+
+    /**
+     * Apps in XDesk's other profiles: HyperOS's dual apps are a clone profile (user 999), and a work profile is one too.
+     * Shown as "label (dual)", next to the original. The injector starts them with am start --user, XDesk itself through LauncherApps.
+     */
+    private void addOtherProfiles(List<App> out) {
+        try {
+            UserManager um = context.getSystemService(UserManager.class);
+            LauncherApps la = context.getSystemService(LauncherApps.class);
+            UserHandle me = Process.myUserHandle();
+            for (UserHandle u : um.getUserProfiles()) {
+                if (u.equals(me)) continue;
+                int id = u.hashCode();
+                for (LauncherActivityInfo info : la.getActivityList(null, u)) {
+                    ComponentName cn = info.getComponentName();
+                    if (context.getPackageName().equals(cn.getPackageName())) continue;
+                    String label = context.getString(R.string.xd_app_other_profile, String.valueOf(info.getLabel()));
+                    out.add(new App(label, cn.getPackageName(), cn.getClassName(), id));
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "other profiles", e);
+        }
     }
 
     private List<App> readCache() {
@@ -135,6 +194,7 @@ final class AppCatalog {
             for (String line : Files.readAllLines(cacheFile.toPath(), StandardCharsets.UTF_8)) {
                 String[] f = line.split(FIELD);
                 if (f.length == 3) out.add(new App(f[0], f[1], f[2]));
+                else if (f.length == 4) out.add(new App(f[0], f[1], f[2], Integer.parseInt(f[3])));
             }
         } catch (Exception e) {
             Log.w(TAG, "app cache", e);
@@ -144,7 +204,11 @@ final class AppCatalog {
 
     private void writeCache(List<App> list) {
         StringBuilder s = new StringBuilder();
-        for (App a : list) s.append(a.label.replace('\t', ' ').replace('\n', ' ')).append(FIELD).append(a.packageName).append(FIELD).append(a.activityName).append('\n');
+        for (App a : list) {
+            s.append(a.label.replace('\t', ' ').replace('\n', ' ')).append(FIELD).append(a.packageName).append(FIELD).append(a.activityName);
+            if (a.inOtherProfile()) s.append(FIELD).append(a.user);
+            s.append('\n');
+        }
         try {
             Files.write(cacheFile.toPath(), s.toString().getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
@@ -158,7 +222,8 @@ final class AppCatalog {
         Bitmap b = icons.get(key);
         if (b != null) return b;
         try {
-            Drawable d = pm.getActivityIcon(new ComponentName(a.packageName, a.activityName));
+            Drawable d = a.inOtherProfile() ? otherProfileIcon(a) : pm.getActivityIcon(new ComponentName(a.packageName, a.activityName));
+            if (d == null) return null;
             b = Bitmap.createBitmap(iconSize, iconSize, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(b);
             d.setBounds(0, 0, iconSize, iconSize);
@@ -168,6 +233,15 @@ final class AppCatalog {
         } catch (PackageManager.NameNotFoundException | RuntimeException e) {
             return null;
         }
+    }
+
+    /** With the profile's badge, as the launcher shows it. */
+    private Drawable otherProfileIcon(App a) {
+        LauncherApps la = context.getSystemService(LauncherApps.class);
+        for (LauncherActivityInfo info : la.getActivityList(a.packageName, a.userHandle())) {
+            if (info.getComponentName().getClassName().equals(a.activityName)) return info.getBadgedIcon(0);
+        }
+        return null;
     }
 
     void showIcon(final App a, final ImageView into) {

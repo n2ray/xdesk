@@ -27,7 +27,7 @@ interface IInjector {
     oneway void text(String text) = 10;
     oneway void tapKey(int scan) = 14;
 
-    /** Returns null on success, otherwise the error. */
+    /** Returns null on success, otherwise the error. A component ending in "@<user>" starts in that user, a dual app. */
     String startApp(String component, int displayId) = 11;
     /** The window of another app presenting on this display, or null. Best effort. */
     String findPresentation(int displayId) = 12;
@@ -51,7 +51,7 @@ interface IInjector {
     int displayDefaultDensity(int displayId) = 23;
     /** Stays the same for a physical display across replugging. Null when unknown. */
     String displayUniqueId(int displayId) = 24;
-    /** Close this app's tasks, as swiping them away would. Returns null or the error. */
+    /** Close this app's tasks, as swiping them away would; "@<user>" after the package limits it to that user. Returns null or the error. */
     String closeApp(String packageName) = 25;
     /** 触控 mode: two or more fingers, placed around the cursor. Offsets are pixels on the display, ids stay with a finger. */
     oneway void touchFrame(int action, in int[] ids, in float[] offsetX, in float[] offsetY) = 27;

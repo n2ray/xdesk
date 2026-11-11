@@ -46,6 +46,15 @@ final class Store {
         prefs.edit().putString("name", name.trim()).apply();
     }
 
+    /** Whether this device's touch screen, mouse and keyboard work the phone. At first only where there is a touch screen. */
+    synchronized boolean control() {
+        return prefs.getBoolean("control", context.getPackageManager().hasSystemFeature("android.hardware.touchscreen"));
+    }
+
+    synchronized void setControl(boolean on) {
+        prefs.edit().putBoolean("control", on).apply();
+    }
+
     /** The token paired with this phone, or null. */
     synchronized String token(String phoneId) {
         return prefs.getString(TOKEN + phoneId, null);

@@ -84,6 +84,7 @@
     <string name="xd_app_no_car_display">Can\'t create a display for the car: %1$s</string>
     <string name="xd_app_cannot_inject">Can\'t inject input: %1$s</string>
     <string name="xd_app_presentation">Another app is already showing content on the display. It may cover %1$s</string>
+    <string name="xd_app_other_profile">%1$s (dual)</string>
     <string name="xd_app_cannot_launch">Can\'t start %1$s: %2$s</string>
     <string name="xd_app_cannot_switch">Can\'t switch to %1$s: %2$s</string>
     <string name="xd_app_cannot_fullscreen">Can\'t make %1$s full screen landscape: %2$s</string>
@@ -285,7 +286,7 @@
     <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
     <string name="xd_density_desktop_range">While a Termux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting. Default %3$d</string>
     <string name="xd_clipboard_sync">Share the clipboard</string>
-    <string name="xd_clipboard_sync_note">Text copied on the computer or the phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
+    <string name="xd_clipboard_sync_note">Text copied on the computer, tablet or phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
     <string name="xd_section_connect">Connect</string>
     <string name="xd_section_more">More</string>
     <string name="xd_x11_settings">Termux:X11 settings</string>
@@ -302,11 +303,11 @@
     <string name="xd_x11_meta_note">Otherwise the phone handles it</string>
     <string name="xd_x11_all">All Termux:X11 settings</string>
     <string name="xd_x11_all_note">In English. A wrong setting can break input</string>
-    <string name="xd_share_label">Send to computer</string>
-    <string name="xd_share_no_computer">No computer connected. Connect one in XDesk first</string>
+    <string name="xd_share_label">Send to computer or tablet</string>
+    <string name="xd_share_no_computer">No computer or tablet connected. Connect one in XDesk first</string>
     <string name="xd_share_nothing">This is not a file and cannot be sent</string>
     <string name="xd_share_sending">Sending to %1$s</string>
-    <string name="xd_share_sent">Sent to the computer\'s Downloads: %1$s</string>
+    <string name="xd_share_sent">Sent to Downloads there: %1$s</string>
     <string name="xd_share_failed">Could not send: %1$s</string>
     <string name="xd_launcher_need_phone">Open XDesk on the phone first</string>
     <string name="xd_external_dock">Dock at the bottom of the display</string>
@@ -331,6 +332,7 @@
     <string name="xd_wireless_busy">%1$s is showing another phone</string>
     <string name="xd_wireless_version">%1$s and this XDesk do not match. Update both to the latest version</string>
     <string name="xd_wireless_refused">%1$s refused: too many wrong codes. Connect again for a new code</string>
+    <string name="xd_wireless_in_use">Showing on %1$s. To use %2$s, disconnect first and plug the cable in again</string>
     <string name="xd_wireless_closed">XDesk Receiver on %1$s was closed</string>
     <string name="xd_wireless_no_display">Can\'t create the display for the receiver: %1$s</string>
     <string name="xd_wireless_no_sound">Sound stays on the phone: %1$s</string>
