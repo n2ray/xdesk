@@ -634,6 +634,7 @@ public class XDeskActivity extends Activity {
         @Override public void key(int scan, boolean down) { if (client != null) client.key(scan, down); }
         @Override public void tapKey(int scan) { if (client != null) client.tapKey(scan); }
         @Override public void text(String s) { if (client != null) client.text(s); }
+        @Override public void paste(String s) { if (client != null) client.paste(s); }
     };
 
     private WirelessFinder autoFinder;

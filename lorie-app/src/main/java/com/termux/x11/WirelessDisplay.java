@@ -81,7 +81,8 @@ final class WirelessDisplay {
     /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
     private static final int CODECS_NOT_COMPUTER = 0x40;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
-        IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
+        IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14,
+        IN_PASTE = 32;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final String LOOPBACK = "127.0.0.1";
@@ -540,6 +541,12 @@ final class WirelessDisplay {
                 if (b.length == 0 || b.length > 4096) return;
                 final String text = new String(b, StandardCharsets.UTF_8);
                 r = () -> sink.text(text);
+                break;
+            case IN_PASTE:
+                if (b.length == 0 || b.length > 4096) return;
+                final String pasted = new String(b, StandardCharsets.UTF_8);
+                lastClipboard = pasted;  // not back to the receiver as a copy
+                r = () -> sink.paste(pasted);
                 break;
             case IN_LAYOUT:
                 if (b.length == 0 || b.length > 8) return;
@@ -1223,9 +1230,6 @@ final class WirelessDisplay {
                 running = false;
                 return false;
             }
-            // A tablet or phone is touched where it shows the picture: the phone's input method opens there too, under the
-            // finger, with its own languages. The session gives the policy back when it ends
-            if (inputReceiver && !computer) i.setImeOnDisplay(id, true);
             displayId = id;
             Log.i(TAG, "display " + id + ", " + width + "x" + height + " " + dpi + " dpi, receiver " + receiverDpi + " dpi");
             synchronized (soundLock) {

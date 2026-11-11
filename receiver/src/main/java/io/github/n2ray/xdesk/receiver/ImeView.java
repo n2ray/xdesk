@@ -18,7 +18,7 @@ import android.view.inputmethod.InputConnection;
 import android.widget.TextView;
 
 /**
- * Takes this device's input method; text goes to the phone as it is committed. It is also the strip above the
+ * Takes this device's input method; text goes to the phone as it is committed. It is also the strip on top of the
  * keyboard that shows what is being typed: the words still being composed, underlined, after the last ones sent. The
  * text box itself is on the phone and may be under the keyboard, so this is the only place the typing can be seen.
  */
@@ -85,7 +85,7 @@ final class ImeView extends TextView {
     }
 
     private void send(String t) {
-        control.text(t);
+        control.paste(t);
         sent.append(t);
         if (sent.length() > SHOWN) sent.delete(0, sent.length() - SHOWN);
     }
