@@ -285,7 +285,7 @@
     <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
     <string name="xd_density_desktop_range">While a Termux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting. Default %3$d</string>
     <string name="xd_clipboard_sync">Share the clipboard</string>
-    <string name="xd_clipboard_sync_note">Text copied on the computer or the phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
+    <string name="xd_clipboard_sync_note">Text copied on the computer, tablet or phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
     <string name="xd_section_connect">Connect</string>
     <string name="xd_section_more">More</string>
     <string name="xd_x11_settings">Termux:X11 settings</string>
@@ -302,11 +302,11 @@
     <string name="xd_x11_meta_note">Otherwise the phone handles it</string>
     <string name="xd_x11_all">All Termux:X11 settings</string>
     <string name="xd_x11_all_note">In English. A wrong setting can break input</string>
-    <string name="xd_share_label">Send to computer</string>
-    <string name="xd_share_no_computer">No computer connected. Connect one in XDesk first</string>
+    <string name="xd_share_label">Send to computer or tablet</string>
+    <string name="xd_share_no_computer">No computer or tablet connected. Connect one in XDesk first</string>
     <string name="xd_share_nothing">This is not a file and cannot be sent</string>
     <string name="xd_share_sending">Sending to %1$s</string>
-    <string name="xd_share_sent">Sent to the computer\'s Downloads: %1$s</string>
+    <string name="xd_share_sent">Sent to Downloads there: %1$s</string>
     <string name="xd_share_failed">Could not send: %1$s</string>
     <string name="xd_launcher_need_phone">Open XDesk on the phone first</string>
     <string name="xd_external_dock">Dock at the bottom of the display</string>

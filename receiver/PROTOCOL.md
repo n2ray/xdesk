@@ -1,8 +1,8 @@
 # XDesk wireless display protocol, version 1
 
 XDesk on the phone (the sender) streams one of its displays to XDesk Receiver on another device (a phone without
-video output, a projector, a TV box) over the local network. The receiver only shows the picture and plays the sound;
-all input stays on the phone.
+video output, a projector, a TV box) over the local network. The receiver shows the picture and plays the sound;
+with a touch screen, mouse or keyboard it can also send input, as XDesk for a computer does (see below).
 
 ## Discovery
 
@@ -154,7 +154,7 @@ Input goes where the phone's touchpad and keyboard go: the Termux desktop or the
 
 ## XDesk for a computer
 
-A receiver with bit 7 of its codecs set is XDesk for a computer. It sends the input messages of the web display, as well as:
+A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiver on a device that controls the phone. It sends the input messages of the web display, as well as:
 
 | Type | Name | Payload |
 |---|---|---|

@@ -17,4 +17,13 @@
     <string name="forgotten">Paired phones forgotten. They will need a new code.</string>
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>
+    <string name="menu_control_on">Control the phone from this device</string>
+    <string name="menu_control_off">Stop controlling the phone from this device</string>
+    <string name="control_on">From the next connection, this device\'s touch screen, mouse and keyboard control the phone</string>
+    <string name="control_off">From the next connection, this device only shows the picture</string>
+    <string name="bar_keyboard">Keyboard</string>
+    <string name="bar_back">Back</string>
+    <string name="bar_home">Home</string>
+    <string name="bar_disconnect">Disconnect</string>
+    <string name="file_saved">Saved to %1$s</string>
 </resources>

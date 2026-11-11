@@ -29,7 +29,9 @@ final class Session extends Thread implements Video.Listener {
     private static final int PROTOCOL = 2, NONCE_LENGTH = 64;
     // Message types
     static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-            SIZE = 7, KEY_FRAME = 8;
+            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
+    /** Codecs bit 7: this receiver sends input as the web display does, and takes the clipboard and files */
+    private static final int SENDS_INPUT = 0x80, MAX_CLIPBOARD = 256 * 1024;
     private static final int MAX_STRING = 1024, MAX_PAYLOAD = 16 << 20;
     private static final byte[] MAGIC = { 'X', 'D', 'S', 'K' };
     // Each is for all of that step, however slowly the bytes come
@@ -56,6 +58,8 @@ final class Session extends Thread implements Video.Listener {
     volatile String phoneId = "", phoneName = "";
     // Holds a valid token or has entered the code
     volatile boolean authenticated;
+    // Said in WELCOME: this device works the phone
+    private volatile boolean control;
 
     Session(Receiver r, Socket socket, String ip) {
         super("session");
@@ -202,9 +206,11 @@ final class Session extends Thread implements Video.Listener {
             d.writeShort(s.height);
             d.writeShort(s.density);
             d.writeShort(s.fps);
-            d.writeByte(1 | (s.hevc ? 2 : 0));
+            control = r.control;
+            d.writeByte(1 | (s.hevc ? 2 : 0) | (control ? SENDS_INPUT : 0));
             Log.i(MainActivity.TAG, "streaming from " + phoneName + ", asking for " + s.width + "x" + s.height
-                    + " " + s.density + "dpi " + s.fps + "fps" + (s.hevc ? " h265" : ""));
+                    + " " + s.density + "dpi " + s.fps + "fps" + (s.hevc ? " h265" : "")
+                    + (control ? ", with input" : ""));
         }
         write(b.toByteArray());
     }
@@ -260,6 +266,34 @@ final class Session extends Thread implements Video.Listener {
                         if (audio != null) audio.write(abuf, 0, n);
                         break;
                     }
+                    case CLIPBOARD: {
+                        if (len > MAX_CLIPBOARD) {
+                            skip(len);
+                            break;
+                        }
+                        byte[] b = new byte[len];
+                        in.readFully(b);
+                        if (control && r.isActive(this))
+                            r.ui.clipboard(new String(b, StandardCharsets.UTF_8));
+                        break;
+                    }
+                    case FILE_START: {
+                        if (len > MAX_STRING) throw new IOException("file name length " + len);
+                        byte[] b = new byte[len];
+                        in.readFully(b);
+                        if (control) files().start(new String(b, StandardCharsets.UTF_8));
+                        break;
+                    }
+                    case FILE_DATA: {
+                        if (len > buf.length) buf = new byte[len];
+                        in.readFully(buf, 0, len);
+                        if (control) files().data(buf, len);
+                        break;
+                    }
+                    case FILE_END:
+                        skip(len);
+                        if (control) files().end();
+                        break;
                     case BYE:
                         Log.i(MainActivity.TAG, "phone stopped");
                         return;
@@ -273,7 +307,18 @@ final class Session extends Thread implements Video.Listener {
             sender.interrupt();
             video.release();
             if (audio != null) audio.close();
+            if (control) files().drop();
         }
+    }
+
+    private Downloads files() {
+        return r.downloads;
+    }
+
+    /** Input for the phone, in order, from any thread. Nothing before the stream or from a receiver that did not say it sends input. */
+    void send(int type, byte[] payload) {
+        if (!control || !streaming || closed) return;
+        outbox.offer(message(type, payload));
     }
 
     private void requestKeyFrame() {

@@ -1,8 +1,9 @@
 # XDesk Receiver
 
 Turns a device without video output (an old phone, a projector, a TV box) into a wireless display for XDesk. XDesk on
-the phone streams one of its displays to it over the local network as H.264 video with PCM sound; the receiver only
-shows the picture and plays the sound, all input stays on the phone. The protocol is in [PROTOCOL.md](PROTOCOL.md).
+the phone streams one of its displays to it over the local network as H.264 video with PCM sound; the receiver shows
+the picture and plays the sound. On a tablet or phone it can also control the phone: touch the picture, or use a
+mouse and keyboard connected to it. The protocol is in [PROTOCOL.md](PROTOCOL.md).
 
 ## Install
 
@@ -18,8 +19,24 @@ shows up in both phone and TV (leanback) launchers.
 3. The first time, the receiver shows a 4-digit code: type it on the phone. After 3 wrong codes the attempt is refused
    and the next one gets a new code. Paired phones connect without a code from then on.
 
-Options (long-press the idle screen, or press Menu / hold OK on a remote): rename the receiver, forget paired phones.
+Options (long-press the idle screen, or press Menu / hold OK on a remote): rename the receiver, forget paired phones,
+turn controlling the phone from this device on or off.
 Back exits; leaving the app stops the receiver and tells the phone.
+
+## Controlling the phone
+
+On by default where there is a touch screen; turn it on in the options for a TV box with an air mouse. While it is on:
+
+- Tap the picture to click there, drag to drag. Long-press or tap with two fingers to right-click, move two fingers
+  to scroll.
+- A mouse points and clicks where it is on the picture, and its wheel scrolls. A keyboard types on the phone, Esc and
+  shortcuts included.
+- The handle on the right edge opens Keyboard (this device's input method, Chinese included), Back, Home and
+  Disconnect. Back on this device is Back on the phone; to leave, use Disconnect or go home.
+- Text copied on either side can be pasted on the other, and files sent from the phone with *Send to computer or
+  tablet* go to Downloads (on Android 9 and earlier, to this app's own Download folder).
+- Disconnecting here, or leaving the app, ends the stream; otherwise, while XDesk is open on the phone, it connects
+  back by itself when this receiver shows up again.
 
 ## What is supported
 

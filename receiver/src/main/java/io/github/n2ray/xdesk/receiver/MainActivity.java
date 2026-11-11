@@ -2,10 +2,13 @@ package io.github.n2ray.xdesk.receiver;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.media.AudioManager;
 import android.net.nsd.NsdManager;
@@ -20,11 +23,15 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -63,6 +70,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private NsdManager.RegistrationListener registration;
     private WifiManager.MulticastLock multicast;
     private DisplayManager displays;
+
+    // This device working the phone: touch, mouse and keyboard, the input method, the toolbar and the clipboard
+    private static final long BAR_OPEN_MS = 6000;
+    private Control control;
+    private ImeView ime;
+    private LinearLayout bar, tools;
+    private ClipboardManager clipboard;
+    private String clipFromPhone;
+    private final Runnable closeBar = () -> openBar(false);
+    private final ClipboardManager.OnPrimaryClipChangedListener clipChanged = this::sendClipboard;
 
     private final Runnable refreshIdle = new Runnable() {
         @Override
@@ -111,11 +128,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             getWindow().setAttributes(lp);
         }
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        // The input method may cover the picture's bottom; panning it would move what the touches land on
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        receiver.downloads = new Downloads(this, where -> ui.post(() ->
+                Toast.makeText(this, getString(R.string.file_saved, where), Toast.LENGTH_LONG).show()));
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         view = new SurfaceView(this);
         root.addView(view, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        control = new Control(receiver, view, ui);
+        ime = new ImeView(this, control);
+        root.addView(ime, new FrameLayout.LayoutParams(1, 1));
+        root.setOnTouchListener((v, e) -> controlling() && control.onTouch(e));
+        root.setOnHoverListener((v, e) -> controlling() && control.onMouse(e));
+        root.setOnGenericMotionListener((v, e) -> controlling() && e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
+                && control.onMouse(e));
+        root.addView(bar = buildBar(), new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL));
         root.addView(overlay = buildOverlay(), new FrameLayout.LayoutParams(-1, -1));
         // Rotation keeps the activity: fit the picture to the new size
         root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -154,6 +184,132 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         return frame;
     }
 
+    /** A small handle on the right edge; it opens Keyboard, Back, Home and Disconnect. */
+    private LinearLayout buildBar() {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.HORIZONTAL);
+        b.setGravity(Gravity.CENTER_VERTICAL);
+        tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.VERTICAL);
+        tools.setBackground(rounded(0xE61D1D1F, dp(14)));
+        tools.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tools.addView(tool(R.string.bar_keyboard, v -> showKeyboard()));
+        tools.addView(tool(R.string.bar_back, v -> control.android(Control.ANDROID_BACK)));
+        tools.addView(tool(R.string.bar_home, v -> control.android(Control.ANDROID_HOME)));
+        tools.addView(tool(R.string.bar_disconnect, v -> {
+            openBar(false);
+            receiver.disconnect();
+        }));
+        tools.setVisibility(View.GONE);
+        b.addView(tools);
+        FrameLayout handle = new FrameLayout(this);
+        View pill = new View(this);
+        pill.setBackground(rounded(0x99FFFFFF, dp(3)));
+        handle.addView(pill, new FrameLayout.LayoutParams(dp(5), dp(48), Gravity.CENTER));
+        handle.setPadding(dp(10), dp(16), dp(8), dp(16));
+        handle.setOnClickListener(v -> openBar(tools.getVisibility() != View.VISIBLE));
+        b.addView(handle);
+        b.setVisibility(View.GONE);
+        return b;
+    }
+
+    private TextView tool(int label, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(15);
+        t.setTextColor(Color.WHITE);
+        t.setGravity(Gravity.CENTER);
+        t.setMinWidth(dp(72));
+        t.setPadding(dp(14), dp(12), dp(14), dp(12));
+        t.setOnClickListener(v -> {
+            click.onClick(v);
+            ui.removeCallbacks(closeBar);
+            ui.postDelayed(closeBar, BAR_OPEN_MS);
+        });
+        return t;
+    }
+
+    private static GradientDrawable rounded(int color, int radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(radius);
+        return d;
+    }
+
+    private void openBar(boolean open) {
+        ui.removeCallbacks(closeBar);
+        tools.setVisibility(open ? View.VISIBLE : View.GONE);
+        bar.setAlpha(open ? 1f : 0.6f);
+        if (open) ui.postDelayed(closeBar, BAR_OPEN_MS);
+    }
+
+    private void showKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        ime.requestFocus();
+        if (imm != null) imm.showSoftInput(ime, InputMethodManager.SHOW_FORCED);
+    }
+
+    private void hideKeyboard() {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(ime.getWindowToken(), 0);
+    }
+
+    /** Streaming, and this device said it works the phone. */
+    private boolean controlling() {
+        return state == State.STREAMING && receiver.control;
+    }
+
+    /** A key on a real keyboard: it goes to the phone by its Linux key code. */
+    private static boolean fromKeyboard(KeyEvent e) {
+        if (e.getScanCode() <= 0) return false;
+        InputDevice d = e.getDevice();
+        return d != null && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
+    /** Keys this device keeps: its own volume, power and brightness. */
+    private static boolean ownKey(int k) {
+        return k == KeyEvent.KEYCODE_VOLUME_UP || k == KeyEvent.KEYCODE_VOLUME_DOWN || k == KeyEvent.KEYCODE_VOLUME_MUTE
+                || k == KeyEvent.KEYCODE_POWER || k == KeyEvent.KEYCODE_SLEEP || k == KeyEvent.KEYCODE_WAKEUP
+                || k == KeyEvent.KEYCODE_BRIGHTNESS_UP || k == KeyEvent.KEYCODE_BRIGHTNESS_DOWN;
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (controlling() && e.getAction() != KeyEvent.ACTION_MULTIPLE) {
+            int k = e.getKeyCode();
+            boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+            // A mouse's right button comes as Back too; it went to the phone as a right click already
+            if (k == KeyEvent.KEYCODE_BACK && e.isFromSource(InputDevice.SOURCE_MOUSE)) return true;
+            if (fromKeyboard(e) && !ownKey(k)) {
+                // The phone repeats held keys itself
+                if (!down || e.getRepeatCount() == 0) control.key(e.getScanCode(), down);
+                return true;
+            }
+            if (k == KeyEvent.KEYCODE_BACK) {
+                if (!down && !e.isCanceled()) control.android(Control.ANDROID_BACK);
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    /** This device's clipboard to the phone, unless it came from there. */
+    private void sendClipboard() {
+        if (!controlling() || clipboard == null) return;
+        try {
+            ClipData c = clipboard.getPrimaryClip();
+            if (c == null || c.getItemCount() == 0) return;
+            CharSequence t = c.getItemAt(0).coerceToText(this);
+            if (t == null || t.length() == 0) return;
+            String text = t.toString();
+            if (text.equals(clipFromPhone)) return;
+            byte[] b = text.getBytes(StandardCharsets.UTF_8);
+            if (b.length <= 256 * 1024) receiver.send(Session.CLIPBOARD, b);
+        } catch (RuntimeException e) {
+            Log.i(TAG, "clipboard: " + e);
+        }
+    }
+
     private TextView text(float sp, int color) {
         TextView t = new TextView(this);
         t.setTextSize(sp);
@@ -173,6 +329,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         super.onStart();
         started = true;
         displays.registerDisplayListener(displayListener, ui);
+        if (clipboard != null) clipboard.addPrimaryClipChangedListener(clipChanged);
         ui.post(refreshIdle);
         update();
     }
@@ -182,6 +339,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         started = false;
         update();
         displays.unregisterDisplayListener(displayListener);
+        if (clipboard != null) clipboard.removePrimaryClipChangedListener(clipChanged);
         ui.removeCallbacks(refreshIdle);
         super.onStop();
     }
@@ -189,6 +347,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     @Override
     public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
+        // Nothing stays held on the phone while a dialog or the notification shade has the input
+        if (!focus) control.release();
         if (focus) {
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                     | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -227,6 +387,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         running = want;
         if (want) {
             updateScreen();
+            receiver.control = store.control();
             if (multicast != null) multicast.acquire();
             receiver.start(holder.getSurface());
             register();
@@ -306,6 +467,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
 
     private void render() {
         overlay.setVisibility(state == State.STREAMING ? View.GONE : View.VISIBLE);
+        boolean working = controlling();
+        if (working != (bar.getVisibility() == View.VISIBLE)) {
+            bar.setVisibility(working ? View.VISIBLE : View.GONE);
+            openBar(false);
+            if (!working) {
+                control.release();
+                hideKeyboard();
+            }
+            // The phone draws its pointer in the picture; this device's own would be a second one
+            if (Build.VERSION.SDK_INT >= 24) {
+                PointerIcon none = working ? PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL) : null;
+                root.setPointerIcon(none);
+                view.setPointerIcon(none);
+            }
+        }
         code.setVisibility(state == State.PAIRING ? View.VISIBLE : View.GONE);
         footer.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
         switch (state) {
@@ -427,6 +603,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     }
 
     @Override
+    public void clipboard(String text) {
+        ui.post(() -> {
+            if (clipboard == null) return;
+            clipFromPhone = text;
+            try {
+                clipboard.setPrimaryClip(ClipData.newPlainText("XDesk", text));
+            } catch (RuntimeException e) {
+                Log.i(TAG, "clipboard: " + e);
+            }
+        });
+    }
+
+    @Override
     public void cannotDecode(String phone, int width, int height) {
         ui.post(() -> {
             state = State.ERROR;
@@ -470,10 +659,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         if (state != State.IDLE || isFinishing()) return;
         new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
                 .setTitle(R.string.app_name)
-                .setItems(new CharSequence[] { getString(R.string.menu_rename), getString(R.string.menu_forget) },
+                .setItems(new CharSequence[] { getString(R.string.menu_rename), getString(R.string.menu_forget),
+                                getString(store.control() ? R.string.menu_control_off : R.string.menu_control_on) },
                         (d, which) -> {
                             if (which == 0) rename();
-                            else {
+                            else if (which == 2) {
+                                store.setControl(!store.control());
+                                receiver.control = store.control();
+                                Toast.makeText(this, store.control() ? R.string.control_on : R.string.control_off,
+                                        Toast.LENGTH_LONG).show();
+                            } else {
                                 store.forgetPhones();
                                 Toast.makeText(this, R.string.forgotten, Toast.LENGTH_LONG).show();
                             }

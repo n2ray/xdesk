@@ -44,10 +44,16 @@ final class Receiver {
         void videoSize(int width, int height);
 
         void cannotDecode(String phone, int width, int height);
+
+        /** The phone's clipboard, when it changes. Only while this device controls the phone. */
+        void clipboard(String text);
     }
 
     final Store store;
     final Ui ui;
+    /** Set while idle, read when a phone connects: this device sends input, as XDesk for a computer does. */
+    volatile boolean control;
+    Downloads downloads;
     private volatile Screen screen;
     private Surface surface;
     private boolean running;
@@ -230,6 +236,24 @@ final class Receiver {
             }
         }
         return true;
+    }
+
+    /** An input message to the phone that streams here, if any. Any thread. */
+    void send(int type, byte[] payload) {
+        Session a;
+        synchronized (this) {
+            a = active;
+        }
+        if (a != null) a.send(type, payload);
+    }
+
+    /** Ends the stream from here: the phone is told, and does not connect back by itself. */
+    void disconnect() {
+        final Session a;
+        synchronized (this) {
+            a = active;
+        }
+        if (a != null) new Thread(() -> a.kill(true), "disconnect").start();
     }
 
     void ended(Session s) {
