@@ -27,12 +27,17 @@ Back exits; leaving the app stops the receiver and tells the phone.
 
 On by default where there is a touch screen; turn it on in the options for a TV box with an air mouse. While it is on:
 
-- Tap the picture to click there, drag to drag. Long-press or tap with two fingers to right-click, move two fingers
-  to scroll.
+- It follows the app's input mode on the phone. In **Mouse & keyboard** mode, and on the Linux desktop, the screen
+  is a touchpad for the phone's cursor, as the phone's own: move with one finger, tap to click, tap with two fingers
+  to right-click, move two fingers to scroll, tap and then press to drag. In **Touch** mode a tap clicks where it
+  lands, a drag drags, and a long press or a two-finger tap right-clicks. The handle's Touchpad / Direct touch
+  switches until the app changes.
+- Tapping a text box opens the phone's own input method on the picture, Chinese and all, and the app moves the text
+  box above it. Its keys are pressed where the finger is in both modes, so a held Delete repeats.
 - A mouse points and clicks where it is on the picture, and its wheel scrolls. A keyboard types on the phone, Esc and
   shortcuts included.
-- The handle on the right edge opens Keyboard (this device's input method, Chinese included), Back, Home and
-  Disconnect. Back on this device is Back on the phone; to leave, use Disconnect or go home.
+- The blue handle on the right edge opens Keyboard (this device's input method), Touchpad or Direct touch, Back,
+  Home and Disconnect. Back on this device is Back on the phone; to leave, use Disconnect or go home.
 - Text copied on either side can be pasted on the other, and files sent from the phone with *Send to computer or
   tablet* go to Downloads (on Android 9 and earlier, to this app's own Download folder).
 - Disconnecting here, or leaving the app, ends the stream; the phone connects here only when you choose this
