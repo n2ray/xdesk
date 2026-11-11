@@ -82,6 +82,12 @@ final class WirelessDisplay {
     private static final int CODECS_NOT_COMPUTER = 0x40;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
+    /** Phone → XDesk Receiver: u16 where the input method begins, 0 to 65535 down the picture; 65535 while it is not showing. */
+    private static final int IME_AREA = 15;
+    private static final int IME_NONE = 0xFFFF;
+    /** After a tap: when to look whether it opened the input method; while it shows, how often to look whether it went. */
+    private static final long[] IME_CHECKS_MS = {300, 900, 1800};
+    private static final long IME_WATCH_MS = 1000;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
     private static final String LOOPBACK = "127.0.0.1";
@@ -515,6 +521,7 @@ final class WirelessDisplay {
                 if (b.length < 2) return;
                 final int button = b[0] & 0xff;
                 final boolean down = b[1] != 0;
+                if (!down && inputReceiver && !computer) imeCheckSoon();
                 if (button < 1 || button > 3) return;
                 r = () -> {
                     if (down) webButtons.add(button); else webButtons.remove(button);
@@ -922,6 +929,52 @@ final class WirelessDisplay {
     private volatile boolean desktopShown;
     private volatile int sentInputMode = -1;
 
+    // Where the phone's input method is on a tablet's picture: there a tablet touches the keys, elsewhere it may be a
+    // touchpad. Android says nothing about it, so a tap is followed by a few looks, and while it shows it is looked at
+    // every second. dumpsys is not cheap, hence not all the time
+    private volatile int imeSent = -1;
+    private android.os.Handler imeWatch;
+    private final Runnable imeCheck = this::checkIme;
+
+    private synchronized android.os.Handler imeWatch() {
+        if (imeWatch == null) {
+            android.os.HandlerThread t = new android.os.HandlerThread("xdesk-ime");
+            t.start();
+            imeWatch = new android.os.Handler(t.getLooper());
+        }
+        return imeWatch;
+    }
+
+    private void imeCheckSoon() {
+        android.os.Handler h = imeWatch();
+        h.removeCallbacks(imeCheck);
+        for (long ms : IME_CHECKS_MS) h.postDelayed(imeCheck, ms);
+    }
+
+    private void checkIme() {
+        IInjector i = injector;
+        int h = streamHeight, id = displayId;
+        if (i == null || h <= 0 || state != STREAMING || webLost) return;
+        int area = IME_NONE;
+        try {
+            int top = i.imeTop(id);
+            if (top >= 0 && top < h) area = (int) ((long) top * 65535 / h);
+        } catch (RemoteException e) {
+            return;
+        }
+        if (area != IME_NONE) {
+            imeWatch().removeCallbacks(imeCheck);
+            imeWatch().postDelayed(imeCheck, IME_WATCH_MS);
+        }
+        if (area == imeSent) return;
+        try {
+            writeMessage(IME_AREA, new byte[]{(byte) (area >> 8), (byte) area}, 0, 2);
+            imeSent = area;
+        } catch (IOException e) {
+            Log.i(TAG, "input method area: " + e);
+        }
+    }
+
     /** The Android app on the display takes touches, not a mouse: a tablet receiver then passes fingers on, not a touchpad. */
     private volatile boolean touchMode;
 
@@ -1234,6 +1287,7 @@ final class WirelessDisplay {
             // A tablet or phone is touched where it shows the picture: the phone's input method opens there too, under the
             // finger, with its own languages. The session gives the policy back when it ends
             if (inputReceiver && !computer) i.setImeOnDisplay(id, true);
+            imeSent = -1;
             displayId = id;
             Log.i(TAG, "display " + id + ", " + width + "x" + height + " " + dpi + " dpi, receiver " + receiverDpi + " dpi");
             synchronized (soundLock) {

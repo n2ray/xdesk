@@ -601,6 +601,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     public void streaming() {
         ui.post(() -> {
             state = State.STREAMING;
+            control.setImeTop(0xFFFF);
             padOverride = null;
             phoneWantsTouch = false;
             applyPadMode();
@@ -615,6 +616,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             videoHeight = height;
             fitVideo();
         });
+    }
+
+    @Override
+    public void imeArea(int top) {
+        ui.post(() -> control.setImeTop(top));
     }
 
     @Override

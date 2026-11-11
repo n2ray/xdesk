@@ -162,6 +162,7 @@ A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiv
 | 12 | CLIPBOARD | Both ways. The clipboard as UTF-8 text, at most 256 KiB, when it changes |
 | 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
 | 14 | INPUT_MODE | Phone → receiver. u8: 1 the Termux desktop is showing, 0 Android apps, 2 (only to XDesk Receiver) an Android app that takes touches rather than a mouse. XDesk Receiver works as a touchpad with the phone's cursor unless it is 2 |
+| 15 | IME_AREA | Phone → XDesk Receiver. u16: where the phone's input method begins, 0 to 65535 down the picture, 65535 while it is not showing. Looked at after taps and every second while it shows. There the receiver presses where the finger is, also as a touchpad |
 | 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
 | 28 | CHOOSE | Receiver → phone. A key from APPS |
 | 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Both ways. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads. An empty name drops what came of the file so far |

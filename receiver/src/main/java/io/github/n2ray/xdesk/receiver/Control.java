@@ -57,6 +57,9 @@ final class Control {
     /** A touch on the screen, or a mouse with a button down. */
     boolean onTouch(MotionEvent e) {
         if (e.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) return onMouse(e);
+        // The phone's keyboard on the picture is pressed where the finger is, even when the rest is a touchpad
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) onKeys = onKeyboard(e.getY());
+        if (onKeys) return onKeys(e);
         if (touchpad) return onPad(e);
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -151,6 +154,49 @@ final class Control {
     private final Runnable padLongPress = () -> {
         if (travel < TAP_SLOP_DP && maxPointers == 1) startPadDrag();
     };
+
+    /** Where the phone's input method begins, 0 to 65535 down the picture; 65535 when it is not there. */
+    private int imeTop = 0xFFFF;
+    /** This gesture began on the phone's keyboard. */
+    private boolean onKeys;
+
+    void setImeTop(int top) {
+        imeTop = top;
+    }
+
+    private boolean onKeyboard(float y) {
+        int h = picture.getHeight();
+        if (imeTop >= 0xFFFF || h <= 1) return false;
+        return (y - picture.getTop()) / (h - 1) * 65535 >= imeTop;
+    }
+
+    /**
+     * A finger on a key: down when it lands, up when it lifts, so that a held key repeats, a long press shows a key's
+     * other characters and a swipe types. Only the first finger.
+     */
+    private boolean onKeys(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                position(e.getX(), e.getY());
+                button(LEFT, true);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                position(e.getX(), e.getY());
+                break;
+            case MotionEvent.ACTION_UP:
+                position(e.getX(), e.getY());
+                button(LEFT, false);
+                onKeys = false;
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                button(LEFT, false);
+                onKeys = false;
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
 
     void setTouchpad(boolean on) {
         if (on == touchpad) return;
