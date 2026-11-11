@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
  * two-finger tap is a right click and two fingers scroll. A mouse points where it is on the picture.
  */
 final class Control {
-    static final int MOVE = 20, BUTTON = 21, SCROLL = 22, KEY = 23, TEXT = 24, POSITION = 25, LAYOUT = 26, ANDROID = 27, PASTE = 32;
+    static final int MOVE = 20, BUTTON = 21, SCROLL = 22, KEY = 23, TEXT = 24, POSITION = 25, ANDROID = 27;
     static final int LEFT = 1, RIGHT = 3;
     static final int ANDROID_BACK = 1, ANDROID_HOME = 2;
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103, SCAN_LEFT = 105,
@@ -354,29 +354,11 @@ final class Control {
         key(scan, false);
     }
 
-    /** Typed on a keyboard: the phone types it with its keyboard of the layout sent, so its input method sees keys. */
     void text(String s) {
-        send(TEXT, s);
-    }
-
-    /** Finished text from this device's input method: it goes in as it is, past the phone's input method. */
-    void paste(String s) {
-        send(PASTE, s);
-    }
-
-    /**
-     * Sent at the first key of a real keyboard: the phone then makes a keyboard of its own in its kernel for this device,
-     * takes over, and types what comes here with it, as for a computer. de, fr, it, es, gb or us.
-     */
-    void layout(String l) {
-        r.send(LAYOUT, l.getBytes(StandardCharsets.US_ASCII));
-    }
-
-    private void send(int type, String s) {
         byte[] b = s.getBytes(StandardCharsets.UTF_8);
         if (b.length == 0) return;
         if (b.length <= MAX_TEXT) {
-            r.send(type, b);
+            r.send(TEXT, b);
             return;
         }
         // Long pastes from an input method go in pieces, cut between characters
@@ -384,7 +366,7 @@ final class Control {
         while (from < s.length()) {
             int to = Math.min(s.length(), from + 1000);
             if (to < s.length() && Character.isHighSurrogate(s.charAt(to - 1))) to--;
-            r.send(type, s.substring(from, to).getBytes(StandardCharsets.UTF_8));
+            r.send(TEXT, s.substring(from, to).getBytes(StandardCharsets.UTF_8));
             from = to;
         }
     }

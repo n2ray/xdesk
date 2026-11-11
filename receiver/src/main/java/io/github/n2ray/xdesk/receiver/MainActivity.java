@@ -80,13 +80,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private boolean phoneWantsTouch;
     /** Chosen in the toolbar: true touchpad, false direct touch, null as the phone says. Until the app changes. */
     private Boolean padOverride;
-    /** This session has told the phone about a real keyboard here. */
-    private boolean layoutSent;
-    /** How much of the screen this device's keyboard covers, 0 when it is closed. */
-    private int keyboardHeight;
-    /** Where on the picture the last touch began, before the keyboard opened: the text box it opened for. */
-    private float tappedY = -1;
-    private static final int STRIP_DP = 44, STRIP_GAP_DP = 8, TEXT_ROOM_DP = 28;
     private LinearLayout bar, tools;
     private ClipboardManager clipboard;
     private String clipFromPhone;
@@ -152,17 +145,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         root.addView(view, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         control = new Control(receiver, view, ui);
         ime = new ImeView(this, control);
-        FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(-1, dp(STRIP_DP), Gravity.TOP);
-        ip.setMargins(dp(12), 0, dp(12), 0);  // its height on the screen follows the keyboard, see fitVideo
-        root.addView(ime, ip);
-        ime.setVisibility(View.INVISIBLE);
-        root.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
-        root.setOnTouchListener((v, e) -> {
-            // As a touchpad a finger is not where the text box is: the picture then moves up as far as it can
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && keyboardHeight == 0)
-                tappedY = control.touchpad() && e.getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE ? -1 : e.getY() - view.getTop();
-            return controlling() && control.onTouch(e);
-        });
+        root.addView(ime, new FrameLayout.LayoutParams(1, 1));
+        root.setOnTouchListener((v, e) -> controlling() && control.onTouch(e));
         root.setOnHoverListener((v, e) -> controlling() && control.onMouse(e));
         root.setOnGenericMotionListener((v, e) -> controlling() && e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
                 && control.onMouse(e));
@@ -272,8 +256,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     }
 
     private void showKeyboard() {
-        // Only a visible view takes focus and the input method; the strip hides again when the keyboard closes
-        ime.setVisibility(View.VISIBLE);
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         ime.requestFocus();
         if (imm != null) imm.showSoftInput(ime, InputMethodManager.SHOW_FORCED);
@@ -296,49 +278,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         return d != null && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
     }
 
-    /** Keys of a real keyboard that went as the character they type, so that their release goes nowhere. */
-    private final java.util.HashSet<Integer> typed = new java.util.HashSet<>();
-
-    /**
-     * As XDesk for a computer: a key that types a character sends that character, typed on the phone with the layout sent
-     * at the start, so this keyboard's own layout counts; shortcuts and keys that type nothing go as the key's place. Ctrl
-     * with V pastes what this device copied, which has gone to the phone already.
-     */
-    private void typedKey(KeyEvent e, boolean down) {
-        // The first key of a real keyboard: the phone makes its keyboard for it and takes over, as for a computer. Touch
-        // and the soft keyboard alone leave the phone as it is: a projector needs no taking over
-        if (!layoutSent) {
-            layoutSent = true;
-            control.layout(keyboardLayout());
-        }
-        int scan = e.getScanCode();
-        if (!down) {
-            if (!typed.remove(scan)) control.key(scan, false);
-            return;
-        }
-        int c = e.getUnicodeChar();
-        boolean shortcut = (e.getMetaState() & (KeyEvent.META_CTRL_ON | KeyEvent.META_META_ON)) != 0
-                || ((e.getMetaState() & KeyEvent.META_ALT_ON) != 0 && (e.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) == 0);
-        if (!shortcut && c > ' ' && !Character.isISOControl(c)) {
-            typed.add(scan);
-            control.text(new String(Character.toChars(c)));
-            return;
-        }
-        // The phone repeats held keys itself
-        if (e.getRepeatCount() == 0) control.key(scan, true);
-    }
-
-    /** The layout of this device's keyboard as the phone knows them, from the language: the keys typed say the rest. */
-    private static String keyboardLayout() {
-        switch (java.util.Locale.getDefault().getLanguage()) {
-            case "de": return "de";
-            case "fr": return "fr";
-            case "it": return "it";
-            case "es": return "es";
-            default: return "us";
-        }
-    }
-
     /** Keys this device keeps: its own volume, power and brightness. */
     private static boolean ownKey(int k) {
         return k == KeyEvent.KEYCODE_VOLUME_UP || k == KeyEvent.KEYCODE_VOLUME_DOWN || k == KeyEvent.KEYCODE_VOLUME_MUTE
@@ -354,7 +293,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             // A mouse's right button comes as Back too; it went to the phone as a right click already
             if (k == KeyEvent.KEYCODE_BACK && e.isFromSource(InputDevice.SOURCE_MOUSE)) return true;
             if (fromKeyboard(e) && !ownKey(k)) {
-                typedKey(e, down);
+                // The phone repeats held keys itself
+                if (!down || e.getRepeatCount() == 0) control.key(e.getScanCode(), down);
                 return true;
             }
             if (k == KeyEvent.KEYCODE_BACK) {
@@ -604,51 +544,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         }
     }
 
-    /** The keyboard opened, closed or changed height: the strip shows while it is open, the picture fits above it. */
-    private void checkKeyboard() {
-        android.graphics.Rect r = new android.graphics.Rect();
-        root.getWindowVisibleDisplayFrame(r);
-        int[] at = new int[2];
-        root.getLocationOnScreen(at);
-        int covered = Math.max(0, at[1] + root.getHeight() - r.bottom);
-        if (covered < root.getHeight() / 6) covered = 0;  // the navigation bar, not a keyboard
-        if (covered == keyboardHeight) return;
-        boolean opened = keyboardHeight == 0 && covered > 0;
-        keyboardHeight = covered;
-        if (opened) ime.clear();
-        if (covered == 0) ime.flush();
-        ime.setVisibility(covered > 0 ? View.VISIBLE : View.INVISIBLE);
-        fitVideo();
-    }
-
     private void fitVideo() {
         int sw = root.getWidth(), sh = root.getHeight();
-        // With the keyboard open the typing strip sits on it. The picture keeps its size and moves up, as Android's own
-        // adjustPan, until the place tapped for the text box is above the strip; it stays where it was if that is already so
-        int stripTop = sh;
-        if (keyboardHeight > 0) {
-            stripTop = Math.max(0, sh - keyboardHeight - dp(STRIP_DP + STRIP_GAP_DP));
-            FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ime.getLayoutParams();
-            ip.topMargin = stripTop;
-            ime.setLayoutParams(ip);
-        }
         FrameLayout.LayoutParams lp;
         if (videoWidth <= 0 || videoHeight <= 0 || sw <= 0 || sh <= 0) {
             lp = new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
         } else {
             float scale = Math.min((float) sw / videoWidth, (float) sh / videoHeight);
             lp = new FrameLayout.LayoutParams(Math.round(videoWidth * scale), Math.round(videoHeight * scale),
-                    Gravity.CENTER_HORIZONTAL | Gravity.TOP);
-            int h = Math.round(videoHeight * scale);
-            int top = (sh - h) / 2;
-            if (keyboardHeight > 0) {
-                // The text box with a little room under it; a tap unknown counts as the bottom of the picture
-                float at = tappedY >= 0 && tappedY <= h ? tappedY : h;
-                int wanted = stripTop - dp(STRIP_GAP_DP) - dp(TEXT_ROOM_DP);
-                int shift = Math.round(top + at - wanted);
-                if (shift > 0) top -= Math.min(shift, top + h - (stripTop - dp(STRIP_GAP_DP)));
-            }
-            lp.topMargin = top;
+                    Gravity.CENTER);
         }
         view.setLayoutParams(lp);
     }
@@ -697,7 +601,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     public void streaming() {
         ui.post(() -> {
             state = State.STREAMING;
-            layoutSent = false;
             padOverride = null;
             phoneWantsTouch = false;
             applyPadMode();

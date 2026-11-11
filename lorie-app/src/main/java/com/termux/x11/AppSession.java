@@ -236,9 +236,6 @@ final class AppSession {
 
     private final Runnable bindTimeout = () -> fail(text(viaShell ? R.string.xd_app_no_answer : R.string.xd_app_shizuku_no_start));
 
-    /** Linux key codes. */
-    private static final int KEY_LEFTCTRL = 29, KEY_V = 47;
-
     private final InputSink input = new InputSink() {
         @Override public void pointerGone() {
             webPointer = false;
@@ -297,18 +294,6 @@ final class AppSession {
             IInjector i = injector;
             try {
                 if (i != null) i.text(s);
-            } catch (RemoteException ignored) { }
-        }
-        /** Through the clipboard and Ctrl+V: keys would go through the phone's input method, and Chinese has no keys. */
-        @Override public void paste(String s) {
-            IInjector i = injector;
-            try {
-                if (i == null) return;
-                i.setClipboardText(s);
-                i.key(KEY_LEFTCTRL, true);
-                i.key(KEY_V, true);
-                i.key(KEY_V, false);
-                i.key(KEY_LEFTCTRL, false);
             } catch (RemoteException ignored) { }
         }
     };

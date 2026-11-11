@@ -24,7 +24,6 @@
     <string name="bar_keyboard">Keyboard</string>
     <string name="bar_touchpad">Touchpad</string>
     <string name="bar_direct">Direct touch</string>
-    <string name="ime_hint">Typing goes to the phone</string>
     <string name="bar_back">Back</string>
     <string name="bar_home">Home</string>
     <string name="bar_disconnect">Disconnect</string>

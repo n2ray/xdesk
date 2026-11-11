@@ -24,9 +24,4 @@ interface InputSink {
     void key(int scan, boolean down);
     void tapKey(int scan);
     void text(String s);
-    /**
-     * Finished text from an input method on another device, Chinese too: it goes in as it is, past the phone's own input
-     * method. A desktop takes any text; an Android app gets it pasted.
-     */
-    default void paste(String s) { text(s); }
 }
