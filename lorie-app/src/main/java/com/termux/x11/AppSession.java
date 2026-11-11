@@ -4,6 +4,7 @@ import android.app.ActivityOptions;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.LauncherApps;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -733,7 +734,7 @@ final class AppSession {
     private String launchFromApp(AppCatalog.App target, Display d) {
         try {
             Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                .setComponent(ComponentName.unflattenFromString(target.component()))
+                .setComponent(ComponentName.unflattenFromString(target.flat()))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
             ActivityOptions o = ActivityOptions.makeBasic();
             o.setLaunchDisplayId(d.getDisplayId());
@@ -742,6 +743,10 @@ final class AppSession {
                 m.invoke(o, WINDOWING_MODE_FULLSCREEN);
             } catch (ReflectiveOperationException | RuntimeException e) {
                 Log.i(TAG, "windowing mode not settable from the app: " + e);
+            }
+            if (target.inOtherProfile()) {
+                context.getSystemService(LauncherApps.class).startMainActivity(i.getComponent(), target.userHandle(), null, o.toBundle());
+                return null;
             }
             context.startActivity(i, o.toBundle());
             return null;
@@ -1330,7 +1335,7 @@ final class AppSession {
         new Thread(() -> {
             String error;
             try {
-                error = i.closeApp(a.packageName);
+                error = i.closeApp(a.packageInUser());
             } catch (RemoteException e) {
                 error = text(R.string.xd_injector_gone);
             }

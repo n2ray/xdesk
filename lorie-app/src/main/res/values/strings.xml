@@ -84,6 +84,7 @@
     <string name="xd_app_no_car_display">Can\'t create a display for the car: %1$s</string>
     <string name="xd_app_cannot_inject">Can\'t inject input: %1$s</string>
     <string name="xd_app_presentation">Another app is already showing content on the display. It may cover %1$s</string>
+    <string name="xd_app_other_profile">%1$s (dual)</string>
     <string name="xd_app_cannot_launch">Can\'t start %1$s: %2$s</string>
     <string name="xd_app_cannot_switch">Can\'t switch to %1$s: %2$s</string>
     <string name="xd_app_cannot_fullscreen">Can\'t make %1$s full screen landscape: %2$s</string>

@@ -643,7 +643,10 @@ public class InjectorService extends IInjector.Stub {
     /** am start is what the prototype was tested with. Windowing mode 1 is full screen. */
     @Override public String startApp(String component, int displayId) {
         if (sessionOver) return OVER;
-        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--display", String.valueOf(displayId), "--windowingMode", "1",
+        int at = component.lastIndexOf('@');
+        String user = at < 0 ? "current" : component.substring(at + 1);
+        if (at >= 0) component = component.substring(0, at);
+        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", "0x10200000", "-n", component);
         if (r[0] != null) return r[0];
         return r[1].contains("Error") ? r[1].trim() : null;

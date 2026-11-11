@@ -79,6 +79,7 @@
     <string name="xd_app_no_car_display">无法为车机建显示器：%1$s</string>
     <string name="xd_app_cannot_inject">无法注入输入：%1$s</string>
     <string name="xd_app_presentation">外接屏上已有别的应用在显示内容，它可能盖住 %1$s</string>
+    <string name="xd_app_other_profile">%1$s（双开）</string>
     <string name="xd_app_cannot_launch">无法启动 %1$s：%2$s</string>
     <string name="xd_app_cannot_switch">无法切换到 %1$s：%2$s</string>
     <string name="xd_app_cannot_fullscreen">无法给 %1$s 设横屏全屏：%2$s</string>
