@@ -75,6 +75,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private static final long BAR_OPEN_MS = 6000;
     private Control control;
     private ImeView ime;
+    /** How much of the screen this device's keyboard covers, 0 when it is closed. */
+    private int keyboardHeight;
+    private static final int STRIP_DP = 44, STRIP_GAP_DP = 8;
     private LinearLayout bar, tools;
     private ClipboardManager clipboard;
     private String clipFromPhone;
@@ -140,7 +143,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         root.addView(view, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         control = new Control(receiver, view, ui);
         ime = new ImeView(this, control);
-        root.addView(ime, new FrameLayout.LayoutParams(1, 1));
+        FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(-1, dp(STRIP_DP), Gravity.TOP);
+        ip.setMargins(dp(12), dp(STRIP_GAP_DP), dp(12), 0);
+        root.addView(ime, ip);
+        ime.setVisibility(View.INVISIBLE);
+        root.getViewTreeObserver().addOnGlobalLayoutListener(this::checkKeyboard);
         root.setOnTouchListener((v, e) -> controlling() && control.onTouch(e));
         root.setOnHoverListener((v, e) -> controlling() && control.onMouse(e));
         root.setOnGenericMotionListener((v, e) -> controlling() && e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
@@ -204,8 +211,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         b.addView(tools);
         FrameLayout handle = new FrameLayout(this);
         View pill = new View(this);
-        pill.setBackground(rounded(0x99FFFFFF, dp(3)));
-        handle.addView(pill, new FrameLayout.LayoutParams(dp(5), dp(48), Gravity.CENTER));
+        pill.setBackground(rounded(0xFF3D7EF5, dp(4)));
+        pill.setElevation(dp(3));
+        handle.addView(pill, new FrameLayout.LayoutParams(dp(7), dp(64), Gravity.CENTER));
         handle.setPadding(dp(10), dp(16), dp(8), dp(16));
         handle.setOnClickListener(v -> openBar(tools.getVisibility() != View.VISIBLE));
         b.addView(handle);
@@ -239,11 +247,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private void openBar(boolean open) {
         ui.removeCallbacks(closeBar);
         tools.setVisibility(open ? View.VISIBLE : View.GONE);
-        bar.setAlpha(open ? 1f : 0.6f);
+        bar.setAlpha(open ? 1f : 0.9f);
         if (open) ui.postDelayed(closeBar, BAR_OPEN_MS);
     }
 
     private void showKeyboard() {
+        // Only a visible view takes focus and the input method; the strip hides again when the keyboard closes
+        ime.setVisibility(View.VISIBLE);
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         ime.requestFocus();
         if (imm != null) imm.showSoftInput(ime, InputMethodManager.SHOW_FORCED);
@@ -532,15 +542,36 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         }
     }
 
+    /** The keyboard opened, closed or changed height: the strip shows while it is open, the picture fits above it. */
+    private void checkKeyboard() {
+        android.graphics.Rect r = new android.graphics.Rect();
+        root.getWindowVisibleDisplayFrame(r);
+        int[] at = new int[2];
+        root.getLocationOnScreen(at);
+        int covered = Math.max(0, at[1] + root.getHeight() - r.bottom);
+        if (covered < root.getHeight() / 6) covered = 0;  // the navigation bar, not a keyboard
+        if (covered == keyboardHeight) return;
+        boolean opened = keyboardHeight == 0 && covered > 0;
+        keyboardHeight = covered;
+        if (opened) ime.clear();
+        if (covered == 0) ime.flush();
+        ime.setVisibility(covered > 0 ? View.VISIBLE : View.INVISIBLE);
+        fitVideo();
+    }
+
     private void fitVideo() {
         int sw = root.getWidth(), sh = root.getHeight();
+        // With the keyboard open the whole picture moves above it, under the typing strip, so the text box stays in view
+        int top = keyboardHeight > 0 ? dp(STRIP_DP + 2 * STRIP_GAP_DP) : 0;
+        sh -= keyboardHeight + top;
         FrameLayout.LayoutParams lp;
         if (videoWidth <= 0 || videoHeight <= 0 || sw <= 0 || sh <= 0) {
             lp = new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
         } else {
             float scale = Math.min((float) sw / videoWidth, (float) sh / videoHeight);
             lp = new FrameLayout.LayoutParams(Math.round(videoWidth * scale), Math.round(videoHeight * scale),
-                    Gravity.CENTER);
+                    Gravity.CENTER_HORIZONTAL | Gravity.TOP);
+            lp.topMargin = top + (sh - Math.round(videoHeight * scale)) / 2;
         }
         view.setLayoutParams(lp);
     }

@@ -22,6 +22,7 @@
     <string name="control_on">From the next connection, this device\'s touch screen, mouse and keyboard control the phone</string>
     <string name="control_off">From the next connection, this device only shows the picture</string>
     <string name="bar_keyboard">Keyboard</string>
+    <string name="ime_hint">Typing goes to the phone</string>
     <string name="bar_back">Back</string>
     <string name="bar_home">Home</string>
     <string name="bar_disconnect">Disconnect</string>
