@@ -1223,6 +1223,9 @@ final class WirelessDisplay {
                 running = false;
                 return false;
             }
+            // A tablet or phone is touched where it shows the picture: the phone's input method opens there too, under the
+            // finger, with its own languages. The session gives the policy back when it ends
+            if (inputReceiver && !computer) i.setImeOnDisplay(id, true);
             displayId = id;
             Log.i(TAG, "display " + id + ", " + width + "x" + height + " " + dpi + " dpi, receiver " + receiverDpi + " dpi");
             synchronized (soundLock) {
