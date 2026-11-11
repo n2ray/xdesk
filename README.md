@@ -1,6 +1,6 @@
 # XDesk
 
-<p align="center"><img src="docs/img/projector-home.jpg" width="640" alt="XDesk on a projector: a browser full screen on the living-room wall, with the dock along the bottom"></p>
+<p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="XDesk on a portable display: an Android desktop with a dock, the phone in a stand as touchpad, a keyboard and a mouse"></p>
 
 **Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display gets a home screen of your favourites and a dock at the bottom edge, so it feels much like a computer. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
 

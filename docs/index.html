@@ -7,6 +7,12 @@
 <meta name="description" content="Install one app, activate it once, connect a screen. Android apps full screen on any display, with the phone as touchpad and keyboard. No root.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
+<meta property="og:title" content="XDesk">
+<meta property="og:description" content="Android apps full screen on any display, with the phone as touchpad and keyboard. No root.">
+<meta property="og:image" content="https://n2ray.github.io/xdesk/img/hero-desk.jpg">
+<meta property="og:image:width" content="1672">
+<meta property="og:image:height" content="941">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <script>if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');</script>
 <style>
@@ -54,7 +60,10 @@ nav a, #lang { white-space: nowrap; flex: none; }
 .links { display: flex; align-items: center; gap: inherit; }
 #lang .short { display: none; }
 
-.hero { position: relative; min-height: calc(100svh - 44px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding-block: 34px 56px; }
+.hero { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-block: clamp(40px, 8vh, 88px) 24px; }
+/* The desk photo is wider than the text column, and its dark edges fade into the black page. */
+.shot { display: block; position: relative; flex: none; width: min(1280px, 100vw); margin-top: clamp(28px, 5vh, 52px); }
+.shot img { display: block; width: 100%; height: auto; -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent), linear-gradient(#000 92%, transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent), linear-gradient(#000 92%, transparent); mask-composite: intersect; }
 .lead { color: var(--dim-dark); font-size: clamp(19px, 2vw, 25px); line-height: 1.32; letter-spacing: -.008em; margin: 20px auto 26px; max-width: 26em; text-wrap: balance; }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 24px; }
 .btn { display: inline-block; padding: 11px 24px; border-radius: 999px; background: var(--blue); color: #fff; font-weight: 500; }
@@ -65,9 +74,6 @@ nav a, #lang { white-space: nowrap; flex: none; }
 .slot img { display: block; width: 100%; height: auto; border-radius: 22%; }
 .motion .slot img { visibility: hidden; }
 .slot.mark { width: 64px; margin: 0 auto 30px; }
-.hint { position: absolute; left: 50%; bottom: 16px; width: 30px; height: 7px; margin-left: -15px; border-radius: 4px; background: var(--blue); display: none; }
-.motion .hint { display: block; animation: drop 1.8s ease-in-out infinite; }
-@keyframes drop { 0%, 100% { transform: translateY(-5px) rotate(-45deg); } 50% { transform: translateY(5px) rotate(45deg); } }
 
 section { padding-block: 104px; }
 .band { display: flex; flex-direction: column; justify-content: center; }
@@ -169,6 +175,7 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
 
 <div class="wrap">
   <header class="hero">
+    <div class="slot mark" id="s-hero"><img src="icon.svg" alt="XDesk logo"></div>
     <div class="rv-hero">
       <h1>
         <span lang="en"><span class="nb">Your phone</span><span class="nb">on <em>any screen</em></span></span>
@@ -183,8 +190,10 @@ footer { position: relative; z-index: 1; padding-block: 0 44px; color: var(--dim
         <a class="more" href="https://github.com/n2ray/xdesk"><span lang="en">Source on GitHub</span><span lang="zh-CN">查看源码</span></a>
       </div>
     </div>
-    <div class="slot" id="s-hero"><img src="icon.svg" alt="XDesk logo"></div>
-    <span class="hint" aria-hidden="true"></span>
+    <picture class="shot">
+      <source srcset="img/hero-desk.webp" type="image/webp">
+      <img src="img/hero-desk.jpg" width="1672" height="941" fetchpriority="high" alt="A portable display showing an Android desktop with a dock, next to a phone in a stand that serves as touchpad, with a keyboard and mouse on the desk">
+    </picture>
   </header>
 </div>
 
