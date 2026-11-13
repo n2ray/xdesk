@@ -358,6 +358,7 @@ session_root() {
     for r in "$PREFIX/var/lib/proot-distro/installed-rootfs/$d" "$PREFIX/var/lib/proot-distro/containers/$d/rootfs"; do
         [ -d "$r/usr" ] && { echo "$r"; return 0; }
     done
+    return 0
 }
 
 # Scopes with programs, one per line: "termux" and every session with a root of its own
