@@ -320,7 +320,21 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onDisplayChanged(int id) {
             if (apps.isActive()) apps.displayChanged(id);
+            // The X desktop follows its display too (a receiver window resized, a tablet turned), once the size has
+            // settled: DISPLAY.md §4.3. Same size again changes nothing (the preference stays equal).
+            Display shown = desktopDisplay();
+            if (session.isActive() && shown != null && shown.getDisplayId() == id) {
+                ui.removeCallbacks(desktopFollowsDisplay);
+                ui.postDelayed(desktopFollowsDisplay, RESIZE_SETTLE_MS);
+            }
         }
+    };
+
+    /** DISPLAY.md §4.3: a size is committed once it has not changed for this long. */
+    private static final long RESIZE_SETTLE_MS = 300;
+    private final Runnable desktopFollowsDisplay = () -> {
+        Display d = desktopDisplay();
+        if (session.isActive() && d != null) applySize(d);
     };
 
     private final DesktopSession.Listener sessionListener = new DesktopSession.Listener() {
