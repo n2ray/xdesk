@@ -282,6 +282,7 @@ add_library(Xlorie SHARED
         "libxcvt/lib/libxcvt.c"
         "lorie/shm/shmem.c"
         "lorie/clipboard.c"
+        "lorie/xwindows.c"
         "lorie/InitOutput.c"
         "lorie/InitInput.c"
         "lorie/InputXKB.c"

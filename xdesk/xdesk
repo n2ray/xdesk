@@ -15,6 +15,9 @@
 #   xdesk status             show what is running
 #   xdesk setup              look for desktops in Termux and proot-distro
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
+#   xdesk apps [--refresh]   list the programs XDesk can open one by one (from .desktop files)
+#   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
+#   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 set -u
 APP=io.github.n2ray.xdesk.x11
 DPY=:1
@@ -153,7 +156,8 @@ start_x() {
     # through RUN_COMMAND, so a shell's env never gets here.
     local xenv
     read_x11_env
-    env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
+    # XDESK_CLI: the X server runs this same script for the app (xdesk apps, xdesk launch), see XWindows.java
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" XDESK_CLI="$(realpath "$0" 2>/dev/null || echo "$0")" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
         -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
         </dev/null >>"$LOG" 2>&1 9>&- &
     for _ in $(seq 40); do
@@ -221,13 +225,16 @@ migrate_session() {
 }
 
 start_session() {
-    local name=$1 f=$SESSIONS/$1.sh
-    [ -f "$f" ] || { say "No session named '$name'. Try: xdesk list"; return 1; }
+    local name=$1 f
+    f=$(session_file "$name") || { say "No session named '$name'. Try: xdesk list"; return 1; }
     if [ -n "$(session_pid)" ]; then
         echo "Session $(cat "$RUN/session.name") is already running"
         return 0
     fi
     migrate_session "$f"
+    if [ "$name" != "${name%+apps}" ]; then
+        f=$(apps_only_script "$f") || { say "Session ${name%+apps} has no XFCE to start without its desktop"; return 1; }
+    fi
     DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
     echo $! >"$RUN/session.pid"
     echo "$name" >"$RUN/session.name"
@@ -260,14 +267,20 @@ write_session() {  # name, command; never overwrites an existing one
 }
 
 
-termux_session() {  # command that starts the desktop
-    local env="" lang
+termux_env() {  # export lines for programs on the display in Termux
+    local lang
     # Menus follow the phone's language. LC_ALL is left alone, Termux sets it for the terminal
     lang=$(getprop persist.sys.locale 2>/dev/null | tr - _)
-    [ -n "$lang" ] && env="export LANGUAGE=$lang
-"
+    [ -n "$lang" ] && echo "export LANGUAGE=$lang"
     # zink + Turnip on Adreno. Other GPUs: edit this file
-    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && env="${env}export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0
+    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && echo "export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0"
+    return 0
+}
+
+termux_session() {  # command that starts the desktop
+    local env
+    env=$(termux_env)
+    [ -n "$env" ] && env="$env
 "
     printf '%sexec dbus-run-session %s\n' "$env" "$1"
 }
@@ -309,7 +322,377 @@ list() {
     done
 }
 
-usage() { sed -n '4,17p' "$0" | sed 's/^# \?//'; }
+# --- Programs as apps (DISPLAY.md §1.2, §1.5) ---
+# Each .desktop entry is an app the XDesk app can list and open on its own, keyed "SCOPE/ID": SCOPE is
+# "termux" for Termux's own programs, or the name of a session whose system has its own root (proot-distro,
+# or a NAME.root file next to NAME.sh), ID the desktop file id.
+
+APPS_CACHE=$HOME/.cache/xdesk
+APPS_FORMAT=1   # bump when the catalog's columns or the icons change
+ICON_PX=64
+
+# The file of a session, also for its "apps only" variant NAME+apps: X, xfwm4 and xfsettingsd, no panel or desktop
+session_file() {
+    local f=$SESSIONS/${1%+apps}.sh
+    [ -f "$f" ] && echo "$f"
+}
+
+# The session script with XFCE's start command replaced by the window manager and settings daemon alone
+apps_only_script() {
+    local out=$RUN/apps-session.sh
+    grep -qE '(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|$)' "$1" || return 1
+    sed -E "s/(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|\$)/\\1sh -c 'xfsettingsd \\& exec xfwm4'\\3/" "$1" >"$out" || return 1
+    echo "$out"
+}
+
+# The root directory of a session's system, empty for one that runs in Termux itself
+session_root() {
+    local f=$SESSIONS/$1.sh d r
+    if [ -f "$SESSIONS/$1.root" ]; then
+        head -1 "$SESSIONS/$1.root"
+        return 0
+    fi
+    d=$(sed -n 's/.*proot-distro login[[:space:]]\{1,\}\(.*\)/\1/p' "$f" 2>/dev/null | head -1 |
+        tr -s ' \t' '\n\n' | grep -v '^-' | head -1)
+    [ -n "$d" ] || return 0
+    for r in "$PREFIX/var/lib/proot-distro/installed-rootfs/$d" "$PREFIX/var/lib/proot-distro/containers/$d/rootfs"; do
+        [ -d "$r/usr" ] && { echo "$r"; return 0; }
+    done
+}
+
+# Scopes with programs, one per line: "termux" and every session with a root of its own
+app_scopes() {
+    local f n
+    echo termux
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        [ -n "$(session_root "$n")" ] && echo "$n"
+    done
+    return 0
+}
+
+app_dirs() {  # scope: application directories, most important first
+    local r
+    if [ "$1" = termux ]; then
+        echo "$HOME/.local/share/applications"
+        echo "$PREFIX/share/applications"
+    else
+        r=$(session_root "$1")
+        [ -n "$r" ] || return 0
+        echo "$r/root/.local/share/applications"
+        echo "$r/usr/local/share/applications"
+        echo "$r/usr/share/applications"
+    fi
+}
+
+app_locale() {
+    local l=${LANGUAGE:-}
+    l=${l%%:*}
+    [ -n "$l" ] || l=$(getprop persist.sys.locale 2>/dev/null | tr - _)
+    [ -n "$l" ] || { l=${LANG:-}; l=${l%%.*}; }
+    echo "$l"
+}
+
+# One row per desktop file: path, then the [Desktop Entry] keys the catalog uses, separated by \037 (a tab
+# would merge empty fields in read). Tabs in values become spaces
+desktop_rows() {  # locale, files...
+    local loc=$1
+    shift
+    [ $# -gt 0 ] || return 0
+    awk -v loc="$loc" -v S=$'\037' '
+        function flush(   name, lang) {
+            if (f == "") return
+            lang = loc; sub(/_.*/, "", lang)
+            name = v["Name[" loc "]"]
+            if (name == "") name = v["Name[" lang "]"]
+            if (name == "") name = v["Name"]
+            print f S v["Type"] S name S v["NoDisplay"] S v["Hidden"] S v["Terminal"] S v["TryExec"] S v["Icon"] S v["StartupWMClass"] S v["OnlyShowIn"] S v["NotShowIn"] S v["Exec"] S v["Path"]
+        }
+        FNR == 1 { flush(); f = FILENAME; grp = 0; split("", v) }
+        /^\[/ { grp = ($0 == "[Desktop Entry]"); next }
+        grp && /^[^#]/ {
+            i = index($0, "=")
+            if (!i) next
+            k = substr($0, 1, i - 1); sub(/[ \t]+$/, "", k)
+            val = substr($0, i + 1); sub(/^[ \t]+/, "", val); gsub(/\t/, " ", val)
+            if (!(k in v)) v[k] = val
+        }
+        END { flush() }' "$@" 2>/dev/null
+}
+
+# Desktop files of a scope, as "ID<TAB>path"; an ID found in an earlier directory hides later ones
+desktop_files() {
+    local d f id seen=" "
+    while IFS= read -r d; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*.desktop "$d"/*/*.desktop; do
+            [ -f "$f" ] || continue
+            id=${f#"$d"/}
+            id=${id%.desktop}
+            id=${id//\//-}
+            case "$seen" in *" $id "*) continue ;; esac
+            seen="$seen$id "
+            printf '%s\t%s\n' "$id" "$f"
+        done
+    done < <(app_dirs "$1")
+}
+
+icon_theme() {
+    sed -n 's/.*name="IconThemeName"[^>]*value="\([^"]*\)".*/\1/p' \
+        "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml" 2>/dev/null | head -1
+}
+
+# The file for an Icon= value: a path as it is, else a name looked up in the icon themes, then pixmaps
+find_icon() {  # scope root ("" for Termux), theme, icon
+    local root=$1 theme=$2 icon=$3 base t s e f
+    case "$icon" in
+    "") return 1 ;;
+    /*) f=$root$icon; [ -f "$f" ] && echo "$f" && return 0; return 1 ;;
+    esac
+    icon=${icon%.png}; icon=${icon%.svg}; icon=${icon%.xpm}
+    local -a bases
+    if [ -z "$root" ]; then
+        bases=("$HOME/.local/share/icons" "$HOME/.icons" "$PREFIX/share/icons")
+    else
+        bases=("$root/usr/local/share/icons" "$root/usr/share/icons")
+    fi
+    # Usually SIZE/apps; then any context (SIZE/actions, ...) and the other layout, CONTEXT/SIZE
+    local pat
+    for pat in '$s/apps' '$s/*' '*/$s'; do
+        for t in ${theme:+"$theme"} hicolor Adwaita AdwaitaLegacy breeze gnome; do
+            for base in "${bases[@]}"; do
+                [ -d "$base/$t" ] || continue
+                for s in 64x64 64 96x96 128x128 48x48 48 scalable 256x256 512x512 32x32; do
+                    for e in png svg; do
+                        for f in "$base/$t/"${pat//\$s/$s}"/$icon.$e"; do
+                            [ -f "$f" ] && { echo "$f"; return 0; }
+                        done
+                    done
+                done
+            done
+        done
+    done
+    for base in ${root:+"$root/usr/share/pixmaps"} "${root:-$PREFIX}/share/pixmaps"; do
+        for e in png svg xpm; do
+            f=$base/$icon.$e
+            [ -f "$f" ] && { echo "$f"; return 0; }
+        done
+    done
+    return 1
+}
+
+# A small PNG of an icon file, base64 on one line; nothing when it cannot be made. Converted icons are kept
+icon_png64() {
+    local src=$1 out
+    out=$APPS_CACHE/icons/$(printf '%s' "$src" | cksum | cut -d' ' -f1).png
+    if [ ! -s "$out" ] || [ "$src" -nt "$out" ]; then
+        case "$src" in
+        *.svg|*.svgz)
+            command -v rsvg-convert >/dev/null || return 0
+            rsvg-convert -w $ICON_PX -h $ICON_PX -a -f png -o "$out" "$src" 2>/dev/null || { rm -f "$out"; return 0; }
+            ;;
+        */64x64/*|*/64/*|*/48x48/*|*/48/*|*/96x96/*|*/32x32/*)
+            out=$src ;;
+        *)
+            if command -v magick >/dev/null; then
+                magick "$src" -resize ${ICON_PX}x${ICON_PX} "png:$out" 2>/dev/null || { rm -f "$out"; return 0; }
+            else
+                case "$src" in *.png) out=$src ;; *) return 0 ;; esac
+            fi
+            ;;
+        esac
+    fi
+    base64 -w0 "$out" 2>/dev/null
+}
+
+# Whatever changes the catalog: the directories (installing a program adds a file), the language, the theme
+apps_signature() {
+    local s d
+    echo "format $APPS_FORMAT $ICON_PX $(app_locale) $(icon_theme)"
+    stat -c '%n %Y' "$SESSIONS" "$SESSIONS"/*.root 2>/dev/null
+    while IFS= read -r s; do
+        while IFS= read -r d; do
+            stat -c '%n %Y' "$d" "$d"/*/ 2>/dev/null
+        done < <(app_dirs "$s")
+    done < <(app_scopes)
+}
+
+tryexec_ok() {  # root, program
+    local root=$1 p=$2 d
+    [ -n "$p" ] || return 0
+    if [ -z "$root" ]; then
+        command -v "$p" >/dev/null 2>&1
+        return
+    fi
+    case "$p" in /*) [ -e "$root$p" ]; return ;; esac
+    for d in /usr/local/bin /usr/bin /bin /usr/games; do [ -e "$root$d/$p" ] && return 0; done
+    return 1
+}
+
+# The catalog: a header line, then KEY, name, terminal (0/1), StartupWMClass, icon (base64 PNG or empty)
+build_catalog() {
+    local out=$1 loc theme scope root id path rows
+    local file type name nodisp hidden term tryexec icon wmclass only notshow exe wd ic
+    loc=$(app_locale)
+    theme=$(icon_theme)
+    mkdir -p "$APPS_CACHE/icons"
+    {
+        echo "#xdesk-apps $APPS_FORMAT"
+        while IFS= read -r scope; do
+            root=""
+            [ "$scope" = termux ] || root=$(session_root "$scope")
+            declare -A ids=()
+            local -a files=()
+            while IFS=$'\t' read -r id path; do
+                ids[$path]=$id
+                files+=("$path")
+            done < <(desktop_files "$scope")
+            while IFS=$'\037' read -r file type name nodisp hidden term tryexec icon wmclass only notshow exe wd; do
+                [ "$type" = Application ] && [ -n "$name" ] && [ -n "$exe" ] || continue
+                [ "$nodisp" = true ] || [ "$hidden" = true ] && continue
+                if [ -n "$only" ]; then case ";$only;" in *";XFCE;"*) ;; *) continue ;; esac; fi
+                case ";$notshow;" in *";XFCE;"*) continue ;; esac
+                tryexec_ok "$root" "$tryexec" || continue
+                ic=""
+                icon=$(find_icon "$root" "$theme" "$icon") && ic=$(icon_png64 "$icon")
+                [ "$term" = true ] && term=1 || term=0
+                printf '%s/%s\t%s\t%s\t%s\t%s\n' "$scope" "${ids[$file]}" "$name" "$term" "$wmclass" "$ic"
+            done < <(desktop_rows "$loc" "${files[@]}")
+            unset ids
+        done < <(app_scopes)
+    } >"$out.tmp" && mv -f "$out.tmp" "$out"
+}
+
+# Makes the catalog when anything it depends on changed. Prints its path
+apps_catalog() {
+    local cat=$APPS_CACHE/apps.tsv sig
+    mkdir -p "$APPS_CACHE"
+    sig=$(apps_signature)
+    if [ "$1" = 1 ] || [ ! -s "$cat" ] || [ "$sig" != "$(cat "$APPS_CACHE/apps.sig" 2>/dev/null)" ]; then
+        build_catalog "$cat" || return 1
+        printf '%s\n' "$sig" >"$APPS_CACHE/apps.sig"
+        log "App catalog rebuilt: $(($(wc -l <"$cat") - 1)) apps"
+    fi
+    echo "$cat"
+}
+
+# For sh -c '...': one word in single quotes
+sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+
+# The Exec= value as a shell command: string escapes undone, field codes (%f %U ...) dropped, %% kept as %
+exec_command() {
+    local e=$1
+    e=${e//\\\\/$'\001'}
+    e=${e//\\s/ }; e=${e//\\t/$'\t'}; e=${e//\\n/ }; e=${e//\\r/}
+    e=${e//$'\001'/\\}
+    e=${e//%%/$'\002'}
+    e=${e//%[fFuUdDnNvmick]/}
+    e=${e//$'\002'/%}
+    echo "$e"
+}
+
+# The environment of the session's window manager, if it runs in Termux itself: its D-Bus, language, GPU settings
+session_wm_pid() {
+    local p
+    for p in $(pgrep -x xfwm4 2>/dev/null); do
+        tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | grep -qx "DISPLAY=$DPY" && { echo "$p"; return 0; }
+    done
+    return 1
+}
+
+import_env() {  # pid
+    local kv n
+    while IFS= read -r -d '' kv; do
+        n=${kv%%=*}
+        case "$n" in PWD|OLDPWD|SHLVL|_|DESKTOP_STARTUP_ID|LD_PRELOAD|LD_LIBRARY_PATH|CLASSPATH|XDESK_*) continue ;; esac
+        [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && export "$kv"
+    done <"/proc/$1/environ"
+}
+
+# A terminal for Terminal=true programs, chosen where the program runs. $0 is the command
+TERM_WRAP='for t in xfce4-terminal x-terminal-emulator xterm; do command -v $t >/dev/null 2>&1 && break; done
+if [ "$t" = xfce4-terminal ]; then exec $t -x sh -c "$0"; else exec $t -e sh -c "$0"; fi'
+
+launch_app() {
+    local sid="" key scope id file row cmd root prefix wm line
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --startup-id) sid=${2:-}; shift 2 ;;
+        --) shift; break ;;
+        -*) usage; exit 2 ;;
+        *) break ;;
+        esac
+    done
+    key=${1:-}
+    [ -n "$key" ] || { usage; exit 2; }
+    case "$key" in
+    */*) scope=${key%%/*}; id=${key#*/} ;;
+    *) scope=""; id=$key ;;
+    esac
+    case "$scope$id" in *..*|*/*|'') say "Invalid app: $key"; exit 2 ;; esac
+    for s in ${scope:-$(app_scopes)}; do
+        file=$(desktop_files "$s" | awk -F'\t' -v id="$id" '$1 == id { print $2; exit }')
+        [ -n "$file" ] && { scope=$s; break; }
+    done
+    [ -n "$file" ] || { say "No app $key. Try: xdesk apps"; exit 1; }
+    row=$(desktop_rows "" "$file")
+    IFS=$'\037' read -r _ _ _ _ _ term _ _ _ _ _ cmd wd <<<"$row"
+    cmd=$(exec_command "$cmd")
+    [ -n "$cmd" ] || { say "App $key has no command"; exit 1; }
+    cmd="exec $cmd"
+    [ -n "$wd" ] && cmd="cd $(sq "$wd") 2>/dev/null; $cmd"
+    if ! x_up; then
+        need_tools
+        lock; start_x && start_audio || exit 1
+        exec 9>&-
+    fi
+    # Who asks (the X server for the app) learns which process to follow, before everything goes to the log
+    echo "pid $$"
+    log "Launching $scope/$id: $cmd"
+    exec </dev/null >>"$LOG" 2>&1
+    [ -n "$sid" ] || sid="xdesk-$id-$$_TIME0"
+    # The X server runs on half the cores, and what it starts would inherit that
+    command -v taskset >/dev/null && taskset -p "$(printf '%x' $(( (1 << $(nproc --all)) - 1 )))" $$ >/dev/null 2>&1
+    unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI
+    if [ "$scope" = termux ]; then
+        if wm=$(session_wm_pid) && tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
+            import_env "$wm"
+        else
+            eval "$(termux_env)"
+        fi
+        export DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE DESKTOP_STARTUP_ID=$sid
+        if [ "$term" = true ]; then exec setsid sh -c "$TERM_WRAP" "$cmd"; fi
+        exec setsid sh -c "$cmd"
+    fi
+    [ "$term" = true ] && cmd="exec sh -c $(sq "$TERM_WRAP") $(sq "$cmd")"
+    local -a e=(DISPLAY=$DPY PULSE_SERVER=127.0.0.1 DESKTOP_STARTUP_ID=$sid)
+    # The session's D-Bus and language, when its window manager runs
+    if wm=$(session_wm_pid); then
+        while IFS= read -r line; do e+=("$line"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
+            grep -E '^(DBUS_SESSION_BUS_ADDRESS|LANG|LANGUAGE|LC_[A-Z]+|XDG_RUNTIME_DIR)=')
+    fi
+    if [ -f "$SESSIONS/$scope.launch" ]; then
+        # Written by the user for systems xdesk cannot enter itself (chroot): runs "$@" in that system
+        export PULSE_COOKIE=$PULSE_COOKIE_FILE "${e[@]}"
+        exec setsid bash "$SESSIONS/$scope.launch" sh -c "$cmd"
+    fi
+    line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh")
+    [ -n "$line" ] || { say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"; exit 1; }
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line#exec }
+    prefix=${line%% -- *}
+    eval "set -- $prefix"
+    exec setsid "$@" -- env "${e[@]}" PULSE_COOKIE=/tmp/xdesk-pulse-cookie sh -c "$cmd"
+}
+
+list_apps() {
+    local cat
+    cat=$(apps_catalog "${1:-0}") || exit 1
+    awk -F'\t' 'NR > 1 { printf "%-40s %s%s\n", $1, $2, ($3 == 1 ? " (terminal)" : "") }' "$cat"
+}
+
+usage() { sed -n '4,20p' "$0" | sed 's/^# \?//'; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -350,7 +733,7 @@ switch)
     [ $# -eq 1 ] || { usage; exit 2; }
     valid_name "$1" || exit 2
     need_tools
-    [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
+    session_file "$1" >/dev/null || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
     clear_stopped
     lock; start_x && start_audio || exit 1
     stop_session
@@ -368,6 +751,7 @@ list) list ;;
 add)
     [ $# -eq 2 ] || { usage; exit 2; }
     valid_name "$1" || exit 2
+    case "$1" in *+apps) echo "Names ending in +apps are the apps only variant of a session"; exit 2 ;; esac
     printf '%s\n' "exec $2" >"$SESSIONS/$1.sh"
     [ -n "$(current)" ] || echo "$1" >"$CONF/current"
     list
@@ -382,7 +766,7 @@ rm)
 use)
     [ $# -eq 1 ] || { usage; exit 2; }
     valid_name "$1" || exit 2
-    [ -f "$SESSIONS/$1.sh" ] || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
+    session_file "$1" >/dev/null || { echo "No session named '$1'. Try: xdesk list"; exit 1; }
     echo "$1" >"$CONF/current"
     list
     ;;
@@ -393,6 +777,15 @@ status)
     echo "Default: $(current)"
     ;;
 setup) setup ;;
+apps)
+    case "${1:-}" in
+    --refresh) list_apps 1 ;;
+    --path) apps_catalog 0 ;;
+    '') list_apps 0 ;;
+    *) usage; exit 2 ;;
+    esac
+    ;;
+launch) launch_app "$@" ;;
 enable-app-start)
     P=$HOME/.termux/termux.properties
     mkdir -p "$(dirname "$P")"; touch "$P"

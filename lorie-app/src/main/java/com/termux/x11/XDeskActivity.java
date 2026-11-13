@@ -869,6 +869,7 @@ public class XDeskActivity extends Activity {
         getWindow().setNavigationBarColor(Style.BACKGROUND);
         displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         Contents.setHost(contentsHost);
+        LinuxSource.install(this); // "l:" Linux programs and X windows
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);

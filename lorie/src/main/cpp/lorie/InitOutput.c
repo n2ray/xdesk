@@ -960,6 +960,7 @@ void InitOutput(ScreenInfo * screen_info, int argc, char **argv) {
             pvfb->gpuPresentDisabled ? "off" : "on");
     xorgGlxCreateVendor();
     lorieInitClipboard();
+    lorieInitWindows();
 
     if (-1 == AddScreen(lorieScreenInit, argc, argv)) {
         FatalError("Couldn't add screen\n");

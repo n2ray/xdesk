@@ -703,6 +703,7 @@ void registerCmdEntryPointNatives(JNIEnv *env) {
     };
     jclass cls = env->FindClass("com/termux/x11/CmdEntryPoint");
     env->RegisterNatives(cls, methods, sizeof(methods)/sizeof(methods[0]));
+    lorieRegisterWindowsNatives(env);
 }
 
 void abort(void) {

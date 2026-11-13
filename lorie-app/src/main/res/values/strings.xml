@@ -173,6 +173,13 @@
     <string name="xd_desktop_stopping">The desktop is still stopping</string>
     <string name="xd_chooser_running">Running, tap to reattach</string>
     <string name="xd_content_no_desktop">The Linux desktop did not start</string>
+    <string name="xd_linux_title">Linux</string>
+    <string name="xd_linux_no_x">The X server is not connected</string>
+    <string name="xd_linux_old_x">The X server is from an older XDesk. End the desktop and start it again</string>
+    <string name="xd_linux_not_found">This program is no longer installed</string>
+    <string name="xd_linux_window_gone">This window was closed</string>
+    <string name="xd_linux_no_window">%1$s did not open a window within 15 seconds. See $PREFIX/tmp/xdesk.log</string>
+    <string name="xd_linux_launch_failed">%1$s did not start: %2$s</string>
     <string name="xd_chooser_default">Default</string>
     <string name="xd_chooser_reattach_x">Reattach the running X display</string>
     <string name="xd_chooser_attach_x">Attach an X display</string>
