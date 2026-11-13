@@ -48,6 +48,11 @@ final class MacInput implements InputSink {
         return true;
     }
 
+    /** INPUT.md §6: the Mac desktop is a whole desktop, a window is a window (actions above it are XDesk's). */
+    @Override public io.github.n2ray.xdesk.input.Caps caps() {
+        return desktop() ? io.github.n2ray.xdesk.input.Caps.MAC_DESKTOP : io.github.n2ray.xdesk.input.Caps.MAC_WINDOW;
+    }
+
     private boolean desktop() {
         return client.want() == MacClient.DESKTOP;
     }

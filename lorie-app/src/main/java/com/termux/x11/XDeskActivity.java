@@ -253,7 +253,9 @@ public class XDeskActivity extends Activity {
         switch (action) {
             case io.github.n2ray.xdesk.input.Input.BACK:
                 if (target == SwitcherOverlay.INPUT) target.androidButton(1);
-                else if (apps.isActive()) apps.sendBack();
+                // A window (a Mac window): its own Back (⌘[ for a Mac), never the Android app behind it
+                else if (window && target != null) target.androidButton(1);
+                else if (apps.isActive() && target == apps.input()) apps.sendBack();
                 break;
             case io.github.n2ray.xdesk.input.Input.HOME:
                 if (target == SwitcherOverlay.INPUT) target.androidButton(2);
