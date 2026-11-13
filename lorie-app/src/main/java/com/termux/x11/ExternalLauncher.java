@@ -24,6 +24,9 @@ final class ExternalLauncher {
         void open(String key);
     }
 
+    /** The dock's last tile: opens the switcher (SwitcherOverlay) on the external display. */
+    static final String SWITCHER = "x:switcher";
+
     private static Host host;
     private static final List<Runnable> listeners = new ArrayList<>();
 
@@ -57,16 +60,35 @@ final class ExternalLauncher {
 
     /** False for an app that was uninstalled, or that the list has not reached yet. */
     static boolean exists(Context c, String key) {
+        if (SWITCHER.equals(key)) return true;
+        if (Contents.sourceOf(key) != null) return Contents.find(key) != null;
         return !ChooserView.isAppKey(key) || AppCatalog.get(c).find(ChooserView.componentOf(key)) != null;
     }
 
     static String label(Context c, String key) {
+        if (SWITCHER.equals(key)) return c.getString(R.string.xd_switcher_short);
+        if (Contents.sourceOf(key) != null) {
+            ContentSource.Entry e = Contents.find(key);
+            return e != null ? e.label : "";
+        }
         if (!ChooserView.isAppKey(key)) return ChooserView.sessionOf(key);
         AppCatalog.App a = AppCatalog.get(c).find(ChooserView.componentOf(key));
         return a != null ? a.label : "";
     }
 
     static View icon(Context c, String key, int size) {
+        if (SWITCHER.equals(key)) {
+            ImageView all = new ImageView(c);
+            all.setImageDrawable(Style.letterIcon(c, "\u229E"));
+            return all;
+        }
+        if (Contents.sourceOf(key) != null) {
+            ContentSource.Entry e = Contents.find(key);
+            ImageView icon = new ImageView(c);
+            if (e != null && e.icon != null) icon.setImageBitmap(e.icon);
+            else icon.setImageDrawable(Style.letterIcon(c, e != null ? e.label : "?"));
+            return icon;
+        }
         AppCatalog.App a = ChooserView.isAppKey(key) ? AppCatalog.get(c).find(ChooserView.componentOf(key)) : null;
         if (a != null) {
             ImageView icon = new ImageView(c);
