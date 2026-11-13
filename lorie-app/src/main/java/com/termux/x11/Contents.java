@@ -35,6 +35,9 @@ final class Contents {
 
         /** Something about this content changed that the phone UI shows (title, running state). */
         void contentChanged();
+
+        /** The content ended on its own (its activity was destroyed, the stream failed, its display went away). */
+        void contentEnded(String key);
     }
 
     private static final ArrayList<ContentSource> sources = new ArrayList<>();

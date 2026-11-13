@@ -375,6 +375,14 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public void onDisplayRemoved(int id) {
+            SwitcherOverlay.hide(switcherHost);
+            if (contentKey != null && id == contentDisplay) {
+                // DISPLAY.md §5.4: a Mac stops streaming, a Linux window is left as it is; the content does not end
+                String gone = contentKey;
+                contentsHost.contentEnded(gone);
+                ContentSource s = Contents.sourceOf(gone);
+                if (s != null) s.hidden(gone);
+            }
             if (id == carSeen) {
                 carChanged();
                 return;
@@ -421,6 +429,7 @@ public class XDeskActivity extends Activity {
 
     private final DesktopSession.Listener sessionListener = new DesktopSession.Listener() {
         @Override public void onSessionChanged(boolean c) {
+            if (!c && contentKey != null && contentKey.startsWith("l:")) contentsHost.contentEnded(contentKey);
             // 桌面窗口没了，焦点回不去它那里
             if (!c) setDesktopTaken(false);
             if (c) {
@@ -715,7 +724,8 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public boolean anyThread() {
-            return apps.isActive();
+            // Only the Android injector takes input off the main thread; the switcher, X and a Mac do not
+            return apps.isActive() && client == apps.input();
         }
         @Override public void androidButton(int button) {
             // 1 返回、2 主页是语义动作（INPUT.md §3.4），按目标去做
@@ -893,7 +903,7 @@ public class XDeskActivity extends Activity {
             });
         }
         private void sessionDecided(final String name) {
-            if (contentKey != null) leaveContent();
+            leaveContentChoice();
             rememberRecent(ChooserView.recentKey(name));
             if (name.equals(runningSession)) {
                 if (session.isActive()) {
@@ -925,7 +935,7 @@ public class XDeskActivity extends Activity {
             chooseContent(key);
         }
         @Override public void onAppChosen(AppCatalog.App app) {
-            if (contentKey != null) leaveContent();
+            leaveContentChoice();
             chooseApp(app);
         }
         @Override public void onNoDisplayHint() {
@@ -1084,6 +1094,9 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (Contents.host() == contentsHost) Contents.setHost(null);
+        SwitcherOverlay.hide(null);
+        if (MacSource.switcher != null) MacSource.switcher = null;
+        MainActivity.keyHook = null;
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
         if (externalDock != null) externalDock.setDisplay(null);
@@ -2447,6 +2460,8 @@ public class XDeskActivity extends Activity {
 
     /** 长按图标打开：这个应用记住的一切都在这里。Termux 环境只有 Dock 这部分。 */
     private void showAppCard(final String key) {
+        // Linux programs and Mac windows have no per-app card yet: their settings live with their source
+        if (Contents.sourceOf(key) != null) return;
         final AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
         if (ChooserView.isAppKey(key) && app == null) return;
         final SettingsUi s = ui();
@@ -2583,9 +2598,13 @@ public class XDeskActivity extends Activity {
             SwitcherOverlay.hide(switcherHost);
             return;
         }
-        beforeSwitcher = client;
+        if (!SwitcherOverlay.show(this, d, switcherHost, onlySystem)) {
+            // No overlay permission: the phone's list instead, and the input stays where it was
+            showChooser();
+            return;
+        }
+        if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
-        SwitcherOverlay.show(this, d, switcherHost, onlySystem);
     }
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
@@ -2610,6 +2629,10 @@ public class XDeskActivity extends Activity {
 
     /** 外接屏上现在的内容（"l:"、"m:" 开头的键）；是安卓应用或整个 Linux 桌面时为 null。 */
     private String contentKey;
+    /** The content last chosen and still being opened; a result for any other key is stale (the user moved on). */
+    private String pendingContent;
+    /** The display the content was opened on. */
+    private int contentDisplay = Display.INVALID_DISPLAY;
     /** 等桌面连上以后要做的事（needDesktop），连上就做，失败就报给内容源。 */
     private Runnable desktopThen;
     private ContentSource.Result desktopFailed;
@@ -2618,6 +2641,7 @@ public class XDeskActivity extends Activity {
     private void chooseContent(final String key) {
         ContentSource s = Contents.sourceOf(key);
         if (s == null) return;
+        pendingContent = key;
         Display d = externalDisplay();
         if (d == null) {
             needDisplayNotice();
@@ -2625,7 +2649,16 @@ public class XDeskActivity extends Activity {
         }
         rememberRecent(key);
         if (contentKey != null && !contentKey.equals(key)) leaveContent();
-        s.open(key, d.getDisplayId(), contentResult);
+        contentDisplay = d.getDisplayId();
+        s.open(key, contentDisplay, contentResult);
+    }
+
+    /** Something that is not a content was chosen (an Android app, a desktop): any content still opening is stale. */
+    private void leaveContentChoice() {
+        pendingContent = null;
+        desktopThen = null;
+        desktopFailed = null;
+        if (contentKey != null) leaveContent();
     }
 
     /** 外接屏换成别的东西之前：告诉原来的内容源它被拿下了（不是退出）。 */
@@ -2638,8 +2671,16 @@ public class XDeskActivity extends Activity {
 
     private final ContentSource.Result contentResult = new ContentSource.Result() {
         @Override public void shown(String key, InputSink input) {
+            if (!key.equals(pendingContent)) {
+                // Chosen, then something else was chosen while it opened: take it off again
+                ContentSource s = Contents.sourceOf(key);
+                if (s != null) s.hidden(key);
+                return;
+            }
+            pendingContent = null;
             contentKey = key;
-            client = input != null ? input : session.input();
+            // A Linux program alone on the screen is a window (WindowScopedInput), not the whole desktop
+            client = input != null ? input : new WindowScopedInput(session.input());
             closeChooserOverSession();
             showRunning();
             updateCapture();
@@ -2648,6 +2689,8 @@ public class XDeskActivity extends Activity {
             bumpIdle();
         }
         @Override public void failed(String key, String reason) {
+            if (!key.equals(pendingContent)) return;
+            pendingContent = null;
             Toast.makeText(XDeskActivity.this, reason, Toast.LENGTH_LONG).show();
             refreshDocks();
         }
@@ -2667,9 +2710,8 @@ public class XDeskActivity extends Activity {
             desktopFailed = failed;
             desktopFor = key;
             if (runningSession != null && !session.isActive()) {
-                Display d = externalDisplay();
-                if (d != null) attachDisplay(d);
-                desktopName = runningSession;
+                // The same as tapping the running session: a waiting screen and the connect timeout, which fails us
+                reattach();
             } else if (!session.isActive()) {
                 launchDesktop(null, false);
             }
@@ -2682,6 +2724,14 @@ public class XDeskActivity extends Activity {
         @Override public void contentChanged() {
             chooser.refreshContents();
             refreshDocks();
+        }
+        @Override public void contentEnded(String key) {
+            if (key.equals(pendingContent)) pendingContent = null;
+            if (!key.equals(contentKey)) return;
+            contentKey = null;
+            client = apps.isActive() ? apps.input() : session.isActive() ? session.input() : null;
+            refreshDocks();
+            updateStatus();
         }
     };
 
@@ -2707,7 +2757,7 @@ public class XDeskActivity extends Activity {
             chooseContent(key);
             return;
         }
-        if (contentKey != null) leaveContent();
+        leaveContentChoice();
         if (!ChooserView.isAppKey(key)) {
             chooserHost.onSessionChosen(ChooserView.sessionOf(key));
             return;

@@ -63,16 +63,24 @@ final class SwitcherOverlay {
      * Escape closes. No injection, no focus change.
      */
     static final InputSink INPUT = new InputSink() {
-        @Override public void move(int dx, int dy) { place(px + dx, py + dy); }
-        @Override public void moveToFraction(float x, float y) { place(x * width, y * height); }
-        @Override public void button(int button, boolean down) { if (!down) click(button); }
-        @Override public void click(int button) { SwitcherOverlay.click(button); }
+        @Override public void move(int dx, int dy) { onUi(() -> place(px + dx, py + dy)); }
+        @Override public void moveToFraction(float x, float y) { onUi(() -> place(x * width, y * height)); }
+        @Override public void button(int button, boolean down) { if (!down) onUi(() -> click(button)); }
+        @Override public void click(int button) { onUi(() -> SwitcherOverlay.click(button)); }
         @Override public void scroll(int dy, int dx) { }
-        @Override public void key(int scan, boolean down) { if (down && scan == 1) hide(shownHost); }
-        @Override public void tapKey(int scan) { if (scan == 1) hide(shownHost); }
+        @Override public void key(int scan, boolean down) { if (down && scan == 1) onUi(() -> hide(shownHost)); }
+        @Override public void tapKey(int scan) { if (scan == 1) onUi(() -> hide(shownHost)); }
         @Override public void text(String s) { }
-        @Override public void androidButton(int b) { hide(shownHost); }
+        @Override public void androidButton(int b) { onUi(() -> hide(shownHost)); }
     };
+
+    private static final android.os.Handler UI = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Receivers and browsers send input on their network thread: the views are touched on the main thread only. */
+    private static void onUi(Runnable r) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) r.run();
+        else UI.post(r);
+    }
 
     private static void place(float x, float y) {
         if (pointer == null) return;
@@ -115,9 +123,10 @@ final class SwitcherOverlay {
     /**
      * @param onlySystem show only the system (key prefix) of the current content: the overview
      */
-    static void show(Context context, Display display, final Host host, boolean onlySystem) {
+    /** @return false when it could not be shown (no overlay permission): the caller keeps its input. */
+    static boolean show(Context context, Display display, final Host host, boolean onlySystem) {
         hide(null);
-        if (display == null) return;
+        if (display == null || !android.provider.Settings.canDrawOverlays(context)) return false;
         Context dc = context.createDisplayContext(display);
         WindowManager wm = dc.getSystemService(WindowManager.class);
         android.graphics.Point size = new android.graphics.Point();
@@ -179,8 +188,14 @@ final class SwitcherOverlay {
             shown = root;
             shownIn = wm;
             place(width / 2f, height / 2f);
+            return true;
         } catch (RuntimeException e) {
             Log.w(TAG, "can't show the switcher", e);
+            tiles.clear();
+            tileKeys.clear();
+            pointer = null;
+            shownHost = null;
+            return false;
         }
     }
 
@@ -198,8 +213,12 @@ final class SwitcherOverlay {
         if (host != null) host.closed();
     }
 
-    /** "a:" Android, "l:" Linux, "m:<mac>" one Mac (a Mac's keys share the part up to the second ':'). */
+    /**
+     * "a:" Android, "linux" for the Linux desktop sessions ("t:") and its programs and windows ("l:"), "m:<mac>" one
+     * Mac (a Mac's keys share the part up to the second ':').
+     */
     static String systemOf(String key) {
+        if (key.startsWith("t:") || key.startsWith("l:")) return "linux";
         if (key.startsWith("m:")) {
             int end = key.indexOf(':', 2);
             return end > 0 ? key.substring(0, end + 1) : "m:";
@@ -211,7 +230,7 @@ final class SwitcherOverlay {
     private static List<String> filter(List<String> keys, String system, Context c) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         for (String k : keys) {
-            if (system != null && !k.startsWith(system)) continue;
+            if (system != null && !systemOf(k).equals(system)) continue;
             if (ExternalLauncher.exists(c, k)) out.add(k);
         }
         return new ArrayList<>(out);
