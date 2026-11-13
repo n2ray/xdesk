@@ -43,6 +43,12 @@ interface ContentSource {
     /** Called on the UI thread whenever apps() or windows() changed. */
     void setListener(Runnable changed);
 
+    /**
+     * The content was taken off its screen because something else was put there (not quit). A Mac
+     * source stops its stream here, a Linux source restores the window from full screen.
+     */
+    default void hidden(String key) { }
+
     interface Result {
         /** The content is on the screen. The input sink to attach for it (INPUT.md Target). */
         void shown(String key, InputSink input);

@@ -172,6 +172,12 @@
     <string name="xd_chooser_stopping_short">Stopping</string>
     <string name="xd_desktop_stopping">The desktop is still stopping</string>
     <string name="xd_chooser_running">Running, tap to reattach</string>
+    <string name="xd_content_no_desktop">The Linux desktop did not start</string>
+    <string name="xd_switcher_title">Open apps and windows</string>
+    <string name="xd_switcher_overview">Windows of this system</string>
+    <string name="xd_switcher_running">Running</string>
+    <string name="xd_switcher_short">All</string>
+    <string name="xd_switcher_empty">Nothing is running. Add favourites on the phone.</string>
     <string name="xd_chooser_default">Default</string>
     <string name="xd_chooser_reattach_x">Reattach the running X display</string>
     <string name="xd_chooser_attach_x">Attach an X display</string>

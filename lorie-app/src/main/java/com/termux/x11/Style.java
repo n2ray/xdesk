@@ -93,6 +93,26 @@ final class Style {
     }
 
     /** 小圆点：状态色只出现在这里。 */
+    /** An app without an icon (a Linux program, a Mac app the Mac sent none for): its first letter on a tile. */
+    static Drawable letterIcon(Context c, String label) {
+        final String letter = label == null || label.isEmpty() ? "?" : label.substring(0, label.offsetByCodePoints(0, 1)).toUpperCase();
+        final float radius = dp(c, 10);
+        return new Drawable() {
+            private final Paint tile = new Paint(Paint.ANTI_ALIAS_FLAG), text = new Paint(Paint.ANTI_ALIAS_FLAG);
+            { tile.setColor(SURFACE_RAISED); text.setColor(TEXT); text.setTextAlign(Paint.Align.CENTER); }
+            @Override public void draw(android.graphics.Canvas canvas) {
+                android.graphics.Rect b = getBounds();
+                canvas.drawRoundRect(b.left, b.top, b.right, b.bottom, radius, radius, tile);
+                text.setTextSize(b.height() * 0.5f);
+                Paint.FontMetrics m = text.getFontMetrics();
+                canvas.drawText(letter, b.exactCenterX(), b.exactCenterY() - (m.ascent + m.descent) / 2, text);
+            }
+            @Override public void setAlpha(int a) { tile.setAlpha(a); text.setAlpha(a); }
+            @Override public void setColorFilter(android.graphics.ColorFilter f) { text.setColorFilter(f); }
+            @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+        };
+    }
+
     static GradientDrawable dot(int color) {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);

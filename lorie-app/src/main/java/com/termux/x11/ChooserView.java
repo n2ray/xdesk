@@ -29,6 +29,8 @@ final class ChooserView extends LinearLayout {
         /** 只当显示器，等用户自己运行 xdesk 命令。 */
         void onAttachChosen();
         void onAppChosen(AppCatalog.App app);
+        /** A Linux program, an X window, a Mac app or window: any key of a ContentSource (Contents). */
+        void onContentChosen(String key);
         /** 点了 Termux 那一节的提示行。 */
         void onTermuxHint();
         /** 点了没有外接屏的提示：打开无线显示。 */
@@ -70,6 +72,9 @@ final class ChooserView extends LinearLayout {
         boolean header;
         String title, subtitle, key;
         AppCatalog.App app;
+        /** A ContentSource entry's icon; may be null. */
+        android.graphics.Bitmap bitmap;
+        boolean content;
         Runnable action;
         /** Linux 桌面的状态和按钮。 */
         boolean isSession, running, stopping;
@@ -279,6 +284,11 @@ final class ChooserView extends LinearLayout {
         rebuild();
     }
 
+    /** The content sources (Contents) changed: their rows are rebuilt from the sources themselves. */
+    void refreshContents() {
+        rebuild();
+    }
+
     void setApps(List<AppCatalog.App> a) {
         apps = a;
         rebuild();
@@ -328,6 +338,23 @@ final class ChooserView extends LinearLayout {
         return r;
     }
 
+    private boolean entryMatches(ContentSource.Entry e) {
+        return query.isEmpty() || e.label.toLowerCase().contains(query) || (e.detail != null && e.detail.toLowerCase().contains(query));
+    }
+
+    private Row contentRow(final ContentSource.Entry e) {
+        Row r = new Row();
+        r.key = e.key;
+        r.title = e.label;
+        r.content = true;
+        r.bitmap = e.icon;
+        if (e.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
+        else if (e.detail != null) r.subtitle = e.detail;
+        else if (e.running) r.subtitle = str(R.string.xd_chooser_running);
+        r.action = () -> host.onContentChosen(e.key);
+        return r;
+    }
+
     private boolean sessionMatches(String name) {
         return query.isEmpty() || name.toLowerCase().contains(query);
     }
@@ -357,6 +384,16 @@ final class ChooserView extends LinearLayout {
         if (!desktops.isEmpty()) {
             rows.add(header(str(R.string.xd_linux_desktops)));
             rows.addAll(desktops);
+        }
+
+        for (ContentSource s : Contents.sources()) {
+            ArrayList<Row> sourceRows = new ArrayList<>();
+            java.util.HashSet<String> shown = new java.util.HashSet<>();
+            for (ContentSource.Entry e : s.windows()) if (entryMatches(e)) { sourceRows.add(contentRow(e)); shown.add(e.key); }
+            for (ContentSource.Entry e : s.apps()) if (!shown.contains(e.key) && entryMatches(e)) sourceRows.add(contentRow(e));
+            if (sourceRows.isEmpty()) continue;
+            rows.add(header(s.title()));
+            rows.addAll(sourceRows);
         }
 
         ArrayList<Row> appRows = new ArrayList<>();
@@ -445,6 +482,11 @@ final class ChooserView extends LinearLayout {
             if (r.app != null) {
                 h.icon.setVisibility(VISIBLE);
                 AppCatalog.get(c).showIcon(r.app, h.icon);
+            } else if (r.content) {
+                h.icon.setVisibility(VISIBLE);
+                h.icon.setTag(null);
+                if (r.bitmap != null) h.icon.setImageBitmap(r.bitmap);
+                else h.icon.setImageDrawable(Style.letterIcon(c, r.title));
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);
