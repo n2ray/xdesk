@@ -25,7 +25,19 @@ final class Router {
         InputSink current();
         /** An action XDesk does itself (Android apps, single windows, the switcher). The target it was meant for. */
         void hostAction(InputSink target, int action, int arg);
+        /**
+         * A click or a key that is not text: the caret on the target may have moved, so the text bridge forgets
+         * (INPUT.md §5.3). Any thread; must not block.
+         */
+        default void caretMayMove() { }
+        /** The content on the screen, under XDesk's own overlays (the switcher): whose 像平板 / 像电脑 counts. */
+        default InputSink content() { return current(); }
+        /** The user chose 像平板 for this content (§4, remembered per app). */
+        default boolean tabletChosen(InputSink content) { return false; }
     }
+
+    /** Kinds of touch surface (§1.2): blind (the phone's screen), looked at (a tablet receiver). */
+    static final int BLIND = 0, LOOK = 1;
 
     /** Devices, §2's source device ids. */
     static final int PHONE_PAD = 0, PHONE_KEYS = 1, PHONE_MOUSE = 2, REMOTE = 3;
@@ -46,6 +58,27 @@ final class Router {
 
     Device device(int id) {
         return devices[id];
+    }
+
+    /**
+     * §4's one choice, derived for a kind of surface: 像平板 only for a target that takes touches (an Android app) and
+     * that the user set so. Mouse-only targets (X, Mac) work 像电脑 everywhere in phase 1. The blind surface then
+     * gives the target fingers around the cursor, a looked-at one passes its fingers on.
+     */
+    boolean likeTablet(int surface) {
+        InputSink t = host.content();
+        Caps c = t != null ? t.caps() : null;
+        return c != null && c.touch && host.tabletChosen(t);
+    }
+
+    private static boolean modifier(int scan) {
+        switch (scan) {
+            case KEY_LEFTCTRL: case 97: case KEY_LEFTSHIFT: case 54: case KEY_LEFTALT: case 100: case KEY_LEFTMETA:
+            case 126: case 58:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /** Everything every device holds goes up: the session ended, the phone locked, a call came (§2 cancel). */
@@ -132,6 +165,7 @@ final class Router {
             if (down) {
                 t = bindTo();
                 buttons |= bit;
+                host.caretMayMove();
             } else {
                 t = target();
                 buttons &= ~bit;
@@ -141,6 +175,7 @@ final class Router {
         }
 
         @Override public void click(int button) {
+            host.caretMayMove();
             if (holding()) {
                 // Bound: both halves go where the held things go
                 InputSink t = bound;
@@ -171,6 +206,7 @@ final class Router {
             if (down) {
                 t = bindTo();
                 addKey(scan);
+                if (!modifier(scan)) host.caretMayMove();
             } else {
                 t = target();
                 removeKey(scan);

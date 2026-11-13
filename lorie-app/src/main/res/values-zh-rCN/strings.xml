@@ -348,6 +348,16 @@
     <string name="xd_pad_speed">触摸板灵敏度</string>
     <string name="xd_scroll_speed">双指滚动速度</string>
     <string name="xd_scroll_speed_note">键鼠模式的触摸板</string>
+    <string name="xd_natural_scroll">自然滚动</string>
+    <string name="xd_natural_scroll_note">内容跟着手指走，所有触摸板都一样</string>
+    <string name="xd_keys_via_ime">键盘先交给手机输入法</string>
+    <string name="xd_keys_via_ime_note">手机上接的键盘给 Linux 桌面和 Mac 打字时用手机输入法：候选在手机上，字按键盘的布局，快捷键照样是键。关掉：键原样发出，接管时键盘去外屏</string>
+    <string name="xd_ime_corrections">输入法改错</string>
+    <string name="xd_ime_corrections_note">手机键盘的联想和自动改正，也能改已经打到 Linux 桌面或 Mac 上的字</string>
+    <string name="xd_translate_modifiers">Mac 上 Ctrl 和 ⌘ 互换</string>
+    <string name="xd_translate_modifiers_note">PC 键盘用在 Mac 上：Ctrl 当 ⌘，Alt 当 ⌥。设成 Mac 键盘的 Mac 不换</string>
+    <string name="xd_keys_external">键鼠在外屏</string>
+    <string name="xd_keys_phone">键鼠在本机</string>
     <string name="xd_mouse_speed">实体鼠标速度</string>
     <string name="xd_mouse_speed_note" formatted="false">100% 按显示器宽度自动算</string>
     <string name="xd_always_cursor">始终显示 XDesk 光标</string>

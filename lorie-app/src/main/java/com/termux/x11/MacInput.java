@@ -2,17 +2,15 @@ package com.termux.x11;
 
 import com.termux.x11.mac.HidKeys;
 import com.termux.x11.mac.MacClient;
-import com.termux.x11.mac.RemoteTextState;
 
-import java.text.BreakIterator;
 import java.util.HashSet;
-import java.util.Locale;
 
 /**
  * XDesk's input for a Mac window or the Mac desktop (INPUT.md Target "Mac"): the touchpad's relative moves and a
  * browser's absolute ones become a pointer in fractions of the streamed frame; left and right buttons; wheel
- * steps become Sill scrolls; Linux key codes become HID usages with INPUT.md §5.5's modifier translation; text
- * goes through the text bridge. The host repeats held keys when its list says keyRepeat, so a repeated down from
+ * steps become Sill scrolls; Linux key codes become HID usages with INPUT.md §5.5's modifier translation (the
+ * switch in XDesk's input settings, and each Mac's "Mac keyboard"). Text comes already reconciled by the phone's text
+ * bridge (TextBridge, shared with the X desktop): corrections arrive as Backspace keys and the new text. The host repeats held keys when its list says keyRepeat, so a repeated down from
  * Android is dropped then.
  *
  * Window scope (a single Mac window): nothing global on the Mac is triggered (no Mission Control, no ⌘Tab).
@@ -22,7 +20,6 @@ final class MacInput implements InputSink {
     /** One wheel step moves the content this much of the frame. */
     private static final float WHEEL_FRACTION = 0.05f;
     private static final int SCAN_ALT = 56, SCAN_RIGHT_ALT = 100, SCAN_TAB = 15, SCAN_SHIFT = 42, SCAN_RIGHT_SHIFT = 54;
-    private static final int SCAN_BACKSPACE = 14;
 
     /** Home and overview on a Mac window: XDesk's switcher for this Mac (prefix), never Mission Control. */
     interface Switcher {
@@ -34,8 +31,9 @@ final class MacInput implements InputSink {
     private final Switcher switcher;
     /** HID usages down now, as sent (after translation). */
     private final HashSet<Integer> down = new HashSet<>();
-    private final RemoteTextState bridge = new RemoteTextState();
     private boolean altHeld, shiftHeld, commandForAlt;
+    /** INPUT.md §12 "modifier translation", for every Mac: off sends the keys as they are on the keyboard. */
+    static volatile boolean translateModifiers = true;
 
     MacInput(MacClient client, String prefix, Switcher switcher) {
         this.client = client;
@@ -78,11 +76,9 @@ final class MacInput implements InputSink {
     @Override public synchronized void button(int button, boolean isDown) {
         switch (button) {
         case 1:
-            if (isDown) bridge.clear();
             client.pointerButton(isDown ? "leftDown" : "leftUp");
             break;
         case 3:
-            if (isDown) bridge.clear();
             client.pointerButton(isDown ? "rightDown" : "rightUp");
             break;
         case 8:
@@ -134,7 +130,7 @@ final class MacInput implements InputSink {
         if (scan == SCAN_SHIFT || scan == SCAN_RIGHT_SHIFT) shiftHeld = isDown;
         int usage = HidKeys.fromLinux(scan);
         if (usage == 0) return;
-        if (!client.mac().macKeyboard) usage = HidKeys.pcToMac(usage);
+        if (translateModifiers && !client.mac().macKeyboard) usage = HidKeys.pcToMac(usage);
 
         // Alt+Tab is "switch app" (INPUT.md §5.5, §3.4)
         if (scan == SCAN_TAB && altHeld) {
@@ -164,22 +160,7 @@ final class MacInput implements InputSink {
             if (HidKeys.isModifier(usage) || client.keyRepeat()) return;
             send(usage, false);
         }
-        if (isDown && !HidKeys.isModifier(usage)) textBridgeKey(scan);
         send(usage, isDown);
-    }
-
-    /** A key may move the caret: the bridge forgets; Backspace takes the last character off it. */
-    private void textBridgeKey(int scan) {
-        if (scan == SCAN_BACKSPACE) {
-            String t = bridge.text();
-            if (t.isEmpty()) return;
-            BreakIterator it = BreakIterator.getCharacterInstance(Locale.ROOT);
-            it.setText(t);
-            int last = it.preceding(t.length());
-            if (last == BreakIterator.DONE || bridge.reconcile(t.substring(0, last), true) == null) bridge.clear();
-        } else if (HidKeys.fromLinux(scan) != HidKeys.ENTER && HidKeys.fromLinux(scan) != HidKeys.TAB) {
-            bridge.clear();
-        }
     }
 
     @Override public void tapKey(int scan) {
@@ -199,18 +180,7 @@ final class MacInput implements InputSink {
                 return;
             }
         }
-        RemoteTextState.Edit e = bridge.reconcile(bridge.text() + s);
-        if (e == null) {
-            bridge.clear();
-            client.text(s);
-            return;
-        }
-        for (int i = 0; i < e.backspaces; i++) {
-            client.key(HidKeys.BACKSPACE, true, f);
-            client.key(HidKeys.BACKSPACE, false, f);
-        }
-        if (!e.text.isEmpty()) client.text(e.text);
-        bridge.trim();
+        client.text(s);
     }
 
     // --- actions ---
@@ -231,7 +201,6 @@ final class MacInput implements InputSink {
         int at = -1;
         for (int i = 0; i < ws.size(); i++) if (ws.get(i).id == client.want()) at = i;
         int next = ((at < 0 ? 0 : at + step) % ws.size() + ws.size()) % ws.size();
-        bridge.clear();
         client.show(ws.get(next).id);
     }
 
@@ -240,6 +209,5 @@ final class MacInput implements InputSink {
         for (Integer u : new HashSet<>(down)) send(u, false);
         commandForAlt = false;
         altHeld = shiftHeld = false;
-        bridge.clear();
     }
 }

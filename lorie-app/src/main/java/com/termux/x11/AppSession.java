@@ -92,7 +92,8 @@ final class AppSession {
     private final Object densityLock = new Object();
     /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
     private int appliedDensity;
-    private final android.content.SharedPreferences touchModes;
+    /** 像平板 / 像电脑, per package (INPUT.md §4): kept in InputModes, which the Router reads. */
+    private final InputModes touchModes;
     private Listener listener;
     private boolean active, forwarding, started;
     /** Counts start and stop, so that work from a session that has ended since does nothing, see current. */
@@ -306,7 +307,7 @@ final class AppSession {
         cursor = new CursorOverlay(c);
         touchDots = new TouchDots(c);
         audioRoute = AudioRoute.get(c);
-        touchModes = c.getSharedPreferences("app_touch_mode", Context.MODE_PRIVATE);
+        touchModes = InputModes.get(c);
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
         forcedDensities = c.getSharedPreferences("density_forced", Context.MODE_PRIVATE);
@@ -1222,7 +1223,7 @@ final class AppSession {
 
     /** 触控模式还是键鼠模式，记在每个包上（键名沿用以前的手指设置，存过的自动算触控），默认键鼠。有自己鼠标方式的应用（RustDesk）不用触摸模式。 */
     private boolean touchModeFor(AppCatalog.App a) {
-        return canUseTouchMode(a) && touchModes.getBoolean(a.packageName, false);
+        return canUseTouchMode(a) && touchModes.tabletPackage(a.packageName);
     }
 
     private static boolean canUseTouchMode(AppCatalog.App a) {
@@ -1244,7 +1245,7 @@ final class AppSession {
 
     /** 顶部按钮和设置卡片改的是同一个值。 */
     void setTouchMode(AppCatalog.App a, boolean on) {
-        touchModes.edit().putBoolean(a.packageName, on).apply();
+        touchModes.setPackage(a.packageName, on);
         updateCursor();
         IInjector i = injector;
         if (i == null || !active || app == null || !app.packageName.equals(a.packageName)) return;

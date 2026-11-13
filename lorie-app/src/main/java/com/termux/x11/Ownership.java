@@ -6,9 +6,11 @@ import android.view.KeyEvent;
  * Whose are the phone's physical keyboard and mouse (INPUT.md §7): the phone's own, or the external display's. One
  * switch for both kinds of session, one Ctrl+Alt+M, one state for the indicator.
  *
- * <p>The mechanics stay where they were in 0.5.1, because they differ for good reasons: with an Android app the
- * injector grabs the mice through evdev (and hears Ctrl+Alt+M there, the keyboard being with the app); with the Termux
- * desktop focus, the input method and pointer capture move to the desktop window. Each is a Side.
+ * <p>The mechanics differ for good reasons: with an Android app the injector grabs the mice through evdev (and hears
+ * Ctrl+Alt+M there, the keyboard being with the app); with the X desktop, its Linux windows or a Mac, the phone's own
+ * window passes the keyboard (through the phone's input method, §5.1) and the captured mouse on, or, with that
+ * switched off in the settings, the 0.5.1 takeover moves focus and pointer capture to the desktop window. Each is a
+ * Side.
  */
 final class Ownership {
     interface Side {

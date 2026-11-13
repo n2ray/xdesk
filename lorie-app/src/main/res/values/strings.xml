@@ -369,6 +369,16 @@
     <string name="xd_pad_speed">Touchpad sensitivity</string>
     <string name="xd_scroll_speed">Two-finger scroll speed</string>
     <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode</string>
+    <string name="xd_natural_scroll">Natural scrolling</string>
+    <string name="xd_natural_scroll_note">Content follows the fingers, on every touchpad</string>
+    <string name="xd_keys_via_ime">Keyboard through the phone\'s input method</string>
+    <string name="xd_keys_via_ime_note">A keyboard on the phone types into the Linux desktop and Macs with the phone\'s input method: candidates on the phone, letters in the keyboard\'s layout, shortcuts as keys. Off: keys go as they are, and taking over moves the keyboard to the external display</string>
+    <string name="xd_ime_corrections">Input method corrections</string>
+    <string name="xd_ime_corrections_note">Suggestions and autocorrect of the phone\'s keyboard also fix what was already typed on the Linux desktop or a Mac</string>
+    <string name="xd_translate_modifiers">Swap Ctrl and ⌘ for a Mac</string>
+    <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. A Mac set as Mac keyboard is never swapped</string>
+    <string name="xd_keys_external">Keys on display</string>
+    <string name="xd_keys_phone">Keys on phone</string>
     <string name="xd_mouse_speed">Physical mouse speed</string>
     <string name="xd_mouse_speed_note" formatted="false">100% follows the display width</string>
     <string name="xd_always_cursor">Always show the XDesk cursor</string>
