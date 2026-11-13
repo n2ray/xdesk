@@ -349,8 +349,8 @@ final class ChooserView extends LinearLayout {
         r.content = true;
         r.bitmap = e.icon;
         if (e.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
-        else if (e.detail != null) r.subtitle = e.detail;
-        else if (e.running) r.subtitle = str(R.string.xd_chooser_running);
+        else if (e.detail != null && !e.detail.equalsIgnoreCase(e.label)) r.subtitle = e.detail;
+        else if (e.running) r.subtitle = str(R.string.xd_content_running);
         r.action = () -> host.onContentChosen(e.key);
         return r;
     }

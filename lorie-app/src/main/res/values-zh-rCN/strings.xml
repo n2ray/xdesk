@@ -165,6 +165,7 @@
     <string name="xd_desktop_stopping">桌面还在结束中</string>
     <string name="xd_chooser_running">正在运行，点按接回</string>
     <string name="xd_content_no_desktop">Linux 桌面没能启动</string>
+    <string name="xd_content_running">正在运行</string>
     <string name="xd_switcher_title">打开的应用和窗口</string>
     <string name="xd_switcher_overview">这个系统的窗口</string>
     <string name="xd_switcher_running">正在运行</string>

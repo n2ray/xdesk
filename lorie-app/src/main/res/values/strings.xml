@@ -173,6 +173,7 @@
     <string name="xd_desktop_stopping">The desktop is still stopping</string>
     <string name="xd_chooser_running">Running, tap to reattach</string>
     <string name="xd_content_no_desktop">The Linux desktop did not start</string>
+    <string name="xd_content_running">Running</string>
     <string name="xd_switcher_title">Open apps and windows</string>
     <string name="xd_switcher_overview">Windows of this system</string>
     <string name="xd_switcher_running">Running</string>
