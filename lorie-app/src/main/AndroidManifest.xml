@@ -66,6 +66,16 @@
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
             android:exported="false" />
+        <!-- 外接屏上的 Mac 窗口或 Mac 桌面（Sill 的 HEVC 直接解到 SurfaceView）。自己一个任务，不进最近任务，不抢焦点 -->
+        <activity
+            android:name="com.termux.x11.mac.MacActivity"
+            android:label="Mac"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:taskAffinity=".XDeskMac"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
+            android:exported="false" />
         <!-- Android Auto 停车时的入口（手机 Android 15 以上）。Android Auto 目前只开放游戏这一类，所以 application 标了 game -->
         <activity
             android:name="com.termux.x11.CarActivity"

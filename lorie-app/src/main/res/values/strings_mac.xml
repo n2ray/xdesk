@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mac content (DISPLAY.md §1.3): Sill streams, pairing and settings -->
+<resources>
+    <string name="xd_mac_settings">Mac</string>
+    <string name="xd_mac_settings_note">Mac windows and the Mac desktop on the external screen, through Sill on the Mac</string>
+    <string name="xd_mac_add">Add Mac</string>
+    <string name="xd_mac_add_note">Needs Sill 0.6.1 or later on the Mac. Over Tailscale use the Mac\'s 100.x address</string>
+    <string name="xd_mac_address">Address</string>
+    <string name="xd_mac_address_note">The Mac\'s address, and its port if Sill\'s Remote Access port is not 7455</string>
+    <string name="xd_mac_next">Next</string>
+    <string name="xd_mac_code">Pairing code</string>
+    <string name="xd_mac_code_note">On the Mac choose Sill › Pair iPhone or iPad…, then type the 12 digits it shows</string>
+    <string name="xd_mac_pair">Pair</string>
+    <string name="xd_mac_bad_address">That is not an address. Write it as 100.64.0.1 or mac.local:7455</string>
+    <string name="xd_mac_bad_code">The code has 12 digits; check for a typo</string>
+    <string name="xd_mac_pairing">Pairing with the Mac…</string>
+    <string name="xd_mac_paired">Paired with %1$s</string>
+    <string name="xd_mac_wrong_code">Wrong code. Check the digits on the Mac and try again</string>
+    <string name="xd_mac_no_window">The Mac is not showing a pairing code. Choose Pair iPhone or iPad… in Sill on the Mac first</string>
+    <string name="xd_mac_busy">The Mac is busy with another pairing. Try again in a moment</string>
+    <string name="xd_mac_pair_failed">Pairing failed: %1$s</string>
+    <string name="xd_mac_fit">Fit to screen</string>
+    <string name="xd_mac_fit_note">Resize the Mac window to this screen. Sill puts it back when the stream ends</string>
+    <string name="xd_mac_keyboard">Mac keyboard</string>
+    <string name="xd_mac_keyboard_note">Off: a PC keyboard, Ctrl works as ⌘, Win as Ctrl, Alt as ⌥</string>
+    <string name="xd_mac_remove">Remove %1$s</string>
+    <string name="xd_mac_remove_note">To connect again you pair again. Remove XDesk in Sill\'s Devices on the Mac too</string>
+    <string name="xd_mac_remove_action">Remove</string>
+    <string name="xd_mac_section_one">Mac「%1$s」</string>
+    <string name="xd_mac_desktop">%1$s desktop</string>
+    <string name="xd_mac_offline">Not connected</string>
+    <string name="xd_mac_locked_short">Locked</string>
+    <string name="xd_mac_not_paired">This Mac is not paired any more</string>
+    <string name="xd_mac_cannot_connect">Cannot reach %1$s. Is the Mac awake and Sill running?</string>
+    <string name="xd_mac_cannot_connect_because">Cannot reach %1$s: %2$s</string>
+    <string name="xd_mac_connecting">Connecting to %1$s…</string>
+    <string name="xd_mac_locked">%1$s is locked. Unlock it on the Mac</string>
+    <string name="xd_mac_other_user">Another user is on this Mac\'s screen. Log in to your account on the Mac</string>
+    <string name="xd_mac_opening">Opening…</string>
+    <string name="xd_mac_launch_failed">The app did not open a window</string>
+    <string name="xd_mac_taken">Another device is showing this Mac now. Tap here to take it back</string>
+    <string name="xd_mac_window_closed">This window was closed on the Mac</string>
+    <string name="xd_mac_unpaired">The Mac removed XDesk. Pair it again in XDesk settings › Mac</string>
+    <string name="xd_mac_identity_changed">The Mac\'s identity changed. Remove it and pair again</string>
+    <string name="xd_mac_remote_off">Remote Access is off on the Mac</string>
+    <string name="xd_mac_quit">Sill quit on the Mac</string>
+</resources>

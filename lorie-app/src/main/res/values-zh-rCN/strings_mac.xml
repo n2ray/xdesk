@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xd_mac_settings">Mac</string>
+    <string name="xd_mac_settings_note">经 Mac 上的 Sill，把 Mac 窗口和 Mac 桌面放到外接屏上</string>
+    <string name="xd_mac_add">添加 Mac</string>
+    <string name="xd_mac_add_note">Mac 上要有 Sill 0.6.1 或更新版本。经 Tailscale 连时用 Mac 的 100.x 地址</string>
+    <string name="xd_mac_address">地址</string>
+    <string name="xd_mac_address_note">Mac 的地址；Sill 远程访问的端口不是 7455 时加上端口</string>
+    <string name="xd_mac_next">下一步</string>
+    <string name="xd_mac_code">配对码</string>
+    <string name="xd_mac_code_note">在 Mac 上选 Sill › 配对 iPhone 或 iPad…，输入它显示的 12 位数字</string>
+    <string name="xd_mac_pair">配对</string>
+    <string name="xd_mac_bad_address">地址不对，写成 100.64.0.1 或 mac.local:7455 这样</string>
+    <string name="xd_mac_bad_code">配对码是 12 位数字，请检查有没有输错</string>
+    <string name="xd_mac_pairing">正在和 Mac 配对…</string>
+    <string name="xd_mac_paired">已和 %1$s 配对</string>
+    <string name="xd_mac_wrong_code">配对码不对，核对 Mac 上的数字后再试</string>
+    <string name="xd_mac_no_window">Mac 上没有显示配对码。先在 Mac 的 Sill 里选"配对 iPhone 或 iPad…"</string>
+    <string name="xd_mac_busy">Mac 正在和别的设备配对，稍后再试</string>
+    <string name="xd_mac_pair_failed">配对失败：%1$s</string>
+    <string name="xd_mac_fit">适配屏幕</string>
+    <string name="xd_mac_fit_note">把 Mac 窗口改成这块屏的大小。串流结束时 Sill 会改回去</string>
+    <string name="xd_mac_keyboard">Mac 键盘</string>
+    <string name="xd_mac_keyboard_note">关着时按 PC 键盘处理：Ctrl 当 ⌘，Win 当 Ctrl，Alt 当 ⌥</string>
+    <string name="xd_mac_remove">移除 %1$s</string>
+    <string name="xd_mac_remove_note">要再连就得重新配对。也请在 Mac 上 Sill 的设备列表里移除 XDesk</string>
+    <string name="xd_mac_remove_action">移除</string>
+    <string name="xd_mac_section_one">Mac「%1$s」</string>
+    <string name="xd_mac_desktop">%1$s 桌面</string>
+    <string name="xd_mac_offline">未连接</string>
+    <string name="xd_mac_locked_short">已锁定</string>
+    <string name="xd_mac_not_paired">这台 Mac 已不在配对列表里</string>
+    <string name="xd_mac_cannot_connect">连不上 %1$s。Mac 醒着吗？Sill 在运行吗？</string>
+    <string name="xd_mac_cannot_connect_because">连不上 %1$s：%2$s</string>
+    <string name="xd_mac_connecting">正在连接 %1$s…</string>
+    <string name="xd_mac_locked">%1$s 已锁定，请在 Mac 上解锁</string>
+    <string name="xd_mac_other_user">Mac 屏幕上是另一个用户。请在 Mac 上登录你的账户</string>
+    <string name="xd_mac_opening">正在打开…</string>
+    <string name="xd_mac_launch_failed">应用没有打开窗口</string>
+    <string name="xd_mac_taken">另一台设备正在看这台 Mac。点这里要回来</string>
+    <string name="xd_mac_window_closed">这个窗口已在 Mac 上关闭</string>
+    <string name="xd_mac_unpaired">Mac 移除了 XDesk。请在 XDesk 设置 › Mac 里重新配对</string>
+    <string name="xd_mac_identity_changed">Mac 的身份变了。请移除后重新配对</string>
+    <string name="xd_mac_remote_off">Mac 上的远程访问已关闭</string>
+    <string name="xd_mac_quit">Mac 上的 Sill 已退出</string>
+</resources>
