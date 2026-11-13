@@ -107,9 +107,14 @@ xdesk add NAME 'CMD'    # add your own session
 xdesk rm NAME           # remove a session
 xdesk status            # what is running
 xdesk stop              # stop everything
+xdesk apps              # the programs XDesk can open one by one (.desktop files)
+xdesk launch SCOPE/ID   # open one of them, e.g. termux/org.xfce.mousepad
+xdesk start NAME+apps   # a session with only the window manager, no panel or desktop
 ```
 
 A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit these files freely, `xdesk setup` will not overwrite them.
+
+Programs of a proot-distro session are found in its system and run in it. For a chroot session, add `NAME.root` (one line: the path of its root, readable by Termux) and `NAME.launch` (a script that runs its arguments in that system, with `DISPLAY` and the other variables it gets passed on) next to `NAME.sh`.
 
 | Environment | How to connect |
 |---|---|

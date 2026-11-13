@@ -642,6 +642,10 @@ launch_app() {
     [ -n "$cmd" ] || { say "App $key has no command"; exit 1; }
     cmd="exec $cmd"
     [ -n "$wd" ] && cmd="cd $(sq "$wd") 2>/dev/null; $cmd"
+    if [ "$scope" != termux ] && [ ! -f "$SESSIONS/$scope.launch" ]; then
+        line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh")
+        [ -n "$line" ] || { say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"; exit 1; }
+    fi
     if ! x_up; then
         need_tools
         lock; start_x && start_audio || exit 1
@@ -667,8 +671,8 @@ launch_app() {
     fi
     [ "$term" = true ] && cmd="exec sh -c $(sq "$TERM_WRAP") $(sq "$cmd")"
     local -a e=(DISPLAY=$DPY PULSE_SERVER=127.0.0.1 DESKTOP_STARTUP_ID=$sid)
-    # The session's D-Bus and language, when its window manager runs
-    if wm=$(session_wm_pid); then
+    # The session's D-Bus and language, when its window manager runs in that system (not in Termux)
+    if wm=$(session_wm_pid) && ! tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
         while IFS= read -r line; do e+=("$line"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
             grep -E '^(DBUS_SESSION_BUS_ADDRESS|LANG|LANGUAGE|LC_[A-Z]+|XDG_RUNTIME_DIR)=')
     fi
@@ -677,8 +681,6 @@ launch_app() {
         export PULSE_COOKIE=$PULSE_COOKIE_FILE "${e[@]}"
         exec setsid bash "$SESSIONS/$scope.launch" sh -c "$cmd"
     fi
-    line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh")
-    [ -n "$line" ] || { say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"; exit 1; }
     line=${line#"${line%%[![:space:]]*}"}
     line=${line#exec }
     prefix=${line%% -- *}

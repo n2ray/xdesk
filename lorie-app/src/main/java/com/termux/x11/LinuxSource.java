@@ -13,6 +13,8 @@ import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
 
+import com.termux.x11.app.R;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
