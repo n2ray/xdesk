@@ -28,6 +28,7 @@ import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -58,6 +59,9 @@ public class XDeskActivity extends Activity {
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
 
     private static final String PREF_SCROLL_SPEED = "pad_scroll_speed", PREF_COVER = "cover_external";
+    /** Input settings of INPUT.md §12 and §5: one for every device. */
+    private static final String PREF_NATURAL_SCROLL = "natural_scroll", PREF_TRANSLATE_MODIFIERS = "translate_modifiers",
+        PREF_KEYS_VIA_IME = "keys_via_ime", PREF_IME_CORRECTIONS = "ime_corrections";
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
@@ -210,6 +214,16 @@ public class XDeskActivity extends Activity {
     private final Router router = new Router(new Router.Host() {
         @Override public InputSink current() { return client; }
         @Override public void hostAction(InputSink target, int action, int arg) { inputAction(target, action, arg); }
+        @Override public void caretMayMove() {
+            KeyInputView v = keyView;
+            if (v != null) v.bridge().forgetSoon();
+        }
+        @Override public InputSink content() {
+            InputSink c = client;
+            if (c == SwitcherOverlay.INPUT) c = beforeSwitcher;
+            return c == null && apps.isActive() ? apps.input() : c;
+        }
+        @Override public boolean tabletChosen(InputSink content) { return content == apps.input() && apps.isTouchMode(); }
     });
     private final Router.Device padIn = router.device(Router.PHONE_PAD), keysIn = router.device(Router.PHONE_KEYS),
         mouseIn = router.device(Router.PHONE_MOUSE), remoteIn = router.device(Router.REMOTE);
@@ -231,10 +245,38 @@ public class XDeskActivity extends Activity {
         @Override public boolean forwarded() { return apps.isForwarding(); }
         @Override public void forward(boolean on) { apps.setForwarding(on); }
     }, new Ownership.Side() {
-        @Override public boolean active() { return !apps.isActive() && session.isActive(); }
-        @Override public boolean forwarded() { return desktopTaken; }
-        @Override public void forward(boolean on) { setDesktopTaken(on); }
+        // The X desktop, its Linux windows and a Mac: the phone's own window passes keys and mouse on (INPUT.md §5.1,
+        // the keys through the phone's input method). With that switched off, the X desktop's old takeover (focus
+        // and the input method on the external display's desktop window) is the way, as in 0.5.1
+        @Override public boolean active() { return !apps.isActive() && (session.isActive() || contentKey != null); }
+        @Override public boolean forwarded() { return oldTakeover() ? desktopTaken : phoneKeys; }
+        @Override public void forward(boolean on) {
+            if (oldTakeover()) {
+                setDesktopTaken(on);
+                return;
+            }
+            phoneKeys = on;
+            if (!on) {
+                keysIn.cancel();
+                mouseIn.cancel();
+            }
+            updateCapture();
+            updateStatus();
+        }
     });
+
+    /** The phone's window passes its physical keyboard and mouse to the target (not after Ctrl+Alt+M gave them back). */
+    private boolean phoneKeys = true;
+
+    /** INPUT.md §5.1 switched off: the X desktop takes keys as scan codes and is taken over the 0.5.1 way. */
+    private boolean oldTakeover() {
+        return session.isActive() && !prefs.getBoolean(PREF_KEYS_VIA_IME, true);
+    }
+
+    /** Physical keys and the mouse in the phone's window go on to the target. The old way always passed them. */
+    private boolean phoneForwards() {
+        return phoneKeys || oldTakeover();
+    }
 
     /** 应用切换（三指横滑，按住不放）：Dock 里的前一个、后一个，抬起手指时才换过去。 */
     private final ArrayList<String> switchKeys = new ArrayList<String>();
@@ -298,6 +340,11 @@ public class XDeskActivity extends Activity {
     }
 
     private final KeyInputView.Sink keySink = new KeyInputView.Sink() {
+        @Override public Object target() { return client; }
+        @Override public boolean latched() {
+            for (int i = 0; i < latches.size(); i++) if (latches.get(i).on) return true;
+            return false;
+        }
         @Override public void text(String s) {
             if (client == null) return;
             keysIn.text(s);
@@ -1144,6 +1191,8 @@ public class XDeskActivity extends Activity {
         screens.addView(chooser, new FrameLayout.LayoutParams(-1, -1));
         screens.addView(setupScreen, new FrameLayout.LayoutParams(-1, -1));
         keyView = new KeyInputView(this, keySink);
+        keyView.bridge().setCorrections(prefs.getBoolean(PREF_IME_CORRECTIONS, true));
+        MacInput.translateModifiers = prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true);
         screens.addView(keyView, new FrameLayout.LayoutParams(1, 1));
         return screens;
     }
@@ -1434,7 +1483,7 @@ public class XDeskActivity extends Activity {
                 updateStatus();
             }
         });
-        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_take_over), Style.SURFACE);
+        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_keys_phone), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
             @Override public void run() {
                 ownership.toggle();
@@ -1496,8 +1545,8 @@ public class XDeskActivity extends Activity {
         touchpad = new TouchpadView(this, output);
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         touchpad.setScrollSpeed(prefs.getFloat(PREF_SCROLL_SPEED, 1f));
-        // 自然滚动：所有设备共用一个设置（INPUT.md §12），还没有界面，默认开
-        touchpad.setNaturalScroll(prefs.getBoolean("natural_scroll", true));
+        // 自然滚动：所有设备共用一个设置（INPUT.md §12），默认开
+        touchpad.setNaturalScroll(prefs.getBoolean(PREF_NATURAL_SCROLL, true));
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
         directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
             // 经 Router：切换器开着时光标和点按给它
@@ -1745,11 +1794,8 @@ public class XDeskActivity extends Activity {
         if (desktopTaken && app) takeDesktopWhenBack = true;
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
         updatePhoneFocus();
-        forwardBtn.setVisibility(app || session.isActive() ? View.VISIBLE : View.GONE);
-        if (!app) {
-            forwardBtn.setLabel(getString(desktopTaken ? R.string.xd_give_back : R.string.xd_take_over));
-            forwardBtn.setActive(desktopTaken);
-        }
+        forwardBtn.setVisibility(app || session.isActive() || contentKey != null ? View.VISIBLE : View.GONE);
+        showOwnership();
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
         keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
@@ -1762,8 +1808,9 @@ public class XDeskActivity extends Activity {
      * 触控模式下左键是一根手指，右键是两根，滚轮是滑动。
      */
     private void applyInputMode() {
-        boolean touch = apps.isActive() && apps.isTouchMode();
-        if (wireless != null) wireless.setTouchMode(touch);
+        // INPUT.md §4 through the Router: the phone's screen is a blind surface, a tablet receiver a looked-at one
+        boolean touch = router.likeTablet(Router.BLIND);
+        if (wireless != null) wireless.setTouchMode(router.likeTablet(Router.LOOK));
         if (!touch) directTouch.cancel();
         directTouch.setVisibility(touch ? View.VISIBLE : View.GONE);
         touchpad.setVisibility(touch ? View.GONE : View.VISIBLE);
@@ -1780,9 +1827,15 @@ public class XDeskActivity extends Activity {
         if (size != null) directTouch.setDisplaySize(size[0], size[1]);
     }
 
+    /** INPUT.md §7: one indicator for every kind of session, 键鼠在外屏 / 键鼠在本机. Tapping it switches. */
+    private void showOwnership() {
+        boolean on = ownership.forwarded();
+        forwardBtn.setLabel(getString(on ? R.string.xd_keys_external : R.string.xd_keys_phone));
+        forwardBtn.setActive(on);
+    }
+
     private void updateAppStatus() {
-        forwardBtn.setLabel(getString(apps.isForwarding() ? R.string.xd_give_back : R.string.xd_take_over));
-        forwardBtn.setActive(apps.isForwarding());
+        showOwnership();
         boolean touch = apps.isTouchMode();
         touchBtn.setLabel(getString(touch ? R.string.xd_mode_touch : R.string.xd_mode_mouse_short));
         touchBtn.setIcon(touch ? R.drawable.xd_ic_touch : R.drawable.xd_ic_pointer);
@@ -2105,6 +2158,26 @@ public class XDeskActivity extends Activity {
             touchpad.setScrollSpeed(v);
             prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
         });
+        // INPUT.md §12: one setting for every device
+        s.switchRow(input, getString(R.string.xd_natural_scroll), getString(R.string.xd_natural_scroll_note), prefs.getBoolean(PREF_NATURAL_SCROLL, true), on -> {
+            prefs.edit().putBoolean(PREF_NATURAL_SCROLL, on).apply();
+            touchpad.setNaturalScroll(on);
+        });
+        s.switchRow(input, getString(R.string.xd_keys_via_ime), getString(R.string.xd_keys_via_ime_note), prefs.getBoolean(PREF_KEYS_VIA_IME, true), on -> {
+            prefs.edit().putBoolean(PREF_KEYS_VIA_IME, on).apply();
+            // The phone's window is the way now: the desktop window's takeover of the old way ends
+            if (on && desktopTaken) setDesktopTaken(false);
+            updateCapture();
+            updateStatus();
+        });
+        s.switchRow(input, getString(R.string.xd_ime_corrections), getString(R.string.xd_ime_corrections_note), prefs.getBoolean(PREF_IME_CORRECTIONS, true), on -> {
+            prefs.edit().putBoolean(PREF_IME_CORRECTIONS, on).apply();
+            if (keyView != null) keyView.bridge().setCorrections(on);
+        });
+        s.switchRow(input, getString(R.string.xd_translate_modifiers), getString(R.string.xd_translate_modifiers_note), prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true), on -> {
+            prefs.edit().putBoolean(PREF_TRANSLATE_MODIFIERS, on).apply();
+            MacInput.translateModifiers = on;
+        });
         if (appMode) {
             s.percentRow(input, getString(R.string.xd_mouse_speed), getString(R.string.xd_mouse_speed_note), Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
                 float v = p / 100f;
@@ -2286,8 +2359,9 @@ public class XDeskActivity extends Activity {
     private void updateCapture() {
         if (keyView == null) return;
         if (hasWindowFocus()) {
-            // 只有 Termux 桌面才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机
-            if (session.isActive() && !desktopTaken && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
+            // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机
+            if (!apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+                && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
             else keyView.releasePointerCapture();
         }
         updateDiag();
@@ -2299,8 +2373,14 @@ public class XDeskActivity extends Activity {
         keyEvents++;
         updateDiag();
         // Ctrl+Alt+M on the phone's window: take the desktop over (giving it back is in the desktop window, see onCreate)
-        if (d != null && d.isExternal() && ownership.onKey(e)) return true;
-        if (client != null && !apps.isActive() && d != null && d.isExternal() && e.getScanCode() > 0) {
+        if (d != null && d.isExternal() && ownership.onKey(e)) {
+            updateStatus();
+            return true;
+        }
+        if (client != null && !apps.isActive() && d != null && d.isExternal() && e.getScanCode() > 0 && phoneForwards()) {
+            // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)
+            if (mediaKey(e.getKeyCode())) return super.dispatchKeyEvent(e);
+            if (physicalText(e)) return true;
             if (e.getRepeatCount() == 0) {
                 if (e.getAction() == KeyEvent.ACTION_DOWN) keysIn.key(e.getScanCode(), true);
                 else if (e.getAction() == KeyEvent.ACTION_UP) keysIn.key(e.getScanCode(), false);
@@ -2308,6 +2388,81 @@ public class XDeskActivity extends Activity {
             return true;
         }
         return super.dispatchKeyEvent(e);
+    }
+
+    private static boolean mediaKey(int code) {
+        switch (code) {
+            case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN: case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_MUTE: case KeyEvent.KEYCODE_MEDIA_PLAY: case KeyEvent.KEYCODE_MEDIA_PAUSE:
+            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE: case KeyEvent.KEYCODE_MEDIA_STOP: case KeyEvent.KEYCODE_MEDIA_NEXT:
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS: case KeyEvent.KEYCODE_MEDIA_REWIND:
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: case KeyEvent.KEYCODE_HEADSETHOOK:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Keys of the physical keyboard that went out as text, by key code: their ups and repeats stay text too. */
+    private final android.util.SparseBooleanArray textKeys = new android.util.SparseBooleanArray();
+    /** A dead key (an accent) waiting for the letter it goes on. 0 when none. */
+    private int deadAccent;
+    private static final int SCAN_RIGHT_ALT = 100;
+
+    /**
+     * INPUT.md §5.1 for a target that is not Android: a key the phone's input method let through, that types a visible
+     * character (no Ctrl, Alt or Meta; AltGr is a layout's own), goes out as text in the keyboard's layout, through
+     * the text bridge. Everything else (shortcuts, F keys, arrows, Esc, Tab, Enter, Backspace, modifiers) stays a key.
+     * Keys the input method wanted never get here: it composes on the phone and commits through the bridge.
+     * Off in the settings, or while XDesk's switcher has the keys: every key is a key, as in 0.5.1.
+     */
+    private boolean physicalText(KeyEvent e) {
+        int code = e.getKeyCode();
+        if (e.getAction() == KeyEvent.ACTION_UP) {
+            if (textKeys.get(code)) {
+                textKeys.delete(code);
+                return true;
+            }
+            return false;
+        }
+        if (e.getAction() != KeyEvent.ACTION_DOWN) return false;
+        if (textKeys.get(code)) {
+            // Held: the target cannot repeat text, so each of Android's repeats types it again
+            if (e.getRepeatCount() > 0 && deadAccent == 0) typeChar(e);
+            return true;
+        }
+        if (e.getRepeatCount() > 0 || !prefs.getBoolean(PREF_KEYS_VIA_IME, true) || client == SwitcherOverlay.INPUT) return false;
+        if (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER || code == KeyEvent.KEYCODE_TAB) return false;
+        boolean altGr = (e.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0;
+        if (e.isCtrlPressed() || e.isMetaPressed() || (e.isAltPressed() && !altGr) || keySink.latched()) return false;
+        int u = e.getUnicodeChar();
+        if (u == 0) return false;
+        if ((u & KeyCharacterMap.COMBINING_ACCENT) == 0 && (u < 0x20 || u == 0x7f)) return false;
+        textKeys.put(code, true);
+        typeChar(e);
+        return true;
+    }
+
+    private void typeChar(KeyEvent e) {
+        int u = e.getUnicodeChar();
+        if ((u & KeyCharacterMap.COMBINING_ACCENT) != 0) {
+            deadAccent = u & KeyCharacterMap.COMBINING_ACCENT_MASK;
+            return;
+        }
+        String s;
+        if (deadAccent != 0) {
+            int composed = KeyCharacterMap.getDeadChar(deadAccent, u);
+            s = composed != 0 ? new String(Character.toChars(composed))
+                : new String(Character.toChars(deadAccent)) + new String(Character.toChars(u));
+            deadAccent = 0;
+        } else {
+            s = new String(Character.toChars(u));
+        }
+        // AltGr is part of the layout: the target must not see it held over this text (it would be ⌥ on a Mac)
+        boolean altGr = (e.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0;
+        if (altGr) keysIn.key(SCAN_RIGHT_ALT, false);
+        keyView.bridge().type(s);
+        if (altGr) keysIn.key(SCAN_RIGHT_ALT, true);
     }
 
     // --- 会话 ---

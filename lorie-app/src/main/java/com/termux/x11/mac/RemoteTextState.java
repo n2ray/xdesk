@@ -1,7 +1,7 @@
 /*
  * Derived from Sall (https://github.com/n2ray/sall, RemoteTextState.java), the Android client of Sill
  * (https://github.com/Saffsanity/sill). Copyright 2026 Noah Saffer. Licensed under the Apache License, Version 2.0.
- * Modified for XDesk (Java 9, public for MacInput).
+ * Modified for XDesk (Java 9, public for TextBridge).
  */
 package com.termux.x11.mac;
 import java.text.BreakIterator;
@@ -58,10 +58,10 @@ public final class RemoteTextState {
     }
 
     public String text() { return sent; }
-    int fence() { return fence; }
-    boolean hasRetype() { return !retype.isEmpty(); }
-    boolean hasComposingRetype() { return !composingRetype.isEmpty(); }
-    String filterComposing(String text) {
+    public int fence() { return fence; }
+    public boolean hasRetype() { return !retype.isEmpty(); }
+    public boolean hasComposingRetype() { return !composingRetype.isEmpty(); }
+    public String filterComposing(String text) {
         if (text.isEmpty()) return text;
         if (composingRetype.isEmpty() && !retype.isEmpty()) {
             composingRetype = retype;
@@ -73,7 +73,7 @@ public final class RemoteTextState {
         if (text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0 || text.indexOf('\t') >= 0) return null;
         return text;
     }
-    String filterComposingCommit(String text) {
+    public String filterComposingCommit(String text) {
         String prefix = composingRetype;
         composingRetype = "";
         if (prefix.isEmpty()) return text;
@@ -81,24 +81,24 @@ public final class RemoteTextState {
         if (prefix.startsWith(text)) return "";
         return text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0 || text.indexOf('\t') >= 0 ? null : text;
     }
-    void clearComposingRetype() { composingRetype = ""; }
-    int[] selection(int start, int end) {
+    public void clearComposingRetype() { composingRetype = ""; }
+    public int[] selection(int start, int end) {
         int left = Math.min(start, end), right = Math.max(start, end);
         if (left == right || right <= fence) return new int[]{sent.length(), sent.length()};
         return new int[]{left, right};
     }
-    boolean crossesFence(int start, int end) {
+    public boolean crossesFence(int start, int end) {
         return start >= 0 && start < fence && end > fence && end <= sent.length()
                 && !splitsSurrogate(sent, start) && !splitsSurrogate(sent, end);
     }
-    Edit deleteCrossingSelection(int start, int end) {
+    public Edit deleteCrossingSelection(int start, int end) {
         if (!crossesFence(start, end)) return null;
         String kept = sent.substring(start, fence);
         Edit edit = reconcile(sent.substring(0, fence) + sent.substring(end));
         if (edit != null) retype = kept;
         return edit;
     }
-    String consumeRetype(String text) {
+    public String consumeRetype(String text) {
         String pending = retype;
         retype = "";
         if (pending.isEmpty()) return text;
@@ -106,9 +106,9 @@ public final class RemoteTextState {
         if (pending.startsWith(text)) { retype = pending.substring(text.length()); return ""; }
         return null;
     }
-    void clearRetype() { retype = ""; }
+    public void clearRetype() { retype = ""; }
 
-    boolean wantsTrim() {
+    public boolean wantsTrim() {
         if (sent.length() <= 4000) return false;
         BreakIterator it = BreakIterator.getCharacterInstance(Locale.ROOT);
         it.setText(sent);
@@ -128,11 +128,11 @@ public final class RemoteTextState {
         retype = "";
         return true;
     }
-    static boolean splitsSurrogate(CharSequence text, int at) {
+    public static boolean splitsSurrogate(CharSequence text, int at) {
         return at > 0 && at < text.length() && Character.isHighSurrogate(text.charAt(at - 1))
                 && Character.isLowSurrogate(text.charAt(at));
     }
-    static int deletionStart(CharSequence text, int at) { return splitsSurrogate(text, at) ? at - 1 : at; }
-    static int deletionEnd(CharSequence text, int at) { return splitsSurrogate(text, at) ? at + 1 : at; }
+    public static int deletionStart(CharSequence text, int at) { return splitsSurrogate(text, at) ? at - 1 : at; }
+    public static int deletionEnd(CharSequence text, int at) { return splitsSurrogate(text, at) ? at + 1 : at; }
     public void clear() { sent = ""; fence = 0; retype = ""; composingRetype = ""; }
 }
