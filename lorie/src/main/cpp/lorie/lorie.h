@@ -29,6 +29,9 @@ void lorieConfigureNotify(int width, int height, int framerate, size_t name_size
 void lorieEnableClipboardSync(Bool enable);
 void lorieSendClipboardData(const char* data);
 void lorieInitClipboard(void);
+// XDesk: the X windows for the window exchange, see xwindows.c
+void lorieInitWindows(void);
+void lorieRegisterWindowsNatives(JNIEnv *env);
 void lorieRequestClipboard(void);
 void lorieHandleClipboardAnnounce(void);
 void lorieHandleClipboardData(const char* data);

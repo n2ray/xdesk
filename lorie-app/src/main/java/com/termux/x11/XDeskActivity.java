@@ -979,6 +979,7 @@ public class XDeskActivity extends Activity {
         // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
         MacSource.start(this);
         MacSource.switcher = prefix -> showSwitcher(true);
+        LinuxSource.install(this); // "l:" Linux programs and X windows
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);

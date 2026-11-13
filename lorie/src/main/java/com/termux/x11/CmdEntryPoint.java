@@ -197,6 +197,13 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
             return null;
         }
     }
+    // XDesk: Linux programs as apps, see XWindows. Binder threads.
+    @Override public ParcelFileDescriptor getAppCatalog() { return XWindows.catalog(); }
+    @Override public String launchApp(String key, String startupId) { return XWindows.launch(key, startupId); }
+    @Override public boolean isDescendant(int pid, int ancestor) { return XWindows.isDescendant(pid, ancestor); }
+    @Override public void setWindowListener(IXWindowListener listener) { XWindows.setListener(listener); }
+    @Override public void windowCommand(int window, int command) { XWindows.command(window, command); }
+
     @CriticalNative private static native boolean connected();
 
     static {

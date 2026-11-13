@@ -170,6 +170,13 @@
     <string name="xd_switcher_running">正在运行</string>
     <string name="xd_switcher_short">全部</string>
     <string name="xd_switcher_empty">没有正在运行的。可以在手机上添加收藏。</string>
+    <string name="xd_linux_title">Linux</string>
+    <string name="xd_linux_no_x">X 服务器没有连上</string>
+    <string name="xd_linux_old_x">X 服务器是旧版 XDesk 起的，请结束桌面再启动</string>
+    <string name="xd_linux_not_found">这个程序已经不在了</string>
+    <string name="xd_linux_window_gone">这个窗口已经关了</string>
+    <string name="xd_linux_no_window">%1$s 15 秒内没有打开窗口，日志见 $PREFIX/tmp/xdesk.log</string>
+    <string name="xd_linux_launch_failed">%1$s 没能启动：%2$s</string>
     <string name="xd_chooser_default">默认</string>
     <string name="xd_chooser_reattach_x">接回正在运行的 X 显示</string>
     <string name="xd_chooser_attach_x">接上 X 显示</string>
