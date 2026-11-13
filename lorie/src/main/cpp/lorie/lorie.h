@@ -25,7 +25,7 @@ extern "C" {
 
 struct lorie_shared_server_state;
 
-void lorieConfigureNotify(int width, int height, int framerate, size_t name_size, char* name);
+void lorieConfigureNotify(int width, int height, int framerate, int dpi, size_t name_size, char* name);
 void lorieEnableClipboardSync(Bool enable);
 void lorieSendClipboardData(const char* data);
 void lorieInitClipboard(void);
@@ -138,7 +138,12 @@ typedef union {
         uint8_t t;
         uint16_t width, height, framerate;
         size_t name_size;
-        char *name;
+        // On the wire this slot carries the X screen's DPI from XDesk (0: keep it); the server points it at the name it
+        // read after the event. Same layout as before, so an X server and an app of different versions still agree.
+        union {
+            char *name;
+            uint32_t dpi;
+        };
     } screenSize;
     struct {
         uint8_t t;

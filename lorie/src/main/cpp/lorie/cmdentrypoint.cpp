@@ -280,16 +280,22 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
     if (read(fd, &e, sizeof(e)) == sizeof(e)) {
         switch(e.type) {
             case EVENT_SCREEN_SIZE: {
-                auto *copy = (lorieEvent*) calloc(1, sizeof(lorieEvent) + e.screenSize.name_size + 1);
+                // The DPI shares its slot with the name pointer (see lorie.h), so it goes after the name and its zero
+                size_t tail = sizeof(lorieEvent) + e.screenSize.name_size + 1;
+                uint32_t dpi = e.screenSize.dpi;
+                auto *copy = (lorieEvent*) calloc(1, tail + sizeof(uint32_t));
                 memcpy(copy, &e, sizeof(e));
                 copy->screenSize.name = copy->screenSize.name_size ? (char*) (copy + 1) : nullptr;
                 if (copy->screenSize.name_size)
                     read(fd, copy->screenSize.name, copy->screenSize.name_size);
+                memcpy((char*) copy + tail, &dpi, sizeof(dpi));
                 QueueWorkProc(+[](__unused ClientPtr pClient, void *closure) -> Bool {
                     // This must be done only on X server thread.
                     auto* e = (lorieEvent*) closure;
-                    __android_log_print(ANDROID_LOG_ERROR, "tx11-request", "window changed: %d %d %s", e->screenSize.width, e->screenSize.height, e->screenSize.name);
-                    lorieConfigureNotify(e->screenSize.width, e->screenSize.height, e->screenSize.framerate, e->screenSize.name_size, e->screenSize.name);
+                    uint32_t dpi;
+                    memcpy(&dpi, (char*) (e + 1) + e->screenSize.name_size + 1, sizeof(dpi));
+                    __android_log_print(ANDROID_LOG_ERROR, "tx11-request", "window changed: %d %d %u dpi %s", e->screenSize.width, e->screenSize.height, dpi, e->screenSize.name);
+                    lorieConfigureNotify(e->screenSize.width, e->screenSize.height, e->screenSize.framerate, (int) dpi, e->screenSize.name_size, e->screenSize.name);
                     free(e);
                     return TRUE;
                 }, nullptr, copy);

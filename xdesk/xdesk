@@ -17,6 +17,7 @@
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
 #   xdesk apps [--refresh]   list the programs XDesk can open one by one (from .desktop files)
 #   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
+#   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 set -u
 APP=io.github.n2ray.xdesk.x11
@@ -239,6 +240,10 @@ start_session() {
     echo $! >"$RUN/session.pid"
     echo "$name" >"$RUN/session.name"
     say "Started session $name"
+    # The size the app asked for last, for this new session
+    local dpi
+    dpi=$(cut -d' ' -f1 "$RUN/scale" 2>/dev/null)
+    [[ $dpi =~ ^[0-9]{2,4}$ ]] && scale_later "$dpi"
 }
 
 clear_stopped() { [ ! -e "$RUN/stopped" ] || rm -f "${RUN:?}/stopped"; }
@@ -689,13 +694,77 @@ launch_app() {
     exec setsid "$@" -- env "${e[@]}" PULSE_COOKIE=/tmp/xdesk-pulse-cookie sh -c "$cmd"
 }
 
+# XFCE follows the X DPI the app worked out for the screen (DISPLAY.md §4.1): with s = DPI / 96 the panel is 28·s, its
+# icons 16·s, the cursor 24·s and the desktop icons 48·s, as desktop-scale.sh did per resolution. The app asks through
+# the X server once the desktop is connected and whenever the screen's size factors change, before the session may be
+# up: a job in the background waits for it, and a newer request replaces an older one.
+scale_commands() {  # dpi
+    local dpi panel picon cursor dicon
+    read -r dpi panel picon cursor dicon < <(awk -v d="$1" 'BEGIN { s = d / 96;
+        printf "%d %d %d %d %d\n", d, int(28 * s + 0.5), int(16 * s + 0.5), int(24 * s + 0.5), int(48 * s + 0.5) }')
+    printf '%s; ' \
+        "xfconf-query -c xsettings -p /Xft/DPI -n -t int -s $dpi" \
+        "xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s $cursor" \
+        "xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t uint -s $panel" \
+        "xfconf-query -c xfce4-panel -p /panels/panel-1/icon-size -n -t uint -s $picon" \
+        "xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s $dicon"
+}
+
+# Runs a shell command where the running session's window manager runs, with its D-Bus: Termux, proot or chroot
+in_session() {  # wm pid, command
+    local wm=$1 cmd=$2 scope line prefix
+    unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI
+    if tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
+        ( import_env "$wm"; export DISPLAY=$DPY; sh -c "$cmd" )
+        return
+    fi
+    scope=$(cat "$RUN/session.name" 2>/dev/null); scope=${scope%+apps}
+    [ -n "$scope" ] || return 1
+    local -a e=(DISPLAY=$DPY)
+    while IFS= read -r line; do e+=("$line"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
+        grep -E '^(DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR|HOME)=')
+    if [ -f "$SESSIONS/$scope.launch" ]; then
+        ( export "${e[@]}"; bash "$SESSIONS/$scope.launch" sh -c "$cmd" )
+        return
+    fi
+    line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh" 2>/dev/null) || return 1
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line#exec }
+    prefix=${line%% -- *}
+    ( eval "set -- $prefix"; "$@" -- env "${e[@]}" sh -c "$cmd" )
+}
+
+scale_later() {  # dpi
+    local dpi=$1 token wm
+    token="$dpi $$"
+    echo "$token" >"$RUN/scale"
+    (
+        mine() { [ "$(cat "$RUN/scale" 2>/dev/null)" = "$token" ]; }
+        for _ in $(seq 90); do
+            mine || exit 0
+            wm=$(session_wm_pid) && break
+            sleep 1
+        done
+        [ -n "${wm:-}" ] || { log "scale $dpi: no session to size"; exit 0; }
+        # xfsettingsd and the panel start a moment after the window manager; an autostarted script may set its own
+        # sizes then, so it is applied once more a little later
+        for pause in 2 6; do
+            sleep "$pause"
+            mine || exit 0
+            kill -0 "$wm" 2>/dev/null || exit 0
+            in_session "$wm" "$(scale_commands "$dpi")" || { log "scale $dpi: could not reach the session"; exit 0; }
+        done
+        log "XFCE sized for $dpi dpi"
+    ) </dev/null >>"$LOG" 2>&1 9>&- &
+}
+
 list_apps() {
     local cat
     cat=$(apps_catalog "${1:-0}") || exit 1
     awk -F'\t' 'NR > 1 { printf "%-40s %s%s\n", $1, $2, ($3 == 1 ? " (terminal)" : "") }' "$cat"
 }
 
-usage() { sed -n '4,20p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '4,21p' "$0" | sed 's/^# \?//'; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -789,6 +858,10 @@ apps)
     esac
     ;;
 launch) launch_app "$@" ;;
+scale)
+    [ $# -eq 1 ] && [[ $1 =~ ^[0-9]{2,4}$ ]] || { usage; exit 2; }
+    scale_later "$1"
+    ;;
 enable-app-start)
     P=$HOME/.termux/termux.properties
     mkdir -p "$(dirname "$P")"; touch "$P"

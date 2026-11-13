@@ -150,6 +150,14 @@ final class WirelessDisplay {
     /** The encoder's codec config: it comes once, and a browser that returns needs it. */
     private volatile byte[] lastConfig;
     private static final long GRACE_MS = 8000;
+    /** DISPLAY.md §5.4: a receiver that drops keeps its display and what is on it this long, the encoder paused. */
+    private static final long RECEIVER_GRACE_MS = 60_000;
+    /**
+     * The screen as ScreenProfiles knows it, and its own density for the picture it is sent (160 = 1×, 0 unknown),
+     * DISPLAY.md §4.1, §5.2. handshakeId is what the last handshake said, before it is taken as the session's.
+     */
+    private volatile String receiverId, handshakeId;
+    private volatile int receiverDensity;
     private volatile InputSink webInput;
     /** Why the stream ended for good, for a browser (see finalMessage); null for a lost connection. */
     private volatile String endReason;
@@ -261,6 +269,8 @@ final class WirelessDisplay {
             inputReceiver = false;
             computer = false;
             resizeTo = null;
+            receiverId = null;
+            receiverDensity = 0;
             endReason = null;
             receiverName = shownName;
             codes.clear();
@@ -339,6 +349,8 @@ final class WirelessDisplay {
             s.setSoTimeout(TIMEOUT_MS);
             int[] size = handshake(in);
             if (size == null) return;
+            receiverId = handshakeId;
+            receiverDensity = size[2];
             s.setSoTimeout(TIMEOUT_MS);
             session(in, size[0], size[1], size[2]);
         } catch (NoInjector e) {
@@ -416,7 +428,8 @@ final class WirelessDisplay {
      * A browser paired through WebServer: stream to it over its WebSocket. The caller checked isActive() first.
      * Any thread.
      */
-    boolean startWeb(final Socket s, final WebSocket ws, String id, String name, final int width, final int height, String okJson) {
+    boolean startWeb(final Socket s, final WebSocket ws, String id, String name, final int width, final int height, final int density,
+                     String okJson) {
         synchronized (writeLock) {
             if (canResume(id, width, height)) return resumeWeb(s, ws, okJson);
         }
@@ -440,6 +453,8 @@ final class WirelessDisplay {
         phonePointer = false;
         webLost = false;
         webClient = id;
+        receiverId = null;
+        receiverDensity = density;
         endReason = null;
         address = null;
         receiverName = name;
@@ -726,7 +741,8 @@ final class WirelessDisplay {
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h, wired());
-                return new int[]{size[0], size[1], dpi};
+                handshakeId = id;
+                return new int[]{size[0], size[1], densityFor(dpi, w, size[0])};
             }
             if (status == PAIR) {
                 String code = askCode(wrong);
@@ -846,13 +862,15 @@ final class WirelessDisplay {
 
     /** Under writeLock. True if this is a browser's session, which now waits for the browser to return. */
     private boolean connectionLost() {
-        if (!(web || inputReceiver) || !running) return false;
+        // Every receiver that got through its handshake, not only computers: DISPLAY.md §5.4
+        if (!running || (!web && receiverId == null)) return false;
         if (!webLost) {
             webLost = true;
-            graceUntil = SystemClock.uptimeMillis() + GRACE_MS;
-            Log.i(TAG, "browser gone, keeping the display for " + GRACE_MS + " ms");
+            long grace = web ? GRACE_MS : RECEIVER_GRACE_MS;
+            graceUntil = SystemClock.uptimeMillis() + grace;
+            Log.i(TAG, (web ? "browser" : "receiver") + " gone, keeping the display for " + grace + " ms");
             ui.post(() -> releaseWebInput(false));
-            if (inputReceiver) {
+            if (!web) {
                 reconnectReceiver();
                 notifyChanged();
             }
@@ -1106,8 +1124,15 @@ final class WirelessDisplay {
                 socket = s;
                 out = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 1 << 16));
             }
+            String expected = receiverId, name = receiverName;
             int[] size = handshake(in);
             if (size == null) throw new IOException("refused");
+            // Only the same receiver takes up the kept display, whoever answers at its old address
+            if (expected != null && !expected.equals(handshakeId)) {
+                receiverName = name;
+                throw new IOException("another receiver " + handshakeId);
+            }
+            receiverDensity = size[2];
             synchronized (writeLock) {
                 webLost = false;
                 preferHost = null;
@@ -1188,8 +1213,16 @@ final class WirelessDisplay {
                     } else if (type == ADDRESSES) {
                         receiverAddresses = new String(b, StandardCharsets.UTF_8).split(",");
                     } else if (type == SIZE && size >= 4) {
-                        int[] wanted = WebServer.fit(ByteBuffer.wrap(b).getShort() & 0xffff, ByteBuffer.wrap(b, 2, 2).getShort() & 0xffff, wired());
-                        if (wanted[0] != streamWidth || wanted[1] != streamHeight) resizeTo = wanted;
+                        int w = ByteBuffer.wrap(b).getShort() & 0xffff;
+                        int[] wanted = WebServer.fit(w, ByteBuffer.wrap(b, 2, 2).getShort() & 0xffff, wired());
+                        // XDesk Receiver adds its density (a turned tablet, a new window): the display follows it
+                        boolean denser = false;
+                        if (size >= 6 && !web) {
+                            int d = densityFor(ByteBuffer.wrap(b, 4, 2).getShort() & 0xffff, w, wanted[0]);
+                            denser = d != receiverDensity;
+                            receiverDensity = d;
+                        }
+                        if (wanted[0] != streamWidth || wanted[1] != streamHeight || denser) resizeTo = wanted;
                     }
                 }
             } catch (SocketTimeoutException e) {
@@ -1274,8 +1307,8 @@ final class WirelessDisplay {
             encoder = encoder(width, height, encoderWired);
             input = encoder.createInputSurface();
             encoder.start();
-            // As an external monitor of that width: 2560 wide is about 213 dpi, 1920 is 160
-            int dpi = Math.max(120, Math.round(width * 213f / 2560f));
+            // DISPLAY.md §4.1: 160·b·u, b from the receiver's own density and its profile
+            int dpi = density(width);
             int id;
             try {
                 id = i.createVirtualDisplay("XDesk wireless", width, height, dpi, input, encoderWired ? WIRED_FPS : 0);
@@ -1306,10 +1339,20 @@ final class WirelessDisplay {
                 int[] size = resizeTo;
                 resizeTo = null;
                 if (size == null || !running || died[0]) return died[0];
-                if (size[0] == width && size[1] == height && encoderWired == wired()) continue;
+                if (size[0] == width && size[1] == height && encoderWired == wired()) {
+                    // Only the density (the screen's kind or size in the settings, its own density): same encoder
+                    int denser = density(width);
+                    if (denser != dpi) {
+                        dpi = denser;
+                        i.resizeVirtualDisplay(id, width, height, dpi, input);
+                        Log.i(TAG, "display " + id + " now " + dpi + " dpi");
+                    }
+                    continue;
+                }
                 // The display stays, with its apps: only the size changes, and the encoder that has it
                 width = size[0];
                 height = size[1];
+                dpi = density(width);
                 encoderWired = wired();
                 MediaCodec resized = encoder(width, height, encoderWired);
                 Surface resizedInput = resized.createInputSurface();
@@ -1324,7 +1367,7 @@ final class WirelessDisplay {
                 input = resizedInput;
                 streamWidth = width;
                 streamHeight = height;
-                Log.i(TAG, "display " + id + " now " + width + "x" + height);
+                Log.i(TAG, "display " + id + " now " + width + "x" + height + " " + dpi + " dpi");
                 format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
                 writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
             }
@@ -1359,6 +1402,47 @@ final class WirelessDisplay {
         }
     }
 
+    /**
+     * A receiver's density for the picture it is sent: it said dpi for w pixels, it gets sent pixels. A computer says
+     * 160 whatever its screen, which tells nothing, so 0 (unknown).
+     */
+    private int densityFor(int dpi, int w, int sent) {
+        if (dpi <= 0 || (computer && dpi == 160)) return 0;
+        return Math.round(dpi * (float) sent / Math.max(1, w));
+    }
+
+    /** The screen's identity for ScreenProfiles while streaming, or null. */
+    String screenKey() {
+        if (web) return webClient != null ? ScreenProfiles.webKey(webClient) : null;
+        String id = receiverId;
+        return id != null ? ScreenProfiles.receiverKey(id) : null;
+    }
+
+    /** b of the screen streamed to (Sizing.densityB) for a kind from its profile. */
+    float screenB(int kind) {
+        return screenB(kind, streamWidth);
+    }
+
+    private float screenB(int kind, int width) {
+        int d = receiverDensity;
+        // Unknown: as XDesk 0.5 did, an external monitor of that width (2560 wide is about 213 dpi, 1920 is 160)
+        if (d <= 0) d = Math.max(120, Math.round(width * 213f / 2560f));
+        int natural = inputReceiver && !computer ? Sizing.HANDHELD : Sizing.MONITOR;
+        return Sizing.densityB(d, kind, natural);
+    }
+
+    /** Android density of the display: 160·b·u (R/N is 1, the receiver counted its own scaling in its density). */
+    private int density(int width) {
+        String key = screenKey();
+        ScreenProfiles.Profile p = key != null ? ScreenProfiles.get(context).of(key) : new ScreenProfiles.Profile("");
+        return Sizing.androidDensity(screenB(p.kind, width), Sizing.u(p.size), 1f);
+    }
+
+    /** The screen's kind or size changed in the settings: the display takes its new density. Any thread. */
+    void sizingChanged() {
+        if (running && displayId != Display.INVALID_DISPLAY) resizeTo = new int[]{streamWidth, streamHeight};
+    }
+
     private long lastBitrateCheck;
 
     private void adjustBitrate(MediaCodec encoder) {
@@ -1386,7 +1470,16 @@ final class WirelessDisplay {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         android.hardware.display.DisplayManager dm = context.getSystemService(android.hardware.display.DisplayManager.class);
         long checked = SystemClock.uptimeMillis();
+        boolean paused = false;
         while (running && !died[0] && resizeTo == null) {
+            // Nobody to send to (DISPLAY.md §5.4): the encoder drops what the display draws until the receiver is back,
+            // and starts again from the key frame restartStream asks for
+            if (webLost != paused) {
+                paused = !paused;
+                Bundle b = new Bundle();
+                b.putInt(MediaCodec.PARAMETER_KEY_SUSPEND, paused ? 1 : 0);
+                encoder.setParameters(b);
+            }
             // The injector may be alive with its display gone, as when its session was ended: treat it as dead
             if (SystemClock.uptimeMillis() - checked > 1000) {
                 checked = SystemClock.uptimeMillis();

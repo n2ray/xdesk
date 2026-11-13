@@ -133,6 +133,24 @@ final class XWindows {
         }
     }
 
+    /**
+     * xdesk scale: XFCE follows the X DPI. xdesk waits for the session itself in the background, so this only starts
+     * it; a oneway call must not hold up the ones after it on this binder.
+     */
+    static void scale(int dpi) {
+        if (dpi < 30 || dpi > 1000) return;
+        new Thread(() -> {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(xdesk("scale", String.valueOf(dpi))).redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(new File("/dev/null")));
+                pb.environment().remove("CLASSPATH");
+                pb.start().waitFor();
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                Log.w(TAG, "scale", e);
+            }
+        }, "xdesk-scale").start();
+    }
+
     static boolean isDescendant(int pid, int ancestor) {
         for (int i = 0; i < 64 && pid > 1; i++) {
             if (pid == ancestor) return true;

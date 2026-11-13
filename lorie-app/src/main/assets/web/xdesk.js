@@ -113,7 +113,7 @@ function connect() {
   let lastStatus = null;
   ws.onopen = () => {
     const [w, h] = screenSize();
-    ws.send(JSON.stringify({ hello: 1, id: browserId(), name: browserName(), token: store.get('token') || '', w, h }));
+    ws.send(JSON.stringify({ hello: 1, id: browserId(), name: browserName(), token: store.get('token') || '', w, h, dpr: Math.min(devicePixelRatio || 1, 3) }));
   };
   ws.onmessage = e => {
     if (typeof e.data === 'string') {

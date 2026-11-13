@@ -448,7 +448,9 @@ public class LorieView extends SurfaceView implements InputStub {
         else
             name = "external";
 
-        sendWindowChange(mNativeContext, p.x, p.y, framerate, name);
+        // XDesk: the X screen's DPI goes along with its size (DISPLAY.md §4.1); 0 keeps what the X server has
+        int dpi = activity.prefs != null ? activity.prefs.xdeskDpi.get() : 0;
+        sendWindowChange(mNativeContext, p.x, p.y, framerate, dpi, name);
     }
 
     @Keep
@@ -733,7 +735,7 @@ public class LorieView extends SurfaceView implements InputStub {
     @FastNative private native void setClipboardSyncEnabled(long ptr, boolean enabled, boolean ignored);
     @FastNative private native void sendClipboardAnnounce(long ptr);
     @FastNative private native void sendClipboardEvent(long ptr, byte[] text);
-    @FastNative private native void sendWindowChange(long ptr, int width, int height, int framerate, String name);
+    @FastNative private native void sendWindowChange(long ptr, int width, int height, int framerate, int dpi, String name);
     @FastNative private native void setViewport(long ptr, int x, int y, int width, int height, int expectedWidth, int expectedHeight, int hiddenBottom);
     @FastNative private native void setRendererZoom(long ptr, int percent);
     @FastNative private native void setZoomAnchor(long ptr, float sourceX, float sourceY, float fracX, float fracY);

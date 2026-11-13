@@ -538,6 +538,9 @@ final class WebServer {
             String label = name + " (" + ip + ")";
             int w = clampEven(hello.optInt("w", 1280)), hh = clampEven(hello.optInt("h", 720));
             int[] size = fit(w, hh);
+            // The page's device pixel ratio as a density for the picture it gets (DISPLAY.md §4.1); 0 from an older page
+            double dpr = hello.optDouble("dpr", 0);
+            int density = dpr >= 0.5 && dpr <= 4 ? (int) Math.round(160 * dpr * size[0] / w) : 0;
             WirelessDisplay wd = WirelessDisplay.get(context);
             // A reloaded page is here before its old connection has ended
             for (int i = 0; i < BUSY_WAITS && wd.isActive() && !wd.webResumable(id, size[0], size[1]); i++) android.os.SystemClock.sleep(100);
@@ -584,7 +587,7 @@ final class WebServer {
                 }
                 // Sends ok itself, before any stream message; false when it may not start (see startWeb)
                 if (!wd.startWeb(c, ws, id, context.getString(com.termux.x11.app.R.string.xd_web_receiver_name, label),
-                        size[0], size[1], ok.toString())) {
+                        size[0], size[1], density, ok.toString())) {
                     ws.sendText(status("ended").replace("}", ",\"reason\":"
                         + JSONObject.quote(context.getString(com.termux.x11.app.R.string.xd_web_no_service)) + "}"));
                     ws.close();

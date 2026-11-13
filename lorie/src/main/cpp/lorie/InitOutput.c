@@ -902,9 +902,10 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
     return TRUE;
 }                               /* end lorieScreenInit */
 
-void lorieConfigureNotify(int width, int height, int framerate, size_t name_size, char* name) {
+void lorieConfigureNotify(int width, int height, int framerate, int dpi, size_t name_size, char* name) {
     ScreenPtr pScreen = pScreenPtr;
     RROutputPtr output = RRFirstOutput(pScreen);
+    Bool sizeChanges;
     framerate = framerate ? framerate : 30;
 
     if (output && name) {
@@ -917,11 +918,26 @@ void lorieConfigureNotify(int width, int height, int framerate, size_t name_size
         output->nameLength = strlen(output->name);
     }
 
-    if (output && width && height && (pScreen->width != width || pScreen->height != height || pvfb->root.framerate != framerate)) {
+    sizeChanges = output && width && height && (pScreen->width != width || pScreen->height != height || pvfb->root.framerate != framerate);
+
+    // XDesk: the DPI XDesk worked out for this screen (DISPLAY.md §4.1), 0 from an app that does not send one. It is
+    // the physical size X reports (xdpyinfo, toolkits without Xft.dpi); only sent when it changes, never per frame
+    if (dpi >= 30 && dpi <= 1000 && dpi != monitorResolution) {
+        log(INFO, "X screen DPI %d (was %d)", dpi, monitorResolution);
+        monitorResolution = dpi;
+        if (!sizeChanges) {
+            pScreen->mmWidth = ((double) (pScreen->width)) * 25.4 / monitorResolution;
+            pScreen->mmHeight = ((double) (pScreen->height)) * 25.4 / monitorResolution;
+            // Tells clients and updates the size new connections are given
+            RRScreenSizeNotify(pScreen);
+        }
+    }
+
+    if (sizeChanges) {
         CARD32 mmWidth, mmHeight;
         RRModePtr mode = lorieCvt(width, height, framerate);
         mmWidth = ((double) (mode->mode.width)) * 25.4 / monitorResolution;
-        mmHeight = ((double) (mode->mode.width)) * 25.4 / monitorResolution;
+        mmHeight = ((double) (mode->mode.height)) * 25.4 / monitorResolution;
         RROutputSetModes(output, &mode, 1, 0);
         RRCrtcNotify(RRFirstEnabledCrtc(pScreen), mode, 0, 0, RR_Rotate_0, NULL, 1, &output);
         RRScreenSizeSet(pScreen, mode->mode.width, mode->mode.height, mmWidth, mmHeight);

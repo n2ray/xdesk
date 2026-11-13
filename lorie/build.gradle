@@ -98,6 +98,8 @@ afterEvaluate {
                 out << "  public final ${it.type}Preference ${it.key} = new ${it.type}Preference(\"${it.key}\", \"${it.default}\", R.array.${it.entries}, R.array.${it.values});\n"
         }
         out << '  public final StringPreference extra_keys_config = new StringPreference("extra_keys_config", TermuxX11ExtraKeys.DEFAULT_IVALUE_EXTRA_KEYS);\n'
+        // XDesk: the X screen's DPI for this display (DISPLAY.md §4.1), set by XDeskActivity, not shown anywhere; 0 leaves it
+        out << '  public final IntPreference xdeskDpi = new IntPreference("xdeskDpi", 0);\n'
         out << '  public final HashMap<String, Preference> keys = new HashMap<>() {{\n'
         preferences.each { out << '    put("' + it.key + '", ' + it.key + ');\n' }
         out << '    put("extra_keys_config", extra_keys_config);\n'

@@ -354,6 +354,8 @@ public class XDeskActivity extends Activity {
             Display added = displays.getDisplay(id);
             if (!TargetDisplay.isReal(added)) return;
             realDisplays.add(id);
+            ui.removeCallbacks(displayGone);
+            DesktopScale.askKindOnce(XDeskActivity.this, ui(), added, XDeskActivity.this::screenSizingChanged);
             // 桌面在车机上：外接屏后来接上也不挪
             if (session.isActive() && desktopOnCar && TargetDisplay.car(displays) != null) return;
             // 放在最底下，所以要先放它，再放应用或桌面窗口
@@ -384,18 +386,16 @@ public class XDeskActivity extends Activity {
             // 不收的话系统会把它挪到手机屏上
             DashboardActivity.closeIfAlive();
             dashboardTried = Display.INVALID_DISPLAY;
-            if (!session.isActive() && !apps.isActive()) DesktopService.stopIfIdle(XDeskActivity.this);
+            // DISPLAY.md §5.4: 插头松了几秒内又接上不算断开，告诉用户和收尾的事等 displayGone
+            ui.removeCallbacks(displayGone);
+            ui.postDelayed(displayGone, DISPLAY_GONE_MS);
             if (apps.isActive()) {
                 apps.displayRemoved(id);
                 refocusSelf();
                 return;
             }
             // 桌面在车机上时拔掉外接屏，桌面不受影响
-            if (!session.isActive() || desktopOnCar) {
-                updateChooserDisplay();
-                return;
-            }
-            setStatus(Style.WARN, getString(R.string.xd_display_gone_desktop));
+            if (!session.isActive() || desktopOnCar) return;
             needsPlacement = true;
             // 系统会把桌面窗口挪到手机屏上盖住触摸板，把 App 拉回前面
             refocusSelf();
@@ -410,6 +410,18 @@ public class XDeskActivity extends Activity {
                 ui.postDelayed(desktopFollowsDisplay, RESIZE_SETTLE_MS);
             }
         }
+    };
+
+    /** DISPLAY.md §5.4: a display removed is taken as gone once no display has come back for this long. */
+    private static final long DISPLAY_GONE_MS = 3000;
+    private final Runnable displayGone = () -> {
+        if (!session.isActive() && !apps.isActive()) DesktopService.stopIfIdle(XDeskActivity.this);
+        if (apps.isActive()) return;
+        if (!session.isActive() || desktopOnCar) {
+            updateChooserDisplay();
+            return;
+        }
+        setStatus(Style.WARN, getString(R.string.xd_display_gone_desktop));
     };
 
     /** DISPLAY.md §4.3: a size is committed once it has not changed for this long. */
@@ -427,6 +439,7 @@ public class XDeskActivity extends Activity {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
                 desktopConnected();
+                DesktopScale.connected();
                 if (takeDesktopWhenBack) {
                     takeDesktopWhenBack = false;
                     retakeTries = RETAKE_TRIES;
@@ -2133,6 +2146,7 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         boolean appMode = apps.isActive();
+        DesktopScale.addSettings(this, s, c, externalDisplay(), this::screenSizingChanged);
         LinearLayout external = s.card(c);
         addDensitySetting(s, external);
         if (AppSession.fullscreenSupported()) {
@@ -3342,6 +3356,14 @@ public class XDeskActivity extends Activity {
         // 上游的虚拟按键栏会占掉外屏底部的高度，手机上已有快捷键栏
         p.showAdditionalKbd.put(false);
         p.additionalKbdVisible.put(false);
+        DesktopScale.apply(this, p, d, Integer.parseInt(size.substring(0, size.indexOf('x'))));
+    }
+
+    /** The screen's kind or size u changed (DISPLAY.md §4.1): the desktop and the wireless display follow, once. */
+    private void screenSizingChanged() {
+        Display d = desktopDisplay();
+        if (session.isActive() && d != null) applySize(d);
+        WirelessDisplay.get(this).sizingChanged();
     }
 
 
