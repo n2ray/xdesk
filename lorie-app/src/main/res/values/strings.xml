@@ -149,7 +149,7 @@
 
     <!-- Hints in the touch area, drawn centred. Short lines: they shrink to fit -->
     <string name="xd_pad_hint_move">One finger moves · Tap to left-click</string>
-    <string name="xd_pad_hint_drag">Long press, or tap then hold, to drag</string>
+    <string name="xd_pad_hint_drag">Long press: lift to right-click, move to drag</string>
     <string name="xd_pad_hint_two">Two fingers: tap to right-click, swipe to scroll</string>
     <string name="xd_touch_hint_move">One finger moves the cursor · Tap to click</string>
     <string name="xd_touch_hint_fingers">Hold to drag · More fingers touch directly</string>
@@ -201,10 +201,10 @@
     <string name="xd_keys">Keys</string>
     <string name="xd_take_over">Take over</string>
     <string name="xd_give_back">Give back</string>
-    <string name="xd_mode_mouse">Mouse &amp; keyboard</string>
-    <!-- Mouse & keyboard under a small icon, about 50dp wide -->
-    <string name="xd_mode_mouse_short">Mouse</string>
-    <string name="xd_mode_touch">Touch</string>
+    <string name="xd_mode_mouse">Like a computer</string>
+    <!-- Like a computer (mouse) under a small icon, about 50dp wide -->
+    <string name="xd_mode_mouse_short">Computer</string>
+    <string name="xd_mode_touch">Like a tablet</string>
     <string name="xd_end_xdesk">End XDesk</string>
     <string name="xd_end">End</string>
     <string name="xd_stop">Stop</string>
@@ -407,7 +407,7 @@
     <string name="xd_card_fullscreen_note_off">The default is off now. The app restarts when you change this</string>
     <string name="xd_card_follow_default">Default</string>
     <string name="xd_card_mode">Input mode</string>
-    <string name="xd_card_mode_note">Touch is for apps or web pages that only respond to touch</string>
+    <string name="xd_card_mode_note">Like a tablet: the app gets fingers, for apps, games or web pages that only respond to touch. Like a computer: a mouse</string>
     <string name="xd_card_close">Close this app</string>
     <string name="xd_card_close_title">Close %1$s?</string>
 

@@ -225,6 +225,17 @@ public class XDeskActivity extends Activity {
         @Override public void action(int a, int arg) { padIn.action(a, arg); }
     };
 
+    /** 键鼠归属（INPUT.md §7）：两种会话一个开关、一个 Ctrl+Alt+M。 */
+    private final Ownership ownership = new Ownership(new Ownership.Side() {
+        @Override public boolean active() { return apps.isActive(); }
+        @Override public boolean forwarded() { return apps.isForwarding(); }
+        @Override public void forward(boolean on) { apps.setForwarding(on); }
+    }, new Ownership.Side() {
+        @Override public boolean active() { return !apps.isActive() && session.isActive(); }
+        @Override public boolean forwarded() { return desktopTaken; }
+        @Override public void forward(boolean on) { setDesktopTaken(on); }
+    });
+
     /** 应用切换（三指横滑，按住不放）：Dock 里的前一个、后一个，抬起手指时才换过去。 */
     private final ArrayList<String> switchKeys = new ArrayList<String>();
     private int switchIndex;
@@ -935,6 +946,13 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // While the desktop has the keyboard its window gets the keys: Ctrl+Alt+M there gives them back
+        MainActivity.keyHook = new MainActivity.KeyHook() {
+            @Override public boolean onKey(KeyEvent e) {
+                InputDevice d = e.getDevice();
+                return d != null && d.isExternal() && ownership.onKey(e);
+            }
+        };
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().getAttributes().layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
@@ -1399,8 +1417,7 @@ public class XDeskActivity extends Activity {
         forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_take_over), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
             @Override public void run() {
-                if (apps.isActive()) apps.setForwarding(!apps.isForwarding());
-                else setDesktopTaken(!desktopTaken);
+                ownership.toggle();
             }
         });
         launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, getString(R.string.xd_launcher), Style.SURFACE);
@@ -2260,6 +2277,8 @@ public class XDeskActivity extends Activity {
         InputDevice d = e.getDevice();
         keyEvents++;
         updateDiag();
+        // Ctrl+Alt+M on the phone's window: take the desktop over (giving it back is in the desktop window, see onCreate)
+        if (d != null && d.isExternal() && ownership.onKey(e)) return true;
         if (client != null && !apps.isActive() && d != null && d.isExternal() && e.getScanCode() > 0) {
             if (e.getRepeatCount() == 0) {
                 if (e.getAction() == KeyEvent.ACTION_DOWN) keysIn.key(e.getScanCode(), true);

@@ -1059,7 +1059,17 @@ public class MainActivity extends AppCompatActivity {
         toggleExtraKeys(getTerminalToolbarViewPager().getVisibility() != View.VISIBLE, true);
     }
 
+    /** XDesk's keys that never reach X, such as its Ctrl+Alt+M: true when the hook took the key. */
+    public interface KeyHook {
+        boolean onKey(KeyEvent e);
+    }
+
+    public static volatile KeyHook keyHook;
+
     public boolean handleKey(KeyEvent e) {
+        KeyHook hook = keyHook;
+        if (hook != null && hook.onKey(e))
+            return true;
         if (filterOutWinKey && (e.getKeyCode() == KEYCODE_META_LEFT || e.getKeyCode() == KEYCODE_META_RIGHT || e.isMetaPressed()))
             return false;
         return mLorieKeyListener.onKey(getLorieView(), e.getKeyCode(), e);

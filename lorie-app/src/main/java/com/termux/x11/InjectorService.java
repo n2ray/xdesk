@@ -538,7 +538,12 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void key(final int scan, final boolean down) {
-        typed(() -> webKeyboard.key(scan, down), () -> injector.key(scan, down ? 1 : 0));
+        // Sources send only presses and releases (INPUT.md §5.4): the repeat is made here, as for grabbed keyboards.
+        // The web keyboard is a keyboard of the system's, which repeats by itself.
+        typed(() -> webKeyboard.key(scan, down), () -> {
+            injector.key(scan, down ? 1 : 0);
+            if (down) startRepeat(scan);
+        });
     }
 
     @Override public void touchFrame(final int action, final int[] ids, final float[] x, final float[] y) {
