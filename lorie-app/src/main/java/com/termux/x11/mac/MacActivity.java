@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Display;
@@ -26,7 +27,16 @@ import android.widget.TextView;
  */
 public final class MacActivity extends Activity implements MacClient.View, SurfaceHolder.Callback {
     public static final String EXTRA_MAC = "mac";
+    /** The display it was opened on: if it shows up anywhere else, that display went away (DISPLAY.md §5.4). */
+    public static final String EXTRA_DISPLAY = "display";
     private static MacActivity current;
+
+    /** What XDesk hears when a Mac screen ends on its own (not through finishFor). UI thread. */
+    public interface Ended {
+        void ended(String macId);
+    }
+
+    public static volatile Ended onEnded;
 
     private MacClient client;
     private FrameLayout root;
@@ -36,11 +46,27 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     private int videoW, videoH;
     private float hotX, hotY;
     private boolean takenOver;
+    /** Finished by XDesk (another content took the screen): nothing to report. */
+    private boolean quiet;
+    private int displayWanted = Display.INVALID_DISPLAY;
+    private DisplayManager.DisplayListener displayWatch;
 
     /** The activity showing this Mac, finished: another content took the screen (stream stops, connection stays). */
     public static void finishFor(String macId) {
         MacActivity a = current;
-        if (a != null && a.client != null && a.client.mac().id.equals(macId)) a.finish();
+        if (a != null && a.client != null && a.client.mac().id.equals(macId)) {
+            a.quiet = true;
+            a.finish();
+        }
+    }
+
+    /** The Mac can't be shown any more (it ended the session for good): the screen closes and says why. */
+    public static void failedFor(String macId, String why) {
+        MacActivity a = current;
+        if (a == null || a.isFinishing() || a.client == null || !a.client.mac().id.equals(macId)) return;
+        if (why != null && !why.isEmpty())
+            android.widget.Toast.makeText(a.getApplicationContext(), why, android.widget.Toast.LENGTH_LONG).show();
+        a.end();
     }
 
     public static boolean isShowing(String macId) {
@@ -78,7 +104,34 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         root.addView(status, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         root.addOnLayoutChangeListener((v, l, t, r, bt, ol, ot, or, ob) -> layoutPicture());
         setContentView(root);
+        displayWatch = new DisplayManager.DisplayListener() {
+            @Override public void onDisplayAdded(int id) { }
+            @Override public void onDisplayChanged(int id) { }
+            @Override public void onDisplayRemoved(int id) {
+                if (id == displayWanted) end();
+            }
+        };
+        ((DisplayManager) getSystemService(DISPLAY_SERVICE)).registerDisplayListener(displayWatch, null);
         bind(getIntent());
+        checkDisplay();
+    }
+
+    @Override public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        checkDisplay();
+    }
+
+    /** Android moves a removed display's activities onto the phone: there this Mac would go on streaming. */
+    private void checkDisplay() {
+        Display d = getDisplay();
+        if (displayWanted != Display.INVALID_DISPLAY && d != null && d.getDisplayId() != displayWanted) end();
+    }
+
+    /** This screen of the Mac ends on its own: the stream stops (the connection stays), and XDesk hears it in onDestroy. */
+    private void end() {
+        if (isFinishing()) return;
+        if (client != null && current == this) client.show(MacClient.NONE);
+        finish();
     }
 
     @Override protected void onNewIntent(android.content.Intent i) {
@@ -94,21 +147,30 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
             return;
         }
         if (client != null && client != next) {
-            client.setSurface(null, 0, 0, 1, 60);
+            client.clearSurface(this);
             client.detach(this);
         }
         client = next;
         current = this;
+        displayWanted = i.getIntExtra(EXTRA_DISPLAY, Display.INVALID_DISPLAY);
         client.attach(this);
         if (picture.getHolder().getSurface().isValid()) giveSurface();
     }
 
     @Override protected void onDestroy() {
+        if (displayWatch != null) ((DisplayManager) getSystemService(DISPLAY_SERVICE)).unregisterDisplayListener(displayWatch);
+        boolean last = current == this;
         if (client != null) {
-            client.setSurface(null, 0, 0, 1, 60);
+            // Only this activity's own surface: a newer screen of this Mac may already show it (Mac, an app, Mac again)
+            client.clearSurface(this);
             client.detach(this);
+            if (last && !quiet && !isChangingConfigurations()) {
+                client.show(MacClient.NONE);
+                Ended e = onEnded;
+                if (e != null) e.ended(client.mac().id);
+            }
         }
-        if (current == this) current = null;
+        if (last) current = null;
         super.onDestroy();
     }
 
@@ -122,7 +184,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     @Override public void surfaceDestroyed(SurfaceHolder h) {
         // Before the surface goes: the decoder must not render into it any more
-        if (client != null) client.setSurface(null, 0, 0, 1, 60);
+        if (client != null) client.clearSurface(this);
     }
 
     private void giveSurface() {
@@ -135,8 +197,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
             if (max > 0) fps = Math.min(120, Math.round(max));
         }
         // The viewport is the whole screen in dp, not the letterboxed picture
-        client.setSurface(picture.getHolder().getSurface(), root.getWidth(), root.getHeight(),
-                getResources().getDisplayMetrics().density, fps);
+        client.setSurface(this, picture.getHolder().getSurface(), root.getWidth(), root.getHeight(),
+                getResources().getDisplayMetrics().density, fps, d != null ? d.getDisplayId() : Display.INVALID_DISPLAY);
     }
 
     /** Aspect fit: the SurfaceView itself is the picture's rectangle, so the hardware scales it once. */

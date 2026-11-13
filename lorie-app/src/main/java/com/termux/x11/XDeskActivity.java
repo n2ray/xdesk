@@ -2556,6 +2556,7 @@ public class XDeskActivity extends Activity {
     // --- 选择界面 ---
 
     private void showChooser() {
+        MacSource.userLooking();  // the Mac rows should be fresh: connect paired Macs now
         setupScreen.setVisibility(View.GONE);
         chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
@@ -2567,6 +2568,7 @@ public class XDeskActivity extends Activity {
 
     /** 不停会话，把完整列表盖在触摸板上，用来切换到不在 Dock 里的东西。 */
     private void openChooserOverSession() {
+        MacSource.userLooking();
         setupScreen.setVisibility(View.GONE);
         chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
@@ -2772,6 +2774,7 @@ public class XDeskActivity extends Activity {
             showChooser();
             return;
         }
+        MacSource.userLooking();
         if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
     }

@@ -51,7 +51,7 @@ bytes are an error.
        already capped to what its decoder handles (see below), both even
      - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
      - u16 refresh rate in frames per second, rounded
-     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 6 with bit 7: not a computer (see below), bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
+     - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 2 with bit 1: takes a Mac passed through (see below), bit 6 with bit 7: not a computer (see below), bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
 4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
    with another `WELCOME`: OK (paired, with a new token), PAIR (wrong code, try again, same code still shown) or
    REFUSED. After 3 wrong codes the receiver answers REFUSED, closes, and shows a new code next time.
@@ -87,6 +87,8 @@ Phone → receiver:
 | 4 | AUDIO_DATA | u64 presentation time in µs, then PCM |
 | 5 | PING | empty |
 | 6 | BYE | empty: the phone stops on purpose; the receiver goes back to its idle screen at once |
+| 16 | CURSOR_SHAPE | Only to a receiver with codecs bit 2. u16 width, u16 height, u16 hot spot x, u16 hot spot y, each 0 to 65535 of the picture's **width**, then the cursor as PNG (at most 1 MiB): draw it over the picture |
+| 17 | CURSOR_POSITION | Only to a receiver with codecs bit 2. u16 x, u16 y (0 to 65535 across and down the picture), u8 shown: where that cursor's hot spot is; 0 hides it |
 
 Receiver → phone:
 
@@ -114,6 +116,10 @@ lost connection.
 - **One phone at a time.** A second phone gets BUSY.
 - **Idle screen:** the receiver's name, its address and port, and how to start from XDesk. While pairing, the
   phone's name and the 4-digit code in large digits. While streaming, only the picture.
+
+## Mac passthrough
+
+When a Mac window or desktop (from Sill) is what the streamed display shows, and the receiver set codecs bits 1 and 2, the phone forwards the Mac's HEVC as it came, without decoding it: a VIDEO_FORMAT with `h265` and the Mac picture's size (never larger than the size the receiver asked for), the parameter sets as a codec config frame, then the Mac's frames. The Mac's cursor is not in that picture: CURSOR_SHAPE and CURSOR_POSITION say what to draw and where. KEY_FRAME is passed on to the Mac. When the Mac leaves the display the phone hides the cursor (CURSOR_POSITION with shown 0) and sends a VIDEO_FORMAT with `h264`, its codec config, and a key frame. A receiver without bit 2 always gets H.264: the phone decodes the Mac and encodes the display, as for anything else.
 
 ## Web display (browser as the receiver)
 

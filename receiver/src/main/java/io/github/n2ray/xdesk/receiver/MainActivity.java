@@ -65,6 +65,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private String phone, pairingCode, error;
     private boolean pairingRetry;
     private int videoWidth, videoHeight;
+    /** The Mac's cursor over a passed-through Mac picture (PROTOCOL.md CURSOR_SHAPE): fractions of the picture */
+    private android.widget.ImageView cursor;
+    private float cursorW, cursorH, cursorHotX, cursorHotY, cursorX, cursorY;
 
     private NsdManager nsd;
     private NsdManager.RegistrationListener registration;
@@ -143,6 +146,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         root.setBackgroundColor(Color.BLACK);
         view = new SurfaceView(this);
         root.addView(view, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        cursor = new android.widget.ImageView(this);
+        cursor.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+        cursor.setVisibility(View.GONE);
+        root.addView(cursor, new FrameLayout.LayoutParams(1, 1, Gravity.TOP | Gravity.START));
         control = new Control(receiver, view, ui);
         ime = new ImeView(this, control);
         root.addView(ime, new FrameLayout.LayoutParams(1, 1));
@@ -555,6 +562,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
                     Gravity.CENTER);
         }
         view.setLayoutParams(lp);
+        placeCursor();
+    }
+
+    /** The cursor on the picture as fitVideo lays it out: centred, letterboxed. */
+    private void placeCursor() {
+        if (cursor.getDrawable() == null) return;
+        int sw = root.getWidth(), sh = root.getHeight();
+        if (videoWidth <= 0 || videoHeight <= 0 || sw <= 0 || sh <= 0) return;
+        float scale = Math.min((float) sw / videoWidth, (float) sh / videoHeight);
+        float pw = videoWidth * scale, ph = videoHeight * scale;
+        int w = Math.max(1, Math.round(cursorW * pw)), h = Math.max(1, Math.round(cursorH * pw));
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) cursor.getLayoutParams();
+        if (p.width != w || p.height != h) {
+            p.width = w;
+            p.height = h;
+            cursor.setLayoutParams(p);
+        }
+        cursor.setTranslationX((sw - pw) / 2 + cursorX * pw - cursorHotX * pw);
+        cursor.setTranslationY((sh - ph) / 2 + cursorY * ph - cursorHotY * pw);
+    }
+
+    @Override
+    public void cursorShape(android.graphics.Bitmap shape, float width, float height, float hotX, float hotY) {
+        ui.post(() -> {
+            cursor.setImageBitmap(shape);
+            cursorW = width;
+            cursorH = height;
+            cursorHotX = hotX;
+            cursorHotY = hotY;
+            placeCursor();
+        });
+    }
+
+    @Override
+    public void cursorPosition(float x, float y, boolean shown) {
+        ui.post(() -> {
+            cursorX = x;
+            cursorY = y;
+            cursor.setVisibility(shown && cursor.getDrawable() != null ? View.VISIBLE : View.GONE);
+            placeCursor();
+        });
     }
 
     // Receiver.Ui, called on network threads
@@ -564,6 +612,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         ui.post(() -> {
             state = State.IDLE;
             videoWidth = videoHeight = 0;
+            cursor.setVisibility(View.GONE);
+            cursor.setImageDrawable(null);
             fitVideo();
             render();
         });

@@ -38,6 +38,8 @@ final class MacSource implements ContentSource {
     private Runnable changed;
     private final HashMap<String, MacInput> inputs = new HashMap<>();
     private final HashMap<String, Runnable> pendingHide = new HashMap<>();
+    /** Mac id -> the key shown on its screen, until hidden() or the screen ends on its own. */
+    private final HashMap<String, String> shown = new HashMap<>();
     /** Set by XDeskActivity: Home and overview on a Mac window open XDesk's switcher for that Mac. */
     static MacInput.Switcher switcher;
 
@@ -50,13 +52,42 @@ final class MacSource implements ContentSource {
         if (instance != null) return;
         instance = new MacSource(c);
         MacClients.addListener(() -> instance.ui.post(instance::watchClients));
+        MacActivity.onEnded = instance::ended;
+        // A Mac on the wireless display goes to a receiver that decodes HEVC without being decoded here
+        MacClient.passthroughProvider = WirelessDisplay.macPassthrough(c);
         instance.watchClients();
         Contents.register(instance);
     }
 
+    /**
+     * The user looks at the catalog (the phone chooser or the switcher is shown): connect the Macs that aren't, so
+     * their windows and apps come. Only this and open() connect: listing the entries (chooser rebuilds, docks,
+     * Contents.find) must not, or a connected Mac would never go idle and an offline one be retried forever.
+     */
+    static void userLooking() {
+        MacSource s = instance;
+        if (s == null) return;
+        for (MacClient m : MacClients.all(s.context)) m.touch();
+    }
+
     private void watchClients() {
-        for (MacClient m : MacClients.all(context)) m.setListener(c -> fireChanged());
+        for (MacClient m : MacClients.all(context)) m.setListener(c -> {
+            if (c.state() == MacClient.State.FAILED) {
+                // Ended for good (removed on the Mac, another key): its screen closes instead of waiting forever
+                MacActivity.failedFor(c.mac().id, c.failure());
+            }
+            fireChanged();
+        });
         fireChanged();
+    }
+
+    /** A Mac screen ended on its own (destroyed, its display gone, the Mac failed): the host forgets it. */
+    private void ended(String macId) {
+        MacInput in = inputs.get(macId);
+        if (in != null) in.releaseAll();
+        String key = shown.remove(macId);
+        Contents.Host host = Contents.host();
+        if (key != null && host != null) host.contentEnded(key);
     }
 
     /** Icons come one by one after a connect: one refresh of the chooser for a burst of them. */
@@ -90,7 +121,6 @@ final class MacSource implements ContentSource {
     @Override public List<Entry> apps() {
         ArrayList<Entry> out = new ArrayList<>();
         for (MacClient m : MacClients.all(context)) {
-            m.touch();
             for (MacClient.App a : m.apps())
                 out.add(new Entry(macPrefix(m) + "app:" + a.bundleId, a.name, m.icon(a.bundleId), null, hasWindow(m, a.bundleId)));
         }
@@ -100,7 +130,6 @@ final class MacSource implements ContentSource {
     @Override public List<Entry> windows() {
         ArrayList<Entry> out = new ArrayList<>();
         for (MacClient m : MacClients.all(context)) {
-            m.touch();
             String state = m.locked() ? context.getString(R.string.xd_mac_locked_short)
                     : m.state() == MacClient.State.CONNECTED ? null
                     : m.state() == MacClient.State.FAILED && m.failure() != null ? m.failure()
@@ -173,6 +202,7 @@ final class MacSource implements ContentSource {
             try {
                 Intent i = new Intent(context, MacActivity.class);
                 i.putExtra(MacActivity.EXTRA_MAC, m.mac().id);
+                i.putExtra(MacActivity.EXTRA_DISPLAY, displayId);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                 ActivityOptions o = ActivityOptions.makeBasic();
                 o.setLaunchDisplayId(displayId);
@@ -183,6 +213,7 @@ final class MacSource implements ContentSource {
                 return;
             }
         }
+        shown.put(m.mac().id, key);
         result.shown(key, input(m));
     }
 
@@ -219,6 +250,8 @@ final class MacSource implements ContentSource {
         if (k == null) return;
         final MacClient m = (MacClient) k[0];
         final String id = m.mac().id;
+        // The host has moved on: this key is no longer anything to report as ended
+        if (key.equals(shown.get(id))) shown.remove(id);
         MacInput in = inputs.get(id);
         if (in != null) in.releaseAll();
         Runnable old = pendingHide.remove(id);

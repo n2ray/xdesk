@@ -435,11 +435,14 @@ public final class MacClient {
         case SillWire.FRAME: {
             Surface target = surface;
             if (locked() || target == null) return;
+            if (passFrame(s, m)) return;
             if (!video.frame(m.payload, m.length, m.keyframe, m.timestamp, target)) askKeyframe(s);
             return;
         }
         case SillWire.PARAMETER_SETS:
             video.parameters(m.payload, m.length, surface);
+            lastParameters = java.util.Arrays.copyOf(m.payload, m.length);
+            passParameters();
             return;
         case SillWire.TICK:
             video.drain();
@@ -482,6 +485,8 @@ public final class MacClient {
                 View v = view;
                 if (v != null) v.pointer(pointerX, pointerY, inside);
             });
+            Passthrough pt = pass;
+            if (pt != null) pt.cursorPosition(pointerX, pointerY, inside);
             return;
         }
         case SillWire.CLIPBOARD:
@@ -598,10 +603,79 @@ public final class MacClient {
             return;
         }
         if (bm == null) return;
+        lastCursor = java.util.Arrays.copyOf(m.payload, m.length);
+        passCursor();
         ui.post(() -> {
             View v = view;
             if (v != null) v.cursor(bm, hx, hy, w, h);
         });
+    }
+
+    // --- passthrough (DISPLAY.md §3.4): the screen's picture goes to a receiver that decodes HEVC itself ---
+
+    /** Set by XDesk: who can take this Mac's video compressed for a display (the wireless receiver's). */
+    public static volatile Passthrough.Provider passthroughProvider;
+    private volatile Passthrough pass;
+    /** The last parameter sets and cursor as Sill sent them: a passthrough that opens later starts with them. */
+    private volatile byte[] lastParameters, lastCursor;
+    private byte[] annexB;
+    private final int[] annexLength = new int[1];
+
+    /** Reader thread. True when the frame went to the passthrough (or was dropped for it). */
+    private boolean passFrame(SillTls s, SillWire.Message m) {
+        Passthrough p = pass;
+        if (p == null) return false;
+        if (!p.alive()) {
+            // The receiver went away: decode here again, from a keyframe
+            dropPass(p);
+            return false;
+        }
+        byte[] b = video.annexB(m.payload, m.length, annexB, annexLength);
+        if (b == null) return true;
+        annexB = b;
+        if (!p.frame(b, annexLength[0], (long) (m.timestamp * 1_000_000), m.keyframe)) askKeyframe(s);
+        return true;
+    }
+
+    private void passParameters() {
+        Passthrough p = pass;
+        byte[] raw = lastParameters, config = video.config();
+        if (p == null || raw == null || config == null) return;
+        int[] size = MacVideo.spsSize(raw, raw.length);
+        if (size == null || !p.parameters(config, size[0], size[1])) {
+            Log.i(TAG, "passthrough: this stream can't go to the receiver, decoding on the phone");
+            dropPass(p);
+            return;
+        }
+        // No decoder here says the size: the screen letterboxes by the SPS's
+        final int w = size[0], h = size[1];
+        ui.post(() -> {
+            View v = view;
+            if (v != null) v.videoSize(w, h);
+        });
+    }
+
+    private void passCursor() {
+        Passthrough p = pass;
+        byte[] c = lastCursor;
+        int fw = frameW;
+        if (p == null || c == null || fw <= 0 || c.length <= 16) return;
+        ByteBuffer b = ByteBuffer.wrap(c, 0, 16);
+        float hx = b.getFloat(), hy = b.getFloat(), w = b.getFloat(), h = b.getFloat();
+        // Mac points are dp on the display; the picture is fw pixels wide on it
+        float k = density / fw;
+        p.cursorShape(c, 16, c.length - 16, w * k, h * k, hx * k, hy * k);
+        p.cursorPosition(pointerX, pointerY, true);
+    }
+
+    private void dropPass(Passthrough p) {
+        synchronized (surfaceLock) {
+            if (pass != p) return;
+            pass = null;
+        }
+        p.end();
+        askKeyframeSoon();
+        sendViewport();
     }
 
     // --- the screen ---
@@ -617,9 +691,33 @@ public final class MacClient {
         if (view == v) view = null;
     }
 
-    /** The SurfaceView's surface and its size in pixels; null when it is gone. */
-    public void setSurface(Surface s, int width, int height, float density, int fps) {
+    /** Who gave the surface (a MacActivity): only it may take it away. */
+    private Object surfaceOwner;
+
+    /**
+     * The surface of the screen showing this Mac, from {@code owner}, and its size in pixels. A new owner replaces the
+     * old one: the screen that showed this Mac before and is still going away (Mac, an app, the Mac again) can no
+     * longer take the new one's surface (clearSurface).
+     */
+    public void setSurface(Object owner, Surface s, int width, int height, float density, int fps, int displayId) {
+        synchronized (surfaceLock) {
+            surfaceOwner = owner;
+        }
+        applySurface(s, width, height, density, fps, displayId);
+    }
+
+    /** The owner's surface is gone: the decoder must not render into it any more. Nothing if another owner took over. */
+    public void clearSurface(Object owner) {
+        synchronized (surfaceLock) {
+            if (surfaceOwner != owner) return;
+            surfaceOwner = null;
+        }
+        applySurface(null, 0, 0, 1, 60, -1);
+    }
+
+    private void applySurface(Surface s, int width, int height, float density, int fps, int displayId) {
         boolean fresh, resized;
+        Passthrough ended = null;
         synchronized (surfaceLock) {
             Surface old = surface;
             fresh = s != old;
@@ -629,7 +727,23 @@ public final class MacClient {
             surfaceH = height;
             this.density = density;
             this.fps = fps;
-            if (s == null || fresh) video.release();
+            if (s == null || fresh) {
+                video.release();
+                ended = pass;
+                pass = null;
+            }
+        }
+        if (ended != null) ended.end();
+        if (s != null && fresh) {
+            // A wireless receiver that decodes HEVC gets Sill's stream as it is: nothing decoded or encoded here
+            Passthrough.Provider p = passthroughProvider;
+            Passthrough opened = p != null ? p.open(displayId, this::askKeyframeSoon) : null;
+            if (opened != null) {
+                Log.i(TAG, "passthrough to the receiver of display " + displayId);
+                pass = opened;
+                passParameters();
+                passCursor();
+            }
         }
         synchronized (lock) {
             lastUse = SystemClock.uptimeMillis();
@@ -659,12 +773,14 @@ public final class MacClient {
 
     /** Where the picture is on the screen (letterboxed), and the screen, in pixels: input maps through it. */
     public void setFrameRect(int x, int y, int w, int h, int sw, int sh) {
+        boolean wider = w != frameW;
         frameX = x;
         frameY = y;
         frameW = w;
         frameH = h;
         screenW = sw;
         screenH = sh;
+        if (wider) passCursor();
     }
 
     /** x, y, width, height of the picture, then the screen's width and height; zeros before it is laid out. */

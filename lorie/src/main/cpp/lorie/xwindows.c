@@ -20,6 +20,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <android/log.h>
 #include <jni.h>
 #include <X11/Xatom.h>
@@ -337,10 +338,11 @@ static void sendToWindowManager(Window w, Atom type, CARD32 l0, CARD32 l1, CARD3
                           SubstructureRedirectMask | SubstructureNotifyMask, NullGrab);
 }
 
-typedef struct { Window window; int command; } Command;
+/* A request from Java (binder or UI thread), run on the X server thread: see drainRequests */
+#define CMD_SET_WANTED 100
+typedef struct Command { struct Command *next; Window window; int command; } Command;
 
-static Bool runCommand(ClientPtr client, void *closure) {
-    Command *c = closure;
+static void runCommand(Command *c) {
     WindowPtr w;
     UpdateCurrentTimeIf();
     if (dixLookupWindow(&w, c->window, serverClient, DixGetAttrAccess) == Success) {
@@ -358,12 +360,10 @@ static Bool runCommand(ClientPtr client, void *closure) {
                 break;
         }
     }
-    free(c);
-    return TRUE;
 }
 
-static Bool setWanted(ClientPtr client, void *closure) {
-    wanted = closure != NULL;
+static void setWanted(Bool on) {
+    wanted = on;
     nTracked = 0;
     if (wanted) {
         sendAllIcons = TRUE;
@@ -372,7 +372,6 @@ static Bool setWanted(ClientPtr client, void *closure) {
         TimerCancel(timer);
         scheduled = FALSE;
     }
-    return TRUE;
 }
 
 void lorieInitWindows(void) {
@@ -400,9 +399,48 @@ void lorieInitWindows(void) {
         xlog(ERROR, "Adding PropertyStateCallback failed");
 }
 
-static void nativeSetWanted(JNIEnv *env, jclass cls, jboolean on) {
-    QueueWorkProc(setWanted, NULL, on ? (void *) 1 : NULL);
+/*
+ * Requests come on binder and UI threads, but the X server's work queue (QueueWorkProc) is not safe to append to
+ * from another thread. So they wait in this list, in order, and lorieDrainWindowsRequests takes them on the server
+ * thread: it is called from the callback of the eventfd that lorieWakeServer writes.
+ */
+static pthread_mutex_t pendingLock = PTHREAD_MUTEX_INITIALIZER;
+static Command *pendingHead, *pendingTail;
+
+static void enqueueRequest(Command *c) {
+    pthread_mutex_lock(&pendingLock);
+    if (pendingTail)
+        pendingTail->next = c;
+    else
+        pendingHead = c;
+    pendingTail = c;
+    pthread_mutex_unlock(&pendingLock);
     lorieWakeServer();
+}
+
+void lorieDrainWindowsRequests(void) {
+    Command *c, *next;
+    pthread_mutex_lock(&pendingLock);
+    c = pendingHead;
+    pendingHead = pendingTail = NULL;
+    pthread_mutex_unlock(&pendingLock);
+    for (; c; c = next) {
+        next = c->next;
+        if (c->command == CMD_SET_WANTED)
+            setWanted(c->window != 0);
+        else
+            runCommand(c);
+        free(c);
+    }
+}
+
+static void nativeSetWanted(JNIEnv *env, jclass cls, jboolean on) {
+    Command *c = calloc(1, sizeof(Command));
+    if (!c)
+        return;
+    c->window = on ? 1 : 0;
+    c->command = CMD_SET_WANTED;
+    enqueueRequest(c);
 }
 
 static void nativeCommand(JNIEnv *env, jclass cls, jint window, jint command) {
@@ -411,8 +449,7 @@ static void nativeCommand(JNIEnv *env, jclass cls, jint window, jint command) {
         return;
     c->window = (Window) (uint32_t) window;
     c->command = command;
-    QueueWorkProc(runCommand, NULL, c);
-    lorieWakeServer();
+    enqueueRequest(c);
 }
 
 /* From JNI_OnLoad, in the app as well as in the X server; only the X server ever calls them */

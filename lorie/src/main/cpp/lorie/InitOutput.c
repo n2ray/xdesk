@@ -838,9 +838,11 @@ void lorieWakeServer(void) {
 }
 
 static void lorieWorkingQueueCallback(int fd, int __unused ready, void __unused *data) {
-    // Nothing to do here. It is needed to interrupt ospoll_wait.
+    // Upstream needs this only to interrupt ospoll_wait.
     eventfd_t dummy;
     eventfd_read(fd, &dummy);
+    // XDesk: requests from Java threads for the X windows (xwindows.c), taken here on the server thread
+    lorieDrainWindowsRequests();
 }
 
 void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
