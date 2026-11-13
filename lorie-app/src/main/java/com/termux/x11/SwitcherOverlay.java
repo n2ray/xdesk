@@ -13,7 +13,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -123,6 +122,8 @@ final class SwitcherOverlay {
         WindowManager wm = dc.getSystemService(WindowManager.class);
         android.graphics.Point size = new android.graphics.Point();
         display.getRealSize(size);
+        width = size.x;
+        height = size.y;
         float side = Math.min(size.x, size.y);
 
         String current = host.current();
@@ -144,6 +145,7 @@ final class SwitcherOverlay {
         title.setText(system != null ? R.string.xd_switcher_overview : R.string.xd_switcher_title);
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * TITLE);
+        title.setGravity(Gravity.CENTER);
         column.addView(title);
         if (!running.isEmpty()) addSection(dc, column, dc.getString(R.string.xd_switcher_running), running, current, side, host);
         if (!favourites.isEmpty()) addSection(dc, column, dc.getString(R.string.xd_chooser_favourites), favourites, current, side, host);
@@ -156,8 +158,6 @@ final class SwitcherOverlay {
         }
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
         root.addView(column, cp);
-        width = size.x;
-        height = size.y;
         View dot = new View(dc);
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
@@ -225,13 +225,19 @@ final class SwitcherOverlay {
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
         tp.topMargin = Math.round(side * 0.03f);
         column.addView(t, tp);
-        HorizontalScrollView scroll = new HorizontalScrollView(c);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout row = new LinearLayout(c);
+        // Rows that fit the display, so nothing is cut off at the right edge
         int cell = Math.round(side * CELL);
-        for (String k : keys) row.addView(tile(c, k, k.equals(current), side, host), new LinearLayout.LayoutParams(cell, cell));
-        scroll.addView(row);
-        column.addView(scroll, new LinearLayout.LayoutParams(-2, -2));
+        int across = Math.max(1, (int) (width * 0.9f / cell));
+        LinearLayout row = null;
+        for (int i = 0; i < keys.size(); i++) {
+            if (i % across == 0) {
+                row = new LinearLayout(c);
+                row.setGravity(Gravity.CENTER_HORIZONTAL);
+                column.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            }
+            String k = keys.get(i);
+            row.addView(tile(c, k, k.equals(current), side, host), new LinearLayout.LayoutParams(cell, cell));
+        }
     }
 
     /** Shown while the switcher's own pointer is over a tile (setHovered). */
