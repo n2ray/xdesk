@@ -237,6 +237,9 @@ final class AppSession {
     private final Runnable bindTimeout = () -> fail(text(viaShell ? R.string.xd_app_no_answer : R.string.xd_app_shizuku_no_start));
 
     private final InputSink input = new InputSink() {
+        @Override public io.github.n2ray.xdesk.input.Caps caps() {
+            return io.github.n2ray.xdesk.input.Caps.ANDROID_APP;
+        }
         @Override public void pointerGone() {
             webPointer = false;
         }

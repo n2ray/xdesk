@@ -635,6 +635,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
 
     private void applyPadMode() {
         boolean pad = padOverride != null ? padOverride : !phoneWantsTouch;
+        // 像平板 on the phone: direct touch passes a finger; otherwise direct touch is the mouse-only kind (INPUT.md §3.2)
+        control.setFingers(phoneWantsTouch);
         control.setTouchpad(pad);
         modeTool.setText(pad ? R.string.bar_direct : R.string.bar_touchpad);
     }
