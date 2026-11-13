@@ -41,7 +41,10 @@ public final class MacPairing {
         String normalized = PairingProof.normalizeCode(code);
         try (SillTls t = SillTls.connect(host, port, SillTls.PAIRING, null, 10_000, 30_000)) {
             SillTls.Paired p = t.pair(normalized, "XDesk " + Build.MODEL, Build.DEVICE);
-            return MacStore.add(c, p, host, port);
+            MacStore.Mac m = MacStore.add(c, p, host, port);
+            MacClient client = MacClients.get(c, m.id);
+            if (client != null) client.paired();
+            return m;
         }
     }
 

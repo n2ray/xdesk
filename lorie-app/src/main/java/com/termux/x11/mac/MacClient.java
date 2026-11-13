@@ -151,9 +151,27 @@ public final class MacClient {
     public MacStore.Mac mac() { return mac; }
     public void updateMac(MacStore.Mac m) {
         boolean refit = m.fit != mac.fit;
+        boolean repaired = !java.util.Arrays.equals(m.pin, mac.pin) || !m.host.equals(mac.host) || m.port != mac.port;
         mac = m;
+        if (repaired) {
+            // Paired again (a new key or address): start over with it
+            needsPairing = false;
+            failure = null;
+            SillTls s = session;
+            if (s != null) s.close();
+            if (state == State.FAILED) state = State.OFFLINE;
+        }
         if (refit && surface != null) sendViewport();
     }
+    /** Just paired (again): whatever ended the last session no longer holds. */
+    void paired() {
+        needsPairing = false;
+        failure = null;
+        if (state == State.FAILED) state = State.OFFLINE;
+        SillTls s = session;
+        if (s != null) s.close();
+    }
+
     public String name() { return macName.isEmpty() ? mac.name : macName; }
     public List<Window> windows() { return windows; }
     public List<App> apps() { return apps; }
@@ -186,6 +204,7 @@ public final class MacClient {
             wanted = true;
             if (runner != null && runner.isAlive()) return;
             if (needsPairing) return; // unpaired or another key: only pairing again helps
+            state = State.CONNECTING;
             runner = new Thread(this::run, "mac-" + mac.id);
             runner.start();
         }
