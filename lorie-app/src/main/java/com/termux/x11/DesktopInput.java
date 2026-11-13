@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import com.termux.x11.input.InputStub;
+import io.github.n2ray.xdesk.input.Caps;
 import java.nio.charset.StandardCharsets;
 
 /** 把输入直接交给外屏 MainActivity 里的 LorieView。桌面没连上时丢弃。 */
@@ -55,6 +56,18 @@ final class DesktopInput implements InputSink {
     @Override public void scroll(int dy, int dx) {
         LorieView v = view();
         if (v != null) v.sendMouseWheelEvent(dx * WHEEL_STEP, dy * WHEEL_STEP);
+    }
+
+    @Override public Caps caps() {
+        return Caps.X11_DESKTOP;
+    }
+
+    /** X has smooth scroll valuators: fractions of a step scroll a fraction. */
+    @Override public boolean scrollFine(float dy, float dx, int phase) {
+        if (dx == 0 && dy == 0) return true;
+        LorieView v = view();
+        if (v != null) v.sendMouseWheelEvent(dx * WHEEL_STEP, dy * WHEEL_STEP);
+        return true;
     }
 
     @Override public void key(int scan, boolean down) {

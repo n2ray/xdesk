@@ -141,7 +141,7 @@
 
     <!-- 触控区里的提示 -->
     <string name="xd_pad_hint_move">单指移动 · 轻点左键</string>
-    <string name="xd_pad_hint_drag">长按或轻点后按住：拖动</string>
+    <string name="xd_pad_hint_drag">长按后松开右键 · 长按后移动拖动</string>
     <string name="xd_pad_hint_two">双指轻点右键 · 双指滑动滚动</string>
     <string name="xd_touch_hint_move">单指移动光标 · 轻点点按</string>
     <string name="xd_touch_hint_fingers">按住拖动 · 多指直接操作</string>
@@ -190,9 +190,9 @@
     <string name="xd_keys">功能键</string>
     <string name="xd_take_over">接管</string>
     <string name="xd_give_back">交还</string>
-    <string name="xd_mode_mouse">键鼠</string>
-    <string name="xd_mode_mouse_short">键鼠</string>
-    <string name="xd_mode_touch">触控</string>
+    <string name="xd_mode_mouse">像电脑</string>
+    <string name="xd_mode_mouse_short">像电脑</string>
+    <string name="xd_mode_touch">像平板</string>
     <string name="xd_end_xdesk">结束 XDesk</string>
     <string name="xd_end">结束</string>
     <string name="xd_stop">停止</string>
@@ -385,7 +385,7 @@
     <string name="xd_card_fullscreen_note_off">默认现在是关。改动时应用会重启</string>
     <string name="xd_card_follow_default">跟随默认</string>
     <string name="xd_card_mode">操作方式</string>
-    <string name="xd_card_mode_note">触控给只听触摸的应用或网页</string>
+    <string name="xd_card_mode_note">像平板：应用收到手指，给只听触摸的应用、游戏或网页；像电脑：收到鼠标</string>
     <string name="xd_card_close">关闭这个应用</string>
     <string name="xd_card_close_title">关闭 %1$s？</string>
 

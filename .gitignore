@@ -39,3 +39,4 @@ github.properties
 
 *.cxx
 app/.cxx/*
+.agent-tmp/

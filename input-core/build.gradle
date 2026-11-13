@@ -1,0 +1,12 @@
+// The gesture engine, shared by the phone (lorie-app) and the tablet receiver (receiver). Pure Java: no Android
+// classes, so the same recorded touch sequences run as plain JVM tests (./gradlew :input-core:test).
+apply plugin: 'java-library'
+
+// The receiver runs on Android 5 and builds with Java 8. release also marks the jar for Java 8 consumers.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

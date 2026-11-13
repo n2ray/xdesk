@@ -50,7 +50,9 @@ jobs:
       env:
         XDESK_KEYSTORE_PASSWORD: ${{ secrets.XDESK_KEYSTORE_PASSWORD }}
         XDESK_KEY_ALIAS: ${{ secrets.XDESK_KEY_ALIAS }}
-      run: ./gradlew -PxdeskVersion="$VERSION" assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
+      # :input-core:test runs the shared gesture table (input-core/src/test/resources/gestures.json). In this step because
+      # configuring the other projects needs its version and key settings.
+      run: ./gradlew -PxdeskVersion="$VERSION" :input-core:test assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
     - name: Collect release files
       run: |
         mkdir out

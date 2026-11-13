@@ -205,25 +205,105 @@ public class XDeskActivity extends Activity {
         Latch(int scan, TextView button) { this.scan = scan; this.button = button; }
     }
 
-    private final TouchpadView.Output output = new TouchpadView.Output() {
+    // --- 输入路由（INPUT.md §9）：每个设备经 Router 到当时的 client ---
+
+    private final Router router = new Router(new Router.Host() {
+        @Override public InputSink current() { return client; }
+        @Override public void hostAction(InputSink target, int action, int arg) { inputAction(target, action, arg); }
+    });
+    private final Router.Device padIn = router.device(Router.PHONE_PAD), keysIn = router.device(Router.PHONE_KEYS),
+        mouseIn = router.device(Router.PHONE_MOUSE), remoteIn = router.device(Router.REMOTE);
+
+    private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
         @Override public void move(int dx, int dy) {
             wireless.phonePointerMoved();
-            if (client != null) client.move(dx, dy);
+            padIn.move(dx, dy);
         }
-        @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
-        @Override public void click(int b) { if (client != null) client.click(b); }
-        @Override public void scroll(int dy, int dx) { if (client != null) client.scroll(dy, dx); }
+        @Override public void button(int b, boolean down) { padIn.button(b, down); }
+        @Override public void click(int b) { padIn.click(b); }
+        @Override public void scroll(int phase, float dx, float dy) { padIn.scrollFine(dy, dx, phase); }
+        @Override public void action(int a, int arg) { padIn.action(a, arg); }
     };
+
+    /** 键鼠归属（INPUT.md §7）：两种会话一个开关、一个 Ctrl+Alt+M。 */
+    private final Ownership ownership = new Ownership(new Ownership.Side() {
+        @Override public boolean active() { return apps.isActive(); }
+        @Override public boolean forwarded() { return apps.isForwarding(); }
+        @Override public void forward(boolean on) { apps.setForwarding(on); }
+    }, new Ownership.Side() {
+        @Override public boolean active() { return !apps.isActive() && session.isActive(); }
+        @Override public boolean forwarded() { return desktopTaken; }
+        @Override public void forward(boolean on) { setDesktopTaken(on); }
+    });
+
+    /** 应用切换（三指横滑，按住不放）：Dock 里的前一个、后一个，抬起手指时才换过去。 */
+    private final ArrayList<String> switchKeys = new ArrayList<String>();
+    private int switchIndex;
+
+    /** XDesk 自己做的动作：安卓应用、单个窗口和切换器的（INPUT.md §3.4）。 */
+    private void inputAction(final InputSink target, final int action, final int arg) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            ui.post(new Runnable() {
+                @Override public void run() { inputAction(target, action, arg); }
+            });
+            return;
+        }
+        io.github.n2ray.xdesk.input.Caps caps = target != null ? target.caps() : null;
+        boolean window = caps != null && caps.scope == io.github.n2ray.xdesk.input.Caps.WINDOW;
+        switch (action) {
+            case io.github.n2ray.xdesk.input.Input.BACK:
+                if (target == SwitcherOverlay.INPUT) target.androidButton(1);
+                else if (apps.isActive()) apps.sendBack();
+                break;
+            case io.github.n2ray.xdesk.input.Input.HOME:
+                if (target == SwitcherOverlay.INPUT) target.androidButton(2);
+                else if (window) showSwitcher(true);
+                else goHomeOnDisplay();
+                break;
+            case io.github.n2ray.xdesk.input.Input.OVERVIEW:
+                showSwitcher(true);
+                break;
+            case io.github.n2ray.xdesk.input.Input.SWITCHER:
+                showSwitcher(false);
+                break;
+            case io.github.n2ray.xdesk.input.Input.SWITCH_APP:
+                switchAppStep(arg);
+                break;
+            default:
+                // 换屏（只有一块屏时没有）、其他目标不认的动作：丢掉，不报错（§6）
+                break;
+        }
+    }
+
+    private void switchAppStep(int arg) {
+        if (arg == 0) {
+            if (switchIndex != 0 && switchIndex < switchKeys.size()) chooseKey(switchKeys.get(switchIndex));
+            switchKeys.clear();
+            switchIndex = 0;
+            return;
+        }
+        if (switchKeys.isEmpty()) {
+            String current = currentKey(), previous = previousKey();
+            if (current != null) switchKeys.add(current);
+            if (previous != null && !switchKeys.contains(previous)) switchKeys.add(previous);
+            for (String k : savedLines(PREF_DOCK)) if (!switchKeys.contains(k)) switchKeys.add(k);
+            if (current == null) switchKeys.add(0, "");
+            switchIndex = 0;
+        }
+        int n = switchKeys.size();
+        if (n < 2) return;
+        switchIndex = ((switchIndex + arg) % n + n) % n;
+    }
 
     private final KeyInputView.Sink keySink = new KeyInputView.Sink() {
         @Override public void text(String s) {
             if (client == null) return;
-            client.text(s);
+            keysIn.text(s);
             releaseLatches();
         }
         @Override public void tapKey(int scan) {
             if (client == null) return;
-            client.tapKey(scan);
+            keysIn.tapKey(scan);
             releaseLatches();
         }
         @Override public void mouseMove(float dx, float dy) {
@@ -236,13 +316,13 @@ public class XDeskActivity extends Activity {
             if (x != 0 || y != 0) {
                 mouseRestX -= x;
                 mouseRestY -= y;
-                client.move(x, y);
+                mouseIn.move(x, y);
             }
         }
         @Override public void mouseButton(int b, boolean down) {
             mouseEvents++;
             updateDiag();
-            if (client != null) client.button(b, down);
+            mouseIn.button(b, down);
         }
         @Override public void captureChanged(boolean has) {
             captured = has;
@@ -261,7 +341,7 @@ public class XDeskActivity extends Activity {
             if (tv != 0 || th != 0) {
                 wheelRestV -= tv;
                 wheelRestH -= th;
-                client.scroll(-tv, th);
+                mouseIn.scroll(-tv, th);
             }
         }
     };
@@ -423,6 +503,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onAppFailed(String message) {
             client = null;
+            router.cancelAll();
             showSetup(getString(R.string.xd_cannot_run_on_display), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
             });
@@ -622,8 +703,8 @@ public class XDeskActivity extends Activity {
 
     /** The browser's mouse and keyboard, as the phone's touchpad and keyboard would. */
     private final InputSink webInput = new InputSink() {
-        @Override public void move(int dx, int dy) { if (client != null) client.move(dx, dy); }
-        @Override public void moveToFraction(float x, float y) { if (client != null) client.moveToFraction(x, y); }
+        @Override public void move(int dx, int dy) { remoteIn.move(dx, dy); }
+        @Override public void moveToFraction(float x, float y) { remoteIn.moveToFraction(x, y); }
         @Override public void pointerGone() {
             // Whichever it was on, the client may have changed since
             session.input().pointerGone();
@@ -635,8 +716,8 @@ public class XDeskActivity extends Activity {
             return apps.isActive();
         }
         @Override public void androidButton(int button) {
-            if (button == 1) apps.sendBack();
-            else if (button == 2) goHomeOnDisplay();
+            // 1 返回、2 主页是语义动作（INPUT.md §3.4），按目标去做
+            if (button == 1 || button == 2) remoteIn.action(button, 0);
             else if (button == 3) wireless.sendApps(appLines());
         }
         @Override public void chooseApp(String key) {
@@ -646,12 +727,12 @@ public class XDeskActivity extends Activity {
             apps.setBrowserLayout(layout);
             updateStatus();
         }
-        @Override public void button(int b, boolean down) { if (client != null) client.button(b, down); }
-        @Override public void click(int b) { if (client != null) client.click(b); }
-        @Override public void scroll(int dy, int dx) { if (client != null) client.scroll(dy, dx); }
-        @Override public void key(int scan, boolean down) { if (client != null) client.key(scan, down); }
-        @Override public void tapKey(int scan) { if (client != null) client.tapKey(scan); }
-        @Override public void text(String s) { if (client != null) client.text(s); }
+        @Override public void button(int b, boolean down) { remoteIn.button(b, down); }
+        @Override public void click(int b) { remoteIn.click(b); }
+        @Override public void scroll(int dy, int dx) { remoteIn.scroll(dy, dx); }
+        @Override public void key(int scan, boolean down) { remoteIn.key(scan, down); }
+        @Override public void tapKey(int scan) { remoteIn.tapKey(scan); }
+        @Override public void text(String s) { remoteIn.text(s); }
     };
 
     private WirelessFinder autoFinder;
@@ -879,6 +960,13 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // While the desktop has the keyboard its window gets the keys: Ctrl+Alt+M there gives them back
+        MainActivity.keyHook = new MainActivity.KeyHook() {
+            @Override public boolean onKey(KeyEvent e) {
+                InputDevice d = e.getDevice();
+                return d != null && d.isExternal() && ownership.onKey(e);
+            }
+        };
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().getAttributes().layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
@@ -1346,8 +1434,7 @@ public class XDeskActivity extends Activity {
         forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_take_over), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
             @Override public void run() {
-                if (apps.isActive()) apps.setForwarding(!apps.isForwarding());
-                else setDesktopTaken(!desktopTaken);
+                ownership.toggle();
             }
         });
         launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, getString(R.string.xd_launcher), Style.SURFACE);
@@ -1406,12 +1493,18 @@ public class XDeskActivity extends Activity {
         touchpad = new TouchpadView(this, output);
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         touchpad.setScrollSpeed(prefs.getFloat(PREF_SCROLL_SPEED, 1f));
+        // 自然滚动：所有设备共用一个设置（INPUT.md §12），还没有界面，默认开
+        touchpad.setNaturalScroll(prefs.getBoolean("natural_scroll", true));
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
         directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
-            @Override public void moveCursor(int dx, int dy) { apps.input().move(dx, dy); }
-            @Override public void tap() { apps.input().click(1); }
-            @Override public void press(boolean down) { apps.input().button(1, down); }
-            @Override public void frame(int action, int[] ids, float[] x, float[] y) { apps.touchFrame(action, ids, x, y); }
+            // 经 Router：切换器开着时光标和点按给它
+            @Override public void moveCursor(int dx, int dy) { padIn.move(dx, dy); }
+            @Override public void tap() { padIn.click(1); }
+            @Override public void press(boolean down) { padIn.button(1, down); }
+            @Override public void frame(int action, int[] ids, float[] x, float[] y) {
+                if (client == apps.input()) apps.touchFrame(action, ids, x, y);
+            }
+            @Override public void action(int a, int arg) { padIn.action(a, arg); }
         });
         directTouch.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         frame.addView(directTouch, new FrameLayout.LayoutParams(-1, -1));
@@ -1516,7 +1609,7 @@ public class XDeskActivity extends Activity {
 
     private void setLatch(Latch l, boolean on) {
         l.on = on;
-        if (client != null) client.key(l.scan, on);
+        if (client != null) keysIn.key(l.scan, on);
         l.button.setBackground(Style.ripple(this, on ? Style.ACCENT : Style.SURFACE_RAISED, 8));
         applyComboRow();
     }
@@ -1545,10 +1638,10 @@ public class XDeskActivity extends Activity {
                 if (a == MotionEvent.ACTION_DOWN) {
                     v.setPressed(true);
                     Style.tick(v);
-                    client.button(button, true);
+                    padIn.button(button, true);
                 } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
                     v.setPressed(false);
-                    client.button(button, false);
+                    padIn.button(button, false);
                 }
                 return true;
             }
@@ -2158,6 +2251,7 @@ public class XDeskActivity extends Activity {
         if (appOnDisplay) {
             releaseLatches();
             client = null;
+            router.cancelAll();
         }
         apps.endSession(appOnDisplay && real != null ? real.getDisplayId() : -1, () -> {
             stop.run();
@@ -2201,10 +2295,12 @@ public class XDeskActivity extends Activity {
         InputDevice d = e.getDevice();
         keyEvents++;
         updateDiag();
+        // Ctrl+Alt+M on the phone's window: take the desktop over (giving it back is in the desktop window, see onCreate)
+        if (d != null && d.isExternal() && ownership.onKey(e)) return true;
         if (client != null && !apps.isActive() && d != null && d.isExternal() && e.getScanCode() > 0) {
             if (e.getRepeatCount() == 0) {
-                if (e.getAction() == KeyEvent.ACTION_DOWN) client.key(e.getScanCode(), true);
-                else if (e.getAction() == KeyEvent.ACTION_UP) client.key(e.getScanCode(), false);
+                if (e.getAction() == KeyEvent.ACTION_DOWN) keysIn.key(e.getScanCode(), true);
+                else if (e.getAction() == KeyEvent.ACTION_UP) keysIn.key(e.getScanCode(), false);
             }
             return true;
         }
@@ -2813,6 +2909,7 @@ public class XDeskActivity extends Activity {
         apps.desktopEnded();
         releaseLatches();
         client = null;
+        router.cancelAll();
         session.abandon();
         MainActivity m = MainActivity.getInstance("");
         if (m != null) m.finishAndRemoveTask();
@@ -2834,6 +2931,7 @@ public class XDeskActivity extends Activity {
             @Override public void run() {
                 releaseLatches();
                 client = null;
+                router.cancelAll();
                 DesktopService.endAll(XDeskActivity.this);
                 finishAndRemoveTask();
             }

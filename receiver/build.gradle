@@ -34,3 +34,8 @@ android {
         proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
     }
 }
+
+dependencies {
+    // The gesture engine, shared with the phone
+    implementation project(':input-core')
+}
