@@ -145,7 +145,10 @@ public class XDeskActivity extends Activity {
         @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
         @Override public String current() { return currentKey(); }
         @Override public String previous() { return previousKey(); }
-        @Override public void open(String key) { chooseKey(key); }
+        @Override public void open(String key) {
+            if (ExternalLauncher.SWITCHER.equals(key)) showSwitcher(false);
+            else chooseKey(key);
+        }
     };
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
@@ -317,7 +320,21 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onDisplayChanged(int id) {
             if (apps.isActive()) apps.displayChanged(id);
+            // The X desktop follows its display too (a receiver window resized, a tablet turned), once the size has
+            // settled: DISPLAY.md §4.3. Same size again changes nothing (the preference stays equal).
+            Display shown = desktopDisplay();
+            if (session.isActive() && shown != null && shown.getDisplayId() == id) {
+                ui.removeCallbacks(desktopFollowsDisplay);
+                ui.postDelayed(desktopFollowsDisplay, RESIZE_SETTLE_MS);
+            }
         }
+    };
+
+    /** DISPLAY.md §4.3: a size is committed once it has not changed for this long. */
+    private static final long RESIZE_SETTLE_MS = 300;
+    private final Runnable desktopFollowsDisplay = () -> {
+        Display d = desktopDisplay();
+        if (session.isActive() && d != null) applySize(d);
     };
 
     private final DesktopSession.Listener sessionListener = new DesktopSession.Listener() {
@@ -2445,6 +2462,48 @@ public class XDeskActivity extends Activity {
         }
         card[0] = s.bottomSheet(head, c);
     }
+
+    // --- 外接屏上的切换器（DISPLAY.md §6） ---
+
+    /** 切换器开着时输入交给它；关上时还给原来的。 */
+    private InputSink beforeSwitcher;
+
+    /**
+     * 四指上滑、把手、Dock 打开所有系统的；三指上滑（总览）只列现在这个系统的。
+     * 没有外接屏时打开手机上的列表。再调一次就关上。
+     */
+    void showSwitcher(boolean onlySystem) {
+        Display d = externalDisplay();
+        if (d == null) {
+            showChooser();
+            return;
+        }
+        if (SwitcherOverlay.isShown()) {
+            SwitcherOverlay.hide(switcherHost);
+            return;
+        }
+        beforeSwitcher = client;
+        client = SwitcherOverlay.INPUT;
+        SwitcherOverlay.show(this, d, switcherHost, onlySystem);
+    }
+
+    private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
+        @Override public List<String> running() {
+            ArrayList<String> keys = new ArrayList<>();
+            String current = currentKey(), previous = previousKey();
+            if (current != null) keys.add(current);
+            if (previous != null && ChooserView.isAppKey(previous)) keys.add(previous);
+            for (ContentSource s : Contents.sources()) for (ContentSource.Entry e : s.windows()) keys.add(e.key);
+            return keys;
+        }
+        @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
+        @Override public String current() { return currentKey(); }
+        @Override public void open(String key) { chooseKey(key); }
+        @Override public void closed() {
+            if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
+            beforeSwitcher = null;
+        }
+    };
 
     // --- 窗口交换机：Linux 程序、Mac 窗口这些内容（Contents，DISPLAY.md §1.5） ---
 

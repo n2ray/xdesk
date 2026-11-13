@@ -281,6 +281,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                 }
                 bar.addView(item(key, false));
             }
+            bar.addView(item(ExternalLauncher.SWITCHER, false));
         }
 
         private View item(final String key, boolean running) {
