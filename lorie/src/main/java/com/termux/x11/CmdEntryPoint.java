@@ -203,6 +203,7 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     @Override public boolean isDescendant(int pid, int ancestor) { return XWindows.isDescendant(pid, ancestor); }
     @Override public void setWindowListener(IXWindowListener listener) { XWindows.setListener(listener); }
     @Override public void windowCommand(int window, int command) { XWindows.command(window, command); }
+    @Override public void setScale(int dpi) { XWindows.scale(dpi); }
 
     @CriticalNative private static native boolean connected();
 

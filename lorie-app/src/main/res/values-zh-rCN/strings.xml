@@ -493,4 +493,20 @@
     <string name="xd_web_no_service">手机不让 XDesk 在后台启动。请在手机上打开 XDesk，再重新连接。</string>
     <string name="xd_web_pairing_closed">失败次数太多，网页显示的配对已关闭。在设置里把网页显示关掉再打开即可恢复；已配对的浏览器不受影响。</string>
     <string name="xd_web_pairing_paused">浏览器输错配对码太多次：网页显示的配对暂停 10 分钟，已配对的浏览器不受影响。</string>
+    <string name="xd_section_this_screen">当前屏幕</string>
+    <string name="xd_screen_kind">屏幕种类</string>
+    <string name="xd_screen_kind_note">按观看距离调整：电视、投影机上的字更大</string>
+    <string name="xd_kind_monitor">显示器</string>
+    <string name="xd_kind_tv">电视</string>
+    <string name="xd_kind_projector">投影机</string>
+    <string name="xd_kind_handheld">手持</string>
+    <string name="xd_screen_size">大小</string>
+    <string name="xd_screen_size_note">这块屏上的文字和界面，桌面也跟着变</string>
+    <string name="xd_size_small">小</string>
+    <string name="xd_size_medium">中</string>
+    <string name="xd_size_large">大</string>
+    <string name="xd_size_xlarge">特大</string>
+    <string name="xd_screen_none">接上屏幕后才能设它的大小</string>
+    <string name="xd_screen_ask_title">这块屏是什么？</string>
+    <string name="xd_screen_ask_note">XDesk 按观看距离决定字的大小。之后可以在 设置 → 外屏 里改。</string>
 </resources>

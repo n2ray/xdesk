@@ -38,7 +38,9 @@ final class Screen {
         // Offer H.265 only when its decoder takes the same size, the phone does not ask again per codec
         boolean hevc = h265 != null && h265.isSizeSupported(size[0], size[1]);
         int fps = Math.max(1, Math.round(d.getRefreshRate()));
-        return new Screen(size[0], size[1], m.densityDpi, fps, hevc);
+        // The density for the picture asked for, which may be smaller than the screen: the phone sizes things by it
+        int density = Math.max(1, Math.round((float) m.densityDpi * size[0] / Math.max(1, m.widthPixels)));
+        return new Screen(size[0], size[1], density, fps, hevc);
     }
 
     /**

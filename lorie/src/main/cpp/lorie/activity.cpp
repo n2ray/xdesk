@@ -547,11 +547,18 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __unused void *reserved) {
                     env->ReleaseByteArrayElements(text, str, JNI_ABORT);
                 }
             }},
-            {"sendWindowChange", "(JIIILjava/lang/String;)V", (void *) +[](__unused JNIEnv* env, __unused jobject cls, jlong ptr, jint width, jint height, jint framerate, jstring jname) {
+            {"sendWindowChange", "(JIIIILjava/lang/String;)V", (void *) +[](__unused JNIEnv* env, __unused jobject cls, jlong ptr, jint width, jint height, jint framerate, jint dpi, jstring jname) {
                 auto* r = (LorieViewResources*) ptr;
                 if (r && r->connFd != -1) {
                     const char *name = (!jname || width <= 0 || height <= 0) ? nullptr : env->GetStringUTFChars(jname, JNI_FALSE);
-                    sendEvent(r, .screenSize = { .t = EVENT_SCREEN_SIZE, .width = (uint16_t) width, .height = (uint16_t) height, .framerate = (uint16_t) framerate, .name_size = (name ? strlen(name) : 0) });
+                    lorieEvent e = {};
+                    e.screenSize.t = EVENT_SCREEN_SIZE;
+                    e.screenSize.width = (uint16_t) width;
+                    e.screenSize.height = (uint16_t) height;
+                    e.screenSize.framerate = (uint16_t) framerate;
+                    e.screenSize.name_size = name ? strlen(name) : 0;
+                    e.screenSize.dpi = dpi > 0 ? (uint32_t) dpi : 0;
+                    write(r->connFd, &e, sizeof(e));
                     if (name) {
                         write(r->connFd, name, strlen(name));
                         env->ReleaseStringUTFChars(jname, name);
