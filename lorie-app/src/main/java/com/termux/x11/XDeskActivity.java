@@ -327,6 +327,7 @@ public class XDeskActivity extends Activity {
             if (c) {
                 ui.removeCallbacks(connectTimeout);
                 showRunning();
+                desktopConnected();
                 if (takeDesktopWhenBack) {
                     takeDesktopWhenBack = false;
                     retakeTries = RETAKE_TRIES;
@@ -792,6 +793,7 @@ public class XDeskActivity extends Activity {
             });
         }
         private void sessionDecided(final String name) {
+            if (contentKey != null) leaveContent();
             rememberRecent(ChooserView.recentKey(name));
             if (name.equals(runningSession)) {
                 if (session.isActive()) {
@@ -819,7 +821,11 @@ public class XDeskActivity extends Activity {
             if (!session.isActive()) attachDisplay(d);
             showWaiting();
         }
+        @Override public void onContentChosen(String key) {
+            chooseContent(key);
+        }
         @Override public void onAppChosen(AppCatalog.App app) {
+            if (contentKey != null) leaveContent();
             chooseApp(app);
         }
         @Override public void onNoDisplayHint() {
@@ -862,6 +868,7 @@ public class XDeskActivity extends Activity {
         getWindow().setStatusBarColor(Style.BACKGROUND);
         getWindow().setNavigationBarColor(Style.BACKGROUND);
         displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        Contents.setHost(contentsHost);
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);
@@ -965,6 +972,7 @@ public class XDeskActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (Contents.host() == contentsHost) Contents.setHost(null);
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
         if (externalDock != null) externalDock.setDisplay(null);
@@ -2277,6 +2285,7 @@ public class XDeskActivity extends Activity {
 
     /** 外接屏上现在是什么，和 Dock、最近使用同一种写法。 */
     private String currentKey() {
+        if (contentKey != null) return contentKey;
         AppCatalog.App a = apps.app();
         if (a != null) return ChooserView.recentKey(a);
         return session.isActive() && desktopName != null ? ChooserView.recentKey(desktopName) : null;
@@ -2435,7 +2444,108 @@ public class XDeskActivity extends Activity {
         card[0] = s.bottomSheet(head, c);
     }
 
+    // --- 窗口交换机：Linux 程序、Mac 窗口这些内容（Contents，DISPLAY.md §1.5） ---
+
+    /** 外接屏上现在的内容（"l:"、"m:" 开头的键）；是安卓应用或整个 Linux 桌面时为 null。 */
+    private String contentKey;
+    /** 等桌面连上以后要做的事（needDesktop），连上就做，失败就报给内容源。 */
+    private Runnable desktopThen;
+    private ContentSource.Result desktopFailed;
+    private String desktopFor;
+
+    private void chooseContent(final String key) {
+        ContentSource s = Contents.sourceOf(key);
+        if (s == null) return;
+        Display d = externalDisplay();
+        if (d == null) {
+            needDisplayNotice();
+            return;
+        }
+        rememberRecent(key);
+        if (contentKey != null && !contentKey.equals(key)) leaveContent();
+        s.open(key, d.getDisplayId(), contentResult);
+    }
+
+    /** 外接屏换成别的东西之前：告诉原来的内容源它被拿下了（不是退出）。 */
+    private void leaveContent() {
+        String key = contentKey;
+        contentKey = null;
+        ContentSource s = Contents.sourceOf(key);
+        if (s != null) s.hidden(key);
+    }
+
+    private final ContentSource.Result contentResult = new ContentSource.Result() {
+        @Override public void shown(String key, InputSink input) {
+            contentKey = key;
+            client = input != null ? input : session.input();
+            closeChooserOverSession();
+            showRunning();
+            updateCapture();
+            updateStatus();
+            refreshDocks();
+            bumpIdle();
+        }
+        @Override public void failed(String key, String reason) {
+            Toast.makeText(XDeskActivity.this, reason, Toast.LENGTH_LONG).show();
+            refreshDocks();
+        }
+    };
+
+    private final Contents.Host contentsHost = new Contents.Host() {
+        @Override public int targetDisplayId() {
+            Display d = externalDisplay();
+            return d != null ? d.getDisplayId() : Display.INVALID_DISPLAY;
+        }
+        @Override public void needDesktop(Runnable then, ContentSource.Result failed, String key) {
+            if (session.isActive() && session.isConnected()) {
+                then.run();
+                return;
+            }
+            desktopThen = then;
+            desktopFailed = failed;
+            desktopFor = key;
+            if (runningSession != null && !session.isActive()) {
+                Display d = externalDisplay();
+                if (d != null) attachDisplay(d);
+                desktopName = runningSession;
+            } else if (!session.isActive()) {
+                launchDesktop(null, false);
+            }
+        }
+        @Override public void freeDisplay() {
+            releaseLatches();
+            if (session.isActive()) leaveDesktop();
+            apps.suspend();
+        }
+        @Override public void contentChanged() {
+            chooser.refreshContents();
+            refreshDocks();
+        }
+    };
+
+    /** 桌面连上了：先做等着的事。 */
+    private void desktopConnected() {
+        Runnable then = desktopThen;
+        desktopThen = null;
+        desktopFailed = null;
+        if (then != null) then.run();
+    }
+
+    /** 桌面没能连上：等着的内容报失败。 */
+    private void desktopFailedToConnect() {
+        ContentSource.Result failed = desktopFailed;
+        String key = desktopFor;
+        desktopThen = null;
+        desktopFailed = null;
+        if (failed != null) failed.failed(key, getString(R.string.xd_content_no_desktop));
+    }
+
     private void chooseKey(String key) {
+        if (Contents.sourceOf(key) != null) {
+            chooseContent(key);
+            return;
+        }
+        if (contentKey != null) leaveContent();
         if (!ChooserView.isAppKey(key)) {
             chooserHost.onSessionChosen(ChooserView.sessionOf(key));
             return;
@@ -3027,6 +3137,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void showConnectFailure() {
+        desktopFailedToConnect();
         showSetup(getString(R.string.xd_desktop_no_start_title), getString(R.string.xd_desktop_no_start), false, getString(R.string.xd_retry), new View.OnClickListener() {
             @Override public void onClick(View v) { launchDesktop(pendingSession, pendingReplace); }
         });

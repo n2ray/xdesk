@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -78,6 +79,20 @@ final class DockBar extends LinearLayout {
     }
 
     private View item(final String key, boolean current) {
+        ContentSource.Entry entry = Contents.find(key);
+        if (Contents.sourceOf(key) != null) {
+            if (entry == null) return null;  // the program is gone, or its list is not read yet
+            View cv = buildContent(entry, current);
+            cv.setOnClickListener(view -> {
+                Style.tick(view);
+                host.onDockTap(key);
+            });
+            cv.setOnLongClickListener(view -> {
+                host.onItemLongPress(key);
+                return true;
+            });
+            return cv;
+        }
         AppCatalog catalog = AppCatalog.get(getContext());
         boolean isApp = ChooserView.isAppKey(key);
         AppCatalog.App app = isApp ? catalog.find(ChooserView.componentOf(key)) : null;
@@ -92,6 +107,17 @@ final class DockBar extends LinearLayout {
             return true;
         });
         return v;
+    }
+
+    private View buildContent(ContentSource.Entry e, boolean current) {
+        View box = build(null, e.label, current);
+        ImageView icon = new ImageView(getContext());
+        if (e.icon != null) icon.setImageBitmap(e.icon);
+        else icon.setImageDrawable(Style.letterIcon(getContext(), e.label));
+        ViewGroup g = (ViewGroup) box;
+        g.removeAllViews();
+        g.addView(icon, new LayoutParams(dp(36), dp(36)));
+        return box;
     }
 
     private View build(AppCatalog.App app, String label, boolean current) {

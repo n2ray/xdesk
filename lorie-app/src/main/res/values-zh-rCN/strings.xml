@@ -164,6 +164,7 @@
     <string name="xd_chooser_stopping_short">结束中</string>
     <string name="xd_desktop_stopping">桌面还在结束中</string>
     <string name="xd_chooser_running">正在运行，点按接回</string>
+    <string name="xd_content_no_desktop">Linux 桌面没能启动</string>
     <string name="xd_chooser_default">默认</string>
     <string name="xd_chooser_reattach_x">接回正在运行的 X 显示</string>
     <string name="xd_chooser_attach_x">接上 X 显示</string>
