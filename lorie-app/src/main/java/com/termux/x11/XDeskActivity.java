@@ -886,6 +886,8 @@ public class XDeskActivity extends Activity {
         getWindow().setNavigationBarColor(Style.BACKGROUND);
         displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         Contents.setHost(contentsHost);
+        // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
+        MacSource.start(this);
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);

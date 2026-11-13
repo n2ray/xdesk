@@ -294,3 +294,5 @@ XDesk 依赖上游的 manifest、`com.termux.x11` 下的类名和 `LorieView` �
 ## 许可证
 
 GPL-3.0，和 Termux:X11 相同。X 服务器和渲染的功劳都属于 [Termux:X11 的作者们](https://github.com/termux/termux-x11)。
+
+Mac 客户端（把 Mac 窗口和 Mac 桌面放到外接屏）连接 Noah Saffer 的 [Sill](https://github.com/Saffsanity/sill)，并复用了它的安卓客户端 [Sall](https://github.com/n2ray/sall) 的代码，按 Apache License 2.0 授权（`LICENSES/Apache-2.0-Sill.txt`，应用内的 `NOTICE-Sill.txt`）。

@@ -269,3 +269,5 @@ I'm [n2ray](https://github.com/n2ray), and I build XDesk together with Claude, a
 ## License
 
 GPL-3.0, same as Termux:X11. All credit for the X server and rendering goes to the [Termux:X11 authors](https://github.com/termux/termux-x11).
+
+The Mac client (Mac windows and the Mac desktop on the external screen) talks to [Sill](https://github.com/Saffsanity/sill) by Noah Saffer and reuses code from its Android client [Sall](https://github.com/n2ray/sall), under the Apache License 2.0 (`LICENSES/Apache-2.0-Sill.txt`, `NOTICE-Sill.txt` in the app).
