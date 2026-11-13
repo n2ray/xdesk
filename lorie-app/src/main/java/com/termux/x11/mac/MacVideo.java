@@ -251,6 +251,132 @@ final class MacVideo {
         codecSurface = null;
     }
 
+    /** The parameter sets with start codes, as the last kind 0 gave them; null before. */
+    synchronized byte[] config() {
+        return config;
+    }
+
+    /**
+     * Kind 1's NAL units with start codes instead of lengths, into out (grown when too small): for a passthrough.
+     * Returns the new buffer and its length in len[0], or null when the frame is malformed.
+     */
+    synchronized byte[] annexB(byte[] payload, int length, byte[] out, int[] len) {
+        int need = length + length / 2 + 64;
+        if (out == null || out.length < need) out = new byte[need];
+        int offset = 0, written = 0;
+        while (offset < length) {
+            if (lengthSize > length - offset) return null;
+            int n = 0;
+            for (int i = 0; i < lengthSize; i++) n = (n << 8) | (payload[offset++] & 255);
+            if (n <= 0 || n > length - offset) return null;
+            if (written + 4 + n > out.length) out = java.util.Arrays.copyOf(out, (written + 4 + n) * 2);
+            System.arraycopy(START, 0, out, written, 4);
+            System.arraycopy(payload, offset, out, written + 4, n);
+            offset += n;
+            written += 4 + n;
+        }
+        len[0] = written;
+        return out;
+    }
+
+    /**
+     * The picture's size from the SPS in a kind 0 payload (pic_width/height_in_luma_samples less the conformance
+     * window, H.265 §7.3.2.2), or null. A passthrough has no decoder to say it.
+     */
+    static int[] spsSize(byte[] payload, int length) {
+        if (length < 2) return null;
+        int count = payload[1] & 255, offset = 2;
+        for (int i = 0; i < count && offset + 2 <= length; i++) {
+            int n = (payload[offset] & 255) << 8 | payload[offset + 1] & 255;
+            offset += 2;
+            if (n < 3 || n > length - offset) return null;
+            if (((payload[offset] >> 1) & 0x3f) == 33) {
+                try {
+                    return parseSps(payload, offset + 2, n - 2);
+                } catch (RuntimeException e) {
+                    return null;
+                }
+            }
+            offset += n;
+        }
+        return null;
+    }
+
+    private static int[] parseSps(byte[] b, int off, int len) {
+        // Emulation prevention bytes (00 00 03) out first
+        byte[] r = new byte[len];
+        int n = 0, zeros = 0;
+        for (int i = 0; i < len; i++) {
+            int v = b[off + i] & 255;
+            if (zeros >= 2 && v == 3) {
+                zeros = 0;
+                continue;
+            }
+            zeros = v == 0 ? zeros + 1 : 0;
+            r[n++] = (byte) v;
+        }
+        Bits s = new Bits(r, n);
+        s.skip(4);
+        int maxSub = s.bits(3);
+        s.skip(1);
+        // profile_tier_level: general profile (88 bits) and level (8)
+        s.skip(96);
+        boolean[] profile = new boolean[8], level = new boolean[8];
+        for (int i = 0; i < maxSub; i++) {
+            profile[i] = s.bits(1) == 1;
+            level[i] = s.bits(1) == 1;
+        }
+        if (maxSub > 0) for (int i = maxSub; i < 8; i++) s.skip(2);
+        for (int i = 0; i < maxSub; i++) {
+            if (profile[i]) s.skip(88);
+            if (level[i]) s.skip(8);
+        }
+        s.ue();
+        int chroma = s.ue();
+        if (chroma == 3) s.skip(1);
+        int w = s.ue(), h = s.ue();
+        if (s.bits(1) == 1) {
+            int subW = chroma == 1 || chroma == 2 ? 2 : 1, subH = chroma == 1 ? 2 : 1;
+            int left = s.ue(), right = s.ue(), top = s.ue(), bottom = s.ue();
+            w -= subW * (left + right);
+            h -= subH * (top + bottom);
+        }
+        if (w <= 0 || h <= 0 || w > 16384 || h > 16384) return null;
+        return new int[] {w, h};
+    }
+
+    private static final class Bits {
+        private final byte[] b;
+        private final int size;
+        private int pos;
+
+        Bits(byte[] b, int size) {
+            this.b = b;
+            this.size = size * 8;
+        }
+
+        int bits(int n) {
+            int v = 0;
+            for (int i = 0; i < n; i++) {
+                if (pos >= size) throw new IllegalArgumentException("SPS too short");
+                v = (v << 1) | ((b[pos >> 3] >> (7 - (pos & 7))) & 1);
+                pos++;
+            }
+            return v;
+        }
+
+        void skip(int n) {
+            pos += n;
+            if (pos > size) throw new IllegalArgumentException("SPS too short");
+        }
+
+        int ue() {
+            int zeros = 0;
+            while (bits(1) == 0) if (++zeros > 31) throw new IllegalArgumentException("bad ue");
+            return zeros == 0 ? 0 : (1 << zeros) - 1 + bits(zeros);
+        }
+    }
+
     /** A new connection: the stream starts over, but decoders that failed stay dropped. */
     synchronized void reset() {
         release();

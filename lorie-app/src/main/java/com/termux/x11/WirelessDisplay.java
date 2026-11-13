@@ -720,12 +720,14 @@ final class WirelessDisplay {
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
                 in.readUnsignedShort();  // refresh rate: the encoder runs at up to 60 anyway
                 int codecs = in.readUnsignedByte();   // H.264 is always there
+                receiverCodecs = codecs;
                 inputReceiver = (codecs & CODECS_SENDS_INPUT) != 0;
                 computer = inputReceiver && (codecs & CODECS_NOT_COMPUTER) == 0;
                 if (computer) prefs.edit().putString("auto_receiver", id).apply();
                 Log.i(TAG, "receiver " + receiverName + " wants " + w + "x" + h + " at " + dpi + " dpi");
                 // It comes from the network: even, and a size encoders take, as for a browser
                 int[] size = WebServer.fit(w, h, wired());
+                receiverSize = size;
                 return new int[]{size[0], size[1], dpi};
             }
             if (status == PAIR) {
@@ -1161,8 +1163,12 @@ final class WirelessDisplay {
                     else if (type == FILE_END && inputReceiver) fileEnd(true);
                     else if (type >= IN_MOVE) webInput(type, b);
                     else if (type == KEY_FRAME) {
-                        keyFrameWanted = true;
-                        receiverBehind = true;
+                        MacPass p = macPass;
+                        if (p != null) p.askKeyframe.run();
+                        else {
+                            keyFrameWanted = true;
+                            receiverBehind = true;
+                        }
                     }
                     else if (type == TIME && (web || inputReceiver) && size == 8) {
                         ByteBuffer reply = ByteBuffer.allocate(16).put(b).putLong(System.nanoTime() / 1000);
@@ -1326,13 +1332,17 @@ final class WirelessDisplay {
                 streamHeight = height;
                 Log.i(TAG, "display " + id + " now " + width + "x" + height);
                 format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
-                writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+                synchronized (writeLock) {
+                    // A Mac passthrough has the receiver now: it gets this format when the Mac leaves (MacPass.end)
+                    if (macPass == null) writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+                }
             }
         } catch (RemoteException e) {
             // The injector died while being set up
             return true;
         } finally {
             displayId = Display.INVALID_DISPLAY;
+            macPass = null;
             synchronized (soundLock) {
                 injector = null;
                 if (soundPipe != null) stopSound();
@@ -1386,7 +1396,16 @@ final class WirelessDisplay {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         android.hardware.display.DisplayManager dm = context.getSystemService(android.hardware.display.DisplayManager.class);
         long checked = SystemClock.uptimeMillis();
+        boolean suspended = false;
         while (running && !died[0] && resizeTo == null) {
+            // A Mac passthrough sends the picture: this encoder rests meanwhile (MacPass)
+            boolean passing = macPass != null;
+            if (passing != suspended) {
+                suspended = passing;
+                Bundle sb = new Bundle();
+                sb.putInt(MediaCodec.PARAMETER_KEY_SUSPEND, passing ? 1 : 0);
+                encoder.setParameters(sb);
+            }
             // The injector may be alive with its display gone, as when its session was ended: treat it as dead
             if (SystemClock.uptimeMillis() - checked > 1000) {
                 checked = SystemClock.uptimeMillis();
@@ -1427,7 +1446,9 @@ final class WirelessDisplay {
                     int flags = ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0 ? 1 : 0)
                         | ((info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 ? 2 : 0);
                     byte[] head = ByteBuffer.allocate(9).putLong(info.presentationTimeUs).put((byte) flags).array();
-                    writeMessage(VIDEO_FRAME, head, data, info.size);
+                    synchronized (writeLock) {
+                        if (macPass == null) writeMessage(VIDEO_FRAME, head, data, info.size);
+                    }
                 }
             } finally {
                 encoder.releaseOutputBuffer(index, false);
@@ -1536,5 +1557,139 @@ final class WirelessDisplay {
         try {
             c.close();
         } catch (IOException ignored) { }
+    }
+
+    // --- Mac passthrough (DISPLAY.md §3.0, §3.4) ---
+    // A Mac on this display goes to a receiver that decodes HEVC as Sill sent it: the phone decodes and encodes
+    // nothing, its own encoder rests (pump), and the receiver draws the Mac's cursor. Only for a receiver with codecs
+    // bits 1 and 2 (PROTOCOL.md); the others get the Mac decoded on the phone and encoded again, as any picture.
+
+    private static final int CODECS_H265 = 0x02, CODECS_PASSTHROUGH = 0x04;
+    private static final int CODEC_H265 = 0x68323635, CURSOR_SHAPE = 16, CURSOR_POSITION = 17;
+    /** The codecs byte of the receiver's WELCOME, and the size it asked for (after WebServer.fit). */
+    private volatile int receiverCodecs;
+    private volatile int[] receiverSize;
+    /** The Mac passthrough that has the receiver's picture now; changed under writeLock. */
+    private volatile MacPass macPass;
+
+    /** For MacClient: a passthrough to the receiver of a display, when it is this one's and the receiver takes it. */
+    static com.termux.x11.mac.Passthrough.Provider macPassthrough(Context c) {
+        final Context app = c.getApplicationContext();
+        return (display, ask) -> get(app).openMacPass(display, ask);
+    }
+
+    private boolean takesPassthrough() {
+        return !web && (receiverCodecs & (CODECS_H265 | CODECS_PASSTHROUGH)) == (CODECS_H265 | CODECS_PASSTHROUGH);
+    }
+
+    private com.termux.x11.mac.Passthrough openMacPass(int display, Runnable ask) {
+        if (display == Display.INVALID_DISPLAY || display != displayId || state != STREAMING || !takesPassthrough()) return null;
+        MacPass p = new MacPass(ask);
+        synchronized (writeLock) {
+            MacPass old = macPass;
+            if (old != null) old.dead = true;
+            macPass = p;
+        }
+        return p;
+    }
+
+    private static short fraction(float f) {
+        return (short) Math.round(Math.max(0f, Math.min(1f, f)) * 65535f);
+    }
+
+    private final class MacPass implements com.termux.x11.mac.Passthrough {
+        final Runnable askKeyframe;
+        volatile boolean dead;
+        /** Under writeLock: the receiver has been told H.265 at this size, and has had a keyframe since. */
+        private boolean formatSent, keySent;
+
+        MacPass(Runnable askKeyframe) {
+            this.askKeyframe = askKeyframe;
+        }
+
+        private boolean mine() {
+            return !dead && macPass == this;
+        }
+
+        @Override public boolean parameters(byte[] config, int w, int h) {
+            int[] r = receiverSize;
+            // Its decoder was checked for the size it asked for, no more (PROTOCOL.md)
+            if (r == null || Math.max(w, h) > Math.max(r[0], r[1]) || Math.min(w, h) > Math.min(r[0], r[1])) {
+                Log.i(TAG, "Mac picture " + w + "x" + h + " is larger than the receiver's " + (r != null ? r[0] + "x" + r[1] : "?"));
+                return false;
+            }
+            synchronized (writeLock) {
+                if (!mine()) return true;
+                try {
+                    ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H265).putShort((short) w).putShort((short) h);
+                    writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+                    byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
+                    writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(config), config.length);
+                    formatSent = true;
+                    keySent = false;
+                } catch (IOException e) {
+                    dead = true;
+                }
+            }
+            return true;
+        }
+
+        @Override public boolean frame(byte[] data, int length, long ptsUs, boolean keyframe) {
+            synchronized (writeLock) {
+                if (!mine()) return true;
+                if (!formatSent || (!keySent && !keyframe)) return false;
+                try {
+                    byte[] head = ByteBuffer.allocate(9).putLong(ptsUs).put((byte) (keyframe ? 2 : 0)).array();
+                    writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(data, 0, length), length);
+                    keySent = true;
+                } catch (IOException e) {
+                    dead = true;
+                }
+            }
+            return true;
+        }
+
+        @Override public void cursorShape(byte[] png, int offset, int length, float w, float h, float hx, float hy) {
+            byte[] head = ByteBuffer.allocate(8).putShort(fraction(w)).putShort(fraction(h)).putShort(fraction(hx))
+                    .putShort(fraction(hy)).array();
+            synchronized (writeLock) {
+                if (!mine()) return;
+                try {
+                    writeMessage(CURSOR_SHAPE, head, ByteBuffer.wrap(png, offset, length), length);
+                } catch (IOException e) {
+                    dead = true;
+                }
+            }
+        }
+
+        @Override public void cursorPosition(float x, float y, boolean inside) {
+            byte[] b = ByteBuffer.allocate(5).putShort(fraction(x)).putShort(fraction(y)).put((byte) (inside ? 1 : 0)).array();
+            synchronized (writeLock) {
+                if (!mine()) return;
+                try {
+                    writeMessage(CURSOR_POSITION, b, 0, 5);
+                } catch (IOException e) {
+                    dead = true;
+                }
+            }
+        }
+
+        @Override public boolean alive() {
+            return mine() && running && state == STREAMING && takesPassthrough();
+        }
+
+        @Override public void end() {
+            synchronized (writeLock) {
+                boolean had = macPass == this;
+                dead = true;
+                if (!had) return;
+                macPass = null;
+                try {
+                    writeMessage(CURSOR_POSITION, new byte[5], 0, 5);
+                    // The phone's own picture again, from a keyframe; the encoder wakes up in pump
+                    restartStream();
+                } catch (IOException ignored) { }
+            }
+        }
     }
 }

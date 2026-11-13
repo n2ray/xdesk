@@ -32,6 +32,7 @@ void lorieInitClipboard(void);
 // XDesk: the X windows for the window exchange, see xwindows.c
 void lorieInitWindows(void);
 void lorieRegisterWindowsNatives(JNIEnv *env);
+void lorieDrainWindowsRequests(void);
 void lorieRequestClipboard(void);
 void lorieHandleClipboardAnnounce(void);
 void lorieHandleClipboardData(const char* data);

@@ -53,6 +53,12 @@ final class Receiver {
 
         /** Where the phone's input method begins on the picture, 0 to 65535 down; 65535 while it is not showing. */
         void imeArea(int top);
+
+        /** A cursor to draw over the picture (a Mac passed through): sizes and hot spot in fractions of its width. */
+        void cursorShape(android.graphics.Bitmap shape, float width, float height, float hotX, float hotY);
+
+        /** Where that cursor is, 0 to 1 across and down the picture; hidden when not shown. */
+        void cursorPosition(float x, float y, boolean shown);
     }
 
     final Store store;

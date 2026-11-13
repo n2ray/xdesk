@@ -30,6 +30,10 @@ final class Session extends Thread implements Video.Listener {
     // Message types
     static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
             SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, IME_AREA = 15, FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
+    /** A Mac picture passed through the phone as the Mac sent it: its cursor, which is not in the picture (PROTOCOL.md) */
+    static final int CURSOR_SHAPE = 16, CURSOR_POSITION = 17, MAX_CURSOR = 1 << 20;
+    /** Codecs bit 2, with bit 1: VIDEO_FORMAT may switch to H.265 and back during a stream, and the cursor messages are drawn */
+    private static final int PASSTHROUGH = 0x04;
     /** Codecs bit 7: this receiver sends input as the web display does, and takes the clipboard and files. Bit 6 with
      *  it: not a computer, the phone connects here only when chosen and a computer's cable does not take the stream */
     private static final int SENDS_INPUT = 0x80, NOT_COMPUTER = 0x40, MAX_CLIPBOARD = 256 * 1024;
@@ -208,7 +212,7 @@ final class Session extends Thread implements Video.Listener {
             d.writeShort(s.density);
             d.writeShort(s.fps);
             control = r.control;
-            d.writeByte(1 | (s.hevc ? 2 : 0) | (control ? SENDS_INPUT | NOT_COMPUTER : 0));
+            d.writeByte(1 | (s.hevc ? 2 | PASSTHROUGH : 0) | (control ? SENDS_INPUT | NOT_COMPUTER : 0));
             Log.i(MainActivity.TAG, "streaming from " + phoneName + ", asking for " + s.width + "x" + s.height
                     + " " + s.density + "dpi " + s.fps + "fps" + (s.hevc ? " h265" : "")
                     + (control ? ", with input" : ""));
@@ -265,6 +269,32 @@ final class Session extends Thread implements Video.Listener {
                         if (n > abuf.length) abuf = new byte[n];
                         in.readFully(abuf, 0, n);
                         if (audio != null) audio.write(abuf, 0, n);
+                        break;
+                    }
+                    case CURSOR_SHAPE: {
+                        if (len < 9 || len > MAX_CURSOR) {
+                            skip(len);
+                            break;
+                        }
+                        float cw = in.readUnsignedShort() / 65535f, ch = in.readUnsignedShort() / 65535f;
+                        float hx = in.readUnsignedShort() / 65535f, hy = in.readUnsignedShort() / 65535f;
+                        byte[] png = new byte[len - 8];
+                        in.readFully(png);
+                        android.graphics.Bitmap shape = null;
+                        try {
+                            shape = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+                        } catch (RuntimeException ignored) { }
+                        if (shape != null && r.isActive(this)) r.ui.cursorShape(shape, cw, ch, hx, hy);
+                        break;
+                    }
+                    case CURSOR_POSITION: {
+                        if (len != 5) {
+                            skip(len);
+                            break;
+                        }
+                        float cx = in.readUnsignedShort() / 65535f, cy = in.readUnsignedShort() / 65535f;
+                        boolean shown = in.readUnsignedByte() != 0;
+                        if (r.isActive(this)) r.ui.cursorPosition(cx, cy, shown);
                         break;
                     }
                     case IME_AREA: {
