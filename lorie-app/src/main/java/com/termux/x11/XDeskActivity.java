@@ -888,6 +888,7 @@ public class XDeskActivity extends Activity {
         Contents.setHost(contentsHost);
         // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
         MacSource.start(this);
+        MacSource.switcher = prefix -> showSwitcher(true);
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);
@@ -1931,6 +1932,7 @@ public class XDeskActivity extends Activity {
         s.valueRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::showSoundSettings);
         s.valueRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
         LinearLayout connect = s.section(c, getString(R.string.xd_section_connect));
+        s.valueRow(connect, getString(R.string.xd_mac_settings), getString(R.string.xd_mac_settings_note), "", () -> MacSettings.open(this));
         final TextView[] receiver = new TextView[1], browser = new TextView[1];
         receiver[0] = s.valueRow(connect, getString(R.string.xd_wireless), getString(R.string.xd_wireless_note),
             wireless.isActive() ? wireless.receiverName() : getString(R.string.xd_wireless_off), this::showWirelessPicker);
