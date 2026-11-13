@@ -46,14 +46,13 @@ jobs:
         [ -n "$KEYSTORE_B64" ] || { echo "The XDESK_KEYSTORE_B64 secret is missing: refusing to build a release"; exit 1; }
         echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/xdesk-release.jks"
         echo "XDESK_KEYSTORE=$RUNNER_TEMP/xdesk-release.jks" >> "$GITHUB_ENV"
-    - name: Gesture tests
-      # input-core's recorded touch sequences (input-core/src/test/resources/gestures.json), before anything is built
-      run: ./gradlew :input-core:test
     - name: Build
       env:
         XDESK_KEYSTORE_PASSWORD: ${{ secrets.XDESK_KEYSTORE_PASSWORD }}
         XDESK_KEY_ALIAS: ${{ secrets.XDESK_KEY_ALIAS }}
-      run: ./gradlew -PxdeskVersion="$VERSION" assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
+      # :input-core:test runs the shared gesture table (input-core/src/test/resources/gestures.json). In this step because
+      # configuring the other projects needs its version and key settings.
+      run: ./gradlew -PxdeskVersion="$VERSION" :input-core:test assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
     - name: Collect release files
       run: |
         mkdir out
