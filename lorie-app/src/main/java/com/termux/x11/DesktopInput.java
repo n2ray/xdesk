@@ -43,6 +43,18 @@ final class DesktopInput implements InputSink {
         if (s.x > 0 && s.y > 0) v.sendMouseEvent(x * (s.x - 1), y * (s.y - 1), InputStub.BUTTON_UNDEFINED, false, false);
     }
 
+    /** The X server's own pointer, as the renderer last had it: a move just sent may not be in it yet. */
+    @Override public boolean pointerPlace(float[] out) {
+        LorieView v = view();
+        if (v == null) return false;
+        android.graphics.Point s = v.screenSize();
+        if (s.x < 2 || s.y < 2) return false;
+        android.graphics.PointF at = v.getRealCursorPosition();
+        out[0] = Math.max(0f, Math.min(1f, at.x / (s.x - 1)));
+        out[1] = at.y >= s.y - 1 ? 1f : Math.max(0f, at.y / (s.y - 1));
+        return true;
+    }
+
     @Override public void button(int button, boolean down) {
         LorieView v = view();
         if (v != null) v.sendMouseEvent(0, 0, button, down, true);

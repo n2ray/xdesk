@@ -231,15 +231,25 @@ public class XDeskActivity extends Activity {
     });
     private final Router.Device padIn = router.device(Router.PHONE_PAD), keysIn = router.device(Router.PHONE_KEYS),
         mouseIn = router.device(Router.PHONE_MOUSE), remoteIn = router.device(Router.REMOTE);
+    /**
+     * The phone's mouse and touchpad pass through this on their way to the Router: over X or a Mac it opens the
+     * external Dock when the content's pointer is pushed against the bottom, and the Dock has the pointer while open.
+     */
+    private final DockPointer dockPointer = new DockPointer(new DockPointer.Host() {
+        @Override public InputSink target() { return client; }
+        @Override public ExternalDock dock() { return externalDock; }
+    }, mouseIn, padIn);
 
     private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
         @Override public void move(int dx, int dy) {
             wireless.phonePointerMoved();
-            padIn.move(dx, dy);
+            dockPointer.move(padIn, dx, dy);
         }
-        @Override public void button(int b, boolean down) { padIn.button(b, down); }
-        @Override public void click(int b) { padIn.click(b); }
-        @Override public void scroll(int phase, float dx, float dy) { padIn.scrollFine(dy, dx, phase); }
+        @Override public void button(int b, boolean down) { dockPointer.button(padIn, b, down); }
+        @Override public void click(int b) { dockPointer.click(padIn, b); }
+        @Override public void scroll(int phase, float dx, float dy) {
+            if (!dockPointer.takesScroll()) padIn.scrollFine(dy, dx, phase);
+        }
         @Override public void action(int a, int arg) { padIn.action(a, arg); }
     };
 
@@ -374,13 +384,13 @@ public class XDeskActivity extends Activity {
             if (x != 0 || y != 0) {
                 mouseRestX -= x;
                 mouseRestY -= y;
-                mouseIn.move(x, y);
+                dockPointer.move(mouseIn, x, y);
             }
         }
         @Override public void mouseButton(int b, boolean down) {
             mouseEvents++;
             updateDiag();
-            mouseIn.button(b, down);
+            dockPointer.button(mouseIn, b, down);
         }
         @Override public void captureChanged(boolean has) {
             captured = has;
@@ -394,7 +404,7 @@ public class XDeskActivity extends Activity {
             }
         }
         @Override public void mouseScroll(float v, float h) {
-            if (client == null || (v == 0 && h == 0)) return;
+            if (client == null || (v == 0 && h == 0) || dockPointer.takesScroll()) return;
             // A wheel turned up is a positive AXIS_VSCROLL. High resolution wheels give fractions: fine scrolling
             // keeps them, the Router makes whole steps for a target that takes only those
             mouseIn.scrollFine(-v, h, io.github.n2ray.xdesk.input.Input.WHEEL);
@@ -447,6 +457,8 @@ public class XDeskActivity extends Activity {
                 ContentSource s = Contents.sourceOf(gone);
                 if (s != null) s.hidden(gone);
             }
+            // Its windows went with the display
+            updateExternalDock();
             if (id == carSeen) {
                 carChanged();
                 return;
@@ -1703,9 +1715,9 @@ public class XDeskActivity extends Activity {
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
         directTouch = new DirectTouchView(this, new DirectTouchView.Sink() {
             // 经 Router：切换器开着时光标和点按给它
-            @Override public void moveCursor(int dx, int dy) { padIn.move(dx, dy); }
-            @Override public void tap() { padIn.click(1); }
-            @Override public void press(boolean down) { padIn.button(1, down); }
+            @Override public void moveCursor(int dx, int dy) { dockPointer.move(padIn, dx, dy); }
+            @Override public void tap() { dockPointer.click(padIn, 1); }
+            @Override public void press(boolean down) { dockPointer.button(padIn, 1, down); }
             @Override public void frame(int action, int[] ids, float[] x, float[] y) {
                 if (client == apps.input()) apps.touchFrame(action, ids, x, y);
             }
@@ -1847,10 +1859,10 @@ public class XDeskActivity extends Activity {
                 if (a == MotionEvent.ACTION_DOWN) {
                     v.setPressed(true);
                     Style.tick(v);
-                    padIn.button(button, true);
+                    dockPointer.button(padIn, button, true);
                 } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
                     v.setPressed(false);
-                    padIn.button(button, false);
+                    dockPointer.button(padIn, button, false);
                 }
                 return true;
             }
@@ -1910,11 +1922,19 @@ public class XDeskActivity extends Activity {
         updateStatus();
     }
 
-    /** 只在外接屏的安卓应用上有：Linux 桌面的鼠标由窗口独占，车机没有鼠标。 */
+    /**
+     * 外接屏上有内容时才有，车机没有鼠标。Over Android apps Android's own pointer opens it; over X and a Mac the mouse
+     * is captured for the content and DockPointer opens it. Not over the X desktop taken over the old way (its window
+     * has the mouse itself), and the home (the Launchpad as what the screen shows) needs none.
+     */
     private void updateExternalDock() {
         if (externalDock == null) return;
-        Display d = apps.isActive() && !session.isActive() && prefs.getBoolean(PREF_EXTERNAL_DOCK, true) && Settings.canDrawOverlays(this) ? externalDisplay() : null;
+        boolean android = apps.isActive() && !session.isActive();
+        boolean content = !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && !SwitcherOverlay.isHome();
+        Display d = (android || content) && prefs.getBoolean(PREF_EXTERNAL_DOCK, true) && Settings.canDrawOverlays(this) ? externalDisplay() : null;
         externalDock.setDisplay(d != null && !TargetDisplay.isCar(d) ? d : null);
+        // Open over something that is no longer the target: it goes, and the pointer is the target's again
+        dockPointer.check();
     }
 
     private void toggleKeyboard() {
@@ -2561,7 +2581,10 @@ public class XDeskActivity extends Activity {
 
     private void updateCapture() {
         if (keyView == null) return;
-        applyCapture(updateHome());
+        boolean home = updateHome();
+        // Everything that changes what is on the external screen ends up here: the Dock follows it
+        updateExternalDock();
+        applyCapture(home);
     }
 
     /** The mouse captured or let go as things are now. @param home the external screen's home has the input */
@@ -2665,6 +2688,8 @@ public class XDeskActivity extends Activity {
         // The Launchpad's search takes what the input method made of the key, text in the keyboard's layout: the
         // bridge goes on with it. (Keys that came straight here are keys to it, on a US layout.)
         if (fromIme && client == SwitcherOverlay.INPUT) return releaseHeld(e);
+        // Esc closes the Dock opened over this content, and is not the content's then
+        if (dockPointer.key(e.getScanCode(), e.getAction() == KeyEvent.ACTION_DOWN)) return true;
         if (mouseSideKey(e)) return true;
         int scan = e.getScanCode();
         // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)

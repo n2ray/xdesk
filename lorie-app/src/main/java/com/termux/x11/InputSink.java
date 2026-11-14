@@ -18,6 +18,12 @@ interface InputSink {
     void move(int dx, int dy);
     /** To this place on the display, 0 to 1 across and down. Only for pointers that know where they are, as a browser's. */
     default void moveToFraction(float x, float y) { }
+    /**
+     * Where this target's own pointer is, for the Dock over it (DockPointer): out[0] across the screen, 0 to 1, and
+     * out[1] down the way it can go, 1 at the lowest place it reaches. False when the target draws no pointer of its
+     * own or its place is not known.
+     */
+    default boolean pointerPlace(float[] out) { return false; }
     /** That pointer is gone: the display's own cursor comes back. */
     default void pointerGone() { }
     /** A browser is here, with a keyboard of this layout: de, fr, it, es, gb or us. Again when it finds out better. */

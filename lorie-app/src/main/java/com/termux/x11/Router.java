@@ -234,6 +234,11 @@ final class Router {
             return bound;
         }
 
+        /** Any button of this device is down. */
+        boolean holdsButtons() {
+            return buttons != 0;
+        }
+
         /** The same for a button (X numbered). */
         boolean holdsButton(int button) {
             return button > 0 && button < 31 && (buttons & 1 << button) != 0;

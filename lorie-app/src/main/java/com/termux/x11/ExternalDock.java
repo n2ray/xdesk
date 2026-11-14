@@ -18,12 +18,17 @@ import android.widget.TextView;
 import java.util.List;
 
 /**
- * The dock at the bottom of the external display over Android apps: the current and the previous app, then the
- * favourites. A strip a few pixels high along the bottom edge notices the pointer resting there; the dock then slides
- * up and goes again when the pointer leaves it. It never takes the keyboard focus.
+ * The dock at the bottom of the external display: the current and the previous app, then the favourites. Over Android
+ * apps a strip a few pixels high along the bottom edge notices the pointer resting there; the dock then slides up and
+ * goes again when the pointer leaves it. It never takes the keyboard focus.
  *
  * An app in touch mode gets no hover events, and the input method can cover the strip, so where the pointer is comes
  * from the phone as well; a mouse the phone handles itself is only heard through hover.
+ *
+ * Over an X desktop or a Mac there is no Android pointer on this display at all (the phone's mouse is captured and
+ * sent on, the content draws its pointer). There the dock is "driven": DockPointer opens it (openDriven) when the
+ * content's pointer is pushed against the bottom, and moves and clicks a pointer the dock draws itself, until that
+ * pointer leaves upwards, something is opened, or closeDriven.
  */
 final class ExternalDock implements AppSession.BottomEdgeListener {
     private static final String TAG = "XDesk";
@@ -49,6 +54,12 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     private View strip;
     private Panel panel;
     private boolean closing;
+    /** Driven: opened by DockPointer, with the dock's own pointer (arrow) at px, py of a screen width by height. */
+    private boolean driven;
+    private Display display;
+    private CursorOverlay arrow;
+    private float px, py;
+    private int width, height;
 
     private final Runnable open = () -> open(0);
     private final Runnable close = this::close;
@@ -101,6 +112,75 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         }, "xdesk-dock-ime").start();
     }
 
+    // --- driven by XDesk's own pointer (over X, a Mac) ---
+
+    /** On a display, so openDriven can work. */
+    boolean attached() {
+        return windows != null;
+    }
+
+    /** Open with its own pointer, which takes the moves and clicks. */
+    boolean driven() {
+        return driven && panel != null && !closing;
+    }
+
+    /**
+     * @param x where the content's pointer is across the screen, 0 to 1: the dock's pointer starts under it
+     * @return false when it did not open: nothing to show, no window, or it is open (or still going) already
+     */
+    boolean openDriven(float x) {
+        if (windows == null || display == null || panel != null) return false;
+        open(0);
+        if (panel == null) return false;
+        android.graphics.Rect bounds = windows.getCurrentWindowMetrics().getBounds();
+        width = bounds.width();
+        height = bounds.height();
+        px = Math.max(0f, Math.min(1f, x)) * (width - 1);
+        // A little above the edge: the arrow is drawn below its tip, at the very bottom nothing of it would show
+        py = height - 1 - dp(ROOM_BELOW_DP);
+        driven = true;
+        if (arrow == null) {
+            arrow = new CursorOverlay(context);
+            arrow.attach(display);
+        }
+        arrow.moveTo(Math.round(px), Math.round(py));
+        return true;
+    }
+
+    /** The pointer moves; up out of the dock closes it. Beside the bar it stays: the way to an icon often starts there. */
+    void moveBy(int dx, int dy) {
+        Panel p = panel;
+        if (!driven() || p == null) return;
+        px = Math.max(0f, Math.min(width - 1, px + dx));
+        py = Math.max(0f, Math.min(height - 1, py + dy));
+        int x = Math.round(px), y = Math.round(py);
+        if (p.above(y)) {
+            close();
+            return;
+        }
+        arrow.moveTo(x, y);
+        p.point(x, y);
+    }
+
+    /** A click of the dock's pointer: on an icon it opens that (and the dock goes), anywhere else the dock just goes. */
+    void clickDriven() {
+        Panel p = panel;
+        if (!driven() || p == null) return;
+        View item = p.itemAt(Math.round(px), Math.round(py));
+        if (item != null) item.performClick();
+        else close();
+    }
+
+    /** No-op unless driven: over Android apps the dock closes by where Android's pointer is. */
+    void closeDriven() {
+        if (driven()) close();
+    }
+
+    private void endDriven() {
+        driven = false;
+        if (arrow != null) arrow.hide();
+    }
+
     private int dp(float v) {
         return Style.dp(dc, v);
     }
@@ -111,6 +191,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         if (id == displayId) return;
         detach();
         displayId = id;
+        display = d;
         if (d == null) return;
         dc = context.createDisplayContext(d);
         windows = dc.getSystemService(WindowManager.class);
@@ -178,6 +259,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         final Panel p = panel;
         if (p == null || closing) return;
         closing = true;
+        endDriven();
         p.slideOut(() -> {
             remove(p);
             if (panel == p) {
@@ -200,6 +282,9 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         panel = null;
         showing = false;
         closing = false;
+        driven = false;
+        if (arrow != null) arrow.remove();
+        arrow = null;
         if (strip != null) remove(strip);
         strip = null;
         windows = null;
@@ -352,12 +437,28 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             }
             visited = true;
             ui.removeCallbacks(close);
-            View found = null;
-            for (int i = 0; i < bar.getChildCount() && found == null; i++) {
+            setOver(itemAt(x, y));
+        }
+
+        /** The icon at this place of the screen, null beside them. */
+        View itemAt(int x, int y) {
+            for (int i = 0; i < bar.getChildCount(); i++) {
                 View child = bar.getChildAt(i);
-                if (child.getTag() != null && holds(child, x, y)) found = child;
+                if (child.getTag() != null && holds(child, x, y)) return child;
             }
-            setOver(found);
+            return null;
+        }
+
+        /** The dock's own pointer (driven) is here. */
+        void point(int x, int y) {
+            setOver(itemAt(x, y));
+        }
+
+        /** Higher on the screen than the dock with the room for its names. Not before it is laid out. */
+        boolean above(int y) {
+            if (getHeight() == 0) return false;
+            getLocationOnScreen(place);
+            return y < place[1];
         }
 
         private void showName(String label, View over) {

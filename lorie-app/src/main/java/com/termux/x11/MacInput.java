@@ -81,6 +81,18 @@ final class MacInput implements InputSink {
         client.pointerTo((x * r[4] - r[0]) / r[2], (y * r[5] - r[1]) / r[3]);
     }
 
+    /**
+     * The picture may be narrower than the screen; down, 1 is the picture's bottom, where the pointer stops. The Mac
+     * reports its pointer back a pixel or so short of that, which is the bottom as well.
+     */
+    @Override public boolean pointerPlace(float[] out) {
+        int[] r = client.frameRect();
+        float x = client.pointerX(), y = client.pointerY();
+        out[0] = r[2] > 0 && r[4] > 0 ? (r[0] + x * r[2]) / r[4] : x;
+        out[1] = y >= 1f - 2f / (r[3] > 0 ? r[3] : 1080) ? 1f : y;
+        return true;
+    }
+
     /** X numbering: 1 left, 2 middle, 3 right, 8 back, 9 forward. */
     @Override public synchronized void button(int button, boolean isDown) {
         switch (button) {
