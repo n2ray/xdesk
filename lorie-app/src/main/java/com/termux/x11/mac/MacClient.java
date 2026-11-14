@@ -650,6 +650,15 @@ public final class MacClient {
     private volatile byte[] lastParameters, lastCursor;
     private byte[] annexB;
     private final int[] annexLength = new int[1];
+    /** The receiver's socket writes that the UI thread starts (a new or lost surface, a resize), in order. */
+    private static final java.util.concurrent.ExecutorService passIo =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "mac-pass"));
+
+    /** Runs r off the UI thread: it writes to the receiver (NetworkOnMainThreadException there). */
+    private static void offUi(Runnable r) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) passIo.execute(r);
+        else r.run();
+    }
 
     /** Reader thread. True when the frame went to the passthrough (or was dropped for it). */
     private boolean passFrame(SillTls s, SillWire.Message m) {
@@ -763,7 +772,7 @@ public final class MacClient {
                 pass = null;
             }
         }
-        if (ended != null) ended.end();
+        if (ended != null) offUi(ended::end);
         if (s != null && fresh) {
             // A wireless receiver that decodes HEVC gets Sill's stream as it is: nothing decoded or encoded here
             Passthrough.Provider p = passthroughProvider;
@@ -771,8 +780,10 @@ public final class MacClient {
             if (opened != null) {
                 Log.i(TAG, "passthrough to the receiver of display " + displayId);
                 pass = opened;
-                passParameters();
-                passCursor();
+                offUi(() -> {
+                    passParameters();
+                    passCursor();
+                });
             }
         }
         synchronized (lock) {
@@ -810,7 +821,7 @@ public final class MacClient {
         frameH = h;
         screenW = sw;
         screenH = sh;
-        if (wider) passCursor();
+        if (wider) offUi(this::passCursor);
     }
 
     /** x, y, width, height of the picture, then the screen's width and height; zeros before it is laid out. */
