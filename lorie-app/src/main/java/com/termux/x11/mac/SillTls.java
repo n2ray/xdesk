@@ -186,10 +186,19 @@ final class SillTls implements Closeable {
         socket.setSoTimeout(ms);
     }
 
+    /** Closing TLS writes a close_notify: never on the UI thread (NetworkOnMainThreadException crashed XDesk on 断开). */
     @Override public void close() {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            new Thread(this::closeNow, "sill-close").start();
+            return;
+        }
+        closeNow();
+    }
+
+    private void closeNow() {
         try {
             socket.close();
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             Log.d(TAG, "close", e);
         }
     }
