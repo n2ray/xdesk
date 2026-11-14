@@ -291,10 +291,12 @@ final class ItemCard {
         boolean there = source == null || e != null;
         final boolean hidden = devices.isHidden(key);
         if (there) {
-            action(running() ? R.string.xd_card_switch_to : R.string.xd_card_open, Style.ACCENT, Style.TEXT, () -> {
-                card.dismiss();
-                host.open(key);
-            });
+            if (!key.equals(host.current())) {
+                action(running() ? R.string.xd_card_switch_to : R.string.xd_card_open, Style.ACCENT, Style.TEXT, () -> {
+                    card.dismiss();
+                    host.open(key);
+                });
+            }
             addClose(e);
             if (hidden || hideable()) {
                 action(hidden ? R.string.xd_dev_unhide : R.string.xd_dev_hide, Style.SURFACE, Style.TEXT, () -> {
