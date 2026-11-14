@@ -136,10 +136,12 @@ final class SwitcherOverlay {
         float side = Math.min(size.x, size.y);
 
         String current = host.current();
-        String system = onlySystem && current != null ? systemOf(current) : null;
-        List<String> running = filter(host.running(), system, dc);
+        // The same devices as the phone's launcher (DEVICES.md §4): the overview is the current content's device
+        Devices devices = Devices.get(context);
+        String system = onlySystem && current != null ? devices.deviceOf(current) : null;
+        List<String> running = filter(host.running(), system, dc, devices);
         List<String> favourites = new ArrayList<>();
-        if (system == null) for (String k : host.favorites()) if (!running.contains(k) && ExternalLauncher.exists(dc, k)) favourites.add(k);
+        if (system == null) for (String k : host.favorites()) if (!running.contains(k) && !devices.isHidden(k) && ExternalLauncher.exists(dc, k)) favourites.add(k);
 
         FrameLayout root = new FrameLayout(dc);
         root.setBackgroundColor(SCRIM);
@@ -156,7 +158,24 @@ final class SwitcherOverlay {
         title.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * TITLE);
         title.setGravity(Gravity.CENTER);
         column.addView(title);
-        if (!running.isEmpty()) addSection(dc, column, dc.getString(R.string.xd_switcher_running), running, current, side, host);
+        // Running, one section per device, in the launcher's device order
+        java.util.LinkedHashMap<String, List<String>> byDevice = new java.util.LinkedHashMap<>();
+        List<Devices.Device> all = devices.all();
+        for (Devices.Device d : all) byDevice.put(d.id, new ArrayList<>());
+        for (String k : running) {
+            List<String> of = byDevice.get(devices.deviceOf(k));
+            if (of == null) byDevice.put(devices.deviceOf(k), of = new ArrayList<>());
+            of.add(k);
+        }
+        int several = 0;
+        for (List<String> keys : byDevice.values()) if (!keys.isEmpty()) several++;
+        for (java.util.Map.Entry<String, List<String>> group : byDevice.entrySet()) {
+            if (group.getValue().isEmpty()) continue;
+            String name = group.getKey();
+            for (Devices.Device d : all) if (d.id.equals(group.getKey())) name = d.name;
+            String label = several > 1 || system == null ? name : dc.getString(R.string.xd_switcher_running);
+            addSection(dc, column, label, group.getValue(), current, side, host);
+        }
         if (!favourites.isEmpty()) addSection(dc, column, dc.getString(R.string.xd_chooser_favourites), favourites, current, side, host);
         if (running.isEmpty() && favourites.isEmpty()) {
             TextView none = new TextView(dc);
@@ -213,24 +232,10 @@ final class SwitcherOverlay {
         if (host != null) host.closed();
     }
 
-    /**
-     * "a:" Android, "linux" for the Linux desktop sessions ("t:") and its programs and windows ("l:"), "m:<mac>" one
-     * Mac (a Mac's keys share the part up to the second ':').
-     */
-    static String systemOf(String key) {
-        if (key.startsWith("t:") || key.startsWith("l:")) return "linux";
-        if (key.startsWith("m:")) {
-            int end = key.indexOf(':', 2);
-            return end > 0 ? key.substring(0, end + 1) : "m:";
-        }
-        int colon = key.indexOf(':');
-        return colon > 0 ? key.substring(0, colon + 1) : key;
-    }
-
-    private static List<String> filter(List<String> keys, String system, Context c) {
+    private static List<String> filter(List<String> keys, String system, Context c, Devices devices) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         for (String k : keys) {
-            if (system != null && !systemOf(k).equals(system)) continue;
+            if (system != null && !devices.deviceOf(k).equals(system)) continue;
             if (ExternalLauncher.exists(c, k)) out.add(k);
         }
         return new ArrayList<>(out);

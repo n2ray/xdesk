@@ -35,6 +35,11 @@ final class MacSettings {
         return m.page;
     }
 
+    /** Straight into pairing a new Mac (Settings › Connect device › Add device › Mac, DEVICES.md §5). */
+    static void add(Context c) {
+        new MacSettings(c).askAddress();
+    }
+
     private void show() {
         LinearLayout content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -43,7 +48,11 @@ final class MacSettings {
     }
 
     private void refresh() {
-        if (page == null || !page.isShowing()) return;
+        if (page == null || !page.isShowing()) {
+            Devices.get(c).touch();
+            return;
+        }
+        Devices.get(c).touch();
         page.dismiss();
         show();
     }

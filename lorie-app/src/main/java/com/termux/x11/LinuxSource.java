@@ -492,6 +492,24 @@ final class LinuxSource implements ContentSource {
         return out;
     }
 
+    /**
+     * The environment a key's program comes from: "termux" or a session's name (xdesk's SCOPE), or null when it is
+     * not known (a window no program of the catalog claims). For Devices (DEVICES.md §1). UI thread.
+     */
+    String scopeOf(String key) {
+        String appKey = null;
+        if (key.startsWith(APP)) {
+            appKey = key.substring(APP.length());
+        } else if (key.startsWith(WINDOW)) {
+            Win w = windows.get(parseWindow(key));
+            App a = w != null ? appOf(w) : null;
+            if (a != null) appKey = a.key;
+        }
+        if (appKey == null) return null;
+        int slash = appKey.indexOf('/');
+        return slash > 0 ? appKey.substring(0, slash) : null;
+    }
+
     private App app(String key) {
         for (App a : catalog) if (a.key.equals(key)) return a;
         return null;
