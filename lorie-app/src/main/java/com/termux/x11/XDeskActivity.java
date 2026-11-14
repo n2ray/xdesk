@@ -2492,7 +2492,11 @@ public class XDeskActivity extends Activity {
 
     private void updateCapture() {
         if (keyView == null) return;
-        boolean home = updateHome();
+        applyCapture(updateHome());
+    }
+
+    /** The mouse captured or let go as things are now. @param home the external screen's home has the input */
+    private void applyCapture(boolean home) {
         if (hasWindowFocus()) {
             // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机。
             // 外接屏上什么都没有时，鼠标归外接屏的主屏（启动台），手机上的选择界面用手指点
@@ -3023,11 +3027,22 @@ public class XDeskActivity extends Activity {
         MacSource.userLooking();
         if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
+        // Over an Android app the mouse is the injector's and moves that app's cursor, which was put on the screen
+        // before the Launchpad: above it, or the pointer is lost under the scrim
+        if (apps.isActive()) apps.raiseCursor();
         updateCapture();
     }
 
     private static final long HOME_AGAIN_MS = 1500;
     private final Runnable homeAgain = this::updateCapture;
+    /**
+     * The Launchpad closed over an Android app (one was opened, or nothing was): the mouse captured for the
+     * Launchpad is the app's again at once, not when homeAgain comes. Only then: while a content is still opening
+     * the capture stays, or Android's own pointer would show up on the phone for that time.
+     */
+    private final Runnable captureAfterSwitcher = () -> {
+        if (keyView != null && apps.isActive() && !SwitcherOverlay.isShown()) applyCapture(false);
+    };
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
         @Override public List<String> running() {
@@ -3044,6 +3059,9 @@ public class XDeskActivity extends Activity {
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;
+            // Posted: what was chosen is started right after this, in the same turn
+            ui.removeCallbacks(captureAfterSwitcher);
+            ui.post(captureAfterSwitcher);
             // Back to the home if nothing took the screen; late enough for what was opened to have begun
             ui.removeCallbacks(homeAgain);
             ui.postDelayed(homeAgain, HOME_AGAIN_MS);
