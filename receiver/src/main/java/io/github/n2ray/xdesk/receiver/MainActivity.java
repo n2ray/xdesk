@@ -142,7 +142,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         receiver.downloads = new Downloads(this, where -> ui.post(() ->
                 Toast.makeText(this, getString(R.string.file_saved, where), Toast.LENGTH_LONG).show()));
 
-        root = new FrameLayout(this);
+        root = new FrameLayout(this) {
+            /**
+             * Nothing of this window is reported as transparent (as XDesk's MacActivity). A SurfaceView has its
+             * window tell the compositor that the picture's rectangle is see-through, minus the views over it where
+             * they were at the last layout, and the compositor leaves that region of the window out. The cursor moves
+             * by translation, with no layout: anywhere but where the last layout found it (the last shape change, or
+             * its last showing) it would be in that region and not drawn. The hole itself is still cleared in the
+             * window's pixels, so the picture shows through as before.
+             */
+            @Override public boolean gatherTransparentRegion(android.graphics.Region region) {
+                if (region != null) {
+                    int[] at = new int[2];
+                    getLocationInWindow(at);
+                    region.op(at[0], at[1], at[0] + getWidth(), at[1] + getHeight(), android.graphics.Region.Op.DIFFERENCE);
+                }
+                return true;
+            }
+        };
         root.setBackgroundColor(Color.BLACK);
         view = new SurfaceView(this);
         root.addView(view, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));

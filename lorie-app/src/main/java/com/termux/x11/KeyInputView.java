@@ -41,6 +41,7 @@ final class KeyInputView extends View {
         });
         setFocusable(true);
         setFocusableInTouchMode(true);
+        unbufferedMouse();
         setOnCapturedPointerListener(new OnCapturedPointerListener() {
             @Override public boolean onCapturedPointer(View v, MotionEvent e) {
                 return onMouse(e);
@@ -64,7 +65,10 @@ final class KeyInputView extends View {
             for (int i = 0, n = e.getHistorySize(); i < n; i++) {
                 dx += e.getHistoricalX(i);
                 dy += e.getHistoricalY(i);
+                com.termux.x11.mac.PointerStats.sample(e.getHistoricalEventTime(i));
             }
+            com.termux.x11.mac.PointerStats.sample(e.getEventTime());
+            com.termux.x11.mac.PointerStats.dispatched(e.getEventTime());
             buttons.event(action, 0, e.getButtonState(), buttonOut);
             if (dx != 0 || dy != 0) sink.mouseMove(dx, dy);
             break;
@@ -95,7 +99,23 @@ final class KeyInputView extends View {
         buttons.clear();
     }
 
+    /**
+     * The captured mouse's moves come as they are read, not with the phone screen's next frame. Android holds moves
+     * back for the next frame of the window they go to, here the phone's: 60 a second at best, several reports in
+     * one event, and later whenever the main thread is late with a frame. The pointer they move is on another screen,
+     * or on a Mac. The source is the one a captured mouse reports with (relative): fingers on the phone's touchpad and
+     * a captured touchpad are batched as before. A parent passes such a request on only for its focused child, so it
+     * is made again each time the capture comes (this view has the focus then). Each event then carries one report;
+     * one that still carries several is summed in onMouse as before, and buttons do not depend on either.
+     */
+    private void unbufferedMouse() {
+        if (android.os.Build.VERSION.SDK_INT < 30) return;
+        requestUnbufferedDispatch(android.view.InputDevice.SOURCE_CLASS_NONE);
+        requestUnbufferedDispatch(android.view.InputDevice.SOURCE_MOUSE_RELATIVE);
+    }
+
     @Override public void onPointerCaptureChange(boolean has) {
+        if (has) unbufferedMouse();
         sink.captureChanged(has);
     }
 
