@@ -115,6 +115,14 @@ final class LinuxSource implements ContentSource {
     private Pending pending;
     /** The window this source made full screen (0: none), restored when another content takes the screen. */
     private int fullscreened;
+    /**
+     * Just after a launch the program may open more windows (Chromium restores its last session): for a moment the one
+     * of them that becomes active is the one to show, not the first that appeared.
+     */
+    private App settleApp;
+    private String settleKey;
+    private long settleUntil;
+    private static final long SETTLE_MS = 3000;
 
     private LinuxSource(Context c) {
         context = c;
@@ -303,9 +311,28 @@ final class LinuxSource implements ContentSource {
         }
     }
 
+    private void settle(Map<Integer, Win> old) {
+        if (settleApp == null) return;
+        if (SystemClock.uptimeMillis() > settleUntil) { settleApp = null; return; }
+        ICmdEntryInterface s = server;
+        if (s == null) return;
+        for (Win w : windows.values()) {
+            Win was = old.get(w.id);
+            boolean nowActive = (w.flags & FLAG_ACTIVE) != 0 && (was == null || (was.flags & FLAG_ACTIVE) == 0);
+            if (nowActive && w.id != fullscreened && appOf(w) == settleApp) {
+                Log.i(TAG, settleApp.key + " moved to window " + w.id);
+                show(s, w.id, settleKey, null);
+                return;
+            }
+        }
+    }
+
     private void matched(Pending p, int window) {
         ui.removeCallbacks(p.timeout);
         pending = null;
+        settleApp = p.app;
+        settleKey = p.key;
+        settleUntil = SystemClock.uptimeMillis() + SETTLE_MS;
         Log.i(TAG, p.app.key + " has window " + window);
         // Its windows are the app's from now on, whatever their class: Chromium's are chromium-browser, its id chromium
         Win w = windows.get(window);
@@ -328,7 +355,7 @@ final class LinuxSource implements ContentSource {
         if (!already) command(s, window, XWindows.FULLSCREEN_ON);
         // One the user made full screen stays so afterwards
         if (fullscreened != window) fullscreened = already ? 0 : window;
-        result.shown(key, null);
+        if (result != null) result.shown(key, null);
     }
 
     private static void command(ICmdEntryInterface s, int window, int command) {
@@ -411,6 +438,7 @@ final class LinuxSource implements ContentSource {
         }
         windowIcons.keySet().retainAll(windows.keySet());
         if (fullscreened != 0 && !windows.containsKey(fullscreened)) fullscreened = 0;
+        settle(old);
         matchPending();
         notifyChanged();
     }
