@@ -9,6 +9,7 @@ import android.content.Context;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
@@ -173,10 +174,23 @@ final class TextBridge {
 
     private void restart() {
         generation++;
-        if (view.hasFocus()) {
+        // Only from a focused window: asked from another, Android makes the new connection here and closes the old
+        // one, but the input method is not told (the window is not its target) and goes on calling the closed one,
+        // so nothing it sends arrives any more. Without focus the connection stays (valid() takes it on again), and
+        // reconnect() makes a new one when the focus is back.
+        if (view.hasFocus() && view.hasWindowFocus()) {
             InputMethodManager m = imm();
             if (m != null) m.restartInput(view);
         }
+    }
+
+    /**
+     * The window has the focus again: a new connection, so the input method and this bridge surely talk through the
+     * same one (the text typed so far is kept). Cheap, and the cure for every way the two can drift apart while
+     * another window had the focus.
+     */
+    void reconnect() {
+        if (view.hasFocus() && view.hasWindowFocus()) restartPreserving();
     }
 
     private void restartPreserving() {
@@ -288,7 +302,7 @@ final class TextBridge {
     }
 
     private final class Connection extends BaseInputConnection {
-        private final long mine;
+        private long mine;
 
         Connection(long mine) {
             super(view, true);
@@ -296,7 +310,18 @@ final class TextBridge {
         }
 
         private boolean valid() {
-            if (generation != mine) return false;
+            if (generation != mine) {
+                if (active != this) {
+                    // Replaced by a newer connection: the input method has not switched over yet
+                    Log.d(TAG, "IME: call on a replaced connection, dropped");
+                    return false;
+                }
+                // A restart asked for a new connection and none was made (the window had no focus then), so the
+                // input method still uses this one. It starts afresh, as the restart meant: refusing it would
+                // drop everything typed from now on
+                Log.d(TAG, "IME: connection kept over a restart");
+                mine = activeGeneration = generation;
+            }
             checkFresh();
             return true;
         }

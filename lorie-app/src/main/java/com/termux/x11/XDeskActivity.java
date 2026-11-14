@@ -1273,8 +1273,15 @@ public class XDeskActivity extends Activity {
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
             updateCapture();
+            // After Android's own handling of the focus: the input method and the text bridge on one connection again
+            ui.removeCallbacks(reconnectIme);
+            ui.post(reconnectIme);
         }
     }
+
+    private final Runnable reconnectIme = () -> {
+        if (keyView != null && keyView.isFocused()) keyView.bridge().reconnect();
+    };
 
     // --- 界面 ---
 
