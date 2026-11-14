@@ -55,6 +55,9 @@ final class MacSource implements ContentSource {
         MacActivity.onEnded = instance::ended;
         // A Mac on the wireless display goes to a receiver that decodes HEVC without being decoded here
         MacClient.passthroughProvider = WirelessDisplay.macPassthrough(c);
+        // A Mac's sound goes where XDesk's sound setting says, as the Linux desktop's does (AudioPlayer.checkRoute)
+        final AudioRoute route = AudioRoute.get(c);
+        MacClient.audioDevice = () -> route.coversSystem() ? null : route.playerDevice();
         instance.watchClients();
         Contents.register(instance);
     }

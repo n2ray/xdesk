@@ -21,6 +21,8 @@ final class SillWire {
     // Device → host
     static final int SELECT_SOURCE = 6, LAUNCH_APP = 7, INPUT = 8, VIEWPORT = 9, PING = 10;
     static final int PONG = 11, TICK = 13, CURSOR_SHAPE = 14, WINDOW_COMMAND = 15, HOST_SETTINGS = 16;
+    /** Device → host: one changed setting (HostSettingsChange). Host → device: sound (Audio.swift). */
+    static final int CHANGE_SETTINGS = 17, AUDIO = 43;
     static final int MAC_INFO = 18, PAIR_REQUEST = 19, PAIR_RESULT = 20, GOODBYE = 22, HELLO = 23;
     static final int MAC_POINTER = 26, CLIPBOARD = 32, KEYFRAME_REQUEST = 44;
 
