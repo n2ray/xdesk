@@ -2489,7 +2489,9 @@ public class XDeskActivity extends Activity {
             // 外接屏上什么都没有时，鼠标归外接屏的主屏（启动台），手机上的选择界面用手指点
             // With an external screen the mouse belongs there even while the phone shows its list (fingers work that)
             boolean external = externalDisplay() != null;
-            boolean want = home || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+            // The Launchpad draws its own pointer, moved only through INPUT: a mouse left to Android moves nothing there
+            boolean launchpad = client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown() && hasExternalMouse();
+            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
                 && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
             // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
@@ -2945,6 +2947,7 @@ public class XDeskActivity extends Activity {
         MacSource.userLooking();
         if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
+        updateCapture();
     }
 
     private static final long HOME_AGAIN_MS = 1500;
