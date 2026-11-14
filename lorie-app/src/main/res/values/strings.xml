@@ -380,7 +380,7 @@
     <string name="xd_keys_external">Keys on display</string>
     <string name="xd_keys_phone">Keys on phone</string>
     <string name="xd_mouse_speed">Physical mouse speed</string>
-    <string name="xd_mouse_speed_note" formatted="false">100% follows the display width</string>
+    <string name="xd_mouse_speed_note" formatted="false">For everything on the screen; 100% is the usual speed</string>
     <string name="xd_always_cursor">Always show the XDesk cursor</string>
     <string name="xd_always_cursor_note">Turn on if it guesses wrong in a RustDesk session</string>
     <string name="xd_output">Sound output</string>

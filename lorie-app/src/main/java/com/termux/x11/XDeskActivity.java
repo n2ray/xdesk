@@ -199,7 +199,9 @@ public class XDeskActivity extends Activity {
         }
     };
     private int keyEvents, mouseEvents;
-    private float mouseRestX, mouseRestY, wheelRestV, wheelRestH;
+    private float mouseRestX, mouseRestY;
+    /** PREF_MOUSE_SPEED, for the captured mouse. */
+    private float mouseSpeed = 1f;
     private final List<Latch> latches = new ArrayList<Latch>();
 
     private static final class Latch {
@@ -259,6 +261,8 @@ public class XDeskActivity extends Activity {
             if (!on) {
                 keysIn.cancel();
                 mouseIn.cancel();
+                heldModifiers.clear();
+                if (keyView != null) keyView.clearMouse();
             }
             updateCapture();
             updateStatus();
@@ -359,8 +363,9 @@ public class XDeskActivity extends Activity {
             mouseEvents++;
             updateDiag();
             if (client == null) return;
-            mouseRestX += dx;
-            mouseRestY += dy;
+            // The mouse speed setting is for every mouse (INPUT.md §12), not only the injector's
+            mouseRestX += dx * mouseSpeed;
+            mouseRestY += dy * mouseSpeed;
             int x = (int) mouseRestX, y = (int) mouseRestY;
             if (x != 0 || y != 0) {
                 mouseRestX -= x;
@@ -378,20 +383,17 @@ public class XDeskActivity extends Activity {
             updateDiag();
             // 系统在转屏等时候会收回抓取；窗口还有焦点、鼠标还在就要回来，否则光标会跑到手机屏上
             if (!has) {
+                // Releases of buttons held now will not reach this window: they go up where they went down (§2)
+                if (keyView != null) keyView.releaseMouse();
                 ui.removeCallbacks(recapture);
                 ui.postDelayed(recapture, RECAPTURE_DELAY_MS);
             }
         }
         @Override public void mouseScroll(float v, float h) {
-            if (client == null) return;
-            wheelRestV += v;
-            wheelRestH += h;
-            int tv = (int) wheelRestV, th = (int) wheelRestH;
-            if (tv != 0 || th != 0) {
-                wheelRestV -= tv;
-                wheelRestH -= th;
-                mouseIn.scroll(-tv, th);
-            }
+            if (client == null || (v == 0 && h == 0)) return;
+            // A wheel turned up is a positive AXIS_VSCROLL. High resolution wheels give fractions: fine scrolling
+            // keeps them, the Router makes whole steps for a target that takes only those
+            mouseIn.scrollFine(-v, h, io.github.n2ray.xdesk.input.Input.WHEEL);
         }
     };
 
@@ -1019,13 +1021,31 @@ public class XDeskActivity extends Activity {
 
     private final InputManager.InputDeviceListener deviceListener = new InputManager.InputDeviceListener() {
         @Override public void onInputDeviceAdded(int id) { updateCapture(); }
-        @Override public void onInputDeviceRemoved(int id) { updateCapture(); }
+        @Override public void onInputDeviceRemoved(int id) {
+            // A key or button held on a keyboard or mouse that went away would stay down on the target (§2 cancel)
+            keysIn.cancel();
+            mouseIn.cancel();
+            heldModifiers.clear();
+            if (keyView != null) keyView.clearMouse();
+            updateCapture();
+        }
         @Override public void onInputDeviceChanged(int id) { }
     };
 
     private final Runnable connectTimeout = new Runnable() {
         @Override public void run() {
             if (!session.isConnected()) showConnectFailure();
+        }
+    };
+
+    /**
+     * A content opened on the external display (a Mac's screen) may have taken the focused display: the phone's
+     * window then has neither the keyboard nor the captured mouse. Take it back once, as after placing the desktop.
+     */
+    private final Runnable regainFocus = new Runnable() {
+        @Override public void run() {
+            if (contentKey != null && activityStarted && !hasWindowFocus() && phoneForwards()
+                && chooser.getVisibility() != View.VISIBLE && !SwitcherOverlay.isShown()) refocusSelf();
         }
     };
 
@@ -1228,6 +1248,7 @@ public class XDeskActivity extends Activity {
         keyView = new KeyInputView(this, keySink);
         keyView.bridge().setCorrections(prefs.getBoolean(PREF_IME_CORRECTIONS, true));
         MacInput.translateModifiers = prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true);
+        mouseSpeed = prefs.getFloat(PREF_MOUSE_SPEED, 1f);
         screens.addView(keyView, new FrameLayout.LayoutParams(1, 1));
         return screens;
     }
@@ -2217,12 +2238,14 @@ public class XDeskActivity extends Activity {
             prefs.edit().putBoolean(PREF_TRANSLATE_MODIFIERS, on).apply();
             MacInput.translateModifiers = on;
         });
+        // Every mouse: the injector's for Android apps, the captured one for the X desktop and Macs (INPUT.md §12)
+        s.percentRow(input, getString(R.string.xd_mouse_speed), getString(R.string.xd_mouse_speed_note), Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
+            float v = p / 100f;
+            prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
+            mouseSpeed = v;
+            apps.setMouseSpeed(v);
+        });
         if (appMode) {
-            s.percentRow(input, getString(R.string.xd_mouse_speed), getString(R.string.xd_mouse_speed_note), Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
-                float v = p / 100f;
-                prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
-                apps.setMouseSpeed(v);
-            });
             s.switchRow(input, getString(R.string.xd_always_cursor), getString(R.string.xd_always_cursor_note), prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
                 prefs.edit().putBoolean(PREF_ALWAYS_CURSOR, on).apply();
                 apps.setAlwaysShowCursor(on);
@@ -2417,17 +2440,54 @@ public class XDeskActivity extends Activity {
             updateStatus();
             return true;
         }
-        if (client != null && !apps.isActive() && d != null && d.isExternal() && e.getScanCode() > 0 && phoneForwards()) {
+        boolean forwarding = client != null && !apps.isActive() && d != null && d.isExternal() && phoneForwards();
+        if (forwarding && mouseSideKey(e)) return true;
+        if (forwarding && e.getScanCode() > 0) {
             // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)
             if (mediaKey(e.getKeyCode())) return super.dispatchKeyEvent(e);
+            int scan = e.getScanCode();
+            if (!io.github.n2ray.xdesk.input.HeldModifiers.isModifier(scan)) heldModifiers.check(e.getMetaState(), releaseModifier);
             if (physicalText(e)) return true;
             if (e.getRepeatCount() == 0) {
-                if (e.getAction() == KeyEvent.ACTION_DOWN) keysIn.key(e.getScanCode(), true);
-                else if (e.getAction() == KeyEvent.ACTION_UP) keysIn.key(e.getScanCode(), false);
+                if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                    keysIn.key(scan, true);
+                    heldModifiers.sent(scan, true);
+                } else if (e.getAction() == KeyEvent.ACTION_UP) {
+                    keysIn.key(scan, false);
+                    heldModifiers.sent(scan, false);
+                }
+            } else if (e.getAction() == KeyEvent.ACTION_DOWN && keysIn.takesRepeats()) {
+                // A Mac that does not repeat by itself gets Android's repeats (INPUT.md §5.4: the target end repeats)
+                keysIn.key(scan, true);
             }
             return true;
         }
         return super.dispatchKeyEvent(e);
+    }
+
+    /** Physical modifiers sent as held, checked against Android's meta state (an input method may keep a release). */
+    private final io.github.n2ray.xdesk.input.HeldModifiers heldModifiers = new io.github.n2ray.xdesk.input.HeldModifiers();
+    private final io.github.n2ray.xdesk.input.HeldModifiers.Out releaseModifier = scan -> keysIn.key(scan, false);
+
+    /**
+     * A mouse's back and forward buttons: Android sends them as KEYCODE_BACK and KEYCODE_FORWARD from the mouse (no
+     * scan code) besides the button state, and the captured mouse leaves them to this one way. They go on as X
+     * buttons 8 and 9, which each target turns into its Back (⌘[ on a Mac). Unhandled they would be the phone's Back
+     * and close XDesk's window.
+     */
+    private boolean mouseSideKey(KeyEvent e) {
+        int code = e.getKeyCode();
+        if (code != KeyEvent.KEYCODE_BACK && code != KeyEvent.KEYCODE_FORWARD) return false;
+        InputDevice d = e.getDevice();
+        boolean mouse = e.getScanCode() == 0 && d != null && (d.supportsSource(InputDevice.SOURCE_MOUSE)
+            || d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE));
+        if (!mouse) return false;
+        if (e.getRepeatCount() == 0 && (e.getAction() == KeyEvent.ACTION_DOWN || e.getAction() == KeyEvent.ACTION_UP)) {
+            int button = code == KeyEvent.KEYCODE_BACK ? io.github.n2ray.xdesk.input.Input.BACK_BUTTON : io.github.n2ray.xdesk.input.Input.FORWARD_BUTTON;
+            // A cancelled up (focus moved) still lets go
+            mouseIn.button(button, e.getAction() == KeyEvent.ACTION_DOWN && !e.isCanceled());
+        }
+        return true;
     }
 
     private static boolean mediaKey(int code) {
@@ -2869,6 +2929,8 @@ public class XDeskActivity extends Activity {
             closeChooserOverSession();
             showRunning();
             updateCapture();
+            ui.removeCallbacks(regainFocus);
+            ui.postDelayed(regainFocus, REFOCUS_DELAY_MS * 2);
             updateStatus();
             refreshDocks();
             bumpIdle();
@@ -2917,6 +2979,8 @@ public class XDeskActivity extends Activity {
             client = apps.isActive() ? apps.input() : session.isActive() ? session.input() : null;
             refreshDocks();
             updateStatus();
+            // Nothing to capture the mouse for any more: it is the phone's again
+            updateCapture();
         }
     };
 

@@ -3,6 +3,7 @@ package com.termux.x11;
 import com.termux.x11.mac.HidKeys;
 import com.termux.x11.mac.MacClient;
 
+import io.github.n2ray.xdesk.input.Input;
 import java.util.HashSet;
 
 /**
@@ -31,7 +32,7 @@ final class MacInput implements InputSink {
     private final Switcher switcher;
     /** HID usages down now, as sent (after translation). */
     private final HashSet<Integer> down = new HashSet<>();
-    private boolean altHeld, shiftHeld, commandForAlt;
+    private boolean altHeld, shiftHeld, commandForAlt, tabStepped;
     /** INPUT.md §12 "modifier translation", for every Mac: off sends the keys as they are on the keyboard. */
     static volatile boolean translateModifiers = true;
 
@@ -102,6 +103,23 @@ final class MacInput implements InputSink {
         client.scroll(-dx * WHEEL_FRACTION, -dy * WHEEL_FRACTION);
     }
 
+    /**
+     * Fine scrolling with its phases (Caps.scrollPhases): the touchpad's two fingers reach the Mac as a trackpad
+     * gesture, began, deltas, ended, and the coast after the lift as momentum, so AppKit scrolls smoothly and
+     * rubber-bands instead of seeing wheel steps. A wheel (Input.WHEEL) is bare deltas.
+     */
+    @Override public synchronized boolean scrollFine(float dy, float dx, int phase) {
+        switch (phase) {
+        case Input.BEGIN: client.scrollGesture("began"); break;
+        case Input.END: client.scrollGesture("ended"); break;
+        case Input.MOMENTUM_BEGIN: client.scrollGesture("momentumBegan"); break;
+        case Input.MOMENTUM_END: client.scrollGesture("momentumEnded"); break;
+        default:
+            if (dx != 0 || dy != 0) client.scroll(-dx * WHEEL_FRACTION, -dy * WHEEL_FRACTION);
+        }
+        return true;
+    }
+
     // --- keys ---
 
     private long flags() {
@@ -143,8 +161,10 @@ final class MacInput implements InputSink {
                     commandForAlt = true;
                 }
                 send(HidKeys.TAB, isDown);
-            } else if (isDown) {
-                nextWindow(shiftHeld ? -1 : 1);
+            } else {
+                // One window per press: Android's repeats of a held Tab would flip through them all
+                if (isDown && !tabStepped) nextWindow(shiftHeld ? -1 : 1);
+                tabStepped = isDown;
             }
             return;
         }
@@ -161,6 +181,11 @@ final class MacInput implements InputSink {
             send(usage, false);
         }
         send(usage, isDown);
+    }
+
+    /** Android's repeats come here; the host's own repeat (keyRepeat) drops them again in key(). */
+    @Override public boolean takesRepeats() {
+        return true;
     }
 
     @Override public void tapKey(int scan) {
@@ -207,7 +232,7 @@ final class MacInput implements InputSink {
     /** Everything this side holds down goes up: the content left the screen, or a gesture was cancelled. */
     synchronized void releaseAll() {
         for (Integer u : new HashSet<>(down)) send(u, false);
-        commandForAlt = false;
+        commandForAlt = tabStepped = false;
         altHeld = shiftHeld = false;
     }
 }

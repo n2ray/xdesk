@@ -37,6 +37,7 @@ final class WindowScopedInput implements InputSink {
     @Override public void click(int button) { desktop.click(button); }
     @Override public void scroll(int dy, int dx) { desktop.scroll(dy, dx); }
     @Override public void key(int scan, boolean down) { desktop.key(scan, down); }
+    @Override public boolean takesRepeats() { return desktop.takesRepeats(); }
     @Override public void tapKey(int scan) { desktop.tapKey(scan); }
     @Override public void text(String s) { desktop.text(s); }
 }

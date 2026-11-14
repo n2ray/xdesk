@@ -45,16 +45,33 @@ final class KeyInputView extends View {
         });
     }
 
+    /** What the captured mouse holds, sent once whichever way the device reports its buttons. */
+    private final io.github.n2ray.xdesk.input.MouseButtons buttons = new io.github.n2ray.xdesk.input.MouseButtons();
+    private final io.github.n2ray.xdesk.input.MouseButtons.Out buttonOut = new io.github.n2ray.xdesk.input.MouseButtons.Out() {
+        @Override public void button(int b, boolean down) { sink.mouseButton(b, down); }
+    };
+
     private boolean onMouse(MotionEvent e) {
-        switch (e.getActionMasked()) {
+        int action = e.getActionMasked();
+        switch (action) {
         case MotionEvent.ACTION_MOVE:
-            sink.mouseMove(e.getX(), e.getY());
+        case MotionEvent.ACTION_HOVER_MOVE: {
+            // Captured moves are relative, and Android batches several into one event: each sample is its own delta
+            float dx = e.getX(), dy = e.getY();
+            for (int i = 0, n = e.getHistorySize(); i < n; i++) {
+                dx += e.getHistoricalX(i);
+                dy += e.getHistoricalY(i);
+            }
+            buttons.event(action, 0, e.getButtonState(), buttonOut);
+            if (dx != 0 || dy != 0) sink.mouseMove(dx, dy);
             break;
+        }
+        case MotionEvent.ACTION_DOWN:
+        case MotionEvent.ACTION_UP:
+        case MotionEvent.ACTION_CANCEL:
         case MotionEvent.ACTION_BUTTON_PRESS:
         case MotionEvent.ACTION_BUTTON_RELEASE:
-            int b = e.getActionButton();
-            int x = b == MotionEvent.BUTTON_PRIMARY ? 1 : b == MotionEvent.BUTTON_SECONDARY ? 3 : b == MotionEvent.BUTTON_TERTIARY ? 2 : 0;
-            if (x != 0) sink.mouseButton(x, e.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS);
+            buttons.event(action, e.getActionButton(), e.getButtonState(), buttonOut);
             break;
         case MotionEvent.ACTION_SCROLL:
             sink.mouseScroll(e.getAxisValue(MotionEvent.AXIS_VSCROLL), e.getAxisValue(MotionEvent.AXIS_HSCROLL));
@@ -63,6 +80,16 @@ final class KeyInputView extends View {
             break;
         }
         return true;
+    }
+
+    /** Capture is gone: buttons still down go up, as their releases will not come here (INPUT.md §2 cancel). */
+    void releaseMouse() {
+        buttons.releaseAll(buttonOut);
+    }
+
+    /** The Router already let go of the mouse's buttons (the device went away): forget them without sending. */
+    void clearMouse() {
+        buttons.clear();
     }
 
     @Override public void onPointerCaptureChange(boolean has) {
