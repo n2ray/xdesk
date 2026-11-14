@@ -176,8 +176,9 @@ final class MacInput implements InputSink {
         }
 
         if (isDown && down.contains(usage)) {
-            // Android's own repeat. The host repeats by itself when it says so; else one more press
-            if (HidKeys.isModifier(usage) || client.keyRepeat()) return;
+            // Android's own repeat. The host repeats by itself when it says so; else one more press. A locked Mac
+            // repeats nothing (Sill's LockPolicy), so there too: Backspace held over a mistyped password
+            if (HidKeys.isModifier(usage) || (client.keyRepeat() && !client.locked())) return;
             send(usage, false);
         }
         send(usage, isDown);

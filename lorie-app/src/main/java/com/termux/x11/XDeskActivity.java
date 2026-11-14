@@ -1091,14 +1091,30 @@ public class XDeskActivity extends Activity {
 
     /**
      * A content opened on the external display (a Mac's screen) may have taken the focused display: the phone's
-     * window then has neither the keyboard nor the captured mouse. Take it back once, as after placing the desktop.
+     * window then has neither the keyboard nor the captured mouse. (A Mac's screen takes no focus itself, but it is
+     * the focused app of the display on top, and Android then gives the focus to no window at all.) Take it back:
+     * soon, so the keyboard is not dead for seconds after a Mac opens, and looked at again twice, as a take-back
+     * that came before the content's window was up is undone by it.
      */
     private final Runnable regainFocus = new Runnable() {
         @Override public void run() {
-            if (contentKey != null && activityStarted && !hasWindowFocus() && phoneForwards()
-                && chooser.getVisibility() != View.VISIBLE && !SwitcherOverlay.isShown()) refocusSelf();
+            if (contentKey == null || !activityStarted || !phoneForwards() || chooser.getVisibility() == View.VISIBLE
+                || SwitcherOverlay.isShown()) return;
+            if (!hasWindowFocus()) {
+                Log.d(TAG, "focus: taking it back from the content's screen");
+                try {
+                    Intent self = new Intent(XDeskActivity.this, XDeskActivity.class);
+                    self.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    startActivity(self);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "focus", e);
+                }
+            }
+            if (--regainTries > 0) ui.postDelayed(this, REGAIN_AGAIN_MS);
         }
     };
+    private int regainTries;
+    private static final long REGAIN_FIRST_MS = 400, REGAIN_AGAIN_MS = 1200;
 
     private final Runnable recapture = new Runnable() {
         @Override public void run() { updateCapture(); }
@@ -3146,7 +3162,8 @@ public class XDeskActivity extends Activity {
             showRunning();
             updateCapture();
             ui.removeCallbacks(regainFocus);
-            ui.postDelayed(regainFocus, REFOCUS_DELAY_MS * 2);
+            regainTries = 3;
+            ui.postDelayed(regainFocus, REGAIN_FIRST_MS);
             updateStatus();
             refreshDocks();
             bumpIdle();
