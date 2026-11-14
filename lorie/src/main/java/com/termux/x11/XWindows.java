@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 @Keep
 final class XWindows {
     private static final String TAG = "XDeskWindows";
-    static final int ACTIVATE = 1, FULLSCREEN_ON = 2, FULLSCREEN_OFF = 3, CLOSE = 4;
+    static final int ACTIVATE = 1, FULLSCREEN_ON = 2, FULLSCREEN_OFF = 3, CLOSE = 4, MAXIMIZE_ON = 5, MAXIMIZE_OFF = 6;
     private static final String PREFIX = env("PREFIX", "/data/data/com.termux/files/usr");
     private static final Pattern KEY = Pattern.compile("[A-Za-z0-9._+@-]{1,100}(/[A-Za-z0-9._+@-]{1,200})?");
     private static final Pattern STARTUP_ID = Pattern.compile("[A-Za-z0-9._+@-]{0,200}");
@@ -91,7 +91,7 @@ final class XWindows {
     }
 
     static void command(int window, int command) {
-        if (command >= ACTIVATE && command <= CLOSE) nativeCommand(window, command);
+        if (command >= ACTIVATE && command <= MAXIMIZE_OFF) nativeCommand(window, command);
     }
 
     static ParcelFileDescriptor catalog() {

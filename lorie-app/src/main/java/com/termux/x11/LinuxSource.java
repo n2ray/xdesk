@@ -54,7 +54,18 @@ final class LinuxSource implements ContentSource {
     static final String PREFIX = "l:", APP = "l:a:", WINDOW = "l:w:";
     private static final String DEBUG_ACTION = "io.github.n2ray.xdesk.LINUX_DEBUG";
     private static final long WINDOW_TIMEOUT_MS = 15000, CATALOG_MAX_AGE_MS = 60000;
-    private static final int FLAG_FULLSCREEN = 1, FLAG_ACTIVE = 2;
+    private static final int FLAG_FULLSCREEN = 1, FLAG_ACTIVE = 2, FLAG_AUX = 8, FLAG_MAXIMIZED = 16;
+    /**
+     * Between maximizing a window and making it full screen. A program that draws its own frame (Chromium, GTK header
+     * bars) ignores a full screen state the window manager gives it and goes on drawing its shadow and round corners
+     * inside the full screen window; told it is maximized first, it draws flush to the edges, and the full screen
+     * state then only makes the window manager give it the whole screen. It has to see "maximized" alone once.
+     */
+    private static final long MAXIMIZE_FIRST_MS = 250;
+    /** A window gone from the list this long has closed (a program may withdraw and map it again at once). */
+    private static final long GONE_MS = 700;
+    /** After this long a launch takes a dialog or a splash for its window too: the program may have nothing else. */
+    private static final long AUX_AFTER_MS = 4000;
     private static final String CATALOG_FILE = "linux-apps.tsv";
 
     private static LinuxSource instance;
@@ -95,6 +106,7 @@ final class LinuxSource implements ContentSource {
         Set<Integer> before;
         Result result;
         Runnable timeout;
+        long since = SystemClock.uptimeMillis();
         /** Windows already asked about (isDescendant), so each is asked once. */
         final Set<Integer> asked = new HashSet<>();
     }
@@ -115,6 +127,12 @@ final class LinuxSource implements ContentSource {
     private Pending pending;
     /** The window this source made full screen (0: none), restored when another content takes the screen. */
     private int fullscreened;
+    /** The window this source maximized on the way to full screen (0: none), put back with it. */
+    private int maximized;
+    private Runnable fullscreenLater;
+    /** The content on the screen and its window, from show() until hidden() or the window closes. */
+    private String shownKey;
+    private int shownWindow;
     /**
      * Just after a launch the program may open more windows (Chromium restores its last session): for a moment the one
      * of them that becomes active is the one to show, not the first that appeared.
@@ -192,9 +210,31 @@ final class LinuxSource implements ContentSource {
 
     @Override public void hidden(String key) {
         if (pending != null && pending.key.equals(key)) cancelPending();
-        ICmdEntryInterface s = ensureServer();
-        if (fullscreened != 0 && s != null && windows.containsKey(fullscreened)) command(s, fullscreened, XWindows.FULLSCREEN_OFF);
+        if (key == null || key.equals(shownKey)) {
+            shownKey = null;
+            shownWindow = 0;
+            ui.removeCallbacks(shownGone);
+        }
+        if (key != null && key.equals(settleKey)) settleApp = null;
+        restore(ensureServer());
+    }
+
+    /** The window this source made full screen (and maximized) back as it was. */
+    private void restore(ICmdEntryInterface s) {
+        if (fullscreenLater != null) ui.removeCallbacks(fullscreenLater);
+        fullscreenLater = null;
+        Win f = windows.get(fullscreened), m = windows.get(maximized);
+        if (s != null && f != null) {
+            command(s, fullscreened, XWindows.FULLSCREEN_OFF);
+            // What the next snapshot will say: a show() before it comes must not take the window for full screen still
+            f.flags &= ~FLAG_FULLSCREEN;
+        }
+        if (s != null && m != null) {
+            command(s, maximized, XWindows.MAXIMIZE_OFF);
+            m.flags &= ~FLAG_MAXIMIZED;
+        }
         fullscreened = 0;
+        maximized = 0;
     }
 
     // --- opening ---
@@ -243,11 +283,14 @@ final class LinuxSource implements ContentSource {
         p.timeout = () -> {
             if (pending != p) return;
             pending = null;
+            ui.removeCallbacks(auxNow);
             Log.i(TAG, "No window from " + a.key);
             p.result.failed(p.key, context.getString(R.string.xd_linux_no_window, a.name));
         };
         pending = p;
         ui.postDelayed(p.timeout, WINDOW_TIMEOUT_MS);
+        ui.removeCallbacks(auxNow);
+        ui.postDelayed(auxNow, AUX_AFTER_MS + 100);
         Log.i(TAG, "Launching " + a.key);
         bg.execute(() -> {
             String r;
@@ -282,8 +325,12 @@ final class LinuxSource implements ContentSource {
     private void cancelPending() {
         if (pending == null) return;
         ui.removeCallbacks(pending.timeout);
+        ui.removeCallbacks(auxNow);
         pending = null;
     }
+
+    /** The launch has waited long enough for a main window: a dialog or splash of the program will do now. */
+    private final Runnable auxNow = this::matchPending;
 
     /** A new window is the launched program's: its startup id, its WM_CLASS, or a process it started. */
     private void matchPending() {
@@ -291,7 +338,9 @@ final class LinuxSource implements ContentSource {
         if (p == null) return;
         final ICmdEntryInterface s = server;
         List<Win> fresh = new ArrayList<>();
-        for (Win w : windows.values()) if (!p.before.contains(w.id)) fresh.add(w);
+        // A splash or a dialog is not the program's window while it may still open one (it would be made full screen)
+        boolean aux = SystemClock.uptimeMillis() - p.since >= AUX_AFTER_MS;
+        for (Win w : windows.values()) if (!p.before.contains(w.id) && (aux || (w.flags & FLAG_AUX) == 0)) fresh.add(w);
         for (Win w : fresh) {
             if ((!w.startupId.isEmpty() && w.startupId.equals(p.startupId)) || appOf(w) == p.app) {
                 matched(p, w.id);
@@ -319,7 +368,7 @@ final class LinuxSource implements ContentSource {
         for (Win w : windows.values()) {
             Win was = old.get(w.id);
             boolean nowActive = (w.flags & FLAG_ACTIVE) != 0 && (was == null || (was.flags & FLAG_ACTIVE) == 0);
-            if (nowActive && w.id != fullscreened && appOf(w) == settleApp) {
+            if (nowActive && w.id != shownWindow && (w.flags & FLAG_AUX) == 0 && settleKey.equals(shownKey) && appOf(w) == settleApp) {
                 Log.i(TAG, settleApp.key + " moved to window " + w.id);
                 show(s, w.id, settleKey, null);
                 return;
@@ -329,6 +378,7 @@ final class LinuxSource implements ContentSource {
 
     private void matched(Pending p, int window) {
         ui.removeCallbacks(p.timeout);
+        ui.removeCallbacks(auxNow);
         pending = null;
         settleApp = p.app;
         settleKey = p.key;
@@ -345,18 +395,59 @@ final class LinuxSource implements ContentSource {
         show(s, window, p.key, p.result);
     }
 
-    /** The one full screen window: the one before back to normal, this one activated (raised, unminimized) and full screen. */
-    private void show(ICmdEntryInterface s, int window, String key, Result result) {
-        if (fullscreened != 0 && fullscreened != window && windows.containsKey(fullscreened))
-            command(s, fullscreened, XWindows.FULLSCREEN_OFF);
+    /**
+     * The one full screen window: the one before back to normal, this one activated (raised, unminimized) and full
+     * screen, maximized first so that a program with its own frame draws none (MAXIMIZE_FIRST_MS).
+     */
+    private void show(final ICmdEntryInterface s, final int window, String key, Result result) {
+        if (fullscreened != window || (maximized != 0 && maximized != window)) restore(s);
         Win w = windows.get(window);
         boolean already = w != null && (w.flags & FLAG_FULLSCREEN) != 0;
         command(s, window, XWindows.ACTIVATE);
-        if (!already) command(s, window, XWindows.FULLSCREEN_ON);
+        if (!already && fullscreenLater == null) {
+            if (w != null && (w.flags & FLAG_MAXIMIZED) == 0 && maximized != window) {
+                command(s, window, XWindows.MAXIMIZE_ON);
+                maximized = window;
+                fullscreenLater = () -> {
+                    fullscreenLater = null;
+                    if (server == s && fullscreened == window && windows.containsKey(window)) command(s, window, XWindows.FULLSCREEN_ON);
+                };
+                ui.postDelayed(fullscreenLater, MAXIMIZE_FIRST_MS);
+            } else {
+                command(s, window, XWindows.FULLSCREEN_ON);
+            }
+        }
         // One the user made full screen stays so afterwards
         if (fullscreened != window) fullscreened = already ? 0 : window;
+        if (key != null) {
+            shownKey = key;
+            shownWindow = window;
+            ui.removeCallbacks(shownGone);
+        }
         if (result != null) result.shown(key, null);
     }
+
+    /**
+     * The window of the content on the screen closed: another window of the same program takes its place, else the
+     * content has ended and the host hears it (the external home comes back, the docks forget it).
+     */
+    private final Runnable shownGone = () -> {
+        final String key = shownKey;
+        if (key == null || windows.containsKey(shownWindow)) return;
+        ICmdEntryInterface s = server;
+        App a = key.startsWith(APP) ? app(key.substring(APP.length())) : null;
+        Win next = a != null ? newestWindowOf(a) : null;
+        if (next != null && s != null) {
+            Log.i(TAG, key + " goes on in window " + next.id);
+            show(s, next.id, key, null);
+            return;
+        }
+        Log.i(TAG, key + " has no window any more");
+        shownKey = null;
+        shownWindow = 0;
+        Contents.Host h = Contents.host();
+        if (h != null) h.contentEnded(key);
+    };
 
     private static void command(ICmdEntryInterface s, int window, int command) {
         if (window == 0) return;
@@ -406,10 +497,19 @@ final class LinuxSource implements ContentSource {
         windowIcons.clear();
         haveSnapshot = false;
         fullscreened = 0;
+        maximized = 0;
+        if (fullscreenLater != null) ui.removeCallbacks(fullscreenLater);
+        fullscreenLater = null;
+        // The host ends a Linux content itself when its X goes
+        shownKey = null;
+        shownWindow = 0;
+        ui.removeCallbacks(shownGone);
+        settleApp = null;
         if (pending != null) {
-            Pending p = pending;
+            // Launched on the X server that is gone: with the new one, or none, its window will never be seen
+            final Pending p = pending;
             cancelPending();
-            if (s == null) p.result.failed(p.key, context.getString(R.string.xd_linux_no_x));
+            ui.post(() -> p.result.failed(p.key, context.getString(R.string.xd_linux_no_x)));
         }
         if (s != null) {
             final ICmdEntryInterface listenTo = s;
@@ -438,8 +538,10 @@ final class LinuxSource implements ContentSource {
         }
         windowIcons.keySet().retainAll(windows.keySet());
         if (fullscreened != 0 && !windows.containsKey(fullscreened)) fullscreened = 0;
+        if (maximized != 0 && !windows.containsKey(maximized)) maximized = 0;
         settle(old);
         matchPending();
+        if (shownKey != null && !windows.containsKey(shownWindow) && !ui.hasCallbacks(shownGone)) ui.postDelayed(shownGone, GONE_MS);
         notifyChanged();
     }
 
@@ -574,10 +676,15 @@ final class LinuxSource implements ContentSource {
         return best;
     }
 
+    /** The program's most recently active window; a dialog or a splash (FLAG_AUX) only when it has no other. */
     private Win newestWindowOf(App a) {
         Win best = null;
-        for (Win w : windows.values())
-            if (appOf(w) == a && (best == null || w.lastActive > best.lastActive)) best = w;
+        for (Win w : windows.values()) {
+            if (appOf(w) != a) continue;
+            boolean aux = (w.flags & FLAG_AUX) != 0;
+            if (best == null || ((best.flags & FLAG_AUX) != 0 && !aux)
+                    || (aux == ((best.flags & FLAG_AUX) != 0) && w.lastActive > best.lastActive)) best = w;
+        }
         return best;
     }
 
@@ -683,6 +790,7 @@ final class LinuxSource implements ContentSource {
                 break;
         }
         Log.i(TAG, "server " + (ensureServer() != null) + ", snapshot " + haveSnapshot + ", fullscreen " + fullscreened
+                + ", maximized " + maximized + ", shown " + shownKey + " in " + shownWindow
                 + (pending != null ? ", waiting for " + pending.key + " pid " + pending.pid : ""));
         for (Entry e : apps()) Log.i(TAG, "app " + e.key + " \"" + e.label + "\"" + (e.icon != null ? " icon" : "") + (e.running ? " running" : ""));
         for (Entry e : windows()) Log.i(TAG, "window " + e.key + " \"" + e.label + "\" " + e.detail + (e.icon != null ? " icon" : ""));

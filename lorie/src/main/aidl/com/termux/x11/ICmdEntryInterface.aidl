@@ -20,7 +20,7 @@ interface ICmdEntryInterface {
     boolean isDescendant(int pid, int ancestor);
     /** Window snapshots and icons go to this listener from now on; null stops them. */
     void setWindowListener(IXWindowListener listener);
-    /** 1 activate, 2 fullscreen, 3 not fullscreen, 4 close, see XWindows. */
+    /** 1 activate, 2 fullscreen, 3 not fullscreen, 4 close, 5 maximize, 6 not maximized, see XWindows. */
     oneway void windowCommand(int window, int command);
     /** XDesk: runs xdesk scale dpi (XFCE's font DPI, panel, icons, cursor; DISPLAY.md §4.1) and returns at once. */
     oneway void setScale(int dpi);

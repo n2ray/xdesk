@@ -35,6 +35,8 @@
 #include <propertyst.h>
 #include <scrnintstr.h>
 #include <inputstr.h>
+#include <resource.h>
+#include <mi.h>
 
 #include "lorie.h"
 
@@ -45,10 +47,15 @@
 #define CMD_FULLSCREEN_ON 2
 #define CMD_FULLSCREEN_OFF 3
 #define CMD_CLOSE 4
+#define CMD_MAXIMIZE_ON 5
+#define CMD_MAXIMIZE_OFF 6
 
 #define FLAG_FULLSCREEN 1
 #define FLAG_ACTIVE 2
 #define FLAG_HIDDEN 4
+/* No window of its own to show as an app: transient for another window (a dialog), a splash, a toolbox */
+#define FLAG_AUX 8
+#define FLAG_MAXIMIZED 16
 
 #define MAX_TRACKED 256
 #define MAX_TEXT 400
@@ -67,6 +74,7 @@ static struct { Window id; Bool iconDirty; } tracked[MAX_TRACKED];
 static int nTracked;
 
 static Atom aClientList, aActive, aName, aUtf8, aState, aFullscreen, aHidden, aSkipTaskbar, aType, aTypeDock,
+        aMaxVert, aMaxHorz, aTypeSplash, aTypeUtility, aTypeToolbar, aTypeMenu,
         aTypeDesktop, aIcon, aPid, aStartupId, aCloseWindow;
 
 static Atom atom(const char *name) {
@@ -147,6 +155,13 @@ static Bool appendWindow(Buf *b, WindowPtr w, Window active) {
         return FALSE;
     if (hasAtom(state, aFullscreen)) flags |= FLAG_FULLSCREEN;
     if (hasAtom(state, aHidden)) flags |= FLAG_HIDDEN;
+    if (hasAtom(state, aMaxVert) && hasAtom(state, aMaxHorz)) flags |= FLAG_MAXIMIZED;
+    if (hasAtom(type, aTypeSplash) || hasAtom(type, aTypeUtility) || hasAtom(type, aTypeToolbar) || hasAtom(type, aTypeMenu)) {
+        flags |= FLAG_AUX;
+    } else {
+        CARD32 owner = card32(prop(w, XA_WM_TRANSIENT_FOR), None);
+        if (owner != None && w->parent && owner != w->drawable.pScreen->root->drawable.id) flags |= FLAG_AUX;
+    }
     if (w->drawable.id == active) flags |= FLAG_ACTIVE;
     clientPid = wClient(w) ? GetClientPid(wClient(w)) : -1;
     n = snprintf(head, sizeof(head), "%u\t%d\t%d\t%d\t", (unsigned) w->drawable.id,
@@ -338,6 +353,25 @@ static void sendToWindowManager(Window w, Atom type, CARD32 l0, CARD32 l1, CARD3
                           SubstructureRedirectMask | SubstructureNotifyMask, NullGrab);
 }
 
+/*
+ * A menu another program left open (xfdesktop's, right-clicked on the desktop) is an override-redirect window the
+ * window manager does not stack: it would stay drawn over the window that is made the content. A menu holds the
+ * pointer and the keyboard, so Escape goes to it alone and closes it. Only then, and never to the program the
+ * window belongs to: with no such grab the key would go to whatever has the focus.
+ */
+extern DeviceIntPtr lorieKeyboard;
+static void dismissForeignMenu(WindowPtr w) {
+    DeviceIntPtr pointer = inputInfo.pointer, keyboard = inputInfo.keyboard;
+    GrabPtr pg = pointer ? pointer->deviceGrab.grab : NULL, kg = keyboard ? keyboard->deviceGrab.grab : NULL;
+    if (!pg || !kg || !lorieKeyboard)
+        return;
+    if (CLIENT_ID(pg->resource) != CLIENT_ID(kg->resource) || CLIENT_ID(pg->resource) == CLIENT_ID(w->drawable.id))
+        return;
+    xlog(INFO, "closing a menu left open by client %d", (int) CLIENT_ID(pg->resource));
+    QueueKeyboardEvents(lorieKeyboard, KeyPress, 9); /* Escape */
+    QueueKeyboardEvents(lorieKeyboard, KeyRelease, 9);
+    mieqProcessInputEvents();
+}
 /* A request from Java (binder or UI thread), run on the X server thread: see drainRequests */
 #define CMD_SET_WANTED 100
 typedef struct Command { struct Command *next; Window window; int command; } Command;
@@ -348,12 +382,17 @@ static void runCommand(Command *c) {
     if (dixLookupWindow(&w, c->window, serverClient, DixGetAttrAccess) == Success) {
         switch (c->command) {
             case CMD_ACTIVATE:
+                dismissForeignMenu(w);
                 /* Source 2: a pager, which focus stealing prevention lets through */
                 sendToWindowManager(c->window, aActive, 2, currentTime.milliseconds, 0, 0);
                 break;
             case CMD_FULLSCREEN_ON:
             case CMD_FULLSCREEN_OFF:
                 sendToWindowManager(c->window, aState, c->command == CMD_FULLSCREEN_ON ? 1 : 0, aFullscreen, 0, 2);
+                break;
+            case CMD_MAXIMIZE_ON:
+            case CMD_MAXIMIZE_OFF:
+                sendToWindowManager(c->window, aState, c->command == CMD_MAXIMIZE_ON ? 1 : 0, aMaxVert, aMaxHorz, 2);
                 break;
             case CMD_CLOSE:
                 sendToWindowManager(c->window, aCloseWindow, currentTime.milliseconds, 2, 0, 0);
@@ -382,6 +421,12 @@ void lorieInitWindows(void) {
     aState = atom("_NET_WM_STATE");
     aFullscreen = atom("_NET_WM_STATE_FULLSCREEN");
     aHidden = atom("_NET_WM_STATE_HIDDEN");
+    aMaxVert = atom("_NET_WM_STATE_MAXIMIZED_VERT");
+    aMaxHorz = atom("_NET_WM_STATE_MAXIMIZED_HORZ");
+    aTypeSplash = atom("_NET_WM_WINDOW_TYPE_SPLASH");
+    aTypeUtility = atom("_NET_WM_WINDOW_TYPE_UTILITY");
+    aTypeToolbar = atom("_NET_WM_WINDOW_TYPE_TOOLBAR");
+    aTypeMenu = atom("_NET_WM_WINDOW_TYPE_MENU");
     aSkipTaskbar = atom("_NET_WM_STATE_SKIP_TASKBAR");
     aType = atom("_NET_WM_WINDOW_TYPE");
     aTypeDock = atom("_NET_WM_WINDOW_TYPE_DOCK");
