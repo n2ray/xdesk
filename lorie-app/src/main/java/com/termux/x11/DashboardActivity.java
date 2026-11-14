@@ -47,6 +47,9 @@ public class DashboardActivity extends Activity {
 
     @Override protected void onStart() {
         super.onStart();
+        // The switchboard is drawn over this as an overlay window. Without the permission for that there is only this
+        // window: it says what is missing, and that the phone's list works meanwhile
+        if (view != null) view.setHint(getString(android.provider.Settings.canDrawOverlays(this) ? R.string.xd_dash_choose : R.string.xd_dash_no_overlay));
         if (view != null) view.start();
     }
 

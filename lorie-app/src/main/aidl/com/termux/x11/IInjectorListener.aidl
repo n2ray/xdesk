@@ -15,4 +15,10 @@ oneway interface IInjectorListener {
     void onTopApp(String packageName) = 6;
     /** 触控 mode: where the fingers are on the display, in pixels. Empty when none are down. */
     void onFingers(in float[] x, in float[] y) = 7;
+    /**
+     * A relative move (a grabbed mouse, the phone's touchpad) asked for while the pointer was at the bottom edge of the
+     * display already, in pixels: what clamping takes away, and what the Dock opens by. dy below 0 once when the
+     * pointer has left the edge. held: a button or a finger is down.
+     */
+    void onEdgePush(int dx, int dy, boolean held) = 8;
 }

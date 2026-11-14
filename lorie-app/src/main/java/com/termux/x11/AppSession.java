@@ -145,13 +145,19 @@ final class AppSession {
                 lastCursorX = x;
                 lastCursorY = y;
                 cursorPolicy.moved(y);
-                pointerAtHeight(y);
+                pointerAtHeight(y, true);
                 pointerPlaced(x, y);
                 // Only what a computer does not place comes here: a touchpad or a mouse on the phone
                 webPointer = false;
                 cursor.moveTo(x, y);
                 updateCursor();
                 scheduleCursorHide();
+            });
+        }
+        @Override public void onEdgePush(final int dx, final int dy, final boolean held) {
+            ui.post(() -> {
+                BottomEdgeListener l = bottomEdge;
+                if (active && l != null) l.pushed(dx, dy, held);
             });
         }
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -245,7 +251,8 @@ final class AppSession {
             webPointer = false;
         }
         @Override public void moveToFraction(float x, float y) {
-            pointerAtHeight(y * cursorPolicy.height());
+            // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice
+            pointerAtHeight(y * cursorPolicy.height(), false);
             BottomEdgeListener l = bottomEdge;
             if (l != null && l.wantsPlace()) {
                 final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
@@ -390,7 +397,13 @@ final class AppSession {
     void raiseCursor() { cursor.raise(); }
 
     interface BottomEdgeListener {
-        void atBottom(boolean at);
+        /**
+         * @param pushable the pointer is moved by relative moves the injector clamps (the phone's touchpad, a mouse
+         *     grabbed for the app): pushes against the edge are reported (pushed), and resting there means nothing
+         */
+        void atBottom(boolean at, boolean pushable);
+        /** A move asked for while the pointer was at the bottom edge already (InputInjector.CursorListener.onEdgePush). */
+        void pushed(int dx, int dy, boolean held);
         /** Whether anything is on the screen that needs to know where the pointer is. */
         boolean wantsPlace();
         void placed(int x, int y);
@@ -410,13 +423,13 @@ final class AppSession {
         bottomEdge = l;
     }
 
-    private void pointerAtHeight(float y) {
+    private void pointerAtHeight(float y, final boolean pushable) {
         boolean at = y >= cursorPolicy.height() - BOTTOM_EDGE_PX;
         if (at == pointerAtBottom) return;
         pointerAtBottom = at;
         ui.post(() -> {
             BottomEdgeListener l = bottomEdge;
-            if (l != null) l.atBottom(at);
+            if (l != null) l.atBottom(at, pushable);
         });
     }
 

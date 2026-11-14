@@ -10,11 +10,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
-import java.util.List;
 
 /**
- * 启动器和控制界面共用的一行：先是当前应用（高亮）和上一个应用，方便来回切换，然后一条竖线，后面是收藏，可以横向滚动。只有图标，名字在无障碍说明里。这两个也可能在
- * 收藏里，两边都显示。两个都没有时连竖线一起隐藏。点一下切换外接屏上的内容，长按打开设置卡片。不抢键盘焦点。
+ * The switchboard's short strip on the phone's touchpad page (Switchboard.strip, as the external Dock): what is on the
+ * external screen (highlighted) and the one before it, for going back and forth, then a line, then the favourites,
+ * which scroll sideways. Icons only; the names are in the accessibility descriptions. Without the first two the line
+ * goes too. A tap puts the item on the external screen, a long press opens its card. Never takes the keyboard focus.
  */
 final class DockBar extends LinearLayout {
     interface Host {
@@ -55,49 +56,32 @@ final class DockBar extends LinearLayout {
         return Style.dp(getContext(), v);
     }
 
-    /**
-     * @param previousKey 上一个应用，没有是 null
-     * @param current 正在外接屏上的那一项，没有是 null
-     */
-    void setItems(List<String> keys, String previousKey, String current) {
+    /** The strip as the model has it now. */
+    void refresh() {
         previous.removeAllViews();
         row.removeAllViews();
-        View now = current != null ? item(current, true) : null;
-        if (now != null) previous.addView(now);
-        View prev = previousKey != null && !previousKey.equals(current) ? item(previousKey, false) : null;
-        if (prev != null) previous.addView(prev);
-        boolean hasLeft = now != null || prev != null;
+        boolean hasLeft = false, any = false;
+        for (Switchboard.Item it : Switchboard.get(getContext()).strip(false)) {
+            View v = item(it);
+            if (it.strip == Switchboard.STRIP_FAVOURITE) {
+                row.addView(v);
+                any = true;
+            } else {
+                previous.addView(v);
+                hasLeft = true;
+            }
+        }
         previous.setVisibility(hasLeft ? VISIBLE : GONE);
         divider.setVisibility(hasLeft ? VISIBLE : GONE);
-        for (String key : keys) {
-            View v = item(key, false);
-            if (v != null) row.addView(v);
-        }
-        if (hintWhenEmpty && keys.isEmpty()) {
+        if (hintWhenEmpty && !any) {
             row.addView(Style.label(getContext(), getContext().getString(R.string.xd_dock_empty), Style.TEXT_DIM, 13));
         }
     }
 
-    private View item(final String key, boolean current) {
-        ContentSource.Entry entry = Contents.find(key);
-        if (Contents.sourceOf(key) != null) {
-            if (entry == null) return null;  // the program is gone, or its list is not read yet
-            View cv = buildContent(entry, current);
-            cv.setOnClickListener(view -> {
-                Style.tick(view);
-                host.onDockTap(key);
-            });
-            cv.setOnLongClickListener(view -> {
-                host.onItemLongPress(key);
-                return true;
-            });
-            return cv;
-        }
-        AppCatalog catalog = AppCatalog.get(getContext());
-        boolean isApp = ChooserView.isAppKey(key);
-        AppCatalog.App app = isApp ? catalog.find(ChooserView.componentOf(key)) : null;
-        if (isApp && app == null) return null;  // 卸载了，或者列表还没读到
-        View v = build(app, app != null ? app.label : ChooserView.sessionOf(key), current);
+    private View item(final Switchboard.Item it) {
+        final String key = it.key;
+        boolean current = it.strip == Switchboard.STRIP_CURRENT;
+        View v = it.content ? buildContent(it, current) : build(it.app, it.title, current);
         v.setOnClickListener(view -> {
             Style.tick(view);
             host.onDockTap(key);
@@ -109,11 +93,11 @@ final class DockBar extends LinearLayout {
         return v;
     }
 
-    private View buildContent(ContentSource.Entry e, boolean current) {
-        View box = build(null, e.label, current);
+    private View buildContent(Switchboard.Item it, boolean current) {
+        View box = build(null, it.title, current);
         ImageView icon = new ImageView(getContext());
-        if (e.icon != null) icon.setImageBitmap(e.icon);
-        else icon.setImageDrawable(Style.letterIcon(getContext(), e.label));
+        if (it.bitmap != null) icon.setImageBitmap(it.bitmap);
+        else icon.setImageDrawable(Style.letterIcon(getContext(), it.desktop ? "\u25A3" : it.label));
         ViewGroup g = (ViewGroup) box;
         g.removeAllViews();
         g.addView(icon, new LayoutParams(dp(36), dp(36)));

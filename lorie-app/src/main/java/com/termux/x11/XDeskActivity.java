@@ -147,15 +147,29 @@ public class XDeskActivity extends Activity {
     private android.app.Dialog webCodeDialog;
     private DockBar runningDock;
     private ExternalDock externalDock;
-    private final ExternalLauncher.Host launcherHost = new ExternalLauncher.Host() {
-        @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
+    /** What the switchboard (Switchboard: the phone's list, the external Launchpad, the Docks) asks of this window. */
+    private final Switchboard.Host boardHost = new Switchboard.Host() {
+        @Override public List<String> favourites() { return savedLines(PREF_DOCK); }
         @Override public String current() { return currentKey(); }
         @Override public String previous() { return previousKey(); }
+        @Override public List<String> running() {
+            ArrayList<String> keys = new ArrayList<>();
+            String current = currentKey(), previous = previousKey();
+            if (current != null) keys.add(current);
+            if (previous != null && ChooserView.isAppKey(previous)) keys.add(previous);
+            // Only what is open: a Mac that is not connected still lists its desktop (that entry is how to connect it)
+            for (ContentSource s : Contents.sources()) for (ContentSource.Entry e : s.windows()) if (e.running) keys.add(e.key);
+            return keys;
+        }
+        @Override public boolean onCar() { return XDeskActivity.this.onCar(); }
         @Override public void open(String key) {
             if (ExternalLauncher.SWITCHER.equals(key)) showSwitcher(false);
             else chooseKey(key);
         }
         @Override public boolean card(String key) { return showItemCard(key); }
+        @Override public Context phone() { return isFinishing() || isDestroyed() ? null : XDeskActivity.this; }
+        @Override public void termuxHint() { chooserHost.onTermuxHint(); }
+        @Override public void attachX() { chooserHost.onAttachChosen(); }
     };
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
@@ -524,7 +538,7 @@ public class XDeskActivity extends Activity {
                 checkServerBuild();
                 adoptLaunched();
                 syncTermuxLater();
-                showRunning();
+                showOpened();
                 desktopConnected();
                 DesktopScale.connected();
                 if (takeDesktopWhenBack) {
@@ -993,10 +1007,23 @@ public class XDeskActivity extends Activity {
             if (!dock.remove(key)) dock.add(key);
             saveDock(dock);
         }
-        @Override public void onChooserClose() { closeChooserOverSession(); }
+        @Override public void onTouchpad() {
+            showRunning();
+            updateStatus();
+        }
+        @Override public void onToggleKeys() { ownership.toggle(); }
+        @Override public void onSearchTouched() {
+            if (chooserTyping) return;
+            // The list beside a mouse takes no focus (updatePhoneFocus); its search line needs it, and the keyboard
+            chooserTyping = true;
+            boolean wasPassive = phonePassive;
+            updatePhoneFocus();
+            // The touch that came to a window taking no focus did not bring the focus to the phone's display
+            if (wasPassive && !phonePassive) apps.focusDisplay(Display.DEFAULT_DISPLAY);
+            ui.postDelayed(searchFocus, SEARCH_FOCUS_MS);
+        }
         @Override public void onOpenSettings() { showSettings(); }
         @Override public void onChooseOutput() { chooseOutput(); }
-        @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
             phoneKeys = true;
             if (session.stopping() != null) {
@@ -1023,7 +1050,7 @@ public class XDeskActivity extends Activity {
             if (name.equals(runningSession)) {
                 if (session.isActive()) {
                     desktopName = name;
-                    closeChooserOverSession();
+                    showOpened();
                     updateStatus();
                 } else {
                     reattach();
@@ -1051,13 +1078,6 @@ public class XDeskActivity extends Activity {
             if (!session.isActive()) attachDisplay(d);
             showWaiting();
         }
-        @Override public void onContentChosen(String key) {
-            chooseContent(key);
-        }
-        @Override public void onAppChosen(AppCatalog.App app) {
-            leaveContentChoice();
-            chooseApp(app);
-        }
         @Override public void onNoDisplayHint() {
             showWirelessPicker();
         }
@@ -1072,6 +1092,7 @@ public class XDeskActivity extends Activity {
 
     private final InputManager.InputDeviceListener deviceListener = new InputManager.InputDeviceListener() {
         @Override public void onInputDeviceAdded(int id) {
+            applyDefaultPage();
             updateCapture();
             // A keyboard came: whether the X side has an input method for it is asked again (xdesk status)
             InputDevice d = InputDevice.getDevice(id);
@@ -1084,6 +1105,7 @@ public class XDeskActivity extends Activity {
             mouseIn.cancel();
             heldModifiers.clear();
             if (keyView != null) keyView.clearMouse();
+            applyDefaultPage();
             updateCapture();
         }
         @Override public void onInputDeviceChanged(int id) { }
@@ -1140,8 +1162,10 @@ public class XDeskActivity extends Activity {
      */
     private final Runnable regainFocus = new Runnable() {
         @Override public void run() {
-            if (contentKey == null || !activityStarted || !phoneForwards() || chooser.getVisibility() == View.VISIBLE
-                || SwitcherOverlay.isShown()) return;
+            // Not from the phone's list worked by finger alone. With a keyboard or mouse on the phone the list is the
+            // phone's page while the content runs (showOpened), and those need this window's focus to reach the content
+            boolean list = chooser.getVisibility() == View.VISIBLE && !(externalDisplay() != null && hasExternalInput() && !phoneTyping());
+            if (contentKey == null || !activityStarted || !phoneForwards() || list || SwitcherOverlay.isShown()) return;
             if (!hasWindowFocus()) {
                 Log.d(TAG, "focus: taking it back from the content's screen");
                 try {
@@ -1195,7 +1219,7 @@ public class XDeskActivity extends Activity {
         session = DesktopSession.get(this);
         apps = AppSession.get(this);
         catalog = AppCatalog.get(this);
-        ExternalLauncher.setHost(launcherHost);
+        Switchboard.get(this).setHost(boardHost);
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
@@ -1303,7 +1327,7 @@ public class XDeskActivity extends Activity {
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
         if (externalDock != null) externalDock.setDisplay(null);
-        if (ExternalLauncher.host() == launcherHost) ExternalLauncher.setHost(null);
+        if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
         ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
         if (desktopTaken) {
@@ -1886,9 +1910,20 @@ public class XDeskActivity extends Activity {
      * 外接屏上跑着应用时，手机窗口不拿焦点。摸手机屏会把焦点从外接屏抢过来，外接屏上的应用因此清掉选中的文字、收起键盘。
      * 不拿焦点时触摸照常收到。启动器的搜索框要焦点，那时才放开。
      */
+    private boolean chooserTyping;
+    private static final long SEARCH_FOCUS_MS = 200;
+    /** After the window became focusable for the search line: the focus and the keyboard, which the touch did not get. */
+    private final Runnable searchFocus = () -> {
+        if (chooser != null && chooserTyping && chooser.getVisibility() == View.VISIBLE) chooser.focusSearch();
+    };
+
     private void updatePhoneFocus() {
         if (chooser == null || setupScreen == null) return;
-        boolean passive = (apps.isActive() || (desktopTaken && session.isActive())) && chooser.getVisibility() != View.VISIBLE
+        // The list as the phone's page beside a mouse (showOpened) is worked by finger and needs no focus either: with
+        // it the keyboard would type into the phone, not into the app. Until its search line is touched
+        boolean list = chooser.getVisibility() == View.VISIBLE;
+        boolean listNeedsFocus = list && !(launcherIsDefault() && !chooserTyping);
+        boolean passive = (apps.isActive() || (desktopTaken && session.isActive())) && !listNeedsFocus
             && setupScreen.getVisibility() != View.VISIBLE;
         if (passive == phonePassive) return;
         phonePassive = passive;
@@ -2024,8 +2059,11 @@ public class XDeskActivity extends Activity {
     /** INPUT.md §7: one indicator for every kind of session, 键鼠在外屏 / 键鼠在本机. Tapping it switches. */
     private void showOwnership() {
         boolean on = ownership.forwarded();
-        forwardBtn.setLabel(getString(on ? R.string.xd_keys_external : R.string.xd_keys_phone));
+        String label = getString(on ? R.string.xd_keys_external : R.string.xd_keys_phone);
+        forwardBtn.setLabel(label);
         forwardBtn.setActive(on);
+        // The list's top row has the same button, there while this one is (applyModeToTopBar)
+        if (chooser != null) chooser.setKeys(apps.isActive() || session.isActive() || contentKey != null ? label : null, on);
     }
 
     private void updateAppStatus() {
@@ -2074,6 +2112,11 @@ public class XDeskActivity extends Activity {
             else setStatus(Style.OK, getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, label));
             return;
         }
+        // Nothing runs: the touchpad page then works the switchboard on the external screen, and there is nothing to warn of
+        if (!session.isActive() && contentKey == null) {
+            setStatus(Style.OK, "");
+            return;
+        }
         if (session.isConnected() && desktopTaken) setStatus(Style.OK, getString(R.string.xd_status_desktop_taken, desktopName != null ? desktopName : ""));
         else if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
         else setStatus(Style.WARN, getString(R.string.xd_status_desktop_not_connected));
@@ -2104,6 +2147,8 @@ public class XDeskActivity extends Activity {
     }
 
     private void showRunning() {
+        chooserTyping = false;
+        ui.removeCallbacks(searchFocus);
         if (chooser.getVisibility() == View.VISIBLE) {
             ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
             chooser.clearSearch();
@@ -2138,6 +2183,12 @@ public class XDeskActivity extends Activity {
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         bumpIdle();
         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            // The list's search was typed into and is not any more (its keyboard is gone): the list is worked by
+            // finger alone again, and the keyboard is the external app's (updatePhoneFocus)
+            if (chooserTyping && !phoneTyping()) {
+                chooserTyping = false;
+                updatePhoneFocus();
+            }
             lastFingerDown = android.os.SystemClock.uptimeMillis();
             if (apps.isActive()) apps.phoneTouched();
             // 摸手机屏会把焦点拿到手机上，设置页这类窗口关掉后焦点也留在手机屏
@@ -2610,7 +2661,8 @@ public class XDeskActivity extends Activity {
             // The Launchpad draws its own pointer, moved only through INPUT: a mouse left to Android moves nothing there
             boolean launchpad = client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown() && hasExternalMouse();
             // A content still opening (a Mac connecting) counts: the mouse stays off the phone until it is there
-            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
+            // The home without a mouse is worked by the phone's touchpad: nothing to capture, and nothing is
+            boolean want = home && hasExternalMouse() || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
                 && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
             // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
@@ -2622,8 +2674,10 @@ public class XDeskActivity extends Activity {
     }
 
     /**
-     * The external screen's home (DEVICES.md §4): nothing on it (the dashboard) and a mouse on the phone, so the
-     * mouse, the keyboard and the touchpad go to the Launchpad there, with its own pointer. Shown or taken away here.
+     * The external screen's home (DEVICES.md §4): nothing on it (the dashboard), so the switchboard is what it shows,
+     * and the mouse (if the phone has one), the keyboard and the phone's touchpad go to it there, with its own
+     * pointer. With or without a mouse: the touchpad reaches it as the `client` like any target. Not on the car's
+     * display, and not without the permission to draw over apps (the dashboard says so). Shown or taken away here.
      * @return whether the home has the input now
      */
     private boolean updateHome() {
@@ -2633,7 +2687,7 @@ public class XDeskActivity extends Activity {
         // still said "+apps" after 整个桌面 was chosen, and the home then covered the whole desktop
         boolean idleX = session.isActive() && desktopName != null && desktopName.endsWith(Devices.APPS_ONLY);
         boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && (!session.isActive() || idleX) && contentKey == null
-            && pendingContent == null && !desktopTaken && phoneForwards() && (idleX || hasExternalMouse());
+            && pendingContent == null && !desktopTaken && phoneForwards();
         if (!want) {
             if (SwitcherOverlay.isHome()) SwitcherOverlay.hide(switcherHost);
             return false;
@@ -2962,8 +3016,8 @@ public class XDeskActivity extends Activity {
     private void showChooser() {
         MacSource.userLooking();  // the Mac rows should be fresh: connect paired Macs now
         setupScreen.setVisibility(View.GONE);
-        chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
+        updateChooserTop();
         applyFullscreen();
         // With an external screen the mouse stays there (its home, the desktop, a Mac) while fingers work this list;
         // without, it is let go
@@ -2976,10 +3030,11 @@ public class XDeskActivity extends Activity {
     private void openChooserOverSession() {
         MacSource.userLooking();
         setupScreen.setVisibility(View.GONE);
-        chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
+        updateChooserTop();
         applyFullscreen();
         updateCapture();
+        updateAudioChip();
         refreshChooser();
     }
 
@@ -2987,10 +3042,79 @@ public class XDeskActivity extends Activity {
         showRunning();
     }
 
+    /**
+     * The list's Touchpad button: there whenever the touchpad page has a use. While something runs; and whenever an
+     * external screen (not the car's) is there, whose home is worked with the touchpad when the phone has no mouse.
+     */
+    private void updateChooserTop() {
+        Display d = externalDisplay();
+        chooser.setTouchpadShown(apps.isActive() || session.isActive() || contentKey != null || (d != null && !TargetDisplay.isCar(d)));
+        showOwnership();
+    }
+
+    // --- the phone's page while something is on the external screen (DEVICES.md §3.1) ---
+
+    // The page the user chose himself (Touchpad, Launcher, Back) needs no state: nothing changes it but the two
+    // moments below, something opened (showOpened) and a mouse coming or going (applyDefaultPage)
+    /** launcherIsDefault() as it was when the default was last applied. */
+    private boolean launcherWasDefault;
+
+    /**
+     * With an external screen and a mouse on the phone, the mouse works that screen and the phone is not needed as a
+     * touchpad: its page is the list. Without a mouse the phone is the touchpad.
+     */
+    private boolean launcherIsDefault() {
+        return externalDisplay() != null && hasExternalMouse();
+    }
+
+    /** Something was opened, or came back, on the external screen: the phone's page by the rule, whatever was chosen by hand before. */
+    private void showOpened() {
+        launcherWasDefault = launcherIsDefault();
+        if (!launcherWasDefault) {
+            showRunning();
+            return;
+        }
+        chooserTyping = false;
+        ui.removeCallbacks(searchFocus);
+        if (chooser.getVisibility() != View.VISIBLE || setupScreen.getVisibility() == View.VISIBLE) {
+            openChooserOverSession();
+        } else {
+            // The list stays: what showRunning does for the touchpad page, without leaving
+            ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
+            chooser.clearSearch();
+            chooser.setNotice(null);
+            displayNoticeShown = false;
+            updateChooserTop();
+            applyFullscreen();
+            refreshDocks();
+        }
+        // The keys and the captured mouse go through this view, also while the list is what shows
+        keyView.requestFocus();
+        updateCapture();
+    }
+
+    /** A mouse came or went: the default page again, also over a page chosen by hand. Only while something runs. */
+    private void applyDefaultPage() {
+        if (chooser == null || keyView == null) return;
+        boolean now = launcherIsDefault();
+        if (now == launcherWasDefault) return;
+        launcherWasDefault = now;
+        boolean running = (apps.isActive() && apps.isStarted()) || session.isConnected() || contentKey != null;
+        // Nothing runs: the list is the page anyway. A setup screen is saying something, the search is being typed into
+        if (!running || setupScreen.getVisibility() == View.VISIBLE || phoneTyping()) return;
+        boolean list = chooser.getVisibility() == View.VISIBLE;
+        if (now && !list) openChooserOverSession();
+        else if (!now && list) showRunning();
+    }
+
     @Override public void onBackPressed() {
         if (padFullscreen) setFullscreenWanted(false);
         else if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
-        else super.onBackPressed();
+        else if (chooser.getVisibility() != View.VISIBLE && setupScreen.getVisibility() != View.VISIBLE
+                && !apps.isActive() && !session.isActive() && contentKey == null) {
+            // The touchpad page with nothing running (it was working the external home): back to the list, not out
+            showChooser();
+        } else super.onBackPressed();
     }
 
     /** 外接屏上现在是什么，和 Dock、最近使用同一种写法。 */
@@ -3014,13 +3138,16 @@ public class XDeskActivity extends Activity {
     }
 
     private void refreshRunningDock() {
-        if (runningDock != null) runningDock.setItems(savedLines(PREF_DOCK), previousKey(), currentKey());
-        ExternalLauncher.changed();
+        if (runningDock != null) runningDock.refresh();
     }
 
+    /**
+     * The favourites, what is on the external screen or the apps changed: every view of the switchboard (the phone's
+     * list, the Launchpad, the Docks) draws the model again.
+     */
     private void refreshDocks() {
+        Switchboard.get(this).changed();
         refreshRunningDock();
-        chooser.setDock(savedLines(PREF_DOCK), previousKey(), currentKey());
     }
 
     private void saveDock(List<String> dock) {
@@ -3110,19 +3237,6 @@ public class XDeskActivity extends Activity {
     };
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
-        @Override public List<String> running() {
-            ArrayList<String> keys = new ArrayList<>();
-            String current = currentKey(), previous = previousKey();
-            if (current != null) keys.add(current);
-            if (previous != null && ChooserView.isAppKey(previous)) keys.add(previous);
-            // Only what is open: a Mac that is not connected still lists its desktop (that entry is how to connect it)
-            for (ContentSource s : Contents.sources()) for (ContentSource.Entry e : s.windows()) if (e.running) keys.add(e.key);
-            return keys;
-        }
-        @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
-        @Override public String current() { return currentKey(); }
-        @Override public void open(String key) { chooseKey(key); }
-        @Override public boolean card(String key) { return showItemCard(key); }
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;
@@ -3239,9 +3353,7 @@ public class XDeskActivity extends Activity {
             contentKey = key;
             // A Linux program alone on the screen is a window (WindowScopedInput), not the whole desktop
             setTarget(input != null ? input : new WindowScopedInput(session.input()));
-            closeChooserOverSession();
-            showRunning();
-            updateCapture();
+            showOpened();
             ui.removeCallbacks(regainFocus);
             regainTries = 3;
             ui.postDelayed(regainFocus, REGAIN_FIRST_MS);
@@ -3325,6 +3437,9 @@ public class XDeskActivity extends Activity {
             if (key.equals(pendingContent)) pendingContent = null;
             if (!key.equals(contentKey)) return;
             contentKey = null;
+            // Giving the keys to the phone lasts for one content (chooseKey): with it gone they are the screen's
+            // again, or the home that comes now had neither keyboard nor mouse
+            phoneKeys = true;
             setTarget(apps.isActive() ? apps.input() : session.isActive() ? session.input() : null);
             if (!key.startsWith(LinuxSource.PREFIX)) resumeUnderContent();
             refreshDocks();
@@ -3371,7 +3486,7 @@ public class XDeskActivity extends Activity {
         if (apps.isActive() && apps.isStarted() && apps.hasDisplay() && apps.hasInjector()) {
             rememberRecent(ChooserView.recentKey(a));
             apps.switchTo(a);
-            showRunning();
+            showOpened();
         } else {
             retryRequested = true;
             startApp(a);
@@ -3412,13 +3527,9 @@ public class XDeskActivity extends Activity {
         updateChooserDisplay();
         refreshTermux();
         // 先用上次存的，马上就有；后台读完再更新
-        chooser.setApps(catalog.apps());
         refreshDocks();
         catalog.refresh(new Runnable() {
-            @Override public void run() {
-                chooser.setApps(catalog.apps());
-                refreshDocks();
-            }
+            @Override public void run() { refreshDocks(); }
         });
     }
 
@@ -3429,6 +3540,7 @@ public class XDeskActivity extends Activity {
             chooser.setNotice(null);
         }
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
+        updateChooserTop();
         audioRoute.setCar(onCar());
     }
 
@@ -3624,6 +3736,7 @@ public class XDeskActivity extends Activity {
         if (pendingContent != null && pendingContent.startsWith(LinuxSource.PREFIX)) pendingContent = null;
         desktopThen = null;
         desktopFailed = null;
+        phoneKeys = true;  // given to the phone for this desktop only (chooseKey)
         takeDesktopWhenBack = false;
         ui.removeCallbacks(retakeDesktop);
         setDesktopTaken(false);
@@ -3908,7 +4021,7 @@ public class XDeskActivity extends Activity {
 
     private void attachApp() {
         setTarget(apps.input());
-        showRunning();
+        showOpened();
         updateCapture();
         updateStatus();
         bumpIdle();
@@ -3998,7 +4111,7 @@ public class XDeskActivity extends Activity {
         if (session.isConnected()) {
             adoptLaunched();
             syncTermuxLater();
-            showRunning();
+            showOpened();
             updateStatus();
             return;
         }
@@ -4039,7 +4152,7 @@ public class XDeskActivity extends Activity {
     private void attachSession() {
         setTarget(session.input());
         if (session.isConnected()) {
-            showRunning();
+            showOpened();
             updateStatus();
         } else {
             showWaiting();

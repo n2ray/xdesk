@@ -1,0 +1,62 @@
+package com.termux.x11;
+
+import android.os.SystemClock;
+
+/**
+ * When the external Dock is called, the same for every kind of content (DISPLAY.md §7): the pointer is at the bottom
+ * edge of the screen and is pushed further down. Only what goes beyond the edge counts, so each move is given here
+ * as it was asked for, not as it was clamped. The push has to last (DWELL_MS) and to be far enough (PUSH), without a
+ * pause longer than GAP_MS and more down than sideways. Resting on the bottom row does not open the Dock, nor does a
+ * flick that lands there: a taskbar, a tab or a navigation bar at the bottom of the picture is clicked exactly so.
+ *
+ * A whole desktop (XFCE, a Mac's screen) has things of its own at that edge, a panel, the Mac's Dock that shows itself
+ * when the pointer reaches the edge: there the push is DESKTOP_DWELL_MS and DESKTOP_PUSH, long after the Mac's Dock
+ * has come, so a touch of the edge is the Mac's and a push kept up is XDesk's.
+ *
+ * The one implementation of the rule: DockPointer feeds it over X and a Mac (the phone's own moves, the content
+ * draws the pointer), ExternalDock over an Android app (the injector's moves, reported from its process). Whether the
+ * pointer is at the edge and whether a button is held is the caller's to know: it calls forget() when not. Main thread.
+ */
+final class EdgePush {
+    private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 700, GAP_MS = 250;
+    /** In units of pointer movement, about pixels of the content. */
+    private static final int PUSH = 60, DESKTOP_PUSH = 240, SIDE_SLACK = 12;
+
+    private long edgeSince, lastPush;
+    private int push, side;
+
+    /** The pointer left the edge, moved up, a button is held: whatever was counted is void. */
+    void forget() {
+        edgeSince = 0;
+        push = side = 0;
+    }
+
+    /**
+     * A move asked for while the pointer is at the bottom edge with no button held.
+     * @param desktop over a whole desktop, which has its own things at the edge: the longer push
+     * @return true when this completes the push: open the Dock. It starts over then.
+     */
+    boolean pushed(int dx, int dy, boolean desktop) {
+        if (dy < 0) {
+            forget();
+            return false;
+        }
+        long now = SystemClock.uptimeMillis();
+        if (edgeSince == 0 || now - lastPush > GAP_MS) {
+            edgeSince = lastPush = now;
+            push = side = 0;
+        }
+        if (dy > 0) lastPush = now;
+        push += dy;
+        side += Math.abs(dx);
+        if (side > push + SIDE_SLACK) {
+            // Along the edge, not against it: start again
+            edgeSince = now;
+            push = side = 0;
+            return false;
+        }
+        if (now - edgeSince < (desktop ? DESKTOP_DWELL_MS : DWELL_MS) || push < (desktop ? DESKTOP_PUSH : PUSH)) return false;
+        forget();
+        return true;
+    }
+}

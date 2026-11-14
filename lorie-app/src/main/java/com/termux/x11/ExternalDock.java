@@ -16,20 +16,29 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
-import java.util.List;
 
 /**
- * The dock at the bottom of the external display: the current and the previous app, then the favourites. Over Android
- * apps a strip a few pixels high along the bottom edge notices the pointer resting there; the dock then slides up and
- * goes again when the pointer leaves it. It never takes the keyboard focus.
+ * The dock at the bottom of the external display: the switchboard's short strip (Switchboard.strip), what is on the
+ * screen and the one before it, then the favourites, then "All", which opens the whole of it. It never takes the
+ * keyboard focus.
  *
- * An app in touch mode gets no hover events, and the input method can cover the strip, so where the pointer is comes
- * from the phone as well; a mouse the phone handles itself is only heard through hover.
+ * It is called the same way over everything: the pointer is at the bottom edge and is pushed further down (EdgePush).
+ * Who knows about the push differs.
+ *
+ * Over an Android app whose pointer is XDesk's (the phone's touchpad, a mouse grabbed for the app) the injector
+ * reports what is pushed beyond the edge (pushed). The dock then slides up; it is worked by Android's own pointer,
+ * which is what that pointer is, and goes again when the pointer leaves it. An app in touch mode gets no hover events
+ * and the input method can cover the dock's edge, so where the pointer is comes from the phone as well (placed).
  *
  * Over an X desktop or a Mac there is no Android pointer on this display at all (the phone's mouse is captured and
- * sent on, the content draws its pointer). There the dock is "driven": DockPointer opens it (openDriven) when the
- * content's pointer is pushed against the bottom, and moves and clicks a pointer the dock draws itself, until that
- * pointer leaves upwards, something is opened, or closeDriven.
+ * sent on, the content draws its pointer). There the dock is "driven": DockPointer opens it (openDriven) by the same
+ * rule, and moves and clicks a pointer the dock draws itself, until that pointer leaves upwards, something is opened,
+ * or closeDriven.
+ *
+ * The one case left where resting at the edge opens it: a pointer XDesk does not move. That is a mouse the phone
+ * handles itself over an Android app (the keys and mouse are "on the phone": only its hover over a strip a few pixels
+ * high is heard, never how far it was pushed), and a pointer placed from a receiver or a browser (it stops at the
+ * edge of its own picture). Nothing beyond the edge can be known there.
  */
 final class ExternalDock implements AppSession.BottomEdgeListener {
     private static final String TAG = "XDesk";
@@ -63,6 +72,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     private int width, height;
 
     private final Runnable open = () -> open(0);
+    /** The push that calls the dock over an Android app, from what the injector reports. */
+    private final EdgePush rule = new EdgePush();
     private final Runnable close = this::close;
     private final Runnable openFromEdge = this::openFromEdge;
 
@@ -78,17 +89,35 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         this.ime = ime;
     }
 
-    /** The pointer's place, for when the input method lies over the strip and the strip hears nothing. */
-    @Override public void atBottom(boolean at) {
+    /**
+     * The pointer's place at the edge, known from the phone (the strip may be under the input method and hear
+     * nothing). A pointer that can be pushed opens the dock by the push alone (pushed); for one that is placed
+     * (a receiver's, a browser's) resting here is all there is.
+     */
+    @Override public void atBottom(boolean at, boolean pushable) {
         atEdge = at;
+        if (!at) rule.forget();
         if (windows == null) return;
         if (at) {
             ui.removeCallbacks(close);
-            if (panel == null) later(openFromEdge, EDGE_DWELL_MS);
+            if (panel == null && !pushable) later(openFromEdge, EDGE_DWELL_MS);
         } else {
             ui.removeCallbacks(openFromEdge);
             if (panel != null && lift > 0) later(close, LONG_WAY_MS);
         }
+    }
+
+    /**
+     * Over an Android app: a move the injector was asked for with the pointer at the bottom edge already. The same
+     * rule as over X and a Mac, with a single window's thresholds (an app has no panel of its own to tell apart).
+     * With the input method up the dock opens above it, as from the edge before.
+     */
+    @Override public void pushed(int dx, int dy, boolean held) {
+        if (windows == null || panel != null || held) {
+            rule.forget();
+            return;
+        }
+        if (rule.pushed(dx, dy, false)) openFromEdge();
     }
 
     @Override public boolean wantsPlace() {
@@ -210,11 +239,15 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         strip = new View(dc);
         strip.setOnHoverListener((v, e) -> {
             int action = e.getActionMasked();
+            // What XDesk injects comes from no input device; that pointer opens the dock by its push (pushed). A
+            // real mouse here is one the phone handles itself: its resting is the only sign there is
+            android.view.InputDevice from = e.getDevice();
+            boolean own = from == null || from.isVirtual();
             if (action == MotionEvent.ACTION_HOVER_EXIT) {
                 ui.removeCallbacks(open);
                 if (panel != null) later(close, LEAVE_MS);
             } else if (panel == null) {
-                if (!ui.hasCallbacks(open)) ui.postDelayed(open, DWELL_MS);
+                if (!own && !ui.hasCallbacks(open)) ui.postDelayed(open, DWELL_MS);
             } else {
                 ui.removeCallbacks(close);
             }
@@ -247,9 +280,10 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     }
 
     private void open(int above) {
-        ExternalLauncher.Host h = ExternalLauncher.host();
-        if (h == null || panel != null || windows == null) return;
-        Panel fresh = new Panel(h);
+        if (panel != null || windows == null) return;
+        Switchboard board = Switchboard.get(context);
+        if (board.host() == null) return;  // the phone's window is gone: nothing could be opened
+        Panel fresh = new Panel(board);
         if (fresh.empty()) return;
         try {
             WindowManager.LayoutParams p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, "XDesk dock");
@@ -290,6 +324,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
 
     private void detach() {
         ui.removeCallbacksAndMessages(null);
+        rule.forget();
         if (panel != null) remove(panel);
         panel = null;
         showing = false;
@@ -311,7 +346,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         private boolean visited;
         private final int[] place = new int[2];
 
-        Panel(ExternalLauncher.Host h) {
+        Panel(Switchboard board) {
             super(dc);
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER_HORIZONTAL);
@@ -342,32 +377,28 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             back.setStroke(Math.max(1, dp(0.5f)), EDGE);
             bar.setBackground(back);
             addView(bar, new LayoutParams(-2, -2));
-            fill(h);
+            fill(board);
         }
 
         boolean empty() {
             return items == 0;
         }
 
-        private void fill(ExternalLauncher.Host h) {
+        /** The strip as the model has it; as many as fit, the last tile ("All") always. */
+        private void fill(Switchboard board) {
             int room = (int) (dc.getResources().getDisplayMetrics().widthPixels * WIDTH_USED - dp(2 * PAD_DP + 32));
             int each = dp(ICON_DP + ITEM_GAP_DP);
             int most = Math.max(1, room / each);
-            String current = h.current(), previous = h.previous();
-            boolean left = false;
-            if (current != null && ExternalLauncher.exists(dc, current) && items < most) {
-                bar.addView(item(current, true));
-                left = true;
-            }
-            if (previous != null && !previous.equals(current) && ExternalLauncher.exists(dc, previous) && items < most) {
-                bar.addView(item(previous, false));
-                left = true;
-            }
-            List<String> favorites = h.favorites();
-            boolean line = false;
-            for (String key : favorites) {
-                if (items >= most || !ExternalLauncher.exists(dc, key)) continue;
-                if (left && !line) {
+            boolean left = false, line = false;
+            for (Switchboard.Item it : board.strip(true)) {
+                if (it.strip == Switchboard.STRIP_ALL) {
+                    bar.addView(item(board, it));
+                    continue;
+                }
+                if (items >= most) continue;
+                if (it.strip != Switchboard.STRIP_FAVOURITE) {
+                    left = true;
+                } else if (left && !line) {
                     line = true;
                     View divider = new View(dc);
                     divider.setBackgroundColor(EDGE);
@@ -376,12 +407,13 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                     at.bottomMargin = dp(12);
                     bar.addView(divider, at);
                 }
-                bar.addView(item(key, false));
+                bar.addView(item(board, it));
             }
-            bar.addView(item(ExternalLauncher.SWITCHER, false));
         }
 
-        private View item(final String key, boolean running) {
+        private View item(final Switchboard board, Switchboard.Item it) {
+            final String key = it.key;
+            boolean running = it.strip == Switchboard.STRIP_CURRENT;
             items++;
             LinearLayout box = new LinearLayout(dc);
             box.setOrientation(VERTICAL);
@@ -404,8 +436,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             dotAt.topMargin = dp(4);
             dotAt.bottomMargin = dp(2);
             box.addView(dot, dotAt);
-            final String label = ExternalLauncher.label(dc, key);
-            box.setContentDescription(label);
+            // The name as the lists have it: a whole desktop says whose, not its session's name
+            box.setContentDescription(it.title);
             box.setOnHoverListener((v, e) -> {
                 int action = e.getActionMasked();
                 if (action == MotionEvent.ACTION_HOVER_ENTER) setOver(v);
@@ -413,13 +445,13 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                 return false;
             });
             box.setOnClickListener(v -> {
-                ExternalLauncher.open(dc, key);
+                board.open(key);
                 close();
             });
             // The secondary button (Android's own mouse, or secondaryDriven): the item's card, which is on the phone.
             // Taken also when there is none (the Launchpad's tile), or it would count as a click
             box.setOnContextClickListener(v -> {
-                if (ExternalLauncher.card(key)) showName(dc.getString(R.string.xd_card_on_phone), v);
+                if (board.card(key)) showName(dc.getString(R.string.xd_card_on_phone), v);
                 return true;
             });
             LayoutParams at = new LayoutParams(-2, -2);

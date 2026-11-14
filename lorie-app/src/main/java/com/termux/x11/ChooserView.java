@@ -7,6 +7,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
@@ -18,43 +19,43 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import com.termux.x11.app.R;
-import java.text.Collator;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
 /**
- * 手机屏上的启动器（DEVICES.md §3）：标题栏；按设备分的标签（收藏、手机、每个外部设备、「+」）；外部设备的状态和连接/断开；
- * 每个标签自己的搜索；列表按首字母排序，右边是 A–Z 条，隐藏的在最后一折里。
- * 没有外接屏时也能看，只是启动不了。会话进行中它只是盖在会话上的一层，外接屏不变。
+ * The switchboard on the phone's screen (DEVICES.md §3), as a list: the top row (to the touchpad, whose the keys are,
+ * the sound, the settings); the tabs (running, favourites, the phone, each device, "+"); the tab's device bar; the
+ * search; the rows with their section titles, the A–Z bar at the right, the hidden fold at the end. What the tabs,
+ * the rows and the bar are comes from Switchboard, the same model the external screen draws as a grid
+ * (SwitcherOverlay); this only draws it and has the list's own gestures. Without an external display it can be
+ * looked at, only nothing starts. While something runs it is a layer over the touchpad page; the external screen
+ * stays as it is.
  */
 final class ChooserView extends LinearLayout {
     interface Host extends DockBar.Host {
+        /** A whole desktop was chosen (XDeskActivity's own way in, from chooseKey). */
         void onSessionChosen(String name);
         /** 只当显示器，等用户自己运行 xdesk 命令。 */
         void onAttachChosen();
-        void onAppChosen(AppCatalog.App app);
-        /** A Linux program, an X window, a Mac app or window: any key of a ContentSource (Contents). */
-        void onContentChosen(String key);
         /** 点了 Termux 那一节的提示行。 */
         void onTermuxHint();
         /** 点了没有外接屏的提示：打开无线显示。 */
         void onNoDisplayHint();
         /** 点了一行右边的星。 */
         void onDockToggle(String key);
-        /** 盖在会话上时回到触摸板。 */
-        void onChooserClose();
-        /** 结束运行中的 Termux 环境。打开或退出 XDesk 不会结束它，这是明确的操作。 */
-        void onSessionStop(String name);
+        /** The Touchpad button: the touchpad page instead of this list. */
+        void onTouchpad();
+        /** Whose the physical keyboard and mouse are, switched (as Ctrl+Alt+M). */
+        void onToggleKeys();
+        /** A finger went down on the search line: it is about to be typed into. */
+        void onSearchTouched();
         /** 声音输出，所有地方是同一个设置。 */
         void onChooseOutput();
         void onOpenSettings();
     }
 
     private static final String RECENT_SESSION = "t:", RECENT_APP = "a:";
-    private static final String TAB_FAVOURITES = "fav";
     /** Fewer entries than this need no A–Z bar. */
     private static final int INDEX_MIN = 12;
 
@@ -78,54 +79,31 @@ final class ChooserView extends LinearLayout {
         return sessionKey.substring(RECENT_SESSION.length());
     }
 
-    private static final class Row {
-        boolean header;
-        String title, subtitle, key;
-        AppCatalog.App app;
-        /** A ContentSource entry's icon; may be null. */
-        android.graphics.Bitmap bitmap;
-        boolean content;
-        Runnable action;
-        /** Linux 桌面的状态和按钮。 */
-        boolean isSession, running, stopping;
-        String sessionName;
-        /** In the hidden fold at the end. */
-        boolean hidden;
-        /** A favourite of a device that isn't connected: dim, opening it connects. */
-        boolean dim;
-        /** A whole desktop: drawn apart from the apps. */
-        boolean desktop;
-        /** Its letter in the A–Z part, 0 outside it. */
-        char initial;
-    }
-
     private final Host host;
+    private final Switchboard board;
     private final Devices devices;
     private final TextView activate, banner, notice;
-    private final Style.IconButton output;
-    private final TextView close;
-    private final LinearLayout tabRow, deviceBar;
+    private final Style.IconButton output, keys;
+    private final TextView touchpad;
+    private final LinearLayout tabRow, deviceBar, deviceActions;
     private final View deviceDot;
-    private final TextView deviceState, deviceButton;
+    private final TextView deviceState;
     private final EditText search;
     private final ImageView clear;
     private final ListView list;
     private final AlphaIndexBar index;
     private final Adapter adapter = new Adapter();
-    private final ArrayList<Row> rows = new ArrayList<>();
-    private final Collator collator = Collator.getInstance();
+    private List<Switchboard.Item> rows = new java.util.ArrayList<>();
     /** Letter -> the first row of the A–Z part with it. */
     private final HashMap<Character, Integer> letterRows = new HashMap<>();
-    private final HashMap<String, String> queries = new HashMap<>();
-    private final Runnable devicesChanged = this::rebuild;
-    private String tab, tabsShown = "", current, previous, query = "";
-    private boolean onCar, settingQuery, hiddenOpen;
-    private List<AppCatalog.App> apps = new ArrayList<>();
-    private List<String> dockKeys = new ArrayList<>();
+    private final Runnable boardChanged = this::rebuild;
+    private String tabsShown = "", barShown = "", tabShown;
+    private boolean settingQuery, stale = true;
 
     ChooserView(Context c, Host host) {
         super(c);
         this.host = host;
+        board = Switchboard.get(c);
         devices = Devices.get(c);
         setOrientation(VERTICAL);
         setBackgroundColor(Style.BACKGROUND);
@@ -134,20 +112,32 @@ final class ChooserView extends LinearLayout {
         int edge = Style.dp(c, Style.EDGE + 4);
         setPadding(edge, Style.dp(c, Style.EDGE), edge, 0);
 
+        // The top row has what the touchpad page's has, so that nothing needs that page: with a mouse on the phone
+        // this list is the phone's page (DEVICES.md §3.1)
         LinearLayout head = new LinearLayout(c);
         head.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = Style.label(c, "XDesk", Style.TEXT, Style.TEXT_TITLE);
         title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
         head.addView(title, new LayoutParams(0, -2, 1));
-        // 回到触摸板是这里最常用的按钮，结束 XDesk 放在设置里，免得误碰
-        close = Style.button(c, c.getString(R.string.xd_chooser_close), Style.ACCENT, Style.TEXT_SMALL + 1, Style.RADIUS);
-        close.setSingleLine(true);
-        close.setPadding(Style.dp(c, 12), 0, Style.dp(c, 12), 0);
-        close.setOnClickListener(v -> host.onChooserClose());
-        close.setVisibility(GONE);
+        // 结束 XDesk 放在设置里，免得误碰
+        touchpad = Style.button(c, c.getString(R.string.xd_chooser_touchpad), Style.ACCENT, Style.TEXT_SMALL + 1, Style.RADIUS);
+        touchpad.setSingleLine(true);
+        touchpad.setPadding(Style.dp(c, 12), 0, Style.dp(c, 12), 0);
+        touchpad.setOnClickListener(v -> {
+            Style.tick(v);
+            host.onTouchpad();
+        });
+        touchpad.setVisibility(GONE);
         LayoutParams cp = new LayoutParams(-2, Style.dp(c, Style.TARGET));
         cp.rightMargin = Style.dp(c, Style.GAP);
-        head.addView(close, cp);
+        head.addView(touchpad, cp);
+        keys = new Style.IconButton(c, R.drawable.xd_ic_mouse, "", Style.SURFACE);
+        keys.onTap(host::onToggleKeys);
+        keys.setVisibility(GONE);
+        LayoutParams kp = new LayoutParams(-2, -2);
+        kp.rightMargin = Style.dp(c, Style.GAP);
+        head.addView(keys, kp);
         output = new Style.IconButton(c, R.drawable.xd_ic_sound, "", Style.SURFACE);
         output.onTap(host::onChooseOutput);
         head.addView(output, new LayoutParams(-2, -2));
@@ -186,10 +176,11 @@ final class ChooserView extends LinearLayout {
         tp.topMargin = Style.dp(c, 10);
         addView(tabs, tp);
 
-        // 外部设备的状态和连接/断开
+        // The tab's bar: a device's state and what can be done with it (Switchboard.Bar)
         deviceBar = new LinearLayout(c);
         deviceBar.setGravity(Gravity.CENTER_VERTICAL);
         deviceBar.setPadding(Style.dp(c, 4), 0, 0, 0);
+        deviceBar.setMinimumHeight(Style.dp(c, 40));
         deviceDot = new View(c);
         LayoutParams dp = new LayoutParams(Style.dp(c, 8), Style.dp(c, 8));
         dp.rightMargin = Style.dp(c, 10);
@@ -197,10 +188,9 @@ final class ChooserView extends LinearLayout {
         deviceState = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
         deviceState.setMaxLines(2);
         deviceBar.addView(deviceState, new LayoutParams(0, -2, 1));
-        deviceButton = Style.button(c, "", Style.SURFACE_RAISED, Style.TEXT_SMALL + 1, Style.RADIUS);
-        deviceButton.setSingleLine(true);
-        deviceButton.setPadding(Style.dp(c, 14), 0, Style.dp(c, 14), 0);
-        deviceBar.addView(deviceButton, new LayoutParams(-2, Style.dp(c, 40)));
+        deviceActions = new LinearLayout(c);
+        deviceActions.setGravity(Gravity.CENTER_VERTICAL);
+        deviceBar.addView(deviceActions, new LayoutParams(-2, -2));
         LayoutParams bp = new LayoutParams(-1, -2);
         bp.topMargin = Style.dp(c, 8);
         addView(deviceBar, bp);
@@ -215,6 +205,10 @@ final class ChooserView extends LinearLayout {
         search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         search.setBackground(Style.rounded(c, Style.SURFACE, Style.RADIUS));
         search.setPadding(Style.dp(c, 12), 0, Style.dp(c, Style.TARGET), 0);
+        search.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) host.onSearchTouched();
+            return false;
+        });
         searchBox.addView(search, new FrameLayout.LayoutParams(-1, Style.dp(c, Style.TARGET)));
         clear = new ImageView(c);
         clear.setImageResource(R.drawable.xd_ic_close);
@@ -224,7 +218,7 @@ final class ChooserView extends LinearLayout {
         clear.setVisibility(GONE);
         clear.setOnClickListener(v -> {
             Style.tick(v);
-            search.setText("");
+            board.setQuery("");
         });
         FrameLayout.LayoutParams clearParams = new FrameLayout.LayoutParams(Style.dp(c, Style.TARGET), Style.dp(c, Style.TARGET));
         clearParams.gravity = Gravity.END;
@@ -232,15 +226,13 @@ final class ChooserView extends LinearLayout {
         LayoutParams sbp = new LayoutParams(-1, -2);
         sbp.topMargin = Style.dp(c, 8);
         addView(searchBox, sbp);
+        // This field and the Launchpad's typed line are two widgets on the one search text (Switchboard.query)
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void afterTextChanged(Editable s) {
                 clear.setVisibility(s.length() > 0 ? VISIBLE : GONE);
-                if (settingQuery) return;
-                query = s.toString().trim().toLowerCase();
-                queries.put(tab, query);
-                rebuild();
+                if (!settingQuery) board.setQuery(s.toString());
             }
         });
 
@@ -249,12 +241,13 @@ final class ChooserView extends LinearLayout {
         list.setDivider(null);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
-            Row r = rows.get(position);
-            if (r.action != null) r.action.run();
+            Switchboard.Item r = rows.get(position);
+            if (r.kind == Switchboard.ITEM) board.open(r.key);
+            else if (r.action != null) r.action.run();
         });
         list.setOnItemLongClickListener((parent, view, position, id) -> {
-            Row r = rows.get(position);
-            if (r.key == null) return false;
+            Switchboard.Item r = rows.get(position);
+            if (r.kind != Switchboard.ITEM) return false;
             // The same card as everywhere else (ItemCard): favourite, hide, close, and what the item's kind has
             host.onItemLongPress(r.key);
             return true;
@@ -268,39 +261,55 @@ final class ChooserView extends LinearLayout {
         listBox.addView(index, ip);
         addView(listBox, new LayoutParams(-1, 0, 1));
 
-        String saved = devices.tab();
-        tab = saved != null ? saved : TAB_FAVOURITES;
         setDisplayConnected(false, false);
     }
 
     @Override protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        devices.addListener(devicesChanged);
+        board.addListener(boardChanged);
         rebuild();
     }
 
     @Override protected void onDetachedFromWindow() {
-        devices.removeListener(devicesChanged);
+        board.removeListener(boardChanged);
         super.onDetachedFromWindow();
+    }
+
+    /** Behind the touchpad page the list is not kept up (every key typed on the Launchpad would rebuild it): now it is. */
+    @Override protected void onVisibilityChanged(View changed, int visibility) {
+        super.onVisibilityChanged(changed, visibility);
+        if (visibility == VISIBLE && stale && isAttachedToWindow()) rebuild();
     }
 
     private String str(int id) {
         return getContext().getString(id);
     }
 
-    /** @param car 用的是车机：说法不同 */
+    /** @param car 用的是车机：说法不同 (the items' words for it are the Switchboard's, from its host) */
     void setDisplayConnected(boolean connected, boolean car) {
         banner.setText(R.string.xd_chooser_no_display);
         banner.setTextColor(Style.WARN);
         banner.setVisibility(connected ? GONE : VISIBLE);
-        if (car == onCar) return;
-        onCar = car;
-        rebuild();
     }
 
-    /** 盖在运行中的会话上时才有回到触摸板。 */
-    void setOverSession(boolean over) {
-        close.setVisibility(over ? VISIBLE : GONE);
+    /**
+     * The Touchpad button: there whenever the touchpad page has a use, which is while something runs and whenever an
+     * external screen is there (its home is worked with the touchpad when the phone has no mouse).
+     */
+    void setTouchpadShown(boolean shown) {
+        touchpad.setVisibility(shown ? VISIBLE : GONE);
+    }
+
+    /**
+     * The keys button, as the touchpad page's: whose the physical keyboard and mouse are, tapping switches.
+     * @param label null while nothing runs that could have them: no button
+     */
+    void setKeys(String label, boolean onDisplay) {
+        keys.setVisibility(label != null ? VISIBLE : GONE);
+        if (label == null) return;
+        keys.setLabel(label);
+        keys.setContentDescription(label);
+        keys.setActive(onDisplay);
     }
 
     /** 安卓应用要先激活时的提示，点了执行 onTap。text 为 null 时不显示。 */
@@ -325,14 +334,20 @@ final class ChooserView extends LinearLayout {
     }
 
     void clearSearch() {
-        queries.clear();
-        if (search.length() > 0) search.setText("");
+        board.setQuery("");
         search.clearFocus();
+    }
+
+    /** The search line with the focus and the keyboard, after its window became focusable for it (onSearchTouched). */
+    void focusSearch() {
+        search.requestFocus();
+        android.view.inputmethod.InputMethodManager ime = getContext().getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (ime != null) ime.showSoftInput(search, 0);
     }
 
     /** @param hint 列不出环境时的说明，点按见 Host.onTermuxHint；null 表示正常 */
     void setTermux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
-        devices.setLinux(sessionNames, defaultName, running, x, hint);  // its listener rebuilds
+        devices.setLinux(sessionNames, defaultName, running, x, hint);  // its listeners (the Switchboard) rebuild
     }
 
     void setStopping(String name) {
@@ -341,50 +356,18 @@ final class ChooserView extends LinearLayout {
 
     /** The content sources (Contents) changed: their rows are rebuilt from the sources themselves. */
     void refreshContents() {
-        devices.touch();  // the device states come from the same sources; its listener (this, DeviceSettings) rebuilds
-    }
-
-    void setApps(List<AppCatalog.App> a) {
-        apps = a;
-        rebuild();
-    }
-
-    /**
-     * @param previousKey 上一个应用，可以是 null
-     * @param currentKey 正在外接屏上的，可以是 null
-     */
-    void setDock(List<String> keys, String previousKey, String currentKey) {
-        dockKeys = keys;
-        previous = previousKey;
-        current = currentKey;
-        rebuild();
+        devices.touch();  // the device states come from the same sources; its listeners (the Switchboard, DeviceSettings) rebuild
     }
 
     // --- tabs ---
 
-    private void selectTab(String id) {
-        if (id.equals(tab)) return;
-        tab = id;
-        devices.setTab(id);
-        hiddenOpen = false;
-        String q = queries.get(id);
-        settingQuery = true;
-        search.setText(q != null ? q : "");
-        settingQuery = false;
-        query = q != null ? q : "";
-        rebuild();
-        list.setSelection(0);
-    }
-
-    private void buildTabs(List<Devices.Device> external) {
-        StringBuilder sig = new StringBuilder(tab);
-        for (Devices.Device d : external) sig.append('|').append(d.id).append(d.state).append(d.name);
+    private void buildTabs(List<Switchboard.Tab> tabs, String selected) {
+        StringBuilder sig = new StringBuilder(selected);
+        for (Switchboard.Tab t : tabs) sig.append('|').append(t.id).append(t.state).append(t.name);
         if (sig.toString().equals(tabsShown)) return;
         tabsShown = sig.toString();
         tabRow.removeAllViews();
-        addTab(TAB_FAVOURITES, "★ " + str(R.string.xd_chooser_favourites), null);
-        addTab(Devices.PHONE, str(R.string.xd_dev_phone), null);
-        for (Devices.Device d : external) addTab(d.id, d.name, d.state);
+        for (Switchboard.Tab t : tabs) addTab(t, t.id.equals(selected));
         TextView add = tabChip("+", false);
         add.setContentDescription(str(R.string.xd_dev_connect_devices));
         add.setOnClickListener(v -> {
@@ -408,10 +391,10 @@ final class ChooserView extends LinearLayout {
         return t;
     }
 
-    private void addTab(final String id, String name, Devices.State state) {
-        TextView t = tabChip(name, id.equals(tab));
-        if (state != null) {
-            GradientDrawable dot = Style.dot(Devices.color(state));
+    private void addTab(final Switchboard.Tab tab, boolean selected) {
+        TextView t = tabChip(tab.name, selected);
+        if (tab.state != null) {
+            GradientDrawable dot = Style.dot(Devices.color(tab.state));
             int s = Style.dp(getContext(), 8);
             dot.setBounds(0, 0, s, s);
             t.setCompoundDrawablesRelative(dot, null, null, null);
@@ -419,320 +402,93 @@ final class ChooserView extends LinearLayout {
         }
         t.setOnClickListener(v -> {
             Style.tick(v);
-            selectTab(id);
+            board.setTab(tab.id);
         });
         tabRow.addView(t, tabParams());
     }
 
-    private void showDeviceBar(final Devices.Device d) {
-        if (d == null || !d.external()) {
+    private void showBar(Switchboard.Bar bar) {
+        if (bar == null) {
             deviceBar.setVisibility(GONE);
+            barShown = "";
             return;
         }
         deviceBar.setVisibility(VISIBLE);
-        deviceDot.setBackground(Style.dot(Devices.color(d.state)));
-        String state = str(Devices.stateLabel(d));
-        deviceState.setText(d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
-        deviceButton.setEnabled(!d.busy);
-        deviceButton.setAlpha(d.busy ? 0.4f : 1f);
-        deviceButton.setOnClickListener(null);
-        Runnable act = null;
-        int label = 0;
-        if (d.type == Devices.Type.LINUX) {
-            // Local, reached through the xdesk command: no connect or disconnect. Running or not, and a Stop for the
-            // X server while it runs (DEVICES.md §2)
-            if (d.state == Devices.State.NOT_SET_UP) {
-                label = R.string.xd_dev_set_up;
-                act = () -> DeviceSettings.setUp(getContext(), d.type);
-            } else if (d.canStop) {
-                label = R.string.xd_dev_stop;
-                act = () -> devices.stop(d.id);  // XDeskActivity asks first if anything is open
-            }
-        } else if (d.state == Devices.State.CONNECTED) {
-            label = R.string.xd_dev_disconnect;
-            act = () -> ItemCard.confirmDisconnect(getContext(), d);
-        } else if (d.state == Devices.State.CONNECTING) {
-            label = R.string.xd_dev_state_connecting;
-            deviceButton.setEnabled(false);
-            deviceButton.setAlpha(0.4f);
-        } else if (d.state == Devices.State.NOT_SET_UP) {
-            label = R.string.xd_dev_set_up;
-            act = () -> DeviceSettings.setUp(getContext(), d.type);
-        } else if (d.type == Devices.Type.MAC && d.state == Devices.State.FAILED && d.note != null && isPairingFailure(d)) {
-            label = R.string.xd_dev_pair_again;
-            act = () -> MacSettings.add(getContext());
-        } else if (d.canConnect(devices)) {
-            label = R.string.xd_dev_connect;
-            act = () -> devices.connect(d.id);
+        deviceDot.setVisibility(bar.dot != 0 ? VISIBLE : GONE);
+        if (bar.dot != 0) deviceDot.setBackground(Style.dot(bar.dot));
+        deviceState.setText(bar.text);
+        StringBuilder sig = new StringBuilder();
+        for (Switchboard.Action a : bar.actions) sig.append(a.label).append(a.enabled).append('|');
+        // The buttons are kept while they are the same: this runs on every change, also in the middle of a tap
+        if (sig.toString().equals(barShown) && deviceActions.getChildCount() == bar.actions.size()) {
+            for (int i = 0; i < bar.actions.size(); i++) bind(deviceActions.getChildAt(i), bar.actions.get(i));
+            return;
         }
-        deviceButton.setVisibility(label != 0 ? VISIBLE : GONE);
-        if (label != 0) deviceButton.setText(label);
-        final Runnable a = act;
-        if (a != null) deviceButton.setOnClickListener(v -> {
+        barShown = sig.toString();
+        deviceActions.removeAllViews();
+        Context c = getContext();
+        for (Switchboard.Action a : bar.actions) {
+            TextView b = Style.button(c, a.label, Style.SURFACE_RAISED, Style.TEXT_SMALL + 1, Style.RADIUS);
+            b.setSingleLine(true);
+            b.setPadding(Style.dp(c, 14), 0, Style.dp(c, 14), 0);
+            b.setEnabled(a.enabled);
+            b.setAlpha(a.enabled ? 1f : 0.4f);
+            LayoutParams p = new LayoutParams(-2, Style.dp(c, 40));
+            p.leftMargin = Style.dp(c, Style.GAP);
+            deviceActions.addView(b, p);
+            bind(b, a);
+        }
+    }
+
+    /** The action as it is now: its device is a new object after every change. */
+    private void bind(View button, final Switchboard.Action a) {
+        button.setOnClickListener(v -> {
             Style.tick(v);
             a.run();
         });
     }
 
-    private boolean isPairingFailure(Devices.Device d) {
-        com.termux.x11.mac.MacClient m = com.termux.x11.mac.MacClients.get(getContext(), d.id.substring(Devices.MAC.length()));
-        return m != null && m.needsPairing();
-    }
-
     // --- rows ---
 
-    private Row header(String title) {
-        Row r = new Row();
-        r.header = true;
-        r.title = title;
-        return r;
-    }
-
-    private Row sessionRow(final String name) {
-        Row r = new Row();
-        r.key = recentKey(name);
-        // The whole desktop of a Linux environment: the only thing that starts its XFCE session (DEVICES.md §2)
-        r.title = str(R.string.xd_dev_whole_desktop);
-        r.isSession = true;
-        r.sessionName = name;
-        r.desktop = true;
-        String running = devices.runningSession();
-        r.running = name.equals(running);
-        r.stopping = name.equals(devices.stoppingSession());
-        String state = null;
-        if (r.stopping) state = str(R.string.xd_chooser_stopping);
-        else if (r.key.equals(current)) state = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
-        else if (r.running) state = str(R.string.xd_chooser_running);
-        r.subtitle = state != null ? name + " · " + state : name;
-        r.action = () -> host.onSessionChosen(name);
-        return r;
-    }
-
-    private Row appRow(final AppCatalog.App a) {
-        Row r = new Row();
-        r.key = recentKey(a);
-        r.title = a.label;
-        r.app = a;
-        if (r.key.equals(current)) r.subtitle = str(R.string.xd_on_display);
-        r.action = () -> host.onAppChosen(a);
-        return r;
-    }
-
-    private boolean entryMatches(ContentSource.Entry e) {
-        return query.isEmpty() || e.label.toLowerCase().contains(query) || (e.detail != null && e.detail.toLowerCase().contains(query));
-    }
-
-    private Row contentRow(final ContentSource.Entry e) {
-        Row r = new Row();
-        r.key = e.key;
-        r.title = e.label;
-        r.content = true;
-        r.bitmap = e.icon;
-        r.running = e.running;
-        if (e.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
-        else if (e.detail != null && !e.detail.equalsIgnoreCase(e.label)) r.subtitle = e.detail;
-        else if (e.running) r.subtitle = str(R.string.xd_content_running);
-        r.action = () -> host.onContentChosen(e.key);
-        return r;
-    }
-
-    private boolean nameMatches(String name) {
-        return query.isEmpty() || name.toLowerCase().contains(query);
-    }
-
-    /** A row for any saved key (favourites, the previous app), or null when it is gone. */
-    private Row rowForKey(String key) {
-        if (isAppKey(key)) {
-            AppCatalog.App a = AppCatalog.get(getContext()).find(componentOf(key));
-            return a != null ? appRow(a) : null;
-        }
-        if (key.startsWith(RECENT_SESSION)) return devices.sessions().contains(sessionOf(key)) ? sessionRow(sessionOf(key)) : null;
-        ContentSource.Entry e = Contents.find(key);
-        return e != null ? contentRow(e) : null;
-    }
-
     private void rebuild() {
-        List<Devices.Device> all = devices.all();
-        Devices.Device device = null;
-        boolean known = tab.equals(TAB_FAVOURITES);
-        for (Devices.Device d : all) if (d.id.equals(tab)) { device = d; known = true; }
-        if (!known) {
-            // The device went away (a Mac removed): back to the phone
-            tab = Devices.PHONE;
-            device = all.get(0);
-            query = "";
+        if (getVisibility() != VISIBLE || !isAttachedToWindow()) {
+            stale = true;
+            return;
         }
-        buildTabs(all.subList(1, all.size()));
-        showDeviceBar(device);
-        String tabName = device != null ? device.name : str(R.string.xd_chooser_favourites);
-        search.setHint(getContext().getString(R.string.xd_dev_search_in, tabName));
-
-        rows.clear();
+        stale = false;
+        String tab = board.tab(), query = board.query();
+        buildTabs(board.tabs(), board.searching() ? "" : tab);
+        showBar(board.bar());
+        if (!search.getText().toString().equals(query)) {
+            // Typed on the external screen, or cleared by opening something
+            settingQuery = true;
+            search.setText(query);
+            search.setSelection(query.length());
+            settingQuery = false;
+        }
+        rows = board.items();
         letterRows.clear();
-        ArrayList<Row> sorted = new ArrayList<>(), hiddenRows = new ArrayList<>();
-        if (device == null) {
-            favouriteRows();
-        } else if (device.type == Devices.Type.PHONE) {
-            for (AppCatalog.App a : apps) if (query.isEmpty() || a.matches(query)) addApp(appRow(a), sorted, hiddenRows);
-            if (apps.isEmpty()) {
-                Row loading = new Row();
-                loading.title = str(R.string.xd_chooser_loading);
-                rows.add(loading);
-            }
-        } else if (device.type == Devices.Type.LINUX) {
-            linuxRows(device, sorted, hiddenRows);
-        } else if (device.type == Devices.Type.MAC) {
-            sourceRows(device, Contents.sourceOf(MacSource.PREFIX), R.string.xd_dev_mac_windows, sorted, hiddenRows);
+        int lettered = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            Switchboard.Item r = rows.get(i);
+            if (r.kind != Switchboard.ITEM || r.initial == 0) continue;
+            lettered++;
+            if (!letterRows.containsKey(r.initial)) letterRows.put(r.initial, i);
         }
-        if (!sorted.isEmpty()) addSorted(sorted, device != null && device.type != Devices.Type.PHONE);
-        if (!hiddenRows.isEmpty()) {
-            boolean open = hiddenOpen || !query.isEmpty();
-            Row fold = header((open ? "▾ " : "▸ ") + getContext().getString(R.string.xd_dev_hidden, hiddenRows.size()));
-            fold.action = () -> {
-                hiddenOpen = !hiddenOpen;
-                rebuild();
-            };
-            rows.add(fold);
-            if (open) {
-                sortRows(hiddenRows);
-                rows.addAll(hiddenRows);
-            }
-        }
-        if (rows.isEmpty()) {
-            Row none = new Row();
-            none.title = str(!query.isEmpty() ? R.string.xd_chooser_no_match
-                    : device == null ? R.string.xd_dev_no_favourites : R.string.xd_dev_empty);
-            rows.add(none);
-        }
-        boolean indexed = device != null && sorted.size() > INDEX_MIN;
+        boolean indexed = lettered > INDEX_MIN;
         index.setVisibility(indexed ? VISIBLE : GONE);
         list.setPadding(0, 0, indexed ? Style.dp(getContext(), 20) : 0, 0);
         if (indexed) index.setPresent(new HashSet<>(letterRows.keySet()));
         adapter.notifyDataSetChanged();
-    }
-
-    private void addApp(Row r, List<Row> sorted, List<Row> hiddenRows) {
-        r.hidden = devices.isHidden(r.key);
-        (r.hidden ? hiddenRows : sorted).add(r);
-    }
-
-    private void favouriteRows() {
-        java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
-        if (previous != null) keys.add(previous);
-        keys.addAll(dockKeys);
-        for (String k : keys) {
-            Row r = rowForKey(k);
-            if (r == null || !nameMatches(r.title)) continue;
-            String where = deviceName(k);
-            if (k.equals(previous) && !dockKeys.contains(k)) where = str(R.string.xd_dev_previous) + " · " + where;
-            r.subtitle = r.subtitle != null ? where + " · " + r.subtitle : where;
-            r.dim = devices.offline(k);
-            rows.add(r);
+        if (!tab.equals(tabShown)) {
+            tabShown = tab;
+            list.setSelection(0);
         }
-    }
-
-    private String deviceName(String key) {
-        String id = devices.deviceOf(key);
-        if (id.equals(Devices.PHONE)) return str(R.string.xd_dev_phone);
-        if (id.startsWith(Devices.LINUX)) return Devices.linuxName(getContext(), id);
-        Devices.Device d = devices.find(id);
-        return d != null ? d.name : "";
-    }
-
-    private void linuxRows(Devices.Device device, List<Row> sorted, List<Row> hiddenRows) {
-        boolean searching = !query.isEmpty();
-        boolean termux = device.id.equals(Devices.LINUX + Devices.TERMUX);
-        ArrayList<Row> desktops = new ArrayList<>();
-        for (String name : devices.sessionsOf(device.id)) if (nameMatches(name)) desktops.add(sessionRow(name));
-        if (termux && !searching) {
-            String hint = devices.termuxHint();
-            if (hint != null) {
-                Row h = new Row();
-                h.title = hint;
-                h.action = host::onTermuxHint;
-                desktops.add(h);
-            }
-            // 环境都在列表里。只有 xdesk run 的程序，或者读不到 Termux 的状态时，才需要直接接上 X
-            boolean x = devices.xRunning();
-            if (devices.stoppingSession() == null && ((x && devices.runningSession() == null) || hint != null)) {
-                Row attach = new Row();
-                attach.title = str(x ? R.string.xd_chooser_reattach_x : R.string.xd_chooser_attach_x);
-                attach.subtitle = str(x ? R.string.xd_chooser_reattach_x_note : R.string.xd_chooser_attach_x_note);
-                attach.action = host::onAttachChosen;
-                desktops.add(attach);
-            }
-        }
-        if (!desktops.isEmpty()) {
-            rows.add(header(str(R.string.xd_dev_desktop_header)));
-            rows.addAll(desktops);
-        }
-        sourceRows(device, LinuxSource.get(), R.string.xd_dev_linux_windows, sorted, hiddenRows);
-    }
-
-    /** A source's windows of this device as a section, its apps into the sorted part. */
-    private void sourceRows(Devices.Device device, ContentSource s, int windowsTitle, List<Row> sorted, List<Row> hiddenRows) {
-        if (s == null) return;
-        // Not connected: only its whole desktop (opening it connects). The windows and apps come when it is, then the
-        // list is the real one, not a stale copy (DEVICES.md §3)
-        boolean catalog = devices.listsCatalog(device);
-        ArrayList<Row> open = new ArrayList<>();
-        HashSet<String> shown = new HashSet<>();
-        for (ContentSource.Entry e : s.windows()) {
-            if (!devices.deviceOf(e.key).equals(device.id)) continue;
-            shown.add(e.key);
-            if (isDesktopKey(e.key)) {
-                // The whole desktop first, always, even locked or still connecting: opening it is how a locked Mac is
-                // unlocked, and only then does Sill send the apps (DEVICES.md §3)
-                if (!query.isEmpty() && !entryMatches(e)) continue;
-                Row r = contentRow(e);
-                r.title = str(R.string.xd_dev_whole_desktop);
-                r.desktop = true;
-                if (r.subtitle == null) r.subtitle = e.label;
-                rows.add(header(str(R.string.xd_dev_desktop_header)));
-                rows.add(r);
-                if (query.isEmpty() && Devices.isLocked(getContext(), device.id)) {
-                    Row hint = new Row();
-                    hint.title = str(R.string.xd_dev_locked_hint);
-                    hint.action = r.action;
-                    rows.add(hint);
-                }
-                continue;
-            }
-            if (catalog && entryMatches(e)) open.add(contentRow(e));
-        }
-        if (!open.isEmpty()) {
-            rows.add(header(str(windowsTitle)));
-            rows.addAll(open);
-        }
-        if (!catalog) return;
-        for (ContentSource.Entry e : s.apps())
-            if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e), sorted, hiddenRows);
     }
 
     /** A whole desktop of a device (a Mac's "m:<id>:desktop"; later Windows'). */
     static boolean isDesktopKey(String key) {
         return key.startsWith(MacSource.PREFIX) && key.endsWith(":desktop");
-    }
-
-    private void sortRows(List<Row> list) {
-        ArrayList<String> names = new ArrayList<>(list.size());
-        for (Row r : list) names.add(r.title);
-        // Chinese names get their pinyin initial in the background, then one more rebuild
-        Initials.prepare(names, this::rebuild);
-        for (Row r : list) r.initial = Initials.of(r.title);
-        Collections.sort(list, (a, b) -> {
-            int by = Integer.compare(Initials.rank(a.initial), Initials.rank(b.initial));
-            return by != 0 ? by : collator.compare(a.title, b.title);
-        });
-    }
-
-    private void addSorted(List<Row> sorted, boolean titled) {
-        sortRows(sorted);
-        if (titled) rows.add(header(str(R.string.xd_dev_apps)));
-        for (Row r : sorted) {
-            if (!letterRows.containsKey(r.initial)) letterRows.put(r.initial, rows.size());
-            rows.add(r);
-        }
     }
 
     private void jumpTo(char letter) {
@@ -757,7 +513,7 @@ final class ChooserView extends LinearLayout {
     private static final class Holder {
         ImageView icon, star;
         View dot;
-        TextView title, subtitle, action;
+        TextView title, subtitle;
     }
 
     private final class Adapter extends BaseAdapter {
@@ -765,16 +521,20 @@ final class ChooserView extends LinearLayout {
         @Override public Object getItem(int i) { return rows.get(i); }
         @Override public long getItemId(int i) { return i; }
         @Override public boolean areAllItemsEnabled() { return false; }
-        @Override public boolean isEnabled(int i) { return rows.get(i).action != null; }
+        @Override public boolean isEnabled(int i) { return rows.get(i).kind == Switchboard.ITEM || rows.get(i).action != null; }
         @Override public int getViewTypeCount() { return 2; }
-        @Override public int getItemViewType(int i) { return rows.get(i).header ? 0 : 1; }
+        @Override public int getItemViewType(int i) { return title(rows.get(i)) ? 0 : 1; }
+
+        private boolean title(Switchboard.Item r) {
+            return r.kind == Switchboard.HEADER || r.kind == Switchboard.FOLD;
+        }
 
         @Override public View getView(int i, View old, ViewGroup parent) {
-            final Row r = rows.get(i);
+            final Switchboard.Item r = rows.get(i);
             Context c = parent.getContext();
-            if (r.header) {
+            if (title(r)) {
                 TextView t = old != null ? (TextView) old : new TextView(c);
-                t.setText(r.title);
+                t.setText(r.label);
                 t.setTextColor(r.action != null ? Style.ACCENT : Style.TEXT_DIM);
                 t.setTextSize(r.action != null ? Style.TEXT_SMALL + 2 : Style.TEXT_SMALL);
                 t.setPadding(0, Style.dp(c, 12), 0, Style.dp(c, r.action != null ? 10 : 2));
@@ -786,7 +546,7 @@ final class ChooserView extends LinearLayout {
                 LinearLayout row = new LinearLayout(c);
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 row.setMinimumHeight(Style.dp(c, 56));
-                row.setPadding(0, Style.dp(c, 4), 0, Style.dp(c, 4));
+                row.setPadding(Style.dp(c, 4), Style.dp(c, 4), 0, Style.dp(c, 4));
                 h = new Holder();
                 h.icon = new ImageView(c);
                 LayoutParams ip = new LayoutParams(Style.dp(c, 40), Style.dp(c, 40));
@@ -804,10 +564,6 @@ final class ChooserView extends LinearLayout {
                 h.subtitle = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
                 text.addView(h.subtitle);
                 row.addView(text, new LayoutParams(0, -2, 1));
-                h.action = Style.button(c, "", Style.SURFACE_RAISED, Style.TEXT_SMALL + 1, Style.RADIUS);
-                LayoutParams ap = new LayoutParams(Style.dp(c, 60), Style.dp(c, 40));
-                ap.rightMargin = Style.dp(c, 4);
-                row.addView(h.action, ap);
                 h.star = new ImageView(c);
                 h.star.setScaleType(ImageView.ScaleType.CENTER);
                 h.star.setFocusable(false);  // 列表项才点得动
@@ -817,11 +573,15 @@ final class ChooserView extends LinearLayout {
             } else {
                 h = (Holder) v.getTag();
             }
+            boolean item = r.kind == Switchboard.ITEM;
             v.setAlpha(r.hidden || r.dim ? 0.55f : 1f);
-            h.title.setText(r.title);
+            // What is on the external screen stands out, the same way as its tile there (Switchboard.CURRENT_TINT)
+            v.setBackground(r.current ? Style.rounded(c, Switchboard.CURRENT_TINT, Style.RADIUS) : null);
+            h.title.setText(r.label);
             h.title.setTextColor(r.desktop ? Style.ACCENT : Style.TEXT);
-            h.subtitle.setText(r.subtitle);
-            h.subtitle.setVisibility(r.subtitle != null ? VISIBLE : GONE);
+            h.subtitle.setText(r.detail);
+            h.subtitle.setTextColor(r.current ? Switchboard.ACCENT_TEXT : Style.TEXT_DIM);
+            h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
             if (r.app != null) {
                 h.icon.setVisibility(VISIBLE);
                 AppCatalog.get(c).showIcon(r.app, h.icon);
@@ -829,22 +589,18 @@ final class ChooserView extends LinearLayout {
                 h.icon.setVisibility(VISIBLE);
                 h.icon.setTag(null);
                 if (r.bitmap != null) h.icon.setImageBitmap(r.bitmap);
-                else h.icon.setImageDrawable(Style.letterIcon(c, r.desktop ? "\u25A3" : r.title));
+                else h.icon.setImageDrawable(Style.letterIcon(c, r.desktop ? "\u25A3" : r.label));
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);
             }
-            h.dot.setVisibility(r.isSession ? VISIBLE : GONE);
-            if (r.isSession) h.dot.setBackground(Style.dot(r.running ? Style.OK : Style.SURFACE_RAISED));
-            // No Start/Stop on a desktop row: the device bar's 连接/断开 is the one connect control (DEVICES.md §2)
-            h.action.setVisibility(GONE);
-            h.action.setOnClickListener(null);
-            if (r.key != null && !r.hidden) {
-                boolean docked = dockKeys.contains(r.key);
+            h.dot.setVisibility(r.session ? VISIBLE : GONE);
+            if (r.session) h.dot.setBackground(Style.dot(r.running ? Style.OK : Style.SURFACE_RAISED));
+            if (item && !r.hidden) {
                 h.star.setVisibility(VISIBLE);
-                h.star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
-                h.star.setColorFilter(docked ? Style.ACCENT : Style.TEXT_DIM);
-                h.star.setContentDescription(c.getString(docked ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite));
+                h.star.setImageResource(r.favourite ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
+                h.star.setColorFilter(r.favourite ? Style.ACCENT : Style.TEXT_DIM);
+                h.star.setContentDescription(c.getString(r.favourite ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite));
                 h.star.setOnClickListener(view -> {
                     Style.tick(view);
                     host.onDockToggle(r.key);
