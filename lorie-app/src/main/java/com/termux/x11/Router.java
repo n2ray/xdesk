@@ -41,7 +41,7 @@ final class Router {
 
     /** Devices, §2's source device ids. */
     static final int PHONE_PAD = 0, PHONE_KEYS = 1, PHONE_MOUSE = 2, REMOTE = 3;
-    private static final int DEVICES = 4, MAX_KEYS = 8;
+    private static final int DEVICES = 4, MAX_KEYS = 16;
 
     // Linux key codes used for actions on desktops
     static final int KEY_ESC = 1, KEY_MINUS = 12, KEY_EQUAL = 13, KEY_TAB = 15, KEY_W = 17, KEY_LEFTBRACE = 26,
@@ -219,6 +219,24 @@ final class Router {
         private boolean held(int scan) {
             for (int i = 0; i < keyCount; i++) if (keys[i] == scan) return true;
             return false;
+        }
+
+        /**
+         * This key went down through this device and has not come up: its release belongs where the press went,
+         * whatever the current target is by now (and even if nothing is forwarded any more).
+         */
+        boolean holdsKey(int scan) {
+            return held(scan);
+        }
+
+        /** For the log: the target this device is bound to by what it holds, null when free. */
+        InputSink boundTo() {
+            return bound;
+        }
+
+        /** The same for a button (X numbered). */
+        boolean holdsButton(int button) {
+            return button > 0 && button < 31 && (buttons & 1 << button) != 0;
         }
 
         private void addKey(int scan) {

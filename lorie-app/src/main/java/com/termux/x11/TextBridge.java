@@ -9,6 +9,7 @@ import android.content.Context;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
@@ -30,6 +31,8 @@ import com.termux.x11.mac.RemoteTextState;
  * <p>UI thread only. Nothing here runs per pointer event: a click only marks the text as forgotten (forgetSoon).
  */
 final class TextBridge {
+    private static final String TAG = "XDesk";
+
     interface Out {
         void text(String s);
         /** A key pressed and let go (Linux key code): Backspace, Enter, Tab, Esc, arrows. */
@@ -38,6 +41,13 @@ final class TextBridge {
         Object target();
         /** A modifier is latched on XDesk's key row: a letter is a shortcut now, sent at once, never composed. */
         boolean immediate();
+        /**
+         * A key event the input method sent through the connection. Some methods take every key of a physical
+         * keyboard and hand back the ones they do not want this way (fcitx5), with the device and scan code of the
+         * real key: those are the keyboard's keys (INPUT.md §5.1 "keys the input method does not want"), modifiers,
+         * shortcuts and repeats included, not a soft keyboard's. True when the host took it as such.
+         */
+        default boolean physicalKey(KeyEvent e) { return false; }
     }
 
     private static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103,
@@ -118,6 +128,8 @@ final class TextBridge {
         if (!preserve) finishCurrent();
         final long mine = ++generation;
         activeGeneration = mine;
+        // When the keyboard seems dead: was a connection made, and could the input method have been told of it
+        Log.d(TAG, "IME: connection " + mine + (preserve ? ", text kept" : "") + ", window focus " + view.hasWindowFocus());
         o.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | (corrections ? 0 : InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         o.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_ACTION_NONE;
@@ -164,10 +176,23 @@ final class TextBridge {
 
     private void restart() {
         generation++;
-        if (view.hasFocus()) {
+        // Only from a focused window: asked from another, Android makes the new connection here and closes the old
+        // one, but the input method is not told (the window is not its target) and goes on calling the closed one,
+        // so nothing it sends arrives any more. Without focus the connection stays (valid() takes it on again), and
+        // reconnect() makes a new one when the focus is back.
+        if (view.hasFocus() && view.hasWindowFocus()) {
             InputMethodManager m = imm();
             if (m != null) m.restartInput(view);
         }
+    }
+
+    /**
+     * The window has the focus again: a new connection, so the input method and this bridge surely talk through the
+     * same one (the text typed so far is kept). Cheap, and the cure for every way the two can drift apart while
+     * another window had the focus.
+     */
+    void reconnect() {
+        if (view.hasFocus() && view.hasWindowFocus()) restartPreserving();
     }
 
     private void restartPreserving() {
@@ -279,7 +304,7 @@ final class TextBridge {
     }
 
     private final class Connection extends BaseInputConnection {
-        private final long mine;
+        private long mine;
 
         Connection(long mine) {
             super(view, true);
@@ -287,7 +312,18 @@ final class TextBridge {
         }
 
         private boolean valid() {
-            if (generation != mine) return false;
+            if (generation != mine) {
+                if (active != this) {
+                    // Replaced by a newer connection: the input method has not switched over yet
+                    Log.d(TAG, "IME: call on a replaced connection, dropped");
+                    return false;
+                }
+                // A restart asked for a new connection and none was made (the window had no focus then), so the
+                // input method still uses this one. It starts afresh, as the restart meant: refusing it would
+                // drop everything typed from now on
+                Log.d(TAG, "IME: connection kept over a restart");
+                mine = activeGeneration = generation;
+            }
             checkFresh();
             return true;
         }
@@ -428,6 +464,9 @@ final class TextBridge {
         }
 
         @Override public boolean sendKeyEvent(KeyEvent event) {
+            // A physical keyboard's key handed back by the input method: it goes the way of the keys the method
+            // never took. Asked before anything else, so it does not depend on the state of this text
+            if (out.physicalKey(event)) return true;
             if (!valid()) return false;
             int scan = scanFor(event.getKeyCode());
             if (scan == 0) {
@@ -435,6 +474,8 @@ final class TextBridge {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     int u = event.getUnicodeChar();
                     if (u > 0) commitText(new String(Character.toChars(u)), 1);
+                    // Never which key
+                    else Log.d(TAG, "IME key: neither a character nor a key the bridge knows, dropped");
                 } else if (event.getAction() == KeyEvent.ACTION_MULTIPLE && event.getCharacters() != null) {
                     commitText(event.getCharacters(), 1);
                 }

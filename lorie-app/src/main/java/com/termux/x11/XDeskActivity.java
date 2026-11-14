@@ -345,12 +345,13 @@ public class XDeskActivity extends Activity {
 
     private final KeyInputView.Sink keySink = new KeyInputView.Sink() {
         @Override public Object target() { return client; }
+        @Override public boolean physicalKey(KeyEvent e) { return XDeskActivity.this.physicalKey(e, true); }
         @Override public boolean latched() {
             for (int i = 0; i < latches.size(); i++) if (latches.get(i).on) return true;
             return false;
         }
         @Override public void text(String s) {
-            Log.d(TAG, "IME text: " + s.length() + " chars, client " + (client != null ? client.getClass().getSimpleName() : null));
+            Log.d(TAG, "IME text: " + s.length() + " chars, client " + sinkName(client) + ", bound " + sinkName(keysIn.boundTo()));
             if (client == null) return;
             keysIn.text(s);
             releaseLatches();
@@ -597,7 +598,7 @@ public class XDeskActivity extends Activity {
             refocusSelf();
         }
         @Override public void onAppFailed(String message) {
-            client = null;
+            setTarget(null);
             router.cancelAll();
             showSetup(getString(R.string.xd_cannot_run_on_display), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
@@ -1104,14 +1105,30 @@ public class XDeskActivity extends Activity {
 
     /**
      * A content opened on the external display (a Mac's screen) may have taken the focused display: the phone's
-     * window then has neither the keyboard nor the captured mouse. Take it back once, as after placing the desktop.
+     * window then has neither the keyboard nor the captured mouse. (A Mac's screen takes no focus itself, but it is
+     * the focused app of the display on top, and Android then gives the focus to no window at all.) Take it back:
+     * soon, so the keyboard is not dead for seconds after a Mac opens, and looked at again twice, as a take-back
+     * that came before the content's window was up is undone by it.
      */
     private final Runnable regainFocus = new Runnable() {
         @Override public void run() {
-            if (contentKey != null && activityStarted && !hasWindowFocus() && phoneForwards()
-                && chooser.getVisibility() != View.VISIBLE && !SwitcherOverlay.isShown()) refocusSelf();
+            if (contentKey == null || !activityStarted || !phoneForwards() || chooser.getVisibility() == View.VISIBLE
+                || SwitcherOverlay.isShown()) return;
+            if (!hasWindowFocus()) {
+                Log.d(TAG, "focus: taking it back from the content's screen");
+                try {
+                    Intent self = new Intent(XDeskActivity.this, XDeskActivity.class);
+                    self.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    startActivity(self);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "focus", e);
+                }
+            }
+            if (--regainTries > 0) ui.postDelayed(this, REGAIN_AGAIN_MS);
         }
     };
+    private int regainTries;
+    private static final long REGAIN_FIRST_MS = 400, REGAIN_AGAIN_MS = 1200;
 
     private final Runnable recapture = new Runnable() {
         @Override public void run() { updateCapture(); }
@@ -1286,8 +1303,15 @@ public class XDeskActivity extends Activity {
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
             updateCapture();
+            // After Android's own handling of the focus: the input method and the text bridge on one connection again
+            ui.removeCallbacks(reconnectIme);
+            ui.post(reconnectIme);
         }
     }
+
+    private final Runnable reconnectIme = () -> {
+        if (keyView != null && keyView.isFocused()) keyView.bridge().reconnect();
+    };
 
     // --- 界面 ---
 
@@ -1782,7 +1806,9 @@ public class XDeskActivity extends Activity {
 
     private void setLatch(Latch l, boolean on) {
         l.on = on;
-        if (client != null) keysIn.key(l.scan, on);
+        // Let go even with no target left: the release goes where the press went (the Router knows), and without it
+        // the keyboard stayed bound to that target, a Mac long gone, with everything typed later going there
+        if (client != null || !on) keysIn.key(l.scan, on);
         l.button.setBackground(Style.ripple(this, on ? Style.ACCENT : Style.SURFACE_RAISED, 8));
         applyComboRow();
     }
@@ -2467,7 +2493,7 @@ public class XDeskActivity extends Activity {
         Display real = TargetDisplay.real(displays);
         if (appOnDisplay) {
             releaseLatches();
-            client = null;
+            setTarget(null);
             router.cancelAll();
         }
         apps.endSession(appOnDisplay && real != null ? real.getDisplayId() : -1, () -> {
@@ -2510,7 +2536,11 @@ public class XDeskActivity extends Activity {
 
     private void updateCapture() {
         if (keyView == null) return;
-        boolean home = updateHome();
+        applyCapture(updateHome());
+    }
+
+    /** The mouse captured or let go as things are now. @param home the external screen's home has the input */
+    private void applyCapture(boolean home) {
         if (hasWindowFocus()) {
             // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机。
             // 外接屏上什么都没有时，鼠标归外接屏的主屏（启动台），手机上的选择界面用手指点
@@ -2518,7 +2548,8 @@ public class XDeskActivity extends Activity {
             boolean external = externalDisplay() != null;
             // The Launchpad draws its own pointer, moved only through INPUT: a mouse left to Android moves nothing there
             boolean launchpad = client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown() && hasExternalMouse();
-            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+            // A content still opening (a Mac connecting) counts: the mouse stays off the phone until it is there
+            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
                 && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
             // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
@@ -2556,41 +2587,93 @@ public class XDeskActivity extends Activity {
 
     /** 外接键盘直接转扫描码，手机自身的按键（返回、音量）不动。输入法没接走的才会到这里。 */
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
-        InputDevice d = e.getDevice();
         keyEvents++;
         updateDiag();
+        return physicalKey(e, false) || super.dispatchKeyEvent(e);
+    }
+
+    /**
+     * A key of a keyboard or mouse attached to the phone, on its way to the target (INPUT.md §5.1). It gets here when
+     * the phone's input method did not want it: the method let it pass and Android brought it to dispatchKeyEvent, or
+     * the method took it and handed it back through its input connection (fcitx5 does that with every key of a
+     * physical keyboard; TextBridge passes those on untouched, fromIme).
+     * @return false when it is not a key to forward: the phone's own handling goes on
+     */
+    private boolean physicalKey(KeyEvent e, boolean fromIme) {
+        InputDevice d = e.getDevice();
+        if (d == null || !d.isExternal()) return false;
         // Ctrl+Alt+M on the phone's window: take the desktop over (giving it back is in the desktop window, see onCreate)
-        if (d != null && d.isExternal() && ownership.onKey(e)) {
+        if (ownership.onKey(e)) {
             updateStatus();
             return true;
         }
-        boolean forwarding = client != null && !apps.isActive() && d != null && d.isExternal() && phoneForwards();
+        // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display
+        // has the focus), so nothing is passed to it from here
+        boolean forwarding = client != null && (client == SwitcherOverlay.INPUT || !apps.isActive()) && phoneForwards();
         // Where a physical key went (never which key: a Mac's password is typed this way)
-        if (d != null && d.isExternal() && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
-            Log.d(TAG, "key: forwarding " + forwarding + ", client " + (client != null ? client.getClass().getSimpleName() : null)
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+            Log.d(TAG, "key: forwarding " + forwarding + (fromIme ? " (back from the input method)" : "") + ", client "
+                + sinkName(client) + ", bound " + sinkName(keysIn.boundTo())
                 + ", apps " + apps.isActive() + ", phoneForwards " + phoneForwards() + ", content " + contentKey);
-        if (forwarding && mouseSideKey(e)) return true;
-        if (forwarding && e.getScanCode() > 0) {
-            // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)
-            if (mediaKey(e.getKeyCode())) return super.dispatchKeyEvent(e);
-            int scan = e.getScanCode();
-            if (!io.github.n2ray.xdesk.input.HeldModifiers.isModifier(scan)) heldModifiers.check(e.getMetaState(), releaseModifier);
-            if (physicalText(e)) return true;
+        if (!forwarding) return releaseHeld(e);
+        // The Launchpad's search takes what the input method made of the key, text in the keyboard's layout: the
+        // bridge goes on with it. (Keys that came straight here are keys to it, on a US layout.)
+        if (fromIme && client == SwitcherOverlay.INPUT) return releaseHeld(e);
+        if (mouseSideKey(e)) return true;
+        int scan = e.getScanCode();
+        // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)
+        if (scan <= 0 || mediaKey(e.getKeyCode())) return false;
+        if (!io.github.n2ray.xdesk.input.HeldModifiers.isModifier(scan)) heldModifiers.check(e.getMetaState(), releaseModifier);
+        if (physicalText(e)) return true;
+        if (e.getAction() == KeyEvent.ACTION_UP) {
+            // Only what went down here goes up: an input method that kept a press for itself (it was composing)
+            // still lets the release through, and the target never saw that key
+            if (keysIn.holdsKey(scan)) keysIn.key(scan, false);
+            heldModifiers.sent(scan, false);
+        } else if (e.getAction() == KeyEvent.ACTION_DOWN) {
             if (e.getRepeatCount() == 0) {
-                if (e.getAction() == KeyEvent.ACTION_DOWN) {
-                    keysIn.key(scan, true);
-                    heldModifiers.sent(scan, true);
-                } else if (e.getAction() == KeyEvent.ACTION_UP) {
-                    keysIn.key(scan, false);
-                    heldModifiers.sent(scan, false);
-                }
-            } else if (e.getAction() == KeyEvent.ACTION_DOWN && keysIn.takesRepeats()) {
+                keysIn.key(scan, true);
+                heldModifiers.sent(scan, true);
+            } else if (keysIn.holdsKey(scan) && keysIn.takesRepeats()) {
                 // A Mac that does not repeat by itself gets Android's repeats (INPUT.md §5.4: the target end repeats)
                 keysIn.key(scan, true);
             }
+        }
+        return true;
+    }
+
+    /** For the log: what kind of target this is. */
+    private String sinkName(InputSink s) {
+        if (s == null) return "none";
+        if (s == SwitcherOverlay.INPUT) return "Launchpad";
+        if (s == apps.input()) return "AndroidApp";
+        return s.getClass().getSimpleName();
+    }
+
+    /**
+     * Keys are not forwarded (any more): the target went away, an Android app took the screen, Ctrl+Alt+M gave the
+     * keyboard back. A release of what went down on a target before that still goes there (INPUT.md §0.5). Left
+     * out, the key stayed down on the target, and worse, its device stayed bound to that target (the Router sends
+     * everything of a device where its held keys went): after Enter in the Launchpad opened a Mac, the release came
+     * while nothing was forwarded yet, and every later key and text went to the closed Launchpad instead of the Mac.
+     */
+    private boolean releaseHeld(KeyEvent e) {
+        if (e.getAction() != KeyEvent.ACTION_UP) return false;
+        int button = mouseSideButton(e);
+        if (button != 0) {
+            if (!mouseIn.holdsButton(button)) return false;
+            mouseIn.button(button, false);
             return true;
         }
-        return super.dispatchKeyEvent(e);
+        if (textKeys.get(e.getKeyCode())) {
+            textKeys.delete(e.getKeyCode());
+            return true;
+        }
+        int scan = e.getScanCode();
+        if (scan <= 0 || !keysIn.holdsKey(scan)) return false;
+        keysIn.key(scan, false);
+        heldModifiers.sent(scan, false);
+        return true;
     }
 
     /** Physical modifiers sent as held, checked against Android's meta state (an input method may keep a release). */
@@ -2604,18 +2687,24 @@ public class XDeskActivity extends Activity {
      * and close XDesk's window.
      */
     private boolean mouseSideKey(KeyEvent e) {
-        int code = e.getKeyCode();
-        if (code != KeyEvent.KEYCODE_BACK && code != KeyEvent.KEYCODE_FORWARD) return false;
-        InputDevice d = e.getDevice();
-        boolean mouse = e.getScanCode() == 0 && d != null && (d.supportsSource(InputDevice.SOURCE_MOUSE)
-            || d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE));
-        if (!mouse) return false;
+        int button = mouseSideButton(e);
+        if (button == 0) return false;
         if (e.getRepeatCount() == 0 && (e.getAction() == KeyEvent.ACTION_DOWN || e.getAction() == KeyEvent.ACTION_UP)) {
-            int button = code == KeyEvent.KEYCODE_BACK ? io.github.n2ray.xdesk.input.Input.BACK_BUTTON : io.github.n2ray.xdesk.input.Input.FORWARD_BUTTON;
             // A cancelled up (focus moved) still lets go
             mouseIn.button(button, e.getAction() == KeyEvent.ACTION_DOWN && !e.isCanceled());
         }
         return true;
+    }
+
+    /** The X button (8 back, 9 forward) a mouse's side button key stands for, 0 for any other key. */
+    private static int mouseSideButton(KeyEvent e) {
+        int code = e.getKeyCode();
+        if (code != KeyEvent.KEYCODE_BACK && code != KeyEvent.KEYCODE_FORWARD) return 0;
+        InputDevice d = e.getDevice();
+        boolean mouse = e.getScanCode() == 0 && d != null && (d.supportsSource(InputDevice.SOURCE_MOUSE)
+            || d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE));
+        if (!mouse) return 0;
+        return code == KeyEvent.KEYCODE_BACK ? io.github.n2ray.xdesk.input.Input.BACK_BUTTON : io.github.n2ray.xdesk.input.Input.FORWARD_BUTTON;
     }
 
     private static boolean mediaKey(int code) {
@@ -2655,9 +2744,14 @@ public class XDeskActivity extends Activity {
         }
         if (e.getAction() != KeyEvent.ACTION_DOWN) return false;
         if (textKeys.get(code)) {
-            // Held: the target cannot repeat text, so each of Android's repeats types it again
-            if (e.getRepeatCount() > 0 && deadAccent == 0) typeChar(e);
-            return true;
+            if (e.getRepeatCount() > 0) {
+                // Held: the target cannot repeat text, so each of Android's repeats types it again
+                if (deadAccent == 0) typeChar(e);
+                return true;
+            }
+            // A new press of a key whose release never came here (the window lost the focus under it): judged
+            // afresh, not swallowed as the rest of the old press
+            textKeys.delete(code);
         }
         if (e.getRepeatCount() > 0 || !prefs.getBoolean(PREF_KEYS_VIA_IME, true) || client == SwitcherOverlay.INPUT) return false;
         if (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER || code == KeyEvent.KEYCODE_TAB) return false;
@@ -2762,7 +2856,9 @@ public class XDeskActivity extends Activity {
         chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
         applyFullscreen();
-        keyView.releasePointerCapture();
+        // With an external screen the mouse stays there (its home, the desktop, a Mac) while fingers work this list;
+        // without, it is let go
+        updateCapture();
         updateAudioChip();
         refreshChooser();
     }
@@ -2774,7 +2870,7 @@ public class XDeskActivity extends Activity {
         chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
         applyFullscreen();
-        keyView.releasePointerCapture();
+        updateCapture();
         refreshChooser();
     }
 
@@ -2978,13 +3074,27 @@ public class XDeskActivity extends Activity {
             return;
         }
         MacSource.userLooking();
+        // A latched Ctrl or Alt is held on what was the target: let go there, or the keyboard stays bound to it and
+        // the Launchpad's search gets nothing
+        releaseLatches();
         if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
+        // Over an Android app the mouse is the injector's and moves that app's cursor, which was put on the screen
+        // before the Launchpad: above it, or the pointer is lost under the scrim
+        if (apps.isActive()) apps.raiseCursor();
         updateCapture();
     }
 
     private static final long HOME_AGAIN_MS = 1500;
     private final Runnable homeAgain = this::updateCapture;
+    /**
+     * The Launchpad closed over an Android app (one was opened, or nothing was): the mouse captured for the
+     * Launchpad is the app's again at once, not when homeAgain comes. Only then: while a content is still opening
+     * the capture stays, or Android's own pointer would show up on the phone for that time.
+     */
+    private final Runnable captureAfterSwitcher = () -> {
+        if (keyView != null && apps.isActive() && !SwitcherOverlay.isShown()) applyCapture(false);
+    };
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
         @Override public List<String> running() {
@@ -3002,6 +3112,9 @@ public class XDeskActivity extends Activity {
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;
+            // Posted: what was chosen is started right after this, in the same turn
+            ui.removeCallbacks(captureAfterSwitcher);
+            ui.post(captureAfterSwitcher);
             // Back to the home if nothing took the screen; late enough for what was opened to have begun
             ui.removeCallbacks(homeAgain);
             ui.postDelayed(homeAgain, HOME_AGAIN_MS);
@@ -3026,6 +3139,7 @@ public class XDeskActivity extends Activity {
         if (s == null) return;
         Display d = externalDisplay();
         if (d == null) {
+            // Nothing is opening: a content left pending here kept the home off the screen that comes later
             needDisplayNotice();
             return;
         }
@@ -3054,6 +3168,20 @@ public class XDeskActivity extends Activity {
         if (beforeSwitcher instanceof WindowScopedInput) beforeSwitcher = ((WindowScopedInput) beforeSwitcher).desktop();
         ContentSource s = Contents.sourceOf(key);
         if (s != null) s.hidden(key);
+        // A Mac taken off the screen still takes input on its connection, and would get the touchpad's clicks with
+        // no picture of where they land, until the next thing has started. (A Linux window stays on the screen and
+        // its input with it.)
+        if (key != null && key.startsWith(MacSource.PREFIX)) setTarget(null);
+    }
+
+    /**
+     * What the input goes to from now on. While the Launchpad is open it keeps the input, and this is what it hands
+     * the input to when it closes: set directly, the Launchpad stayed on the screen with nothing reaching it (an X
+     * desktop that stopped or connected under the home, a content that opened or ended under it).
+     */
+    private void setTarget(InputSink s) {
+        if (client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown()) beforeSwitcher = s;
+        else client = s;
     }
 
     /** With a content that draws itself (a Mac) on top: the Android app was in front of the X desktop under it, not behind. */
@@ -3094,12 +3222,13 @@ public class XDeskActivity extends Activity {
             pendingContent = null;
             contentKey = key;
             // A Linux program alone on the screen is a window (WindowScopedInput), not the whole desktop
-            client = input != null ? input : new WindowScopedInput(session.input());
+            setTarget(input != null ? input : new WindowScopedInput(session.input()));
             closeChooserOverSession();
             showRunning();
             updateCapture();
             ui.removeCallbacks(regainFocus);
-            ui.postDelayed(regainFocus, REFOCUS_DELAY_MS * 2);
+            regainTries = 3;
+            ui.postDelayed(regainFocus, REGAIN_FIRST_MS);
             updateStatus();
             refreshDocks();
             bumpIdle();
@@ -3154,7 +3283,7 @@ public class XDeskActivity extends Activity {
             if (key.equals(pendingContent)) pendingContent = null;
             if (!key.equals(contentKey)) return;
             contentKey = null;
-            client = apps.isActive() ? apps.input() : session.isActive() ? session.input() : null;
+            setTarget(apps.isActive() ? apps.input() : session.isActive() ? session.input() : null);
             if (!key.startsWith(LinuxSource.PREFIX)) resumeUnderContent();
             refreshDocks();
             updateStatus();
@@ -3445,7 +3574,7 @@ public class XDeskActivity extends Activity {
         setDesktopTaken(false);
         apps.desktopEnded();
         releaseLatches();
-        client = null;
+        setTarget(null);
         router.cancelAll();
         session.abandon();
         MainActivity m = MainActivity.getInstance("");
@@ -3723,7 +3852,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void attachApp() {
-        client = apps.input();
+        setTarget(apps.input());
         showRunning();
         updateCapture();
         updateStatus();
@@ -3745,7 +3874,7 @@ public class XDeskActivity extends Activity {
         applySize(d);
         session.attach();
         apps.connectForAudio();
-        client = session.input();
+        setTarget(session.input());
         updateCapture();
     }
 
@@ -3850,7 +3979,7 @@ public class XDeskActivity extends Activity {
 
     /** 界面重建时接回还在运行的会话。 */
     private void attachSession() {
-        client = session.input();
+        setTarget(session.input());
         if (session.isConnected()) {
             showRunning();
             updateStatus();

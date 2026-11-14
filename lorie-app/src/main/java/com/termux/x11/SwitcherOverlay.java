@@ -145,6 +145,9 @@ final class SwitcherOverlay {
         panel = p;
         p.devices.addListener(p.changed);
         p.place(p.width / 2f, p.height / 2f);
+        // Its own pointer shows once something moves it: over an Android app the mouse is a real Android pointer
+        // with the app's cursor, and a second dot resting in the middle would be taken for it
+        p.pointer.setVisibility(View.INVISIBLE);
         return true;
     }
 
@@ -688,6 +691,7 @@ final class SwitcherOverlay {
         void place(float x, float y) {
             px = Math.max(0, Math.min(width - 1, x));
             py = Math.max(0, Math.min(height - 1, y));
+            if (pointer.getVisibility() != View.VISIBLE) pointer.setVisibility(View.VISIBLE);
             pointer.setTranslationX(px);
             pointer.setTranslationY(py);
             Target t = under();
