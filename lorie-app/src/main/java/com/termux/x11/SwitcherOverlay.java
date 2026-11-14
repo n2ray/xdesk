@@ -75,7 +75,7 @@ final class SwitcherOverlay {
         @Override public void key(int scan, boolean down) { onUi(p -> p.key(scan, down)); }
         @Override public void tapKey(int scan) { onUi(p -> { p.key(scan, true); p.key(scan, false); }); }
         @Override public void text(String s) { onUi(p -> p.type(s)); }
-        @Override public void androidButton(int b) { onUi(p -> hide(p.host)); }
+        @Override public void androidButton(int b) { onUi(p -> { if (!p.home) hide(p.host); }); }
     };
 
     private interface PanelAction {
@@ -104,9 +104,27 @@ final class SwitcherOverlay {
      * @return false when it could not be shown (no overlay permission): the caller keeps its input.
      */
     static boolean show(Context context, Display display, final Host host, boolean onlySystem) {
+        return show(context, display, host, onlySystem, false);
+    }
+
+    /**
+     * The external screen's home (INPUT.md: the home is a target like any other): nothing else is on the screen and
+     * a mouse is there, so the Launchpad is what the screen shows, over the dashboard. It does not close itself: Esc
+     * only clears the search, a click on empty space and Back do nothing; it goes when something is opened or the
+     * caller hides it.
+     */
+    static boolean showHome(Context context, Display display, Host host) {
+        return show(context, display, host, false, true);
+    }
+
+    static boolean isHome() {
+        return panel != null && panel.home;
+    }
+
+    private static boolean show(Context context, Display display, final Host host, boolean onlySystem, boolean home) {
         hide(null);
         if (display == null || !android.provider.Settings.canDrawOverlays(context)) return false;
-        Panel p = new Panel(context.createDisplayContext(display), display, host);
+        Panel p = new Panel(context.createDisplayContext(display), display, host, home);
         String saved = p.devices.switcherTab();
         p.tab = onlySystem || saved == null ? TAB_RUNNING : saved;
         p.build();
@@ -162,6 +180,8 @@ final class SwitcherOverlay {
 
     private static final class Panel {
         final Context c;
+        /** The screen's home (showHome): it stays until something is opened. */
+        final boolean home;
         final WindowManager wm;
         final Host host;
         final Devices devices;
@@ -187,8 +207,9 @@ final class SwitcherOverlay {
         boolean showHidden, ctrl, shift;
         float px, py, wheel;
 
-        Panel(Context dc, Display display, Host host) {
+        Panel(Context dc, Display display, Host host, boolean home) {
             c = dc;
+            this.home = home;
             wm = dc.getSystemService(WindowManager.class);
             this.host = host;
             devices = Devices.get(dc);
@@ -215,7 +236,7 @@ final class SwitcherOverlay {
 
             root = new FrameLayout(c);
             root.setBackgroundColor(SCRIM);
-            root.setOnClickListener(v -> hide(host));
+            root.setOnClickListener(v -> { if (!home) hide(host); });
             column = new LinearLayout(c);
             column.setOrientation(LinearLayout.VERTICAL);
             column.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -682,12 +703,12 @@ final class SwitcherOverlay {
 
         void click(int button) {
             if (button != 1) {
-                hide(host);
+                if (!home) hide(host);
                 return;
             }
             Target t = under();
             if (t != null) t.action.run();
-            else hide(host);  // a click on empty space closes, as Launchpad
+            else if (!home) hide(host);  // a click on empty space closes, as Launchpad
         }
 
         void wheel(int steps) {
@@ -723,7 +744,7 @@ final class SwitcherOverlay {
             switch (scan) {
                 case 1:  // Esc: clear the search, else close
                     if (!query.isEmpty()) setQuery("");
-                    else hide(host);
+                    else if (!home) hide(host);
                     return;
                 case 14:  // Backspace
                     if (!query.isEmpty()) setQuery(query.substring(0, query.offsetByCodePoints(query.length(), -1)));

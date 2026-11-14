@@ -416,6 +416,7 @@ public class XDeskActivity extends Activity {
             }
             if (!session.isActive()) {
                 updateChooserDisplay();
+                updateCapture();  // the home's Launchpad, if a mouse is there
                 return;
             }
             // 可能换了显示器：按新尺寸算分辨率，再把桌面放回去
@@ -2421,13 +2422,36 @@ public class XDeskActivity extends Activity {
 
     private void updateCapture() {
         if (keyView == null) return;
+        boolean home = updateHome();
         if (hasWindowFocus()) {
-            // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机
-            if (!apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+            // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机。
+            // 外接屏上什么都没有时，鼠标归外接屏的主屏（启动台），手机上的选择界面用手指点
+            if (home || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
                 && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
             else keyView.releasePointerCapture();
         }
         updateDiag();
+    }
+
+    /**
+     * The external screen's home (DEVICES.md §4): nothing on it (the dashboard) and a mouse on the phone, so the
+     * mouse, the keyboard and the touchpad go to the Launchpad there, with its own pointer. Shown or taken away here.
+     * @return whether the home has the input now
+     */
+    private boolean updateHome() {
+        Display d = externalDisplay();
+        boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && !session.isActive() && contentKey == null
+            && pendingContent == null && !desktopTaken && phoneForwards() && hasExternalMouse();
+        if (!want) {
+            if (SwitcherOverlay.isHome()) SwitcherOverlay.hide(switcherHost);
+            return false;
+        }
+        if (SwitcherOverlay.isShown()) return client == SwitcherOverlay.INPUT;
+        if (!SwitcherOverlay.showHome(this, d, switcherHost)) return false;
+        MacSource.userLooking();
+        beforeSwitcher = client;
+        client = SwitcherOverlay.INPUT;
+        return true;
     }
 
     /** 外接键盘直接转扫描码，手机自身的按键（返回、音量）不动。输入法没接走的才会到这里。 */
@@ -2852,6 +2876,9 @@ public class XDeskActivity extends Activity {
         client = SwitcherOverlay.INPUT;
     }
 
+    private static final long HOME_AGAIN_MS = 1500;
+    private final Runnable homeAgain = this::updateCapture;
+
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
         @Override public List<String> running() {
             ArrayList<String> keys = new ArrayList<>();
@@ -2867,6 +2894,9 @@ public class XDeskActivity extends Activity {
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;
+            // Back to the home if nothing took the screen; late enough for what was opened to have begun
+            ui.removeCallbacks(homeAgain);
+            ui.postDelayed(homeAgain, HOME_AGAIN_MS);
         }
     };
 
