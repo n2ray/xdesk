@@ -981,7 +981,9 @@ public class XDeskActivity extends Activity {
         }
         private void sessionDecided(final String name) {
             leaveContentChoice();
-            rememberRecent(ChooserView.recentKey(name));
+            // "NAME+apps" is how a Linux device is connected (DEVICES.md §2), not something to list as recent
+            boolean appsOnly = name.endsWith(Devices.APPS_ONLY);
+            if (!appsOnly) rememberRecent(ChooserView.recentKey(name));
             if (name.equals(runningSession)) {
                 if (session.isActive()) {
                     desktopName = name;
@@ -990,6 +992,9 @@ public class XDeskActivity extends Activity {
                 } else {
                     reattach();
                 }
+            } else if (runningSession != null && runningSession.equals(name + Devices.APPS_ONLY)) {
+                // Its own apps-only variant runs: the whole desktop comes in its place, X and the windows stay
+                launchDesktop(name, true);
             } else if (runningSession != null) {
                 ui().confirm(getString(R.string.xd_switch_desktop_title), getString(R.string.xd_switch_desktop, runningSession), getString(R.string.xd_switch), new Runnable() {
                     @Override public void run() { launchDesktop(name, true); }
@@ -3033,7 +3038,9 @@ public class XDeskActivity extends Activity {
                 // The same as tapping the running session: a waiting screen and the connect timeout, which fails us
                 reattach();
             } else if (!session.isActive()) {
-                launchDesktop(null, false);
+                // Opening a Linux program connects Linux in apps-only mode, not the whole desktop (DEVICES.md §2)
+                String def = Devices.get(XDeskActivity.this).defaultSession();
+                launchDesktop(def != null ? def + Devices.APPS_ONLY : null, false);
             }
         }
         @Override public void freeDisplay() {

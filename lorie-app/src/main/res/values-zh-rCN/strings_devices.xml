@@ -77,4 +77,6 @@
     <string name="xd_dev_whole_desktop">整个桌面</string>
     <string name="xd_dev_desktop_header">桌面</string>
     <string name="xd_dev_locked_hint">已锁定 — 打开桌面解锁</string>
+    <string name="xd_dev_apps_only">只有应用</string>
+    <string name="xd_dev_open_whole">已连接（只有应用），点这里打开整个桌面</string>
 </resources>

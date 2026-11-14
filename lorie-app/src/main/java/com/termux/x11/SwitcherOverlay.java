@@ -160,7 +160,7 @@ final class SwitcherOverlay {
 
     private static final class Item {
         String key, label, detail, search;
-        boolean hidden, desktop;
+        boolean hidden, desktop, dim;
         char initial;
     }
 
@@ -364,6 +364,8 @@ final class SwitcherOverlay {
                         i.desktop = true;
                         out.add(i);
                     }
+                // Not connected: only the whole desktop (opening it connects); the real list comes with the connection
+                boolean catalog = devices.listsCatalog(d);
                 ContentSource source = d.type == Devices.Type.LINUX ? LinuxSource.get() : d.type == Devices.Type.MAC ? Contents.sourceOf(MacSource.PREFIX) : null;
                 if (source != null) {
                     HashSet<String> shown = new HashSet<>();
@@ -374,11 +376,11 @@ final class SwitcherOverlay {
                             Item i = item(e.key, c.getString(R.string.xd_dev_whole_desktop), e.detail != null ? e.detail : e.label, e.label);
                             i.desktop = true;
                             out.add(start, i);
-                        } else {
+                        } else if (catalog) {
                             out.add(item(e.key, e.label, e.detail, null));
                         }
                     }
-                    for (ContentSource.Entry e : source.apps())
+                    if (catalog) for (ContentSource.Entry e : source.apps())
                         if (!shown.contains(e.key) && devices.deviceOf(e.key).equals(d.id)) apps.add(item(e.key, e.label, null, null));
                 }
             }
@@ -404,13 +406,17 @@ final class SwitcherOverlay {
                 for (Devices.Device d : devices.all()) deviceItems(d, all);
             } else if (TAB_RUNNING.equals(tab)) {
                 for (String k : new LinkedHashSet<>(host.running())) {
+                    // A Linux device's apps-only session is the connection, not something to switch to
+                    if (k.startsWith("t:") && k.endsWith(Devices.APPS_ONLY)) continue;
                     Item i = itemForKey(k);
                     if (i != null) all.add(i);
                 }
             } else if (TAB_FAVOURITES.equals(tab)) {
                 for (String k : new LinkedHashSet<>(host.favorites())) {
                     Item i = itemForKey(k);
-                    if (i != null && !i.hidden) all.add(i);
+                    if (i == null || i.hidden) continue;
+                    i.dim = devices.offline(k);
+                    all.add(i);
                 }
             } else {
                 Devices.Device d = devices.find(tab);
@@ -564,7 +570,7 @@ final class SwitcherOverlay {
             box.setClickable(true);
             boolean isCurrent = it.key.equals(current);
             box.setBackground(tileBack(it, isCurrent ? CURRENT : 0x00000000));
-            box.setAlpha(it.hidden ? 0.5f : 1f);
+            box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
             box.addView(ExternalLauncher.icon(c, it.key, icon), new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
             name.setSingleLine(true);

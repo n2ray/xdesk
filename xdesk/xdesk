@@ -226,7 +226,7 @@ migrate_session() {
 }
 
 start_session() {
-    local name=$1 f
+    local name=$1 f g
     f=$(session_file "$name") || { say "No session named '$name'. Try: xdesk list"; return 1; }
     if [ -n "$(session_pid)" ]; then
         echo "Session $(cat "$RUN/session.name") is already running"
@@ -234,7 +234,13 @@ start_session() {
     fi
     migrate_session "$f"
     if [ "$name" != "${name%+apps}" ]; then
-        f=$(apps_only_script "$f") || { say "Session ${name%+apps} has no XFCE to start without its desktop"; return 1; }
+        # The app connects a Linux device as NAME+apps; a session that is not XFCE has no such variant: all of it then
+        if g=$(apps_only_script "$f"); then
+            f=$g
+        else
+            log "Session ${name%+apps} has no XFCE to start without its desktop: starting all of it"
+            name=${name%+apps}
+        fi
     fi
     DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
     echo $! >"$RUN/session.pid"
@@ -811,7 +817,8 @@ switch)
     clear_stopped
     lock; start_x && start_audio || exit 1
     stop_session
-    start_session "$1" && echo "$1" >"$CONF/current"
+    # The default stays the session itself: its "apps only" variant is how the app connects it
+    start_session "$1" && echo "${1%+apps}" >"$CONF/current"
     ;;
 stop)
     touch "$RUN/stopped"

@@ -27,6 +27,8 @@ import java.util.Objects;
  * Built from what the sources already have in memory: nothing here connects, reads files or blocks. UI thread.
  */
 final class Devices {
+    /** xdesk's "apps only" variant of a session: X, xfwm4 and xfsettingsd, no panel or desktop. */
+    static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab",
         PREF_SWITCHER_TAB = "switcher_tab";
@@ -177,6 +179,7 @@ final class Devices {
 
     static String deviceOfSession(String session) {
         if (session == null) return LINUX + TERMUX;
+        if (session.endsWith(APPS_ONLY)) session = session.substring(0, session.length() - APPS_ONLY.length());
         return session.equals(TERMUX) || session.startsWith(TERMUX + "-") ? LINUX + TERMUX : LINUX + session;
     }
 
@@ -274,7 +277,9 @@ final class Devices {
         }
         if (running || windows > 0 || (termux && xRunning)) {
             String note = windows > 0 ? context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows)
-                    : running ? runningSession : context.getString(R.string.xd_dev_x_running);
+                    : running ? (runningSession.endsWith(APPS_ONLY) ? context.getString(R.string.xd_dev_apps_only)
+                        : context.getString(R.string.xd_dev_whole_desktop) + " · " + runningSession)
+                    : context.getString(R.string.xd_dev_x_running);
             return new Device(id, Type.LINUX, name, State.CONNECTED, note, false);
         }
         if (id.equals(linuxConnecting)) return new Device(id, Type.LINUX, name, State.CONNECTING, null, false);
@@ -320,7 +325,8 @@ final class Devices {
             String session = own.contains(defaultSession) ? defaultSession : own.get(0);
             linuxConnecting = id;
             linuxConnectingSince = SystemClock.uptimeMillis();
-            actions.startLinux(session);
+            // Connecting is X with only the window manager: the whole desktop is the 整个桌面 entry (DEVICES.md §2)
+            actions.startLinux(session + APPS_ONLY);
         }
         changed();
     }
@@ -383,6 +389,22 @@ final class Devices {
         if (!deviceId.startsWith(MAC)) return false;
         MacClient m = MacClients.get(c, deviceId.substring(MAC.length()));
         return m != null && m.state() == MacClient.State.CONNECTED && m.locked();
+    }
+
+    /**
+     * Whether a device's windows and apps are listed: only once it is connected, the list is the real one then
+     * (DEVICES.md §3). One that can't be connected (a Linux environment without a session) lists its programs.
+     */
+    boolean listsCatalog(Device d) {
+        return !d.external() || d.state == State.CONNECTED || !d.canConnect(this);
+    }
+
+    /** A favourite of a device that isn't connected: drawn dim, opening it connects. */
+    boolean offline(String key) {
+        String id = deviceOf(key);
+        if (id.equals(PHONE)) return false;
+        Device d = find(id);
+        return d != null && d.state != State.CONNECTED;
     }
 
     /** The state's colour for dots on tabs and rows. */

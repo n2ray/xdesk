@@ -93,6 +93,8 @@ final class ChooserView extends LinearLayout {
         String sessionName;
         /** An app (not a window or a desktop): can be hidden. */
         boolean hideable, hidden;
+        /** A favourite of a device that isn't connected: dim, opening it connects. */
+        boolean dim;
         /** A whole desktop: drawn apart from the apps. */
         boolean desktop;
         /** Its letter in the A–Z part, 0 outside it. */
@@ -489,16 +491,20 @@ final class ChooserView extends LinearLayout {
     private Row sessionRow(final String name) {
         Row r = new Row();
         r.key = recentKey(name);
-        r.title = name;
+        // The whole desktop of a Linux environment; connecting is the device bar's (apps only, DEVICES.md §2)
+        r.title = str(R.string.xd_dev_whole_desktop);
         r.isSession = true;
         r.sessionName = name;
         r.desktop = true;
-        r.running = name.equals(devices.runningSession());
+        String running = devices.runningSession();
+        r.running = name.equals(running);
         r.stopping = name.equals(devices.stoppingSession());
-        if (r.stopping) r.subtitle = str(R.string.xd_chooser_stopping);
-        else if (r.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
-        else if (r.running) r.subtitle = str(R.string.xd_chooser_running);
-        else if (name.equals(devices.defaultSession())) r.subtitle = str(R.string.xd_chooser_default);
+        String state = null;
+        if (r.stopping) state = str(R.string.xd_chooser_stopping);
+        else if (r.key.equals(current)) state = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
+        else if (r.running) state = str(R.string.xd_chooser_running);
+        else if ((name + Devices.APPS_ONLY).equals(running)) state = str(R.string.xd_dev_open_whole);
+        r.subtitle = state != null ? name + " · " + state : name;
         r.action = () -> host.onSessionChosen(name);
         return r;
     }
@@ -624,6 +630,7 @@ final class ChooserView extends LinearLayout {
             if (k.equals(previous) && !dockKeys.contains(k)) where = str(R.string.xd_dev_previous) + " · " + where;
             r.subtitle = r.subtitle != null ? where + " · " + r.subtitle : where;
             r.hideable = false;
+            r.dim = devices.offline(k);
             rows.add(r);
         }
     }
@@ -669,6 +676,9 @@ final class ChooserView extends LinearLayout {
     /** A source's windows of this device as a section, its apps into the sorted part. */
     private void sourceRows(Devices.Device device, ContentSource s, int windowsTitle, List<Row> sorted, List<Row> hiddenRows) {
         if (s == null) return;
+        // Not connected: only its whole desktop (opening it connects). The windows and apps come when it is, then the
+        // list is the real one, not a stale copy (DEVICES.md §3)
+        boolean catalog = devices.listsCatalog(device);
         ArrayList<Row> open = new ArrayList<>();
         HashSet<String> shown = new HashSet<>();
         for (ContentSource.Entry e : s.windows()) {
@@ -692,12 +702,13 @@ final class ChooserView extends LinearLayout {
                 }
                 continue;
             }
-            if (entryMatches(e)) open.add(contentRow(e, false));
+            if (catalog && entryMatches(e)) open.add(contentRow(e, false));
         }
         if (!open.isEmpty()) {
             rows.add(header(str(windowsTitle)));
             rows.addAll(open);
         }
+        if (!catalog) return;
         for (ContentSource.Entry e : s.apps())
             if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e, true), sorted, hiddenRows);
     }
@@ -846,7 +857,7 @@ final class ChooserView extends LinearLayout {
             } else {
                 h = (Holder) v.getTag();
             }
-            v.setAlpha(r.hidden ? 0.55f : 1f);
+            v.setAlpha(r.hidden || r.dim ? 0.55f : 1f);
             h.title.setText(r.title);
             h.title.setTextColor(r.desktop ? Style.ACCENT : Style.TEXT);
             h.subtitle.setText(r.subtitle);
@@ -865,21 +876,9 @@ final class ChooserView extends LinearLayout {
             }
             h.dot.setVisibility(r.isSession ? VISIBLE : GONE);
             if (r.isSession) h.dot.setBackground(Style.dot(r.running ? Style.OK : Style.SURFACE_RAISED));
-            if (r.isSession) {
-                h.action.setVisibility(VISIBLE);
-                h.action.setText(r.stopping ? R.string.xd_chooser_stopping_short : r.running ? R.string.xd_chooser_stop : R.string.xd_chooser_start);
-                boolean busy = devices.stoppingSession() != null;
-                h.action.setEnabled(!busy);
-                h.action.setAlpha(busy ? 0.4f : 1f);
-                h.action.setOnClickListener(view -> {
-                    Style.tick(view);
-                    if (r.running) host.onSessionStop(r.sessionName);
-                    else host.onSessionChosen(r.sessionName);
-                });
-            } else {
-                h.action.setVisibility(GONE);
-                h.action.setOnClickListener(null);
-            }
+            // No Start/Stop on a desktop row: the device bar's 连接/断开 is the one connect control (DEVICES.md §2)
+            h.action.setVisibility(GONE);
+            h.action.setOnClickListener(null);
             if (r.key != null && !r.hidden) {
                 boolean docked = dockKeys.contains(r.key);
                 h.star.setVisibility(VISIBLE);

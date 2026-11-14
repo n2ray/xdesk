@@ -80,4 +80,6 @@
     <string name="xd_dev_whole_desktop">Whole desktop</string>
     <string name="xd_dev_desktop_header">Desktop</string>
     <string name="xd_dev_locked_hint">Locked — open the desktop to unlock</string>
+    <string name="xd_dev_apps_only">Apps only</string>
+    <string name="xd_dev_open_whole">connected with apps only, tap for the whole desktop</string>
 </resources>
