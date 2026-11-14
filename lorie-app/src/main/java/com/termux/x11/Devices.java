@@ -33,7 +33,7 @@ final class Devices {
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab",
-        PREF_SWITCHER_TAB = "switcher_tab", PREF_LINUX = "linux", PREF_ENVS = "envs";
+        PREF_SWITCHER_TAB = "switcher_tab", PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
@@ -133,6 +133,10 @@ final class Devices {
     private List<Env> envs = new ArrayList<>();
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private Actions actions;
+    /** The Linux environments (by name, Termux too) whose physical keyboard types with the phone's input method. */
+    private final LinkedHashSet<String> linuxPhoneIme = new LinkedHashSet<>();
+    /** An input method runs on the X side (xdesk status says so): X can compose what a physical keyboard types. */
+    private boolean xIme;
 
     private List<String> sessions = new ArrayList<>();
     private String defaultSession, runningSession, stoppingSession, termuxHint;
@@ -147,6 +151,7 @@ final class Devices {
         hidden.addAll(lines(prefs.getString(PREF_HIDDEN, "")));
         off.addAll(lines(prefs.getString(PREF_OFF, "")));
         addedLinux.addAll(lines(prefs.getString(PREF_LINUX, "")));
+        linuxPhoneIme.addAll(lines(prefs.getString(PREF_LINUX_PHONE_IME, "")));
         reportedEnvs = parseEnvs(lines(prefs.getString(PREF_ENVS, "")));
         rebuildEnvs();
     }
@@ -207,6 +212,35 @@ final class Devices {
             // Only an X server that ended is told here (the light X or a desktop, with everything on it)
             xRunning = false;
         }
+        changed();
+    }
+
+    // --- the X side's input method (INPUT.md §5.2) ---
+
+    /**
+     * What xdesk status last said: an input method (fcitx5) runs on the X server all Linux environments share. Then a
+     * physical keyboard's keys go to X as keys and it composes, its candidates on the external screen.
+     */
+    boolean xIme() {
+        return xIme;
+    }
+
+    void setXIme(boolean runs) {
+        if (runs == xIme) return;
+        xIme = runs;
+        changed();
+    }
+
+    /** This Linux device is set to the phone's input method for a physical keyboard, whatever runs on the X side. */
+    boolean linuxPhoneIme(String deviceId) {
+        return deviceId != null && deviceId.startsWith(LINUX) && linuxPhoneIme.contains(deviceId.substring(LINUX.length()));
+    }
+
+    void setLinuxPhoneIme(String deviceId, boolean on) {
+        if (deviceId == null || !deviceId.startsWith(LINUX)) return;
+        String env = deviceId.substring(LINUX.length());
+        if (on ? !linuxPhoneIme.add(env) : !linuxPhoneIme.remove(env)) return;
+        prefs.edit().putString(PREF_LINUX_PHONE_IME, String.join("\n", linuxPhoneIme)).apply();
         changed();
     }
 

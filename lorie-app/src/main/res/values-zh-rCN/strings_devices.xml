@@ -85,6 +85,11 @@
     <string name="xd_dev_remove_linux_note">只去掉它的标签，环境本身不动；可以在「添加设备 › Linux」里再加回来。</string>
     <string name="xd_dev_linux_how">通过 xdesk 命令使用</string>
     <string name="xd_dev_linux_how_note">就在这台手机上，不需要连接。应用一直列在这里；打开应用时自动起 X，不带桌面。只有「整个桌面」会启动桌面。</string>
+    <string name="xd_linux_keyboard">键盘</string>
+    <string name="xd_linux_phone_ime">实体键盘用手机输入法打字</string>
+    <string name="xd_linux_phone_ime_note">关：Linux 这边有输入法（fcitx5）在运行时，手机上接的键盘用它打字，候选框在外屏上、紧挨着文字；没有时用手机输入法。开：始终用手机输入法，候选在手机上。手机的软键盘始终用手机输入法</string>
+    <string name="xd_linux_x_ime_on">现在：Linux 这边有输入法在运行。</string>
+    <string name="xd_linux_x_ime_off">现在：Linux 这边没有输入法在运行。要装一个，在 Termux 里运行：xdesk ime setup</string>
     <string name="xd_dev_env_termux">Termux 本身</string>
     <string name="xd_dev_env_apps">应用和桌面</string>
     <string name="xd_dev_env_desktop_only">只有桌面</string>

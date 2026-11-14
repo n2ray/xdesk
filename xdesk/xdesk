@@ -19,6 +19,7 @@
 #   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
 #   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
 #   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
+#   xdesk ime [status|setup|start|stop|on|off]   the X side's input method (fcitx5 in Termux, for every environment)
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 #                            ("termux+apps" needs no session: Termux's own xfwm4)
 set -u
@@ -228,7 +229,7 @@ migrate_session() {
 }
 
 start_session() {
-    local name=$1 f g
+    local name=$1 f g termux_wm=0
     f=$(session_file "$name") || { say "No session named '$name'. Try: xdesk list"; return 1; }
     if [ -n "$(session_pid)" ]; then
         echo "Session $(cat "$RUN/session.name") is already running"
@@ -243,15 +244,29 @@ start_session() {
         elif g=$(termux_apps_script); then
             [ "$f" = /dev/null ] || log "Session ${name%+apps} has no XFCE to start without its desktop: Termux's window manager instead"
             f=$g
+            termux_wm=1
         else
             say "No window manager for apps only: install one in Termux (pkg install xfwm4 xfce4-settings)"
             return 1
         fi
     fi
-    DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
+    # The input method of the X side, when there is one (ime_later starts it): what the session's programs reach it
+    # with. A Termux session gets fcitx5 on its own bus; any other system only has X in common with it
+    local -a imev=()
+    if ime_enabled && [ -z "${XMODIFIERS:-}" ] && [ -z "${GTK_IM_MODULE:-}" ]; then
+        if [ $termux_wm = 1 ] || [ "$(session_env "${name%+apps}")" = termux ]; then
+            mapfile -t imev < <(ime_vars bus)
+        else
+            mapfile -t imev < <(ime_vars xim)
+            g=$(ime_session_script "$f") && f=$g
+        fi
+        [ -n "$(ime_pid)" ] || ime_profile
+    fi
+    env "${imev[@]}" DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
     echo $! >"$RUN/session.pid"
     echo "$name" >"$RUN/session.name"
     say "Started session $name"
+    ime_later
     # The size the app asked for last, for this new session
     local dpi
     dpi=$(cut -d' ' -f1 "$RUN/scale" 2>/dev/null)
@@ -386,6 +401,250 @@ stop_apps_bus() {
     p=$(cat "$RUN/bus.pid" 2>/dev/null)
     if [[ $p =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q '^dbus-daemon '; then kill "$p" 2>/dev/null; fi
     rm -f "${RUN:?}/bus.address" "${RUN:?}/bus.pid"
+}
+
+# --- The input method of the X side (INPUT.md §5.2) ---
+# With fcitx5 installed in Termux, xdesk runs it on the display: a keyboard on the phone then types into X as keys and
+# fcitx5 composes, its candidates on the external screen, at the text. Termux, proot and chroot programs are all
+# clients of this one X server, so the one fcitx5 serves them all:
+# - a Termux program on the session bus fcitx5 is on talks to it through the GTK and Qt modules (D-Bus);
+# - everything else (another bus, a proot or chroot system, where Termux's bus is not reachable) through XIM, which
+#   needs nothing but the X connection.
+# Nothing here does anything while fcitx5 is not installed, or with the file $CONF/ime-off ("xdesk ime off").
+IME_PACKAGES="fcitx5 fcitx5-chinese-addons fcitx5-gtk3 fcitx5-gtk4 fcitx5-qt"
+
+ime_installed() { [ -x "$PREFIX/bin/fcitx5" ]; }
+ime_enabled() { ime_installed && [ ! -e "$CONF/ime-off" ]; }
+
+proc_env() {  # pid, NAME: its value in that process's environment
+    tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null | sed -n "s/^$2=//p" | head -1
+}
+
+# The fcitx5 on our display: the one xdesk started, else any other there (XFCE's autostart, one inside a proot)
+ime_pid() {
+    local p
+    p=$(cat "$RUN/ime.pid" 2>/dev/null)
+    if [[ $p =~ ^[0-9]+$ ]] && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = fcitx5 ]; then echo "$p"; return 0; fi
+    for p in $(pgrep -x fcitx5 2>/dev/null); do
+        [ "$(proc_env "$p" DISPLAY)" = "$DPY" ] && { echo "$p"; return 0; }
+    done
+    return 1
+}
+
+ime_ours() { [ -n "$1" ] && [ "$1" = "$(cat "$RUN/ime.pid" 2>/dev/null)" ]; }
+
+# What a program needs in its environment, NAME=value per line. "bus": it shares fcitx5's session bus (the modules,
+# where installed). "xim": it does not. Qt has no XIM: QT_IM_MODULE is left alone there, an unknown value would only
+# cost Qt its own dead keys. SDL falls back to XIM by itself
+ime_vars() {  # bus | xim
+    echo "XMODIFIERS=@im=fcitx"
+    if [ "$1" = bus ]; then
+        if [ -e "$PREFIX/lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so" ]; then echo "GTK_IM_MODULE=fcitx"; else echo "GTK_IM_MODULE=xim"; fi
+        ls "$PREFIX"/lib/qt*/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so >/dev/null 2>&1 && echo "QT_IM_MODULE=fcitx"
+        echo "SDL_IM_MODULE=fcitx"
+    else
+        echo "GTK_IM_MODULE=xim"
+    fi
+    return 0
+}
+
+# The keyboard layout X has now, as fcitx5 names it ("us", "de", "de-nodeadkeys"); "us" when it cannot be read.
+# From the keymap itself: one loaded with xkbcomp leaves the root window's layout property as it was
+ime_layout() {
+    local s l
+    s=$(DISPLAY=$DPY timeout 3 xkbcomp -w0 "$DPY" - 2>/dev/null | sed -n 's/^xkb_symbols[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    # "pc+de(nodeadkeys)+inet(evdev)": the part after "pc"
+    l=$(printf '%s\n' "$s" | tr '+' '\n' | sed -n '2p')
+    l=${l%%:*}
+    if [[ $l =~ ^([a-z]{2,8})\(([A-Za-z0-9_-]+)\)$ ]]; then echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+    elif [[ $l =~ ^[a-z]{2,8}$ ]]; then echo "$l"
+    else echo us; fi
+}
+
+# fcitx5's list of input methods, written once so that pinyin is there from the first start: the keyboard in the
+# layout X has, then pinyin (Ctrl+Space switches). Never when a profile exists, and not without pinyin installed
+# (fcitx5's own default will do then). fcitx5 writes this file when it exits: only written while ours is not running
+ime_profile() {
+    local f=$HOME/.config/fcitx5/profile l
+    [ -e "$f" ] && return 1
+    [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ] || return 1
+    l=$(ime_layout)
+    mkdir -p "$(dirname "$f")" || return 1
+    cat >"$f" <<PROFILE
+[Groups/0]
+# Group Name
+Name=Default
+# Layout
+Default Layout=$l
+# Default Input Method
+DefaultIM=pinyin
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-$l
+# Layout
+Layout=
+
+[Groups/0/Items/1]
+# Name
+Name=pinyin
+# Layout
+Layout=
+
+[GroupOrder]
+0=Default
+PROFILE
+    log "Input method: wrote $f (keyboard-$l, pinyin)"
+}
+
+stop_ime() {
+    local p
+    p=$(cat "$RUN/ime.pid" 2>/dev/null)
+    if [[ $p =~ ^[0-9]+$ ]] && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = fcitx5 ]; then
+        kill "$p" 2>/dev/null
+        # It saves its profile on the way out
+        for _ in $(seq 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+        kill -9 "$p" 2>/dev/null
+    fi
+    rm -f "${RUN:?}/ime.pid" "${RUN:?}/ime.token"
+}
+
+# fcitx5 on the session bus of the Termux window manager given (so that the programs of that session reach it through
+# their modules), else on xdesk's own bus. One that runs where it is wanted stays; ours on another bus (the one of a
+# desktop that has ended) is started again on this one; one somebody else started is left alone
+start_ime() {  # the window manager's pid, or nothing
+    local wm=${1:-} bus="" p
+    ime_enabled || return 0
+    if [ -n "$wm" ] && [ "$(proc_env "$wm" PREFIX)" = "$PREFIX" ]; then bus=$(proc_env "$wm" DBUS_SESSION_BUS_ADDRESS); else wm=""; fi
+    [ -n "$bus" ] || bus=$(apps_bus) || bus=""
+    if p=$(ime_pid); then
+        ime_ours "$p" || return 0
+        [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$bus" ] && return 0
+        stop_ime
+    fi
+    ime_profile
+    (
+        if [ -n "$wm" ]; then import_env "$wm"; else eval "$(termux_env)"; fi
+        unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI DESKTOP_STARTUP_ID
+        export DISPLAY=$DPY
+        if [ -n "$bus" ]; then export DBUS_SESSION_BUS_ADDRESS=$bus; else unset DBUS_SESSION_BUS_ADDRESS; fi
+        setsid nohup fcitx5 -D </dev/null >>"$LOG" 2>&1 9>&- &
+        echo $! >"$RUN/ime.pid"
+    )
+    if [ -n "$bus" ]; then p="on the session bus $bus"; else p="without a session bus (XIM only)"; fi
+    log "Input method: fcitx5 started, pid $(cat "$RUN/ime.pid" 2>/dev/null), $p"
+}
+
+# After a session start: once its window manager is up (its bus is where fcitx5 goes), or after a while without one
+# (a desktop that is not XFCE, a system of its own). A newer session's job replaces an older one
+ime_later() {
+    local token="$$ $RANDOM" wm=""
+    ime_enabled || return 0
+    echo "$token" >"$RUN/ime.token"
+    (
+        mine() { [ "$(cat "$RUN/ime.token" 2>/dev/null)" = "$token" ]; }
+        for _ in $(seq 40); do
+            mine || exit 0
+            x_up || exit 0
+            wm=$(session_wm_pid) && break
+            sleep 0.5
+        done
+        mine || exit 0
+        start_ime "${wm:-}"
+    ) </dev/null >>"$LOG" 2>&1 9>&- &
+}
+
+# A session in a proot-distro system: the login clears the environment, so what its programs need goes on that line,
+# as PULSE_COOKIE does. Not when the line names an input method of its own. Prints the script to run instead
+ime_session_script() {  # file
+    local out=$RUN/ime-session.sh vars
+    grep -q 'proot-distro login.* -- env ' "$1" || return 1
+    grep -qE '(XMODIFIERS|GTK_IM_MODULE)=' "$1" && return 1
+    vars=$(ime_vars xim | tr '\n' ' ')
+    sed "0,/\(proot-distro login.* -- env \)/s//\1$vars/" "$1" >"$out" || return 1
+    echo "$out"
+}
+
+# For a Termux program about to start, with its environment already set: the modules when fcitx5 is on its session
+# bus, XIM when not. An input method the environment names already is left alone
+ime_export() {
+    local p kind=xim line
+    ime_enabled || return 0
+    [ -z "${XMODIFIERS:-}" ] && [ -z "${GTK_IM_MODULE:-}" ] || return 0
+    if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] && p=$(ime_pid) && [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$DBUS_SESSION_BUS_ADDRESS" ]; then kind=bus; fi
+    while IFS= read -r line; do export "$line"; done < <(ime_vars $kind)
+}
+
+ime_status() {
+    local p f=$HOME/.config/fcitx5/profile m name file pkg l
+    if ! ime_installed; then
+        echo "fcitx5: not installed. Install it with: pkg install $IME_PACKAGES"
+        return 0
+    fi
+    echo "fcitx5: installed$([ -e "$CONF/ime-off" ] && echo ", switched off (xdesk ime on)")"
+    for m in "pinyin:share/fcitx5/inputmethod/pinyin.conf:fcitx5-chinese-addons" \
+             "GTK 3 module:lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so:fcitx5-gtk3" \
+             "GTK 4 module:lib/gtk-4.0/4.0.0/immodules/libim-fcitx5.so:fcitx5-gtk4" \
+             "Qt 6 module:lib/qt6/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so:fcitx5-qt"; do
+        IFS=: read -r name file pkg <<<"$m"
+        if [ -e "$PREFIX/$file" ]; then echo "  $name: installed"; else echo "  $name: missing (pkg install $pkg)"; fi
+    done
+    # GTK 3 only loads the modules its cache lists (the package's install script writes it)
+    if [ -e "$PREFIX/lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so" ] && ! grep -q 'im-fcitx5' "$PREFIX/lib/gtk-3.0/3.0.0/immodules.cache" 2>/dev/null; then
+        echo "  GTK 3 does not list the module yet. Run: gtk-query-immodules-3.0 --update-cache"
+    fi
+    l=""
+    x_up && l=$(ime_layout)
+    if [ -e "$f" ]; then
+        echo "Profile: $f ($(sed -n 's/^Name=//p' "$f" | sed 1d | tr '\n' ' ' | sed 's/ $//'))"
+        m=$(sed -n 's/^Default Layout=//p' "$f" | head -1)
+        if [ -n "$l" ] && [ -n "$m" ] && [ "$m" != "$l" ]; then
+            echo "  Its layout is '$m', the X keyboard has '$l' now: fcitx5 sets X to the profile's. To change it: fcitx5-configtool,"
+            echo "  or with fcitx5 stopped (xdesk ime stop) edit 'Default Layout=' and 'Name=keyboard-...' in the profile"
+        fi
+    elif [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ]; then
+        echo "Profile: none yet (xdesk writes one with pinyin at the first start)"
+    else
+        echo "Profile: none yet (fcitx5's own default)"
+    fi
+    [ -n "$l" ] && echo "X keyboard layout: $l"
+    if p=$(ime_pid); then
+        m=$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)
+        echo "Running: pid $p$(ime_ours "$p" || echo " (not started by xdesk)"), session bus ${m:-none}"
+    else
+        echo "Running: no"
+    fi
+}
+
+# Everything that needs no package: the profile, and fcitx5 on the display now if X is up. Says what the user has to do
+ime_setup() {
+    local p wm=""
+    if ! ime_installed; then
+        echo "fcitx5 is not installed in Termux. Install it (pinyin and the GTK and Qt modules with it), then run this again:"
+        echo "  pkg upgrade && pkg install $IME_PACKAGES"
+        echo "Optional, its settings window (about 20 MB more): pkg install fcitx5-configtool"
+        return 1
+    fi
+    [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ] || echo "No pinyin yet: pkg install fcitx5-chinese-addons"
+    rm -f "${CONF:?}/ime-off"
+    if x_up; then
+        if p=$(ime_pid) && ! ime_ours "$p"; then
+            echo "fcitx5 already runs here (pid $p, not started by xdesk): left as it is."
+        else
+            # Stopped first: a running fcitx5 would write its own list over the profile when it exits
+            [ -e "$HOME/.config/fcitx5/profile" ] || stop_ime
+            wm=$(session_wm_pid) || wm=""
+            start_ime "$wm"
+            sleep 1
+        fi
+    else
+        ime_profile
+    fi
+    ime_status
+    echo
+    echo "From the next session start (in the app: open the desktop or a Linux program again; or: xdesk switch NAME)"
+    echo "every program gets the input method. Programs that are open now do not have it: open them again."
+    echo "Ctrl+Space switches between the keyboard and pinyin (Left Shift: back and forth while typing)."
 }
 
 # The session script with XFCE's start command replaced by the window manager and settings daemon alone. A session
@@ -771,7 +1030,7 @@ wait_wm() {
 }
 
 launch_app() {
-    local sid="" key scope id file row cmd root prefix wm line
+    local sid="" key scope id file row cmd root prefix wm line kv
     while [ $# -gt 0 ]; do
         case "$1" in
         --startup-id) sid=${2:-}; shift 2 ;;
@@ -828,16 +1087,22 @@ launch_app() {
         else
             eval "$(termux_env)"
         fi
+        ime_export
         export DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE DESKTOP_STARTUP_ID=$sid
         if [ "$term" = true ]; then exec setsid sh -c "$TERM_WRAP" "$cmd"; fi
         exec setsid sh -c "$cmd"
     fi
     [ "$term" = true ] && cmd="exec sh -c $(sq "$TERM_WRAP") $(sq "$cmd")"
     local -a e=(DISPLAY=$DPY PULSE_SERVER=127.0.0.1 DESKTOP_STARTUP_ID=$sid)
-    # The session's D-Bus and language, when its window manager runs in that system (not in Termux)
+    # The session's D-Bus, language and input method, when its window manager runs in that system (not in Termux).
+    # (Not read into "line": that is the proot-distro login line, still needed below)
     if wm=$(session_wm_pid) && ! tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
-        while IFS= read -r line; do e+=("$line"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
-            grep -E '^(DBUS_SESSION_BUS_ADDRESS|LANG|LANGUAGE|LC_[A-Z]+|XDG_RUNTIME_DIR)=')
+        while IFS= read -r kv; do e+=("$kv"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
+            grep -E '^(DBUS_SESSION_BUS_ADDRESS|LANG|LANGUAGE|LC_[A-Z]+|XDG_RUNTIME_DIR|XMODIFIERS|GTK_IM_MODULE|QT_IM_MODULE|SDL_IM_MODULE)=')
+    fi
+    # No input method of that system's own: the X side's, over XIM (its D-Bus is Termux's, out of reach in there)
+    if ime_enabled && ! printf '%s\n' "${e[@]}" | grep -qE '^(XMODIFIERS|GTK_IM_MODULE)='; then
+        while IFS= read -r kv; do e+=("$kv"); done < <(ime_vars xim)
     fi
     if [ -f "$SESSIONS/$scope.launch" ]; then
         # Written by the user for systems xdesk cannot enter itself (chroot): runs "$@" in that system
@@ -921,7 +1186,7 @@ list_apps() {
     awk -F'\t' 'NR > 1 { printf "%-40s %s%s\n", $1, $2, ($3 == 1 ? " (terminal)" : "") }' "$cat"
 }
 
-usage() { sed -n '4,23p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '4,24p' "$0" | sed 's/^# \?//'; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -973,6 +1238,7 @@ stop)
     touch "$RUN/stopped"
     lock; stop_session
     pkill -f '^xdesk-x11 '
+    stop_ime
     stop_apps_bus
     pulseaudio --kill 2>/dev/null
     am broadcast -a io.github.n2ray.xdesk.STOPPED -p "$APP" --es nonce "$(cat "$RUN/nonce" 2>/dev/null)" >/dev/null 2>&1
@@ -1013,6 +1279,8 @@ status)
     DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | sed -n 's/.*\(current [0-9]* x [0-9]*\).*/Resolution: \1/p'
     if [ -n "$(session_pid)" ]; then echo "Session: $(cat "$RUN/session.name")"; else echo "Session: none"; fi
     echo "Default: $(current)"
+    # Read by the app: with an input method on the X side a keyboard on the phone types as keys (INPUT.md §5.2)
+    if x_up && imp=$(ime_pid); then echo "Input method: fcitx5 (pid $imp)"; else echo "Input method: none"; fi
     ;;
 setup) setup ;;
 envs) list_envs ;;
@@ -1025,6 +1293,28 @@ apps)
     esac
     ;;
 launch) launch_app "$@" ;;
+ime)
+    case "${1:-status}" in
+    status) ime_status ;;
+    setup) ime_setup ;;
+    start)
+        ime_installed || { ime_setup; exit 1; }
+        rm -f "${CONF:?}/ime-off"
+        x_up || { echo "X is not running: fcitx5 starts with the next session"; exit 0; }
+        wm=$(session_wm_pid) || wm=""
+        start_ime "$wm"
+        ime_status | tail -1
+        ;;
+    stop) stop_ime; ime_status | tail -1 ;;
+    on) rm -f "${CONF:?}/ime-off"; echo "xdesk starts fcitx5 with a session again (now: xdesk ime start)" ;;
+    off)
+        touch "$CONF/ime-off"
+        stop_ime
+        echo "xdesk no longer starts fcitx5 or sets its environment (sessions and programs started from now on)"
+        ;;
+    *) usage; exit 2 ;;
+    esac
+    ;;
 scale)
     [ $# -eq 1 ] && [[ $1 =~ ^[0-9]{2,4}$ ]] || { usage; exit 2; }
     scale_later "$1"

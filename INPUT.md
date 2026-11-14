@@ -192,7 +192,21 @@ Mac 接收器现在就是这么做的。手机接实体键盘、目标不是 And
    - 布局由 Mac 的键盘布局决定（和把键盘直接插在 Mac 上一样）；修饰键翻译（§5.5）照旧。切换 Mac 的输入法用 Mac 自己的快捷键（⌃空格：PC 键盘上是 Win+空格）。
    - 手机软键盘打开（或刚点了键盘按钮）时回到 §5.1：软键盘的字经文字桥发 `text`。启动台的搜索框不是 Mac，一直走手机输入法。
    - 每台 Mac 一个开关"实体键盘用手机输入法打字"（默认关），打开就回到 §5.1。
-   - X 桌面以后也可以这样做（桌面里有 fcitx5/ibus 时），现在没有做：桌面里不一定有输入法，默认还是 §5.1。
+4. **X 目标（Linux 桌面、Linux 窗口）、X 这边有输入法在运行、手机上接了实体键盘：** 和第 3 条同一个做法，键原样以 `key`（扫描码，`DesktopInput.key`）发给 X，由 X 这边的 fcitx5 拼字，候选框画在外屏上、紧挨着文字。X 这边没有输入法时还是 §5.1（手机输入法拼字）。
+   - **判断（`XDeskActivity.xRawKeys`）：** 目标是 X 桌面或 Linux 窗口，`xdesk status` 报告有输入法（`Input method: fcitx5 …`，没有时是 `Input method: none`；老版本 xdesk 没有这一行，当作没有），这个 Linux 设备没有打开"实体键盘用手机输入法打字"，手机上接着实体键盘，软键盘没开也没刚点键盘按钮。软键盘、启动台搜索、Ctrl+Alt+M 都不变。
+   - **状态什么时候更新：** `xdesk status` 本来就在这些时候读（`parseTermuxState`）：X 连上后 6 秒和 27 秒、打开手机上的列表、开桌面和 Linux 程序之前、桌面停止之后；为这件事加了两处：回到手机窗口时（`onResume`，比如刚在终端里跑完 `xdesk ime setup`）、接上一个实体键盘时。读到变化，`Devices.setXIme` 通知监听者，`syncKeyMode` 立刻换模式（日志一行 `IME: raw keys…` / `IME: text through…`，不记按了什么键）。
+   - **一个输入法管所有环境：** Termux、proot、chroot 的程序都是同一个 X 服务器（`:1`）的客户端，所以只在 Termux 里跑一个 fcitx5（`xdesk` 负责，装了才有）：
+     - Termux 的程序和 fcitx5 在同一条 D-Bus 会话总线上时，用 GTK/Qt 输入法模块（`GTK_IM_MODULE=fcitx`、`QT_IM_MODULE=fcitx`、`SDL_IM_MODULE=fcitx`，各模块装了才设）。
+     - 其他情况（proot、chroot 里的程序，Termux 的总线进不去；不在同一条总线上的 Termux 程序）用 **XIM**：`XMODIFIERS=@im=fcitx` 加 `GTK_IM_MODULE=xim`，只靠 X 连接，那个环境里不用装 fcitx。Qt 5/6 没有 XIM，那些环境里的 Qt 程序用不了 X 这边的输入法（`QT_IM_MODULE` 不设：设成不存在的值，Qt 连自己的死键都没了），要打中文就把那个设备的开关打开，用手机输入法。XIM 要程序跑在 UTF-8 的 locale 下。
+     - fcitx5 跟着会话的总线走：Termux 会话（轻量 X 用 xdesk 自己的总线，整个桌面用 `dbus-run-session` 的那条）起来后，`xdesk` 等窗口管理器出现，把 fcitx5 起在它的总线上；别的环境的会话就起在 xdesk 自己的总线上。`xdesk switch` 换了总线时 fcitx5 重新起一次；`xdesk stop` 停掉。XFCE 自己的自启动（fcitx5 包带的）先起了也一样，xdesk 不动别人起的那个。
+     - **已知的缺口：** 轻量 X 里开着的 Termux 程序，切到整个桌面后还在，但它们的总线上已经没有 fcitx5（跟去了桌面的总线），这些程序要重开才有输入法。要彻底解决得让 Termux 的整个桌面也用 xdesk 那条长期总线，这次没有动桌面的启动方式。
+     - 环境里自己设了输入法的（会话脚本或它的窗口管理器的环境里有 `XMODIFIERS`/`GTK_IM_MODULE`）不覆盖。
+   - **第一次的配置：** 没有 `~/.config/fcitx5/profile` 而且装了拼音时，`xdesk` 写一份：X 当前布局的键盘 + 拼音（`Default Layout` 从 X 实际的 keymap 读，用 xkbcomp 上传的布局也认得）。已有的 profile 从不改。
+   - **布局现在由 X 决定：** 原样的键按 X 服务器的 XKB 布局出字（和键盘直接插在一台 Linux 电脑上一样）。lorie 的 X 服务器默认是 `evdev` 规则、`pc105`、`us`；扫描码 +8 就是 X 的 keycode，和 PC 键盘的 evdev 键位一致。不是美式键盘时布局要在 X 这边对：fcitx5 会把 X 的布局设成 profile 里的那个（它的默认行为），所以 profile 的布局写对就行。走 §5.1 时布局是 Android 那边的，和 X 无关。
+   - **切换输入法：** fcitx5 自己的快捷键，默认 Ctrl+空格（XDesk 自己只占 Ctrl+Alt+M，不冲突；Android 系统可能先把 Ctrl+空格拿去切换键盘布局，那样就到不了 X，要在真机上看；到不了时用左 Shift，或在 fcitx5 里换一个键）。
+   - 每个 Linux 设备一个开关"实体键盘用手机输入法打字"（默认关 = 上面的自动判断），打开就回到 §5.1。
+   - **手机软键盘还是 §5.1：** 它的字经文字桥变成 X 的按键事件。这时 X 这边的 fcitx5 如果正处在拼音状态，软键盘打的英文字母会被它再拼一次；fcitx5 默认是英文状态，切到拼音后又改用软键盘才会遇到，切回英文即可。
+   - 命令：`xdesk ime`（状态）、`xdesk ime setup`（写配置、在当前 X 上起 fcitx5；没装时打印 `pkg install` 那一行）、`xdesk ime start|stop`、`xdesk ime off|on`（整个功能的开关，文件 `~/.config/xdesk/ime-off`）。
 
 ### 5.3 文字桥（目标不是 Android 时）
 
@@ -352,7 +366,7 @@ lorie-app（手机）
 | 自然滚动 | 所有设备 | 开 |
 | 像平板 / 像电脑 | 按应用（§4） | 像电脑 |
 | 修饰键翻译 | PC↔Mac（§5.5） | 开 |
-| 实体键盘用手机输入法打字 | 每台 Mac（§5.2 第 3 条） | 关 |
+| 实体键盘用手机输入法打字 | 每台 Mac（§5.2 第 3 条）、每个 Linux 设备（§5.2 第 4 条） | 关 |
 | 剪贴板同步 | 会话 | 开 |
 | 自动接管手机键鼠 | 手机 | 开 |
 
