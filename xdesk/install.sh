@@ -19,6 +19,16 @@ if [ -n "$missing" ]; then
     pkg install -y $missing
 fi
 
+# Adreno GPUs work with Turnip, Mesa's open Vulkan driver, and zink then runs OpenGL on the real GPU.
+# Other GPUs have no driver here, and xdesk only turns zink on when a freedreno ICD is present, so they
+# keep software rendering. A failed install is not fatal: the desktop still works.
+if [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
+    echo "Installing Turnip, the Adreno Vulkan driver"
+    if ! pkg install -y mesa mesa-vulkan-icd-freedreno; then
+        echo "Turnip was not installed; the desktop will use software rendering."
+    fi
+fi
+
 TAG=${XDESK_VERSION:-$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}
 [ -n "$TAG" ] || { echo "Could not find a release of $REPO"; exit 1; }
 echo "Installing XDesk $TAG"
