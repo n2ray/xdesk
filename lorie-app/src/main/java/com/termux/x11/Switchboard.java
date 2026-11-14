@@ -453,11 +453,17 @@ final class Switchboard {
         ArrayList<Item> apps = new ArrayList<>();
         if (d.type == Devices.Type.PHONE) {
             List<AppCatalog.App> all = AppCatalog.get(c).apps();
+            if (searching) {
+                ArrayList<String> names = new ArrayList<>(all.size());
+                for (AppCatalog.App a : all) names.add(a.label);
+                Initials.prepare(names, changed);
+            }
             for (AppCatalog.App a : all) add(appItem(a), q, apps, hidden);
             if (all.isEmpty() && !searching) out.add(note(str(R.string.xd_chooser_loading), null, null));
         } else if (d.type == Devices.Type.LINUX) {
             ArrayList<Item> desktops = new ArrayList<>();
             // The whole desktop is the only entry that starts an environment's desktop; its programs never do
+            if (searching) Initials.prepare(devices.sessionsOf(d.id), changed);
             for (String name : devices.sessionsOf(d.id)) {
                 Item i = sessionItem(name);
                 if (matches(i, q)) desktops.add(join(i));
@@ -516,6 +522,12 @@ final class Switchboard {
         if (!open.isEmpty()) {
             if (!searching) out.add(header(str(windowsTitle)));
             out.addAll(open);
+        }
+        if (searching) {
+            ArrayList<String> names = new ArrayList<>();
+            if (catalog) for (ContentSource.Entry e : s.apps()) if (devices.deviceOf(e.key).equals(d.id)) names.add(e.label);
+            for (ContentSource.Entry e : s.windows()) if (devices.deviceOf(e.key).equals(d.id)) names.add(e.label);
+            Initials.prepare(names, changed);
         }
         if (!catalog) return;
         for (ContentSource.Entry e : s.apps())
