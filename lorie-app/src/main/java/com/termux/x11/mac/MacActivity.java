@@ -29,7 +29,27 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     public static final String EXTRA_MAC = "mac";
     /** The display it was opened on: if it shows up anywhere else, that display went away (DISPLAY.md §5.4). */
     public static final String EXTRA_DISPLAY = "display";
-    private static MacActivity current;
+    /**
+     * Every screen of a Mac that exists, oldest first (main thread). Not only the newest: with two Macs, the one put
+     * on the screen first is still to be finished after the second has opened over it, or it would stay underneath
+     * and come up again, without a stream, when the second goes.
+     */
+    private static final java.util.ArrayList<MacActivity> live = new java.util.ArrayList<>();
+
+    /** The newest screen of this Mac that is not on its way out, or null. */
+    private static MacActivity of(String macId) {
+        for (int i = live.size() - 1; i >= 0; i--) {
+            MacActivity a = live.get(i);
+            if (!a.isFinishing() && a.client != null && a.client.mac().id.equals(macId)) return a;
+        }
+        return null;
+    }
+
+    /** Whether another screen (not on its way out) shows this activity's Mac. */
+    private boolean replaced() {
+        for (MacActivity a : live) if (a != this && !a.isFinishing() && a.client == client) return true;
+        return false;
+    }
 
     /** What XDesk hears when a Mac screen ends on its own (not through finishFor). UI thread. */
     public interface Ended {
@@ -53,8 +73,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     /** The activity showing this Mac, finished: another content took the screen (stream stops, connection stays). */
     public static void finishFor(String macId) {
-        MacActivity a = current;
-        if (a != null && a.client != null && a.client.mac().id.equals(macId)) {
+        for (MacActivity a : new java.util.ArrayList<>(live)) {
+            if (a.isFinishing() || a.client == null || !a.client.mac().id.equals(macId)) continue;
             a.quiet = true;
             a.finish();
         }
@@ -62,16 +82,15 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     /** The Mac can't be shown any more (it ended the session for good): the screen closes and says why. */
     public static void failedFor(String macId, String why) {
-        MacActivity a = current;
-        if (a == null || a.isFinishing() || a.client == null || !a.client.mac().id.equals(macId)) return;
+        MacActivity a = of(macId);
+        if (a == null) return;
         if (why != null && !why.isEmpty())
             android.widget.Toast.makeText(a.getApplicationContext(), why, android.widget.Toast.LENGTH_LONG).show();
         a.end();
     }
 
     public static boolean isShowing(String macId) {
-        MacActivity a = current;
-        return a != null && !a.isFinishing() && a.client != null && a.client.mac().id.equals(macId);
+        return of(macId) != null;
     }
 
     @Override protected void onCreate(Bundle b) {
@@ -130,7 +149,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     /** This screen of the Mac ends on its own: the stream stops (the connection stays), and XDesk hears it in onDestroy. */
     private void end() {
         if (isFinishing()) return;
-        if (client != null && current == this) client.show(MacClient.NONE);
+        if (client != null && !replaced()) client.show(MacClient.NONE);
         finish();
     }
 
@@ -151,7 +170,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
             client.detach(this);
         }
         client = next;
-        current = this;
+        if (!live.contains(this)) live.add(this);
         displayWanted = i.getIntExtra(EXTRA_DISPLAY, Display.INVALID_DISPLAY);
         client.attach(this);
         if (picture.getHolder().getSurface().isValid()) giveSurface();
@@ -159,7 +178,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     @Override protected void onDestroy() {
         if (displayWatch != null) ((DisplayManager) getSystemService(DISPLAY_SERVICE)).unregisterDisplayListener(displayWatch);
-        boolean last = current == this;
+        live.remove(this);
+        boolean last = client != null && !replaced();
         if (client != null) {
             // Only this activity's own surface: a newer screen of this Mac may already show it (Mac, an app, Mac again)
             client.clearSurface(this);
@@ -170,7 +190,6 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
                 if (e != null) e.ended(client.mac().id);
             }
         }
-        if (last) current = null;
         super.onDestroy();
     }
 

@@ -38,6 +38,7 @@
     <string name="xd_mac_opening">正在打开…</string>
     <string name="xd_mac_launch_failed">应用没有打开窗口</string>
     <string name="xd_mac_taken">另一台设备正在看这台 Mac。点这里要回来</string>
+    <string name="xd_mac_waiting_picture">正在等 %1$s 送来画面（它的屏幕可能在睡眠）。点这里再试一次</string>
     <string name="xd_mac_window_closed">这个窗口已在 Mac 上关闭</string>
     <string name="xd_mac_unpaired">Mac 移除了 XDesk。请在 XDesk 设置 › Mac 里重新配对</string>
     <string name="xd_mac_identity_changed">Mac 的身份变了。请移除后重新配对</string>

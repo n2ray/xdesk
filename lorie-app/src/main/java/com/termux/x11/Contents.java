@@ -33,6 +33,12 @@ final class Contents {
          */
         void freeDisplay();
 
+        /**
+         * Whether this content is still the one to open. A source that had to wait (a Mac connecting) asks before it
+         * takes the display: the user may have chosen something else meanwhile, which must not be covered or suspended.
+         */
+        default boolean wanted(String key) { return true; }
+
         /** Something about this content changed that the phone UI shows (title, running state). */
         void contentChanged();
 

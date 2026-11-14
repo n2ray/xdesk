@@ -230,7 +230,10 @@ public final class MacClient {
             lastUse = SystemClock.uptimeMillis();
             wanted = true;
             if (runner != null && runner.isAlive()) return;
-            if (needsPairing) return; // unpaired or another key: only pairing again helps
+            if (needsPairing) {
+                wanted = false;
+                return; // unpaired or another key: only pairing again helps
+            }
             state = State.CONNECTING;
             runner = new Thread(this::run, "mac-" + mac.id);
             runner.start();
@@ -240,6 +243,10 @@ public final class MacClient {
     /** Wait until connected, up to ms. Off the UI thread. */
     public boolean awaitConnected(long ms) {
         touch();
+        // The user is waiting: no point in sitting out the rest of a reconnect pause (the network may just be back)
+        synchronized (lock) {
+            if (backingOff && runner != null) runner.interrupt();
+        }
         long until = SystemClock.uptimeMillis() + ms;
         while (SystemClock.uptimeMillis() < until) {
             if (state == State.CONNECTED && !windowsPending) return true;
@@ -250,6 +257,8 @@ public final class MacClient {
     }
 
     private volatile boolean windowsPending = true;
+    /** The runner sleeps between two connection attempts (under lock: only then may it be interrupted to hurry). */
+    private boolean backingOff;
 
     /** Close the connection and stop reconnecting (the Mac was removed, or XDesk is closing). */
     public void shutdown() {
@@ -257,7 +266,7 @@ public final class MacClient {
         SillTls s = session;
         if (s != null) s.close();
         synchronized (lock) {
-            if (runner != null) runner.interrupt();
+            if (runner != null && backingOff) runner.interrupt();
         }
         stopClipboard();
     }
@@ -271,11 +280,24 @@ public final class MacClient {
 
     private void run() {
         int retries = 0;
-        while (wanted) {
+        while (true) {
+            // Under the lock touch() takes: either it sees this runner end and starts another, or this one goes on
+            synchronized (lock) {
+                if (!wanted) {
+                    if (runner == Thread.currentThread()) runner = null;
+                    break;
+                }
+            }
             long started = SystemClock.uptimeMillis();
             try {
                 setState(State.CONNECTING, null);
                 session(mac);
+                // Left without an error: shutdown() came (also while still connecting, which nothing interrupts)
+                SillTls s = session;
+                session = null;
+                if (s != null) s.close();
+                clearSession();
+                setState(State.OFFLINE, null);
                 retries = 0;
             } catch (Exception e) {
                 Log.i(TAG, mac.name + ": session ended: " + e);
@@ -298,7 +320,7 @@ public final class MacClient {
                     setState(State.FAILED, context.getString(com.termux.x11.app.R.string.xd_mac_identity_changed));
                     return;
                 }
-                setState(State.OFFLINE, e.getMessage());
+                setState(State.OFFLINE, wanted ? e.getMessage() : null);
             }
             if (SystemClock.uptimeMillis() - started > 30_000) retries = 0;
             // Nobody has shown or asked for this Mac for a while: stay disconnected until asked again
@@ -309,16 +331,20 @@ public final class MacClient {
                     setState(State.OFFLINE, null);
                     return;
                 }
+                if (!wanted) continue;
+                backingOff = true;
             }
             long delay = Math.min(30_000, 1000L << Math.min(retries++, 5));
             try {
                 Thread.sleep(delay);
             } catch (InterruptedException e) {
-                if (!wanted) break;
+                // Someone waits for this Mac (awaitConnected), or shutdown(): now, and from a short pause again
+                retries = 0;
             }
-        }
-        synchronized (lock) {
-            if (runner == Thread.currentThread()) runner = null;
+            synchronized (lock) {
+                backingOff = false;
+            }
+            Thread.interrupted();
         }
     }
 
@@ -350,7 +376,9 @@ public final class MacClient {
         JSONObject hello = new JSONObject().put("protocol", 1).put("appVersion", appVersion()).put("device", Build.MODEL)
                 .put("build", "xdesk");
         s.send(SillWire.HELLO, hello.toString().getBytes(StandardCharsets.UTF_8));
-        s.readTimeout(0);
+        // The pinger closes a connection without pongs, but it writes too, and a write into a dead mobile connection
+        // can block it: nothing at all read for this long (pongs come every 1 to 4 s) ends the session as well
+        s.readTimeout((int) PONG_DEADLINE_MS + 8_000);
         lastPong = SystemClock.uptimeMillis();
         Thread sender = new Thread(() -> sendLoop(s), "mac-out");
         sender.start();
@@ -385,6 +413,12 @@ public final class MacClient {
         windowsPending = true;
         activeWindow = -1;
         activeDesktop = false;
+        // Not connected: no window of this Mac is known to be open (the lists show them as running)
+        windows = Collections.emptyList();
+        locked = offConsole = offConsoleView = false;
+        // The next session's first list says whether it syncs the clipboard: start it again then
+        clipboardGeneration = 0;
+        staging = null;
         stopClipboard();
     }
 
@@ -400,6 +434,7 @@ public final class MacClient {
                 }
                 s.send(SillWire.PING, ByteBuffer.allocate(8).putDouble(System.nanoTime() / 1e9).array());
                 checkLaunch();
+                askAgain();
                 synchronized (lock) {
                     if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
                         wanted = false;
@@ -859,7 +894,31 @@ public final class MacClient {
         }
     }
 
+    /**
+     * The desktop was asked for and nothing streams (the Mac could not start it: its display asleep at a locked
+     * screen, a capture that stopped): ask again every DESKTOP_AGAIN_MS, as Sill's own clients do
+     * (DiscoveryPolicy.autoDesktop), with a pointer move where the pointer is, which the Mac takes as someone at the
+     * device and wakes its display for. Never while something else streams: that is another device's pick.
+     */
+    private void askAgain() {
+        if (surface == null || state != State.CONNECTED || want != DESKTOP || activeDesktop || activeWindow >= 0) return;
+        if (locked && offConsole && !offConsoleView) return;
+        long now = SystemClock.uptimeMillis();
+        if (now - lastSelect < DESKTOP_AGAIN_MS) return;
+        Log.i(TAG, mac.name + ": the desktop does not stream yet, asking again");
+        synchronized (out) {
+            out.add(new float[] {pointerX, pointerY});
+            out.notifyAll();
+        }
+        selectSource(DESKTOP);
+        sendViewport();
+    }
+
+    private static final long DESKTOP_AGAIN_MS = 10_000;
+    private volatile long lastSelect;
+
     private void selectSource(long source) {
+        lastSelect = SystemClock.uptimeMillis();
         try {
             JSONObject o = new JSONObject();
             if (source == DESKTOP) o.put("desktop", new JSONObject());
@@ -933,7 +992,12 @@ public final class MacClient {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_launch_failed);
         } else if (want >= 0 && activeWindow != want || want == DESKTOP && !activeDesktop) {
             boolean gone = want >= 0 && !hasWindow(want);
-            line = context.getString(gone ? com.termux.x11.app.R.string.xd_mac_window_closed : com.termux.x11.app.R.string.xd_mac_taken);
+            // "Another device" only when the Mac says something else streams; nothing streaming is the Mac not
+            // having started it (yet): its display asleep, the capture stopped. Tapping asks again either way
+            boolean other = activeWindow >= 0 || activeDesktop;
+            line = gone ? context.getString(com.termux.x11.app.R.string.xd_mac_window_closed)
+                    : other ? context.getString(com.termux.x11.app.R.string.xd_mac_taken)
+                    : context.getString(com.termux.x11.app.R.string.xd_mac_waiting_picture, name());
             taken = !gone;
         } else {
             line = null;
@@ -952,7 +1016,9 @@ public final class MacClient {
 
     /** "Taken over, tap to get it back" (DISPLAY.md §1.3). */
     public void takeBack() {
-        if (want != NONE) selectSource(want);
+        if (want == NONE) return;
+        selectSource(want);
+        sendViewport();
     }
 
     // --- input (any thread) ---

@@ -174,6 +174,9 @@ final class MacSource implements ContentSource {
                             : context.getString(R.string.xd_mac_cannot_connect, m.name()));
                     return;
                 }
+                // Chosen, then something else was chosen while this Mac connected: leave that alone
+                Contents.Host host = Contents.host();
+                if (host != null && !host.wanted(key)) return;
                 place(key, k, m, displayId, result);
             });
         }, "mac-open").start();

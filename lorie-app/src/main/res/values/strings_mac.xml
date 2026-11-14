@@ -39,6 +39,7 @@
     <string name="xd_mac_opening">Opening…</string>
     <string name="xd_mac_launch_failed">The app did not open a window</string>
     <string name="xd_mac_taken">Another device is showing this Mac now. Tap here to take it back</string>
+    <string name="xd_mac_waiting_picture">Waiting for %1$s to send its screen (its display may be asleep). Tap here to ask again</string>
     <string name="xd_mac_window_closed">This window was closed on the Mac</string>
     <string name="xd_mac_unpaired">The Mac removed XDesk. Pair it again in XDesk settings › Mac</string>
     <string name="xd_mac_identity_changed">The Mac\'s identity changed. Remove it and pair again</string>
