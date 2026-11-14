@@ -2,25 +2,34 @@ package com.termux.x11;
 
 import android.content.Context;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import com.termux.x11.app.R;
+import java.text.Collator;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 /**
- * 手机屏上的启动器：标题栏；我的收藏（第一项是上一个应用）；所有应用和搜索，Linux 桌面是最上面的一小组。
+ * 手机屏上的启动器（DEVICES.md §3）：标题栏；按设备分的标签（收藏、手机、每个外部设备、「+」）；外部设备的状态和连接/断开；
+ * 每个标签自己的搜索；列表按首字母排序，右边是 A–Z 条，隐藏的在最后一折里。
  * 没有外接屏时也能看，只是启动不了。会话进行中它只是盖在会话上的一层，外接屏不变。
  */
 final class ChooserView extends LinearLayout {
@@ -47,6 +56,9 @@ final class ChooserView extends LinearLayout {
     }
 
     private static final String RECENT_SESSION = "t:", RECENT_APP = "a:";
+    private static final String TAB_FAVOURITES = "fav";
+    /** Fewer entries than this need no A–Z bar. */
+    private static final int INDEX_MIN = 12;
 
     static String recentKey(String sessionName) {
         return RECENT_SESSION + sessionName;
@@ -79,29 +91,40 @@ final class ChooserView extends LinearLayout {
         /** Linux 桌面的状态和按钮。 */
         boolean isSession, running, stopping;
         String sessionName;
+        /** An app (not a window or a desktop): can be hidden. */
+        boolean hideable, hidden;
+        /** Its letter in the A–Z part, 0 outside it. */
+        char initial;
     }
 
     private final Host host;
-    private final TextView activate, banner, notice, favouritesLabel;
+    private final Devices devices;
+    private final TextView activate, banner, notice;
     private final Style.IconButton output;
     private final TextView close;
+    private final LinearLayout tabRow, deviceBar;
+    private final View deviceDot;
+    private final TextView deviceState, deviceButton;
     private final EditText search;
     private final ImageView clear;
-    private final DockBar dock;
+    private final ListView list;
+    private final AlphaIndexBar index;
     private final Adapter adapter = new Adapter();
     private final ArrayList<Row> rows = new ArrayList<>();
-    private List<String> sessions = new ArrayList<>();
-    private String runningSession, defaultSession, termuxHint, current, query = "";
-    private boolean onCar;
-    private boolean xRunning;
-    /** The session being stopped, "" if not known by name, null when none is. Nothing can start until it is gone. */
-    private String stoppingSession;
+    private final Collator collator = Collator.getInstance();
+    /** Letter -> the first row of the A–Z part with it. */
+    private final HashMap<Character, Integer> letterRows = new HashMap<>();
+    private final HashMap<String, String> queries = new HashMap<>();
+    private final Runnable devicesChanged = this::rebuild;
+    private String tab, tabsShown = "", current, previous, query = "";
+    private boolean onCar, settingQuery, hiddenOpen;
     private List<AppCatalog.App> apps = new ArrayList<>();
     private List<String> dockKeys = new ArrayList<>();
 
     ChooserView(Context c, Host host) {
         super(c);
         this.host = host;
+        devices = Devices.get(c);
         setOrientation(VERTICAL);
         setBackgroundColor(Style.BACKGROUND);
         setClickable(true);  // 挡住下面的触摸板
@@ -150,12 +173,36 @@ final class ChooserView extends LinearLayout {
         notice.setVisibility(GONE);
         addView(notice, new LayoutParams(-1, -2));
 
-        favouritesLabel = sectionLabel(c.getString(R.string.xd_chooser_favourites));
-        addView(favouritesLabel, new LayoutParams(-1, -2));
-        dock = new DockBar(c, host, true);
-        addView(dock, new LayoutParams(-1, Style.dp(c, Style.TARGET + 4)));
+        // 设备标签
+        HorizontalScrollView tabs = new HorizontalScrollView(c);
+        tabs.setHorizontalScrollBarEnabled(false);
+        tabs.setFocusable(false);
+        tabRow = new LinearLayout(c);
+        tabRow.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.addView(tabRow, new HorizontalScrollView.LayoutParams(-2, -2));
+        LayoutParams tp = new LayoutParams(-1, -2);
+        tp.topMargin = Style.dp(c, 10);
+        addView(tabs, tp);
 
-        addView(sectionLabel(c.getString(R.string.xd_chooser_all_apps)), new LayoutParams(-1, -2));
+        // 外部设备的状态和连接/断开
+        deviceBar = new LinearLayout(c);
+        deviceBar.setGravity(Gravity.CENTER_VERTICAL);
+        deviceBar.setPadding(Style.dp(c, 4), 0, 0, 0);
+        deviceDot = new View(c);
+        LayoutParams dp = new LayoutParams(Style.dp(c, 8), Style.dp(c, 8));
+        dp.rightMargin = Style.dp(c, 10);
+        deviceBar.addView(deviceDot, dp);
+        deviceState = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        deviceState.setMaxLines(2);
+        deviceBar.addView(deviceState, new LayoutParams(0, -2, 1));
+        deviceButton = Style.button(c, "", Style.SURFACE_RAISED, Style.TEXT_SMALL + 1, Style.RADIUS);
+        deviceButton.setSingleLine(true);
+        deviceButton.setPadding(Style.dp(c, 14), 0, Style.dp(c, 14), 0);
+        deviceBar.addView(deviceButton, new LayoutParams(-2, Style.dp(c, 40)));
+        LayoutParams bp = new LayoutParams(-1, -2);
+        bp.topMargin = Style.dp(c, 8);
+        addView(deviceBar, bp);
+
         FrameLayout searchBox = new FrameLayout(c);
         search = new EditText(c);
         search.setHint(R.string.xd_chooser_search);
@@ -180,21 +227,23 @@ final class ChooserView extends LinearLayout {
         FrameLayout.LayoutParams clearParams = new FrameLayout.LayoutParams(Style.dp(c, Style.TARGET), Style.dp(c, Style.TARGET));
         clearParams.gravity = Gravity.END;
         searchBox.addView(clear, clearParams);
-        addView(searchBox, new LayoutParams(-1, -2));
+        LayoutParams sbp = new LayoutParams(-1, -2);
+        sbp.topMargin = Style.dp(c, 8);
+        addView(searchBox, sbp);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void afterTextChanged(Editable s) {
-                query = s.toString().trim().toLowerCase();
                 clear.setVisibility(s.length() > 0 ? VISIBLE : GONE);
-                applySearching();
+                if (settingQuery) return;
+                query = s.toString().trim().toLowerCase();
+                queries.put(tab, query);
                 rebuild();
             }
         });
-        // 搜索时把收藏收起来，位置留给结果
-        search.setOnFocusChangeListener((v, focused) -> applySearching());
 
-        ListView list = new ListView(c);
+        FrameLayout listBox = new FrameLayout(c);
+        list = new ListView(c);
         list.setDivider(null);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
@@ -204,27 +253,36 @@ final class ChooserView extends LinearLayout {
         list.setOnItemLongClickListener((parent, view, position, id) -> {
             Row r = rows.get(position);
             if (r.key == null) return false;
-            host.onItemLongPress(r.key);
+            menu(view, r);
             return true;
         });
-        addView(list, new LayoutParams(-1, 0, 1));
+        listBox.addView(list, new FrameLayout.LayoutParams(-1, -1));
+        index = new AlphaIndexBar(c);
+        index.setPadding(0, Style.dp(c, 4), 0, Style.dp(c, 4));
+        index.setListener(this::jumpTo);
+        FrameLayout.LayoutParams ip = new FrameLayout.LayoutParams(Style.dp(c, 22), -1);
+        ip.gravity = Gravity.END;
+        listBox.addView(index, ip);
+        addView(listBox, new LayoutParams(-1, 0, 1));
+
+        String saved = devices.tab();
+        tab = saved != null ? saved : TAB_FAVOURITES;
         setDisplayConnected(false, false);
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        devices.addListener(devicesChanged);
+        rebuild();
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        devices.removeListener(devicesChanged);
+        super.onDetachedFromWindow();
     }
 
     private String str(int id) {
         return getContext().getString(id);
-    }
-
-    private TextView sectionLabel(String text) {
-        TextView t = Style.label(getContext(), text, Style.TEXT_DIM, Style.TEXT_SMALL);
-        t.setPadding(0, Style.dp(getContext(), 10), 0, Style.dp(getContext(), 4));
-        return t;
-    }
-
-    private void applySearching() {
-        boolean searching = search.hasFocus() || !query.isEmpty();
-        favouritesLabel.setVisibility(searching ? GONE : VISIBLE);
-        dock.setVisibility(searching ? GONE : VISIBLE);
     }
 
     /** @param car 用的是车机：说法不同 */
@@ -264,29 +322,23 @@ final class ChooserView extends LinearLayout {
     }
 
     void clearSearch() {
+        queries.clear();
         if (search.length() > 0) search.setText("");
         search.clearFocus();
     }
 
     /** @param hint 列不出环境时的说明，点按见 Host.onTermuxHint；null 表示正常 */
     void setTermux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
-        sessions = sessionNames;
-        defaultSession = defaultName;
-        runningSession = running;
-        xRunning = x;
-        termuxHint = hint;
-        rebuild();
+        devices.setLinux(sessionNames, defaultName, running, x, hint);  // its listener rebuilds
     }
 
     void setStopping(String name) {
-        if (java.util.Objects.equals(name, stoppingSession)) return;
-        stoppingSession = name;
-        rebuild();
+        devices.setLinuxStopping(name);
     }
 
     /** The content sources (Contents) changed: their rows are rebuilt from the sources themselves. */
     void refreshContents() {
-        rebuild();
+        devices.touch();  // the device states come from the same sources; its listener (this, DeviceSettings) rebuilds
     }
 
     void setApps(List<AppCatalog.App> a) {
@@ -300,10 +352,130 @@ final class ChooserView extends LinearLayout {
      */
     void setDock(List<String> keys, String previousKey, String currentKey) {
         dockKeys = keys;
+        previous = previousKey;
         current = currentKey;
-        dock.setItems(keys, previousKey, currentKey);
         rebuild();
     }
+
+    // --- tabs ---
+
+    private void selectTab(String id) {
+        if (id.equals(tab)) return;
+        tab = id;
+        devices.setTab(id);
+        hiddenOpen = false;
+        String q = queries.get(id);
+        settingQuery = true;
+        search.setText(q != null ? q : "");
+        settingQuery = false;
+        query = q != null ? q : "";
+        rebuild();
+        list.setSelection(0);
+    }
+
+    private void buildTabs(List<Devices.Device> external) {
+        StringBuilder sig = new StringBuilder(tab);
+        for (Devices.Device d : external) sig.append('|').append(d.id).append(d.state).append(d.name);
+        if (sig.toString().equals(tabsShown)) return;
+        tabsShown = sig.toString();
+        tabRow.removeAllViews();
+        addTab(TAB_FAVOURITES, "★ " + str(R.string.xd_chooser_favourites), null);
+        addTab(Devices.PHONE, str(R.string.xd_dev_phone), null);
+        for (Devices.Device d : external) addTab(d.id, d.name, d.state);
+        TextView add = tabChip("+", false);
+        add.setContentDescription(str(R.string.xd_dev_connect_devices));
+        add.setOnClickListener(v -> {
+            Style.tick(v);
+            DeviceSettings.open(getContext());
+        });
+        tabRow.addView(add, tabParams());
+    }
+
+    private LayoutParams tabParams() {
+        LayoutParams p = new LayoutParams(-2, Style.dp(getContext(), 36));
+        p.rightMargin = Style.dp(getContext(), Style.GAP);
+        return p;
+    }
+
+    private TextView tabChip(String text, boolean selected) {
+        Context c = getContext();
+        TextView t = Style.button(c, text, selected ? Style.ACCENT : Style.SURFACE, Style.TEXT_SMALL + 2, 18);
+        t.setSingleLine(true);
+        t.setPadding(Style.dp(c, 14), 0, Style.dp(c, 14), 0);
+        return t;
+    }
+
+    private void addTab(final String id, String name, Devices.State state) {
+        TextView t = tabChip(name, id.equals(tab));
+        if (state != null) {
+            GradientDrawable dot = Style.dot(Devices.color(state));
+            int s = Style.dp(getContext(), 8);
+            dot.setBounds(0, 0, s, s);
+            t.setCompoundDrawablesRelative(dot, null, null, null);
+            t.setCompoundDrawablePadding(Style.dp(getContext(), 6));
+        }
+        t.setOnClickListener(v -> {
+            Style.tick(v);
+            selectTab(id);
+        });
+        tabRow.addView(t, tabParams());
+    }
+
+    private void showDeviceBar(final Devices.Device d) {
+        if (d == null || !d.external()) {
+            deviceBar.setVisibility(GONE);
+            return;
+        }
+        deviceBar.setVisibility(VISIBLE);
+        deviceDot.setBackground(Style.dot(Devices.color(d.state)));
+        String state = str(Devices.stateLabel(d.state));
+        deviceState.setText(d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
+        deviceButton.setEnabled(!d.busy);
+        deviceButton.setAlpha(d.busy ? 0.4f : 1f);
+        deviceButton.setOnClickListener(null);
+        Runnable act = null;
+        int label = 0;
+        if (d.state == Devices.State.CONNECTED) {
+            label = R.string.xd_dev_disconnect;
+            act = () -> confirmDisconnect(d);
+        } else if (d.state == Devices.State.CONNECTING) {
+            label = R.string.xd_dev_state_connecting;
+            deviceButton.setEnabled(false);
+            deviceButton.setAlpha(0.4f);
+        } else if (d.state == Devices.State.NOT_SET_UP) {
+            label = R.string.xd_dev_set_up;
+            act = () -> DeviceSettings.setUp(getContext(), d.type);
+        } else if (d.type == Devices.Type.MAC && d.state == Devices.State.FAILED && d.note != null && isPairingFailure(d)) {
+            label = R.string.xd_dev_pair_again;
+            act = () -> MacSettings.add(getContext());
+        } else if (d.canConnect(devices)) {
+            label = R.string.xd_dev_connect;
+            act = () -> devices.connect(d.id);
+        }
+        deviceButton.setVisibility(label != 0 ? VISIBLE : GONE);
+        if (label != 0) deviceButton.setText(label);
+        final Runnable a = act;
+        if (a != null) deviceButton.setOnClickListener(v -> {
+            Style.tick(v);
+            a.run();
+        });
+    }
+
+    private boolean isPairingFailure(Devices.Device d) {
+        com.termux.x11.mac.MacClient m = com.termux.x11.mac.MacClients.get(getContext(), d.id.substring(Devices.MAC.length()));
+        return m != null && m.needsPairing();
+    }
+
+    private void confirmDisconnect(final Devices.Device d) {
+        if (d.type == Devices.Type.LINUX) {
+            devices.disconnect(d.id);  // XDeskActivity asks first, it knows what the X session holds
+            return;
+        }
+        new SettingsUi(getContext()).confirm(getContext().getString(R.string.xd_dev_disconnect_title, d.name),
+                str(R.string.xd_dev_disconnect_mac_note), str(R.string.xd_dev_disconnect), () -> devices.disconnect(d.id));
+    }
+
+    // --- rows ---
 
     private Row header(String title) {
         Row r = new Row();
@@ -318,12 +490,12 @@ final class ChooserView extends LinearLayout {
         r.title = name;
         r.isSession = true;
         r.sessionName = name;
-        r.running = name.equals(runningSession);
-        r.stopping = name.equals(stoppingSession);
+        r.running = name.equals(devices.runningSession());
+        r.stopping = name.equals(devices.stoppingSession());
         if (r.stopping) r.subtitle = str(R.string.xd_chooser_stopping);
         else if (r.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
         else if (r.running) r.subtitle = str(R.string.xd_chooser_running);
-        else if (name.equals(defaultSession)) r.subtitle = str(R.string.xd_chooser_default);
+        else if (name.equals(devices.defaultSession())) r.subtitle = str(R.string.xd_chooser_default);
         r.action = () -> host.onSessionChosen(name);
         return r;
     }
@@ -333,6 +505,7 @@ final class ChooserView extends LinearLayout {
         r.key = recentKey(a);
         r.title = a.label;
         r.app = a;
+        r.hideable = true;
         if (r.key.equals(current)) r.subtitle = str(R.string.xd_on_display);
         r.action = () -> host.onAppChosen(a);
         return r;
@@ -342,12 +515,14 @@ final class ChooserView extends LinearLayout {
         return query.isEmpty() || e.label.toLowerCase().contains(query) || (e.detail != null && e.detail.toLowerCase().contains(query));
     }
 
-    private Row contentRow(final ContentSource.Entry e) {
+    private Row contentRow(final ContentSource.Entry e, boolean app) {
         Row r = new Row();
         r.key = e.key;
         r.title = e.label;
         r.content = true;
         r.bitmap = e.icon;
+        r.running = e.running;
+        r.hideable = app;
         if (e.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
         else if (e.detail != null && !e.detail.equalsIgnoreCase(e.label)) r.subtitle = e.detail;
         else if (e.running) r.subtitle = str(R.string.xd_content_running);
@@ -355,28 +530,128 @@ final class ChooserView extends LinearLayout {
         return r;
     }
 
-    private boolean sessionMatches(String name) {
+    private boolean nameMatches(String name) {
         return query.isEmpty() || name.toLowerCase().contains(query);
     }
 
-    private void rebuild() {
-        rows.clear();
-        boolean searching = !query.isEmpty();
+    /** A row for any saved key (favourites, the previous app), or null when it is gone. */
+    private Row rowForKey(String key) {
+        if (isAppKey(key)) {
+            AppCatalog.App a = AppCatalog.get(getContext()).find(componentOf(key));
+            return a != null ? appRow(a) : null;
+        }
+        if (key.startsWith(RECENT_SESSION)) return devices.sessions().contains(sessionOf(key)) ? sessionRow(sessionOf(key)) : null;
+        ContentSource.Entry e = Contents.find(key);
+        return e != null ? contentRow(e, false) : null;
+    }
 
+    private void rebuild() {
+        List<Devices.Device> all = devices.all();
+        Devices.Device device = null;
+        boolean known = tab.equals(TAB_FAVOURITES);
+        for (Devices.Device d : all) if (d.id.equals(tab)) { device = d; known = true; }
+        if (!known) {
+            // The device went away (a Mac removed): back to the phone
+            tab = Devices.PHONE;
+            device = all.get(0);
+            query = "";
+        }
+        buildTabs(all.subList(1, all.size()));
+        showDeviceBar(device);
+        String tabName = device != null ? device.name : str(R.string.xd_chooser_favourites);
+        search.setHint(getContext().getString(R.string.xd_dev_search_in, tabName));
+
+        rows.clear();
+        letterRows.clear();
+        ArrayList<Row> sorted = new ArrayList<>(), hiddenRows = new ArrayList<>();
+        if (device == null) {
+            favouriteRows();
+        } else if (device.type == Devices.Type.PHONE) {
+            for (AppCatalog.App a : apps) if (query.isEmpty() || a.matches(query)) addApp(appRow(a), sorted, hiddenRows);
+            if (apps.isEmpty()) {
+                Row loading = new Row();
+                loading.title = str(R.string.xd_chooser_loading);
+                rows.add(loading);
+            }
+        } else if (device.type == Devices.Type.LINUX) {
+            linuxRows(device, sorted, hiddenRows);
+        } else if (device.type == Devices.Type.MAC) {
+            sourceRows(device, Contents.sourceOf(MacSource.PREFIX), R.string.xd_dev_mac_windows, sorted, hiddenRows);
+        }
+        if (!sorted.isEmpty()) addSorted(sorted, device != null && device.type != Devices.Type.PHONE);
+        if (!hiddenRows.isEmpty()) {
+            boolean open = hiddenOpen || !query.isEmpty();
+            Row fold = header((open ? "▾ " : "▸ ") + getContext().getString(R.string.xd_dev_hidden, hiddenRows.size()));
+            fold.action = () -> {
+                hiddenOpen = !hiddenOpen;
+                rebuild();
+            };
+            rows.add(fold);
+            if (open) {
+                sortRows(hiddenRows);
+                rows.addAll(hiddenRows);
+            }
+        }
+        if (rows.isEmpty()) {
+            Row none = new Row();
+            none.title = str(!query.isEmpty() ? R.string.xd_chooser_no_match
+                    : device == null ? R.string.xd_dev_no_favourites : R.string.xd_dev_empty);
+            rows.add(none);
+        }
+        boolean indexed = device != null && sorted.size() > INDEX_MIN;
+        index.setVisibility(indexed ? VISIBLE : GONE);
+        list.setPadding(0, 0, indexed ? Style.dp(getContext(), 20) : 0, 0);
+        if (indexed) index.setPresent(new HashSet<>(letterRows.keySet()));
+        adapter.notifyDataSetChanged();
+    }
+
+    private void addApp(Row r, List<Row> sorted, List<Row> hiddenRows) {
+        r.hidden = devices.isHidden(r.key);
+        (r.hidden ? hiddenRows : sorted).add(r);
+    }
+
+    private void favouriteRows() {
+        java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
+        if (previous != null) keys.add(previous);
+        keys.addAll(dockKeys);
+        for (String k : keys) {
+            Row r = rowForKey(k);
+            if (r == null || !nameMatches(r.title)) continue;
+            String where = deviceName(k);
+            if (k.equals(previous) && !dockKeys.contains(k)) where = str(R.string.xd_dev_previous) + " · " + where;
+            r.subtitle = r.subtitle != null ? where + " · " + r.subtitle : where;
+            r.hideable = false;
+            rows.add(r);
+        }
+    }
+
+    private String deviceName(String key) {
+        String id = devices.deviceOf(key);
+        if (id.equals(Devices.PHONE)) return str(R.string.xd_dev_phone);
+        if (id.startsWith(Devices.LINUX)) return Devices.linuxName(getContext(), id);
+        Devices.Device d = devices.find(id);
+        return d != null ? d.name : "";
+    }
+
+    private void linuxRows(Devices.Device device, List<Row> sorted, List<Row> hiddenRows) {
+        boolean searching = !query.isEmpty();
+        boolean termux = device.id.equals(Devices.LINUX + Devices.TERMUX);
         ArrayList<Row> desktops = new ArrayList<>();
-        for (String name : sessions) if (sessionMatches(name)) desktops.add(sessionRow(name));
-        if (!searching) {
-            if (termuxHint != null) {
-                Row hint = new Row();
-                hint.title = termuxHint;
-                hint.action = host::onTermuxHint;
-                desktops.add(hint);
+        for (String name : devices.sessionsOf(device.id)) if (nameMatches(name)) desktops.add(sessionRow(name));
+        if (termux && !searching) {
+            String hint = devices.termuxHint();
+            if (hint != null) {
+                Row h = new Row();
+                h.title = hint;
+                h.action = host::onTermuxHint;
+                desktops.add(h);
             }
             // 环境都在列表里。只有 xdesk run 的程序，或者读不到 Termux 的状态时，才需要直接接上 X
-            if (stoppingSession == null && ((xRunning && runningSession == null) || termuxHint != null)) {
+            boolean x = devices.xRunning();
+            if (devices.stoppingSession() == null && ((x && devices.runningSession() == null) || hint != null)) {
                 Row attach = new Row();
-                attach.title = str(xRunning ? R.string.xd_chooser_reattach_x : R.string.xd_chooser_attach_x);
-                attach.subtitle = str(xRunning ? R.string.xd_chooser_reattach_x_note : R.string.xd_chooser_attach_x_note);
+                attach.title = str(x ? R.string.xd_chooser_reattach_x : R.string.xd_chooser_attach_x);
+                attach.subtitle = str(x ? R.string.xd_chooser_reattach_x_note : R.string.xd_chooser_attach_x_note);
                 attach.action = host::onAttachChosen;
                 desktops.add(attach);
             }
@@ -385,32 +660,101 @@ final class ChooserView extends LinearLayout {
             rows.add(header(str(R.string.xd_linux_desktops)));
             rows.addAll(desktops);
         }
+        sourceRows(device, LinuxSource.get(), R.string.xd_dev_linux_windows, sorted, hiddenRows);
+    }
 
-        for (ContentSource s : Contents.sources()) {
-            ArrayList<Row> sourceRows = new ArrayList<>();
-            java.util.HashSet<String> shown = new java.util.HashSet<>();
-            for (ContentSource.Entry e : s.windows()) if (entryMatches(e)) { sourceRows.add(contentRow(e)); shown.add(e.key); }
-            for (ContentSource.Entry e : s.apps()) if (!shown.contains(e.key) && entryMatches(e)) sourceRows.add(contentRow(e));
-            if (sourceRows.isEmpty()) continue;
-            rows.add(header(s.title()));
-            rows.addAll(sourceRows);
+    /** A source's windows of this device as a section, its apps into the sorted part. */
+    private void sourceRows(Devices.Device device, ContentSource s, int windowsTitle, List<Row> sorted, List<Row> hiddenRows) {
+        if (s == null) return;
+        ArrayList<Row> open = new ArrayList<>();
+        HashSet<String> shown = new HashSet<>();
+        for (ContentSource.Entry e : s.windows()) {
+            if (!devices.deviceOf(e.key).equals(device.id)) continue;
+            shown.add(e.key);
+            if (entryMatches(e)) open.add(contentRow(e, false));
         }
+        if (!open.isEmpty()) {
+            rows.add(header(str(windowsTitle)));
+            rows.addAll(open);
+        }
+        for (ContentSource.Entry e : s.apps())
+            if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e, true), sorted, hiddenRows);
+    }
 
-        ArrayList<Row> appRows = new ArrayList<>();
-        for (AppCatalog.App a : apps) if (!searching || a.matches(query)) appRows.add(appRow(a));
-        if (!appRows.isEmpty()) rows.add(header(str(R.string.xd_android_apps)));
-        if (apps.isEmpty()) {
-            Row loading = new Row();
-            loading.title = str(R.string.xd_chooser_loading);
-            rows.add(loading);
+    private void sortRows(List<Row> list) {
+        ArrayList<String> names = new ArrayList<>(list.size());
+        for (Row r : list) names.add(r.title);
+        // Chinese names get their pinyin initial in the background, then one more rebuild
+        Initials.prepare(names, this::rebuild);
+        for (Row r : list) r.initial = Initials.of(r.title);
+        Collections.sort(list, (a, b) -> {
+            int by = Integer.compare(Initials.rank(a.initial), Initials.rank(b.initial));
+            return by != 0 ? by : collator.compare(a.title, b.title);
+        });
+    }
+
+    private void addSorted(List<Row> sorted, boolean titled) {
+        sortRows(sorted);
+        if (titled) rows.add(header(str(R.string.xd_dev_apps)));
+        for (Row r : sorted) {
+            if (!letterRows.containsKey(r.initial)) letterRows.put(r.initial, rows.size());
+            rows.add(r);
         }
-        rows.addAll(appRows);
-        if (searching && rows.isEmpty()) {
-            Row none = new Row();
-            none.title = str(R.string.xd_chooser_no_match);
-            rows.add(none);
+    }
+
+    private void jumpTo(char letter) {
+        int from = AlphaIndexBar.LETTERS.indexOf(letter);
+        for (int i = from; i >= 0 && i < AlphaIndexBar.LETTERS.length(); i++) {
+            Integer at = letterRows.get(AlphaIndexBar.LETTERS.charAt(i));
+            if (at != null) {
+                list.setSelectionFromTop(at, 0);
+                return;
+            }
         }
-        adapter.notifyDataSetChanged();
+        // Nothing at or after it: the last letter that has entries
+        for (int i = from; i >= 0; i--) {
+            Integer at = letterRows.get(AlphaIndexBar.LETTERS.charAt(i));
+            if (at != null) {
+                list.setSelectionFromTop(at, 0);
+                return;
+            }
+        }
+    }
+
+    // --- the long-press menu ---
+
+    private static final int MENU_STAR = 1, MENU_HIDE = 2, MENU_SETTINGS = 3, MENU_QUIT = 4;
+
+    private void menu(View anchor, final Row r) {
+        PopupMenu m = new PopupMenu(getContext(), anchor, Gravity.END);
+        Menu items = m.getMenu();
+        final boolean docked = dockKeys.contains(r.key);
+        final boolean hidden = devices.isHidden(r.key);
+        items.add(0, MENU_STAR, 0, docked ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite);
+        if (r.hideable || hidden) items.add(0, MENU_HIDE, 1, hidden ? R.string.xd_dev_unhide : R.string.xd_dev_hide);
+        if (r.app != null || r.isSession) items.add(0, MENU_SETTINGS, 2, R.string.xd_dev_menu_settings);
+        final ContentSource source = Contents.sourceOf(r.key);
+        if (source != null && r.running) items.add(0, MENU_QUIT, 3, R.string.xd_dev_quit);
+        m.setOnMenuItemClickListener(item -> {
+            switch (item.getItemId()) {
+                case MENU_STAR:
+                    host.onDockToggle(r.key);
+                    return true;
+                case MENU_HIDE:
+                    // Hidden things are not favourites: the favourites must not hold what can't be seen
+                    if (!hidden && docked) host.onDockToggle(r.key);
+                    devices.setHidden(r.key, !hidden);
+                    return true;
+                case MENU_SETTINGS:
+                    host.onItemLongPress(r.key);
+                    return true;
+                case MENU_QUIT:
+                    source.close(r.key);
+                    return true;
+            }
+            return false;
+        });
+        m.show();
     }
 
     private static final class Holder {
@@ -434,9 +778,9 @@ final class ChooserView extends LinearLayout {
             if (r.header) {
                 TextView t = old != null ? (TextView) old : new TextView(c);
                 t.setText(r.title);
-                t.setTextColor(Style.TEXT_DIM);
-                t.setTextSize(Style.TEXT_SMALL);
-                t.setPadding(0, Style.dp(c, 12), 0, Style.dp(c, 2));
+                t.setTextColor(r.action != null ? Style.ACCENT : Style.TEXT_DIM);
+                t.setTextSize(r.action != null ? Style.TEXT_SMALL + 2 : Style.TEXT_SMALL);
+                t.setPadding(0, Style.dp(c, 12), 0, Style.dp(c, r.action != null ? 10 : 2));
                 return t;
             }
             Holder h;
@@ -476,6 +820,7 @@ final class ChooserView extends LinearLayout {
             } else {
                 h = (Holder) v.getTag();
             }
+            v.setAlpha(r.hidden ? 0.55f : 1f);
             h.title.setText(r.title);
             h.subtitle.setText(r.subtitle);
             h.subtitle.setVisibility(r.subtitle != null ? VISIBLE : GONE);
@@ -496,7 +841,7 @@ final class ChooserView extends LinearLayout {
             if (r.isSession) {
                 h.action.setVisibility(VISIBLE);
                 h.action.setText(r.stopping ? R.string.xd_chooser_stopping_short : r.running ? R.string.xd_chooser_stop : R.string.xd_chooser_start);
-                boolean busy = stoppingSession != null;
+                boolean busy = devices.stoppingSession() != null;
                 h.action.setEnabled(!busy);
                 h.action.setAlpha(busy ? 0.4f : 1f);
                 h.action.setOnClickListener(view -> {
@@ -508,7 +853,7 @@ final class ChooserView extends LinearLayout {
                 h.action.setVisibility(GONE);
                 h.action.setOnClickListener(null);
             }
-            if (r.key != null) {
+            if (r.key != null && !r.hidden) {
                 boolean docked = dockKeys.contains(r.key);
                 h.star.setVisibility(VISIBLE);
                 h.star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);

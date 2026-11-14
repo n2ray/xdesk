@@ -935,6 +935,13 @@ public class XDeskActivity extends Activity {
         }
     }
 
+    /** What Devices (the launcher's device bar, Settings › Connect device) asks of the Linux sessions. */
+    private final Devices.Actions deviceActions = new Devices.Actions() {
+        @Override public void startLinux(String name) { chooserHost.onSessionChosen(name); }
+        @Override public void stopLinux() { confirmStop(); }
+        @Override public void setUpLinux() { chooserHost.onTermuxHint(); }
+    };
+
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
         @Override public void onItemLongPress(String key) { showAppCard(key); }
@@ -1050,6 +1057,7 @@ public class XDeskActivity extends Activity {
         MacSource.start(this);
         MacSource.switcher = prefix -> showSwitcher(true);
         LinuxSource.install(this); // "l:" Linux programs and X windows
+        Devices.get(this).setActions(deviceActions); // DEVICES.md: connect/disconnect of the Linux environments
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);
@@ -1156,6 +1164,7 @@ public class XDeskActivity extends Activity {
         if (Contents.host() == contentsHost) Contents.setHost(null);
         SwitcherOverlay.hide(null);
         if (MacSource.switcher != null) MacSource.switcher = null;
+        if (Devices.get(this).actions() == deviceActions) Devices.get(this).setActions(null);
         MainActivity.keyHook = null;
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
@@ -2107,7 +2116,11 @@ public class XDeskActivity extends Activity {
         s.valueRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::showSoundSettings);
         s.valueRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
         LinearLayout connect = s.section(c, getString(R.string.xd_section_connect));
-        s.valueRow(connect, getString(R.string.xd_mac_settings), getString(R.string.xd_mac_settings_note), "", () -> MacSettings.open(this));
+        // Every external device (Linux environments, Macs, later Windows and Android) behind one entry: DEVICES.md §5
+        int connectedDevices = Devices.get(this).connectedCount();
+        s.valueRow(connect, getString(R.string.xd_dev_connect_devices), getString(R.string.xd_dev_connect_devices_note),
+            connectedDevices > 0 ? getResources().getQuantityString(R.plurals.xd_dev_connected_count, connectedDevices, connectedDevices) : "",
+            () -> DeviceSettings.open(this));
         final TextView[] receiver = new TextView[1], browser = new TextView[1];
         receiver[0] = s.valueRow(connect, getString(R.string.xd_wireless), getString(R.string.xd_wireless_note),
             wireless.isActive() ? wireless.receiverName() : getString(R.string.xd_wireless_off), this::showWirelessPicker);

@@ -67,7 +67,10 @@ final class MacSource implements ContentSource {
     static void userLooking() {
         MacSource s = instance;
         if (s == null) return;
-        for (MacClient m : MacClients.all(s.context)) m.touch();
+        for (MacClient m : MacClients.all(s.context)) {
+            // One the user disconnected stays so until connected or opened again (DEVICES.md §2)
+            if (!Devices.userDisconnectedMac(m.mac().id)) m.touch();
+        }
     }
 
     private void watchClients() {
@@ -159,6 +162,7 @@ final class MacSource implements ContentSource {
             return;
         }
         final MacClient m = (MacClient) k[0];
+        Devices.userOpensMac(m.mac().id);  // opening something of a device connects it
         Runnable hide = pendingHide.remove(m.mac().id);
         if (hide != null) ui.removeCallbacks(hide);
         new Thread(() -> {

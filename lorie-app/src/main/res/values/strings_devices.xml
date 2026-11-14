@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Devices (DEVICES.md): launcher tabs per device, connect and disconnect, Settings › Connect device -->
+<resources>
+    <string name="xd_dev_phone">Phone</string>
+    <string name="xd_dev_proot_name">%1$s · proot</string>
+    <string name="xd_dev_search_in">Search in %1$s</string>
+    <string name="xd_dev_apps">Apps</string>
+    <string name="xd_dev_linux_windows">Open windows</string>
+    <string name="xd_dev_mac_windows">Desktop and windows</string>
+    <string name="xd_dev_hidden">Hidden (%1$d)</string>
+    <string name="xd_dev_hide">Hide</string>
+    <string name="xd_dev_unhide">Show again</string>
+    <string name="xd_dev_menu_settings">App settings</string>
+    <string name="xd_dev_quit">Quit</string>
+    <string name="xd_dev_previous">Previous</string>
+    <string name="xd_dev_no_favourites">No favourites yet. Tap the star next to an app.</string>
+    <string name="xd_dev_empty">Nothing here yet</string>
+    <string name="xd_dev_state_not_set_up">Not set up</string>
+    <string name="xd_dev_state_disconnected">Not connected</string>
+    <string name="xd_dev_state_connecting">Connecting…</string>
+    <string name="xd_dev_state_connected">Connected</string>
+    <string name="xd_dev_state_failed">Failed</string>
+    <string name="xd_dev_state">State</string>
+    <string name="xd_dev_connect">Connect</string>
+    <string name="xd_dev_disconnect">Disconnect</string>
+    <string name="xd_dev_set_up">Set up</string>
+    <string name="xd_dev_pair_again">Pair again</string>
+    <string name="xd_dev_disconnect_title">Disconnect %1$s?</string>
+    <string name="xd_dev_disconnect_mac_note">Its picture leaves the screen and XDesk stops connecting to it until you connect or open something of it again.</string>
+    <string name="xd_dev_disconnect_linux_note">Ends the X session: the desktop and every Linux program close, in all Linux environments.</string>
+    <string name="xd_dev_x_running">X server running</string>
+    <string name="xd_dev_linux_no_session">No desktop session: its programs start X themselves</string>
+    <plurals name="xd_dev_windows">
+        <item quantity="one">%1$d window</item>
+        <item quantity="other">%1$d windows</item>
+    </plurals>
+    <plurals name="xd_dev_connected_count">
+        <item quantity="one">%1$d connected</item>
+        <item quantity="other">%1$d connected</item>
+    </plurals>
+    <string name="xd_dev_connect_devices">Connect device</string>
+    <string name="xd_dev_connect_devices_note">Linux in Termux, proot or chroot, and Macs</string>
+    <string name="xd_dev_external">External devices</string>
+    <string name="xd_dev_add_note">New device</string>
+    <string name="xd_dev_add">Add device</string>
+    <string name="xd_dev_add_pick">What to connect</string>
+    <string name="xd_dev_type_linux">Linux</string>
+    <string name="xd_dev_type_linux_note">Termux, proot or chroot on this phone, through the xdesk command</string>
+    <string name="xd_dev_type_mac">Mac</string>
+    <string name="xd_dev_type_mac_note">Pair with Sill on the Mac</string>
+    <string name="xd_dev_soon">Coming later</string>
+    <string name="xd_dev_soon_short">Coming soon</string>
+    <string name="xd_dev_type_windows">Windows</string>
+    <string name="xd_dev_type_windows_note">For now use RustDesk</string>
+    <string name="xd_dev_type_android">Another Android device</string>
+    <string name="xd_dev_type_android_note">A tablet or another phone</string>
+    <string name="xd_dev_gone">This device was removed</string>
+    <string name="xd_dev_mac_options">Fit to screen, Mac keyboard, remove</string>
+    <string name="xd_dev_linux_add_more">Add or find environments</string>
+    <string name="xd_dev_linux_steps">Steps</string>
+    <string name="xd_dev_linux_install">Install Termux</string>
+    <string name="xd_dev_linux_install_note">From F-Droid or GitHub, then install xdesk in it</string>
+    <string name="xd_dev_done">Done</string>
+    <string name="xd_dev_linux_setup">Find desktops and proot containers</string>
+    <string name="xd_dev_linux_setup_note">Run in Termux:</string>
+    <string name="xd_dev_linux_chroot">Add a chroot or any other system</string>
+    <string name="xd_dev_linux_chroot_note">Run in Termux, with the command that starts its desktop:</string>
+    <string name="xd_dev_linux_reload">Read again</string>
+    <string name="xd_dev_linux_reload_note">After running the commands, or to grant XDesk the permission to run them</string>
+    <string name="xd_dev_linux_found">Found</string>
+    <string name="xd_dev_copy">Copy</string>
+    <string name="xd_dev_copied">Copied</string>
+</resources>
