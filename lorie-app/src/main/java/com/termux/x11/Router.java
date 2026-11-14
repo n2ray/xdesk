@@ -205,14 +205,20 @@ final class Router {
             InputSink t;
             if (down) {
                 t = bindTo();
+                boolean repeat = held(scan);
                 addKey(scan);
-                if (!modifier(scan)) host.caretMayMove();
+                if (!modifier(scan) && !repeat) host.caretMayMove();
             } else {
                 t = target();
                 removeKey(scan);
             }
             if (t != null) t.key(scan, down);
             if (!down) unbindIfFree();
+        }
+
+        private boolean held(int scan) {
+            for (int i = 0; i < keyCount; i++) if (keys[i] == scan) return true;
+            return false;
         }
 
         private void addKey(int scan) {
@@ -236,6 +242,11 @@ final class Router {
         @Override public void text(String s) {
             InputSink t = target();
             if (t != null) t.text(s);
+        }
+
+        @Override public boolean takesRepeats() {
+            InputSink t = target();
+            return t != null && t.takesRepeats();
         }
 
         @Override public boolean anyThread() {

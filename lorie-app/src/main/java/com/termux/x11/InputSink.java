@@ -35,6 +35,11 @@ interface InputSink {
     void scroll(int dy, int dx);
     /** Linux key code. */
     void key(int scan, boolean down);
+    /**
+     * Android's repeats of a held key should come as more key downs: the target does not repeat by itself (INPUT.md
+     * §5.4; X does, a Mac may not). Without, a key goes down once until it goes up.
+     */
+    default boolean takesRepeats() { return false; }
     void tapKey(int scan);
     void text(String s);
 }

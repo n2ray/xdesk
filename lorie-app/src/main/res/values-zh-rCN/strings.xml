@@ -359,7 +359,7 @@
     <string name="xd_keys_external">键鼠在外屏</string>
     <string name="xd_keys_phone">键鼠在本机</string>
     <string name="xd_mouse_speed">实体鼠标速度</string>
-    <string name="xd_mouse_speed_note" formatted="false">100% 按显示器宽度自动算</string>
+    <string name="xd_mouse_speed_note" formatted="false">所有内容都用；100% 是各自的默认速度</string>
     <string name="xd_always_cursor">始终显示 XDesk 光标</string>
     <string name="xd_always_cursor_note">RustDesk 会话里判断错时打开</string>
     <string name="xd_output">声音输出</string>

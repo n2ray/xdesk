@@ -375,6 +375,8 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                     case 1: // BUTTON_LEFT
                     case 2: // BUTTON_MIDDLE
                     case 3: // BUTTON_RIGHT
+                    case 8: // back (XDesk: a mouse's side button), X button 8 like a real X mouse's
+                    case 9: // forward
                         QueuePointerEvents(lorieMouse, e.mouse.down ? ButtonPress : ButtonRelease, e.mouse.detail, POINTER_RELATIVE, nullptr);
                         break;
                     case 4: // BUTTON_SCROLL

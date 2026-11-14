@@ -38,7 +38,8 @@ public class InjectorService extends IInjector.Stub {
     private static final float WHEEL_STEP = 1f;
     private static final long KEY_REPEAT_DELAY_MS = 400, KEY_REPEAT_MS = 40;
     private static final long SESSION_POLL_MS = 1000;
-    private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276;
+    private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276,
+        BTN_FORWARD = 277, BTN_BACK = 278;
 
     private interface Task {
         void run() throws Exception;
@@ -155,7 +156,9 @@ public class InjectorService extends IInjector.Stub {
         @Override public void onWheel(final int vertical, final int horizontal) {
             postScroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP);
         }
-        @Override public void onButton(final int code, final boolean down) {
+        @Override public void onButton(int evdevCode, final boolean down) {
+            // Mice name their side buttons either way: BTN_BACK and BTN_FORWARD are BTN_SIDE and BTN_EXTRA here
+            final int code = evdevCode == BTN_BACK ? BTN_SIDE : evdevCode == BTN_FORWARD ? BTN_EXTRA : evdevCode;
             if (code == BTN_SIDE || code == BTN_EXTRA) {
                 int side = code == BTN_SIDE ? 0 : 1;
                 // Decided on the press, so a press and its release always go the same way

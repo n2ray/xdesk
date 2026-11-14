@@ -929,6 +929,14 @@ public final class MacClient {
         } catch (JSONException ignored) { }
     }
 
+    /** began, ended, momentumBegan, momentumEnded around scroll deltas: a trackpad-like gesture (Sill's scrollGesture). */
+    public void scrollGesture(String phase) {
+        try {
+            enqueue(SillWire.INPUT, new JSONObject().put("scrollGesture", new JSONObject().put("_0", phase)
+                    .put("x", pointerX).put("y", pointerY)));
+        } catch (JSONException ignored) { }
+    }
+
     public void key(int hidUsage, boolean down, long modifiers) {
         try {
             enqueue(SillWire.INPUT, new JSONObject().put("key", new JSONObject().put("hidUsage", hidUsage).put("down", down)
