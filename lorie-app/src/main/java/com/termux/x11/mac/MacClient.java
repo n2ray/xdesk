@@ -436,6 +436,7 @@ public final class MacClient {
         windowsPending = true;
         activeWindow = -1;
         activeDesktop = false;
+        had = NONE;
         // Not connected: no window of this Mac is known to be open (the lists show them as running)
         windows = Collections.emptyList();
         locked = offConsole = offConsoleView = false;
@@ -458,6 +459,7 @@ public final class MacClient {
                 s.send(SillWire.PING, ByteBuffer.allocate(8).putDouble(System.nanoTime() / 1e9).array());
                 checkLaunch();
                 askAgain();
+                if (statusSettling && !settling()) statusToView();
                 synchronized (lock) {
                     if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
                         wanted = false;
@@ -564,12 +566,19 @@ public final class MacClient {
             // window on Sill's virtual display, the pointer vanished whenever the Mac's own mouse was touched
             JSONObject p = new JSONObject(m.text());
             final double x = p.optDouble("x", Double.NaN), y = p.optDouble("y", Double.NaN);
-            if (!p.optBoolean("inside", false) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return;
+            if (!p.optBoolean("inside", false) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) {
+                reportNote(0, m.text());
+                return;
+            }
             synchronized (out) {
-                if (p.optLong("seen", 0) < inputsQueued.get()) return;
+                if (p.optLong("seen", 0) < inputsQueued.get()) {
+                    reportNote(1, m.text() + ", queued here " + inputsQueued.get());
+                    return;
+                }
                 pointerX = (float) x;
                 pointerY = (float) y;
             }
+            reportNote(2, m.text());
             ui.post(() -> {
                 View v = view;
                 if (v != null) v.pointer(pointerX, pointerY);
@@ -639,6 +648,8 @@ public final class MacClient {
         activeDesktop = active != null && active.has("desktop");
         JSONObject win = active != null ? active.optJSONObject("window") : null;
         activeWindow = win != null ? win.optLong("_0", -1) : -1;
+        long streams = activeSource();
+        if (streams != NONE && streams == want) had = streams;
         boolean first = windowsPending;
         windowsPending = false;
         // The app launched from here got its first window: the host picked it; it is what this screen shows now
@@ -647,13 +658,14 @@ public final class MacClient {
             for (Window w : next) {
                 if (w.id == activeWindow && launch.equals(w.bundleId)) {
                     pendingLaunch = null;
-                    want = activeWindow;
+                    want = had = activeWindow;
                 }
             }
         }
         if (first) {
             setState(State.CONNECTED, null);
             if (surface != null && want != NONE) {
+                switchAt = SystemClock.uptimeMillis();
                 selectSource(want);
                 sendViewport();
             }
@@ -681,6 +693,20 @@ public final class MacClient {
         if (icons.size() >= 256 && !icons.containsKey(id)) return;
         icons.put(id, bm);
         changed();
+    }
+
+    /** Reports of the Mac's pointer (kind 26) by what became of them, said once a second at most. Reader thread. */
+    private final int[] reports = new int[3];
+    private long reportsSaid;
+
+    private void reportNote(int what, String last) {
+        reports[what]++;
+        long now = SystemClock.uptimeMillis();
+        if (now - reportsSaid < 1000) return;
+        reportsSaid = now;
+        Log.d(TAG, "pointer reports: " + reports[2] + " moved the pointer, " + reports[1] + " older than the input queued, "
+                + reports[0] + " off the picture; last (" + (what == 2 ? "moved" : what == 1 ? "old" : "off") + ") " + last);
+        reports[0] = reports[1] = reports[2] = 0;
     }
 
     private void cursorShape(SillWire.Message m) {
@@ -888,7 +914,10 @@ public final class MacClient {
             touch();
             if (state == State.CONNECTED && fresh) {
                 // While a launch waits for its window there is nothing to pick yet
-                if (want != NONE) selectSource(want);
+                if (want != NONE) {
+                    switchAt = SystemClock.uptimeMillis();
+                    selectSource(want);
+                }
                 sendViewport();
                 askKeyframeSoon();
                 if (clipboardGeneration >= 1) startClipboard();
@@ -929,7 +958,10 @@ public final class MacClient {
         want = source;
         pendingLaunch = null;
         launchFailed = false;
-        if (state == State.CONNECTED && (surface != null || source == NONE)) selectSource(source);
+        if (state == State.CONNECTED && (surface != null || source == NONE)) {
+            switchAt = SystemClock.uptimeMillis();
+            selectSource(source);
+        }
         statusToView();
     }
 
@@ -1037,7 +1069,7 @@ public final class MacClient {
     /** What the screen's line says now. */
     private void statusToView() {
         final String line;
-        boolean taken = false;
+        boolean taken = false, settling = false;
         if (state == State.FAILED) {
             line = failure != null ? failure : "";
         } else if (state != State.CONNECTED) {
@@ -1052,22 +1084,54 @@ public final class MacClient {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_launch_failed);
         } else if (want >= 0 && activeWindow != want || want == DESKTOP && !activeDesktop) {
             boolean gone = want >= 0 && !hasWindow(want);
-            // "Another device" only when the Mac says something else streams; nothing streaming is the Mac not
-            // having started it (yet): its display asleep, the capture stopped. Tapping asks again either way
-            boolean other = activeWindow >= 0 || activeDesktop;
+            // The Mac streams one source, to every device, and its list does not say who picked it. So "another
+            // device" only when the Mac says something else streams and that is not this side's own doing: while
+            // a pick sent from here is on its way the list still names what streamed before (this screen's last
+            // source, or nothing), and that is the Mac switching, not somebody taking it (settling). Nothing
+            // streaming past that is the Mac not having started it: its display asleep, the capture stopped.
+            // Tapping asks again either way
+            boolean other = activeSource() != NONE;
+            settling = !gone && settling();
             line = gone ? context.getString(com.termux.x11.app.R.string.xd_mac_window_closed)
+                    : settling ? context.getString(com.termux.x11.app.R.string.xd_mac_opening)
                     : other ? context.getString(com.termux.x11.app.R.string.xd_mac_taken)
                     : context.getString(com.termux.x11.app.R.string.xd_mac_waiting_picture, name());
-            taken = !gone;
+            taken = !gone && !settling;
         } else {
             line = null;
         }
+        statusSettling = settling;
         final boolean t = taken;
         ui.post(() -> {
             View v = view;
             if (v != null) v.status(line, t);
         });
     }
+
+    /** What the Mac's list says streams: a window's id, DESKTOP or NONE. */
+    private long activeSource() {
+        return activeDesktop ? DESKTOP : activeWindow >= 0 ? activeWindow : NONE;
+    }
+
+    /**
+     * A pick sent from here (show, a new screen, a tap on the line) may still be on its way: for SWITCH_MS whatever
+     * the list names, and for SWITCH_OWN_MS while it names what this screen itself streamed last (the Mac moves the
+     * window onto its virtual display and starts the capture in a second or two, Sill.log 2026-11-14). The desktop
+     * asked for again every ten seconds (askAgain) is not such a pick: nothing streams then, and the line says so.
+     */
+    private boolean settling() {
+        long since = SystemClock.uptimeMillis() - switchAt;
+        long streams = activeSource();
+        return since < SWITCH_MS || streams != NONE && streams == had && streams != want && since < SWITCH_OWN_MS;
+    }
+
+    private static final long SWITCH_MS = 4_000, SWITCH_OWN_MS = 12_000;
+    /** When this side last picked a source by itself (not askAgain's repeat). */
+    private volatile long switchAt = -SWITCH_OWN_MS;
+    /** The source the list last named while it was the one wanted here: what this screen streamed last. */
+    private volatile long had = NONE;
+    /** The line shown counts on settling(): the pinger looks again when that is over. */
+    private volatile boolean statusSettling;
 
     private boolean hasWindow(long id) {
         for (Window w : windows) if (w.id == id) return true;
@@ -1077,8 +1141,10 @@ public final class MacClient {
     /** "Taken over, tap to get it back" (DISPLAY.md §1.3). */
     public void takeBack() {
         if (want == NONE) return;
+        switchAt = SystemClock.uptimeMillis();
         selectSource(want);
         sendViewport();
+        statusToView();
     }
 
     // --- input (any thread) ---

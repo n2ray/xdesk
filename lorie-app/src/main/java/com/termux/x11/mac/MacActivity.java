@@ -108,7 +108,25 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        root = new FrameLayout(this);
+        root = new FrameLayout(this) {
+            /**
+             * Nothing of this window is reported as transparent. A SurfaceView has its window tell SurfaceFlinger
+             * that the picture's rectangle is see-through, minus the views over it where they were at the last
+             * layout; the compositor then leaves that region of the window out. The cursor moves by translation,
+             * with no layout, so everywhere but where it was at the last layout (the last shape change) it was in
+             * that region: over a picture with no bars above it, it showed only below that place (dumpsys
+             * SurfaceFlinger 2026-11-14: transparentRegionHint all but 42×60 px, displayFrame [0 1383 2560 1600]).
+             * The hole itself is still cleared in the window's pixels, so the picture shows through as before.
+             */
+            @Override public boolean gatherTransparentRegion(android.graphics.Region region) {
+                if (region != null) {
+                    int[] at = new int[2];
+                    getLocationInWindow(at);
+                    region.op(at[0], at[1], at[0] + getWidth(), at[1] + getHeight(), android.graphics.Region.Op.DIFFERENCE);
+                }
+                return true;
+            }
+        };
         root.setBackgroundColor(Color.BLACK);
         picture = new SurfaceView(this);
         picture.getHolder().addCallback(this);
@@ -264,12 +282,46 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     private boolean blankCursor;
     private static final long BLANK_HIDE_MS = 2000;
     private final Runnable hideBlank = () -> {
-        if (blankCursor) cursor.setVisibility(View.GONE);
+        if (blankCursor) show(false, "the Mac's cursor is empty and the mouse rests");
     };
+
+    private static final String TAG = "XDeskMac";
+    private long noteSecond;
+    private int notes, moves;
+
+    /** A line for logcat, at most NOTES_A_SECOND of them: what the pointer does is asked about after the fact. */
+    private void note(String line) {
+        long s = android.os.SystemClock.uptimeMillis() / 1000;
+        if (s != noteSecond) {
+            if (notes > NOTES_A_SECOND) android.util.Log.d(TAG, "pointer: " + (notes - NOTES_A_SECOND) + " more lines left out");
+            noteSecond = s;
+            notes = 0;
+        }
+        if (++notes <= NOTES_A_SECOND) android.util.Log.d(TAG, "pointer: " + line);
+    }
+
+    private static final int NOTES_A_SECOND = 6;
+
+    /** The cursor shown or not, with the reason in the log when that changes. */
+    private void show(boolean visible, String why) {
+        boolean was = cursor.getVisibility() == View.VISIBLE;
+        if (was == visible) return;
+        cursor.setVisibility(visible ? View.VISIBLE : View.GONE);
+        note((visible ? "shown: " : "hidden: ") + why + ", at " + place());
+    }
+
+    private String place() {
+        int[] r = client != null ? client.frameRect() : new int[6];
+        return Math.round(cursor.getTranslationX() + hotX) + "," + Math.round(cursor.getTranslationY() + hotY)
+                + " picture " + r[0] + "," + r[1] + " " + r[2] + "x" + r[3] + " screen " + r[4] + "x" + r[5];
+    }
 
     @Override public void cursor(Bitmap shape, float hx, float hy, float width, float height, boolean blank) {
         root.removeCallbacks(hideBlank);
         blankCursor = blank;
+        note("shape " + shape.getWidth() + "x" + shape.getHeight() + " px, " + width + "x" + height + " pt, hot " + hx + "," + hy
+                + (blank ? ", empty" : "") + ", " + moves + " moves since the last");
+        moves = 0;
         if (blank) {
             // Nothing to draw. The Mac means it (Sill sends no "hidden", only the shape), so the pointer goes, but
             // not under a moving mouse: an arrow of our own until it rests, or the pointer could not be found again
@@ -289,7 +341,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         cursor.setLayoutParams(p);
         hotX = hx * density;
         hotY = hy * density;
-        cursor.setVisibility(View.VISIBLE);
+        show(true, "the Mac sent a shape");
         placeCursor(client.pointerX(), client.pointerY());
     }
 
@@ -300,7 +352,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     @Override public void pointer(float x, float y) {
         // A locked Mac sends no cursor shape (Sill's LockPolicy): an arrow of our own, so the pointer can be found
         if (cursor.getDrawable() == null) defaultArrow();
-        cursor.setVisibility(View.VISIBLE);
+        moves++;
+        show(true, "the pointer moved");
         if (blankCursor) {
             root.removeCallbacks(hideBlank);
             root.postDelayed(hideBlank, BLANK_HIDE_MS);
