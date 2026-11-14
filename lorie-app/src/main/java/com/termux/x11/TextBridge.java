@@ -30,6 +30,8 @@ import com.termux.x11.mac.RemoteTextState;
  * <p>UI thread only. Nothing here runs per pointer event: a click only marks the text as forgotten (forgetSoon).
  */
 final class TextBridge {
+    private static final String TAG = "XDesk";
+
     interface Out {
         void text(String s);
         /** A key pressed and let go (Linux key code): Backspace, Enter, Tab, Esc, arrows. */
@@ -38,6 +40,13 @@ final class TextBridge {
         Object target();
         /** A modifier is latched on XDesk's key row: a letter is a shortcut now, sent at once, never composed. */
         boolean immediate();
+        /**
+         * A key event the input method sent through the connection. Some methods take every key of a physical
+         * keyboard and hand back the ones they do not want this way (fcitx5), with the device and scan code of the
+         * real key: those are the keyboard's keys (INPUT.md §5.1 "keys the input method does not want"), modifiers,
+         * shortcuts and repeats included, not a soft keyboard's. True when the host took it as such.
+         */
+        default boolean physicalKey(KeyEvent e) { return false; }
     }
 
     private static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103,
@@ -428,6 +437,9 @@ final class TextBridge {
         }
 
         @Override public boolean sendKeyEvent(KeyEvent event) {
+            // A physical keyboard's key handed back by the input method: it goes the way of the keys the method
+            // never took. Asked before anything else, so it does not depend on the state of this text
+            if (out.physicalKey(event)) return true;
             if (!valid()) return false;
             int scan = scanFor(event.getKeyCode());
             if (scan == 0) {

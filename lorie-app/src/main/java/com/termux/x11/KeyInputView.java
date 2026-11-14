@@ -19,6 +19,8 @@ final class KeyInputView extends View {
         Object target();
         /** One of XDesk's modifier buttons is latched. */
         boolean latched();
+        /** A physical keyboard's key the input method handed back through its connection. True when taken. */
+        boolean physicalKey(android.view.KeyEvent e);
     }
 
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_CTRL = 29, SCAN_SHIFT = 42,
@@ -35,6 +37,7 @@ final class KeyInputView extends View {
             @Override public void tapKey(int scan) { sink.tapKey(scan); }
             @Override public Object target() { return sink.target(); }
             @Override public boolean immediate() { return sink.latched(); }
+            @Override public boolean physicalKey(android.view.KeyEvent e) { return sink.physicalKey(e); }
         });
         setFocusable(true);
         setFocusableInTouchMode(true);
