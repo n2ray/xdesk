@@ -2488,8 +2488,10 @@ public class XDeskActivity extends Activity {
      */
     private boolean updateHome() {
         Display d = externalDisplay();
-        boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && !session.isActive() && contentKey == null
-            && pendingContent == null && !desktopTaken && phoneForwards() && hasExternalMouse();
+        // A Linux device connected apps-only with no program on the screen yet: only the bare X background, so the home too
+        boolean idleX = session.isActive() && runningSession != null && runningSession.endsWith(Devices.APPS_ONLY);
+        boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && (!session.isActive() || idleX) && contentKey == null
+            && pendingContent == null && !desktopTaken && phoneForwards() && (idleX || hasExternalMouse());
         if (!want) {
             if (SwitcherOverlay.isHome()) SwitcherOverlay.hide(switcherHost);
             return false;
