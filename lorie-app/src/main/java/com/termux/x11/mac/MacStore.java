@@ -115,6 +115,7 @@ public final class MacStore {
         List<Mac> macs = all(c);
         for (int i = macs.size() - 1; i >= 0; i--) if (macs.get(i).id.equals(id)) macs.remove(i);
         save(c, macs);
+        prefs(c).edit().remove(STREAM + id).apply();
     }
 
     public static synchronized void setOptions(Context c, String id, boolean fit, boolean macKeyboard, boolean phoneIme) {
@@ -136,5 +137,58 @@ public final class MacStore {
             }
         }
         if (changed) save(c, macs);
+    }
+
+    // --- picture and sound (MacStreamSettings) ---
+
+    private static final String STREAM = "stream_";
+
+    /**
+     * What this XDesk keeps per Mac for its stream. Only `fpsCap` and `sound` are this device's own settings; the
+     * Mac's (quality, resolution, frame rate limit, ...) are the Mac's to keep, and `host` is just the last state it
+     * sent, so the settings page has something to show while the Mac is not connected. Kept beside the list of
+     * Macs, not in it: the Mac's state comes in from the connection's thread at any time.
+     */
+    public static final class Stream {
+        /** The frame rate this device asks for at most (its viewport's fps): 0 for the screen's own, else 30 or 60. */
+        public final int fpsCap;
+        /** Play the Mac's sound here (the hello lists a codec); off by default, as Sall's "experimentalAudio". */
+        public final boolean sound;
+        /** HostSettings.settingsJson of the last session, "" before the first. */
+        public final String host;
+
+        Stream(int fpsCap, boolean sound, String host) {
+            this.fpsCap = fpsCap;
+            this.sound = sound;
+            this.host = host;
+        }
+    }
+
+    public static Stream stream(Context c, String id) {
+        try {
+            JSONObject o = new JSONObject(prefs(c).getString(STREAM + id, "{}"));
+            return new Stream(o.optInt("fpsCap", 0), o.optBoolean("sound", false), o.optString("host", ""));
+        } catch (JSONException e) {
+            return new Stream(0, false, "");
+        }
+    }
+
+    private static void saveStream(Context c, String id, Stream s) {
+        try {
+            prefs(c).edit().putString(STREAM + id, new JSONObject().put("fpsCap", s.fpsCap).put("sound", s.sound)
+                    .put("host", s.host).toString()).apply();
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public static synchronized void setStreamOptions(Context c, String id, int fpsCap, boolean sound) {
+        saveStream(c, id, new Stream(fpsCap, sound, stream(c, id).host));
+    }
+
+    /** The Mac's settings as it last sent them; written only when they changed. */
+    static synchronized void setHostSettings(Context c, String id, String settingsJson) {
+        Stream now = stream(c, id);
+        if (!now.host.equals(settingsJson)) saveStream(c, id, new Stream(now.fpsCap, now.sound, settingsJson));
     }
 }

@@ -79,6 +79,8 @@ final class MacSettings {
                 MacStore.setOptions(c, m.id, now.fit, now.macKeyboard, on);
                 MacClients.savedChanged(c);
             });
+            // Sill's own settings for this Mac (quality, frame rate, sound, ...) have a page of their own
+            s.valueRow(card, c.getString(R.string.xd_mac_stream), c.getString(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, m.id));
             s.dangerRow(content, c.getString(R.string.xd_mac_remove, m.name), c.getString(R.string.xd_mac_remove_note), () ->
                 s.confirm(c.getString(R.string.xd_mac_remove, m.name), c.getString(R.string.xd_mac_remove_note), c.getString(R.string.xd_mac_remove_action), () -> {
                     MacStore.remove(c, m.id);

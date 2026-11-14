@@ -396,6 +396,7 @@ public final class MacClient {
         windowsPending = true;
         JSONObject hello = new JSONObject().put("protocol", 1).put("appVersion", appVersion()).put("device", Build.MODEL)
                 .put("build", "xdesk");
+        helloAudio(hello);
         s.send(SillWire.HELLO, hello.toString().getBytes(StandardCharsets.UTF_8));
         // The pinger closes a connection without pongs, but it writes too, and a write into a dead mobile connection
         // can block it: nothing at all read for this long (pongs come every 1 to 4 s) ends the session as well
@@ -444,6 +445,8 @@ public final class MacClient {
         clipboardGeneration = 0;
         staging = null;
         stopClipboard();
+        settingsCleared();
+        closeAudio();
     }
 
     private void pingLoop(SillTls s) {
@@ -587,8 +590,14 @@ public final class MacClient {
             if (pt != null) pt.cursorPosition(pointerX, pointerY, true);
             return;
         }
-        case SillWire.HOST_SETTINGS:
-            hostSettings(new JSONObject(m.text()));
+        case SillWire.HOST_SETTINGS: {
+            JSONObject o = new JSONObject(m.text());
+            hostSettings(o);
+            settingsState(o);
+            return;
+        }
+        case SillWire.AUDIO:
+            audioMessage(m);
             return;
         case SillWire.CLIPBOARD:
             clipboardFromMac(new JSONObject(m.text()).optString("text", ""));
@@ -609,7 +618,7 @@ public final class MacClient {
             throw new Ended(text, again, removed);
         }
         default:
-            // Thumbnails (3), host settings (16), Mac info (18), menus, sound: not used
+            // Thumbnails (3), Mac info (18), menus: not used
         }
     }
 
@@ -1034,7 +1043,7 @@ public final class MacClient {
         double s = longest > PANEL_MAX ? PANEL_MAX / longest : 1;
         try {
             JSONObject v = new JSONObject().put("width", Math.max(1, Math.min(16384, w * s)))
-                    .put("height", Math.max(1, Math.min(16384, h * s))).put("fps", fps);
+                    .put("height", Math.max(1, Math.min(16384, h * s))).put("fps", viewportFps());
             if (mac.fit || Boolean.TRUE.equals(staging)) v.put("scale", Math.max(0.5, Math.min(1, s)));
             enqueue(SillWire.VIEWPORT, v);
         } catch (JSONException ignored) { }
@@ -1058,6 +1067,167 @@ public final class MacClient {
             Log.i(TAG, "virtual display " + (on ? "in use" : "not in use"));
             if (state == State.CONNECTED && surface != null) sendViewport();
         }
+    }
+
+    // --- Sill's settings (kinds 16 and 17) and sound (kind 43): MacStreamSettings is the page ---
+
+    /** What a settings page hears, on the UI thread. */
+    public interface SettingsListener {
+        int ACCEPTED = 0, REFUSED = 1, TIMEOUT = 2;
+        /** The Mac's state, the pending change or the connection changed. */
+        void settingsChanged();
+        /** The Mac answered the change sent from here (or did not within SETTINGS_ANSWER_MS). */
+        void settingsAnswer(int result);
+    }
+
+    private static final long SETTINGS_ANSWER_MS = 10_000;
+    /** HostSettingsChange.token: strictly increasing for the process, never reset, whichever Mac it goes to. */
+    private static final java.util.concurrent.atomic.AtomicInteger settingsToken = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile HostSettings hostState;
+    private volatile SettingsListener settingsListener;
+    // The one change the Mac has not answered yet (Sall's pendingSettings*), UI thread
+    private volatile int pendingSettingsToken;
+    private volatile String pendingSettingsField;
+    private Object pendingSettingsValue;
+    private Double pendingSettingsScale;
+    private volatile MacStore.Stream streamOptions;
+    private volatile MacAudio audio;
+    /** Where XDesk's sound setting sends sound (AudioRoute, set by MacSource); null: the system's choice. */
+    public static volatile java.util.function.Supplier<android.media.AudioDeviceInfo> audioDevice;
+
+    /** The Mac's settings as this connection last heard them; null while not connected or before the Mac said. */
+    public HostSettings settings() { return hostState; }
+    /** The field of the change that waits for the Mac's answer, or null. */
+    public String pendingSetting() { return pendingSettingsToken != 0 ? pendingSettingsField : null; }
+    public void setSettingsListener(SettingsListener l) { settingsListener = l; }
+
+    private MacStore.Stream streamOptions() {
+        MacStore.Stream o = streamOptions;
+        if (o == null) streamOptions = o = MacStore.stream(context, mac.id);
+        return o;
+    }
+
+    /** This device's own options changed (MacStore.setStreamOptions): the rate at once, the sound with a new session. */
+    public void streamOptionsChanged() {
+        streamOptions = MacStore.stream(context, mac.id);
+        SillTls s = session;
+        if (s == null || state != State.CONNECTED) return;
+        if (wantsAudio() != (audio != null)) {
+            // Whether this device plays sound is said in the hello: connect again (the runner does, in a second)
+            s.close();
+            return;
+        }
+        if (surface != null) sendViewport();
+    }
+
+    /**
+     * The rate asked of the Mac: the screen's own, or this Mac's cap when it is lower. The Mac runs the stream at
+     * the highest rate its connected devices ask for, under its own frame rate limit and never under 24
+     * (StreamCoordinator.wantedFPS).
+     */
+    private int viewportFps() {
+        int cap = streamOptions().fpsCap;
+        return cap > 0 ? Math.min(fps, cap) : fps;
+    }
+
+    /** Kind 16, after hostSettings(o) above took what the viewport needs. On the reader's thread. */
+    private void settingsState(JSONObject o) {
+        final HostSettings h = HostSettings.parse(o);
+        HostSettings before = hostState;
+        hostState = h;
+        MacStore.setHostSettings(context, mac.id, h.settingsJson);
+        if (!h.linkState.isEmpty() && (before == null || !h.linkState.equals(before.linkState)))
+            Log.i(TAG, mac.name + ": link " + h.linkState + ", the Mac suggests " + h.suggestedBitrate + " bps"
+                    + (h.suggestedCaptureScale != null ? " at scale " + h.suggestedCaptureScale : ""));
+        ui.post(() -> {
+            if (hostState != h) return;
+            SettingsListener l = settingsListener;
+            if (pendingSettingsToken != 0 && h.answering == pendingSettingsToken) {
+                boolean accepted = HostSettings.accepted(h.value(pendingSettingsField), pendingSettingsValue,
+                        h.captureScale, pendingSettingsScale);
+                pendingSettingsToken = 0;
+                Log.i(TAG, mac.name + ": " + pendingSettingsField + (accepted ? " set" : " not taken by the Mac"));
+                if (l != null) l.settingsAnswer(accepted ? SettingsListener.ACCEPTED : SettingsListener.REFUSED);
+            }
+            if (l != null) l.settingsChanged();
+        });
+    }
+
+    /**
+     * One control's change (Sall's changeHostSetting): the field as an absolute value, and with a quality the
+     * resolution the Mac suggested with it. Only a field the Mac reported, and one change at a time: the Mac answers
+     * each with its state (`answering`), which is what the page then shows, taken or not. UI thread.
+     */
+    public boolean changeSetting(String field, Object value, Double captureScale) {
+        HostSettings h = hostState;
+        if (h == null || state != State.CONNECTED || h.value(field) == null || captureScale != null && h.captureScale == null) return false;
+        if (pendingSettingsToken != 0) return false;
+        final int token = settingsToken.incrementAndGet();
+        try {
+            JSONObject request = new JSONObject().put("token", token).put(field, value);
+            if (captureScale != null) request.put(HostSettings.CAPTURE_SCALE, captureScale);
+            pendingSettingsField = field;
+            pendingSettingsValue = value;
+            pendingSettingsScale = captureScale;
+            pendingSettingsToken = token;
+            enqueue(SillWire.CHANGE_SETTINGS, request);
+        } catch (JSONException e) {
+            return false;
+        }
+        ui.postDelayed(() -> {
+            if (pendingSettingsToken != token) return;
+            pendingSettingsToken = 0;
+            SettingsListener l = settingsListener;
+            if (l != null) {
+                l.settingsAnswer(SettingsListener.TIMEOUT);
+                l.settingsChanged();
+            }
+        }, SETTINGS_ANSWER_MS);
+        SettingsListener l = settingsListener;
+        if (l != null) l.settingsChanged();
+        return true;
+    }
+
+    /** The session ended: its state and whatever waited for an answer are gone with it. */
+    private void settingsCleared() {
+        hostState = null;
+        ui.post(() -> {
+            pendingSettingsToken = 0;
+            SettingsListener l = settingsListener;
+            if (l != null) l.settingsChanged();
+        });
+    }
+
+    private boolean wantsAudio() {
+        return streamOptions().sound && MacAudio.supported();
+    }
+
+    /** Whether this phone can play the Mac's sound at all (an AAC-ELD decoder). */
+    public static boolean soundSupported() { return MacAudio.supported(); }
+
+    /** The hello's `audio`: the codecs this device plays. The Mac sends kind 43 only to a device that lists one. */
+    private void helloAudio(JSONObject hello) throws JSONException {
+        closeAudio();
+        if (!wantsAudio()) return;
+        hello.put("audio", new JSONArray().put("aac-eld"));
+        audio = new MacAudio(() -> {
+            java.util.function.Supplier<android.media.AudioDeviceInfo> d = audioDevice;
+            return d != null ? d.get() : null;
+        });
+    }
+
+    /** Kind 43. Formats always; packets only while a screen shows this Mac (the idle connection stays silent). */
+    private void audioMessage(SillWire.Message m) {
+        MacAudio a = audio;
+        if (a == null || m.length < 1) return;
+        if (m.payload[0] == 2 && surface == null) return;
+        a.receive(m.payload, m.length);
+    }
+
+    private void closeAudio() {
+        MacAudio a = audio;
+        audio = null;
+        if (a != null) a.close();
     }
 
     public void windowCommand(long id, String action) {

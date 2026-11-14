@@ -46,4 +46,66 @@
     <string name="xd_mac_identity_changed">Mac 的身份变了。请移除后重新配对</string>
     <string name="xd_mac_remote_off">Mac 上的远程访问已关闭</string>
     <string name="xd_mac_quit">Mac 上的 Sill 已退出</string>
+    <!-- Picture and sound: Sill's settings for one Mac (MacStreamSettings) -->
+    <string name="xd_mac_stream">画面和声音</string>
+    <string name="xd_mac_stream_note">画质、分辨率、帧率、虚拟显示器和 Mac 的声音</string>
+    <string name="xd_mac_stream_title">%1$s：画面和声音</string>
+    <string name="xd_mac_stream_now">当前</string>
+    <string name="xd_mac_stream_waiting">正在连接 Mac 读取它的设置…</string>
+    <string name="xd_mac_stream_offline">未连接。这是 Mac 上次的设置，连接后才能更改</string>
+    <string name="xd_mac_stream_idle">已连接，没有在串流</string>
+    <string name="xd_mac_stream_running">正在串流 %1$d×%2$d，%3$d fps，%4$d Mbps</string>
+    <string name="xd_mac_stream_on_virtual">来自 Sill 的虚拟显示器</string>
+    <string name="xd_mac_software_encoder">Mac 的硬件编码器忙碌或无响应，暂时使用软件编码，画质或帧率可能受限</string>
+    <string name="xd_mac_link_behind">Mac 报告连接无法稳定承载当前画质，可以降低画质或分辨率</string>
+    <string name="xd_mac_link_behind_home">连接无法稳定承载当前画质。有在家的设备连接着，Mac 正在使用在家画质</string>
+    <string name="xd_mac_link_behind_suggest">Mac 报告连接无法稳定承载当前画质</string>
+    <string name="xd_mac_link_use">点这里改用 %1$s</string>
+    <string name="xd_mac_away">Mac 把这个连接算作不在家：这里的画质和分辨率设置的是它的外出画质</string>
+    <string name="xd_mac_picture">画面</string>
+    <string name="xd_mac_quality">画质</string>
+    <string name="xd_mac_quality_note">60 fps 时的码率；120 fps 的串流是它的两倍</string>
+    <string name="xd_mac_quality_fast_note">极高和极限需要 USB 线或很快的 Wi‑Fi；画面跟不上就降一档</string>
+    <string name="xd_mac_quality_custom">自定义</string>
+    <string-array name="xd_mac_quality_names">
+        <item>低</item>
+        <item>节省</item>
+        <item>均衡</item>
+        <item>高</item>
+        <item>专业</item>
+        <item>极高</item>
+        <item>极限</item>
+    </string-array>
+    <string name="xd_mac_scale">分辨率</string>
+    <string name="xd_mac_scale_note">Retina 的像素在两个方向上都是两倍</string>
+    <string name="xd_mac_scale_retina">Retina</string>
+    <string name="xd_mac_scale_standard">标准</string>
+    <string name="xd_mac_fps">帧率上限</string>
+    <string name="xd_mac_fps_note">Mac 发给任何设备的最高帧率。每台设备仍按自己屏幕的帧率，不超过它</string>
+    <string name="xd_mac_fps_value">%1$d fps</string>
+    <string name="xd_mac_speed">优先编码速度</string>
+    <string name="xd_mac_speed_note">Mac 忙碌时延迟更低，画面可能更柔和</string>
+    <string name="xd_mac_virtual">虚拟显示器</string>
+    <string name="xd_mac_virtual_note">窗口在串流时移到 Mac 上一块看不见的显示器，大小按这块屏幕来，被遮住时也照常更新。关闭后窗口留在 Mac 上原来的位置串流。画面会短暂重新开始</string>
+    <string name="xd_mac_virtual_unavailable">这台 Mac 用不了虚拟显示器</string>
+    <string name="xd_mac_this_device">这台设备</string>
+    <string name="xd_mac_cap">请求的帧率</string>
+    <string name="xd_mac_cap_note">帧率低一些，网络和两边设备的负担都小。Mac 按所有已连接设备里请求的最高帧率发送，不超过它的上限</string>
+    <string name="xd_mac_cap_screen">跟随屏幕</string>
+    <string name="xd_mac_sound">声音</string>
+    <string name="xd_mac_send_audio">Mac 发送声音（测试版）</string>
+    <string name="xd_mac_send_audio_note">Mac 把正在串流的内容的声音发给已连接的设备，自己也继续播放</string>
+    <string name="xd_mac_send_audio_update">更新 Mac 上的 Sill 才能使用声音</string>
+    <string name="xd_mac_play_sound">在这里播放 Mac 的声音（实验）</string>
+    <string name="xd_mac_play_sound_note">从 XDesk 声音设置里选的输出播放。需要打开“Mac 发送声音”；更改后会重新连接 Mac</string>
+    <string name="xd_mac_play_sound_unsupported">这台手机没有 AAC‑ELD 解码器</string>
+    <string name="xd_mac_stream_about">关于这些设置</string>
+    <string name="xd_mac_stream_kept">“画面”和“Mac 发送声音”是 Mac 自己的设置：对连接它的所有设备生效，由 Mac 上的 Sill 保存，Mac 的菜单也能改</string>
+    <string name="xd_mac_stream_kept_session">“画面”和“Mac 发送声音”是 Mac 自己的设置：对连接它的所有设备生效，到 Mac 上的 Sill 主机程序退出为止</string>
+    <string name="xd_mac_on">开</string>
+    <string name="xd_mac_off">关</string>
+    <string name="xd_mac_set_waiting">正在等待 Mac…</string>
+    <string name="xd_mac_set_refused">Mac 没有接受这个设置</string>
+    <string name="xd_mac_set_timeout">Mac 没有确认这个设置，请再试一次</string>
+    <string name="xd_mac_set_failed">设置没能发出去</string>
 </resources>
