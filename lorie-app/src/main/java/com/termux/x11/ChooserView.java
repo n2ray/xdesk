@@ -7,7 +7,6 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
-import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
@@ -17,7 +16,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.PopupMenu;
 import android.widget.TextView;
 import com.termux.x11.app.R;
 import java.text.Collator;
@@ -91,8 +89,8 @@ final class ChooserView extends LinearLayout {
         /** Linux 桌面的状态和按钮。 */
         boolean isSession, running, stopping;
         String sessionName;
-        /** An app (not a window or a desktop): can be hidden. */
-        boolean hideable, hidden;
+        /** In the hidden fold at the end. */
+        boolean hidden;
         /** A favourite of a device that isn't connected: dim, opening it connects. */
         boolean dim;
         /** A whole desktop: drawn apart from the apps. */
@@ -257,7 +255,8 @@ final class ChooserView extends LinearLayout {
         list.setOnItemLongClickListener((parent, view, position, id) -> {
             Row r = rows.get(position);
             if (r.key == null) return false;
-            menu(view, r);
+            // The same card as everywhere else (ItemCard): favourite, hide, close, and what the item's kind has
+            host.onItemLongPress(r.key);
             return true;
         });
         listBox.addView(list, new FrameLayout.LayoutParams(-1, -1));
@@ -451,7 +450,7 @@ final class ChooserView extends LinearLayout {
             }
         } else if (d.state == Devices.State.CONNECTED) {
             label = R.string.xd_dev_disconnect;
-            act = () -> confirmDisconnect(d);
+            act = () -> ItemCard.confirmDisconnect(getContext(), d);
         } else if (d.state == Devices.State.CONNECTING) {
             label = R.string.xd_dev_state_connecting;
             deviceButton.setEnabled(false);
@@ -478,11 +477,6 @@ final class ChooserView extends LinearLayout {
     private boolean isPairingFailure(Devices.Device d) {
         com.termux.x11.mac.MacClient m = com.termux.x11.mac.MacClients.get(getContext(), d.id.substring(Devices.MAC.length()));
         return m != null && m.needsPairing();
-    }
-
-    private void confirmDisconnect(final Devices.Device d) {
-        new SettingsUi(getContext()).confirm(getContext().getString(R.string.xd_dev_disconnect_title, d.name),
-                str(R.string.xd_dev_disconnect_mac_note), str(R.string.xd_dev_disconnect), () -> devices.disconnect(d.id));
     }
 
     // --- rows ---
@@ -519,7 +513,6 @@ final class ChooserView extends LinearLayout {
         r.key = recentKey(a);
         r.title = a.label;
         r.app = a;
-        r.hideable = true;
         if (r.key.equals(current)) r.subtitle = str(R.string.xd_on_display);
         r.action = () -> host.onAppChosen(a);
         return r;
@@ -529,14 +522,13 @@ final class ChooserView extends LinearLayout {
         return query.isEmpty() || e.label.toLowerCase().contains(query) || (e.detail != null && e.detail.toLowerCase().contains(query));
     }
 
-    private Row contentRow(final ContentSource.Entry e, boolean app) {
+    private Row contentRow(final ContentSource.Entry e) {
         Row r = new Row();
         r.key = e.key;
         r.title = e.label;
         r.content = true;
         r.bitmap = e.icon;
         r.running = e.running;
-        r.hideable = app;
         if (e.key.equals(current)) r.subtitle = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
         else if (e.detail != null && !e.detail.equalsIgnoreCase(e.label)) r.subtitle = e.detail;
         else if (e.running) r.subtitle = str(R.string.xd_content_running);
@@ -556,7 +548,7 @@ final class ChooserView extends LinearLayout {
         }
         if (key.startsWith(RECENT_SESSION)) return devices.sessions().contains(sessionOf(key)) ? sessionRow(sessionOf(key)) : null;
         ContentSource.Entry e = Contents.find(key);
-        return e != null ? contentRow(e, false) : null;
+        return e != null ? contentRow(e) : null;
     }
 
     private void rebuild() {
@@ -634,7 +626,6 @@ final class ChooserView extends LinearLayout {
             String where = deviceName(k);
             if (k.equals(previous) && !dockKeys.contains(k)) where = str(R.string.xd_dev_previous) + " · " + where;
             r.subtitle = r.subtitle != null ? where + " · " + r.subtitle : where;
-            r.hideable = false;
             r.dim = devices.offline(k);
             rows.add(r);
         }
@@ -693,7 +684,7 @@ final class ChooserView extends LinearLayout {
                 // The whole desktop first, always, even locked or still connecting: opening it is how a locked Mac is
                 // unlocked, and only then does Sill send the apps (DEVICES.md §3)
                 if (!query.isEmpty() && !entryMatches(e)) continue;
-                Row r = contentRow(e, false);
+                Row r = contentRow(e);
                 r.title = str(R.string.xd_dev_whole_desktop);
                 r.desktop = true;
                 if (r.subtitle == null) r.subtitle = e.label;
@@ -707,7 +698,7 @@ final class ChooserView extends LinearLayout {
                 }
                 continue;
             }
-            if (catalog && entryMatches(e)) open.add(contentRow(e, false));
+            if (catalog && entryMatches(e)) open.add(contentRow(e));
         }
         if (!open.isEmpty()) {
             rows.add(header(str(windowsTitle)));
@@ -715,7 +706,7 @@ final class ChooserView extends LinearLayout {
         }
         if (!catalog) return;
         for (ContentSource.Entry e : s.apps())
-            if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e, true), sorted, hiddenRows);
+            if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e), sorted, hiddenRows);
     }
 
     /** A whole desktop of a device (a Mac's "m:<id>:desktop"; later Windows'). */
@@ -761,42 +752,6 @@ final class ChooserView extends LinearLayout {
                 return;
             }
         }
-    }
-
-    // --- the long-press menu ---
-
-    private static final int MENU_STAR = 1, MENU_HIDE = 2, MENU_SETTINGS = 3, MENU_QUIT = 4;
-
-    private void menu(View anchor, final Row r) {
-        PopupMenu m = new PopupMenu(getContext(), anchor, Gravity.END);
-        Menu items = m.getMenu();
-        final boolean docked = dockKeys.contains(r.key);
-        final boolean hidden = devices.isHidden(r.key);
-        items.add(0, MENU_STAR, 0, docked ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite);
-        if (r.hideable || hidden) items.add(0, MENU_HIDE, 1, hidden ? R.string.xd_dev_unhide : R.string.xd_dev_hide);
-        if (r.app != null || r.isSession) items.add(0, MENU_SETTINGS, 2, R.string.xd_dev_menu_settings);
-        final ContentSource source = Contents.sourceOf(r.key);
-        if (source != null && r.running) items.add(0, MENU_QUIT, 3, R.string.xd_dev_quit);
-        m.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case MENU_STAR:
-                    host.onDockToggle(r.key);
-                    return true;
-                case MENU_HIDE:
-                    // Hidden things are not favourites: the favourites must not hold what can't be seen
-                    if (!hidden && docked) host.onDockToggle(r.key);
-                    devices.setHidden(r.key, !hidden);
-                    return true;
-                case MENU_SETTINGS:
-                    host.onItemLongPress(r.key);
-                    return true;
-                case MENU_QUIT:
-                    source.close(r.key);
-                    return true;
-            }
-            return false;
-        });
-        m.show();
     }
 
     private static final class Holder {

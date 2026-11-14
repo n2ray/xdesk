@@ -37,6 +37,11 @@ final class DeviceSettings {
         return new DeviceSettings(c).list();
     }
 
+    /** One device's page, from that device's things (ItemCard): a Linux environment's state, Stop and desktops. */
+    static void openDevice(Context c, String id) {
+        new DeviceSettings(c).device(id);
+    }
+
     /** A device type's own set-up flow (Add device › type, or the launcher's "Set up" on a device not set up). */
     static void setUp(Context c, Devices.Type type) {
         DeviceSettings d = new DeviceSettings(c);

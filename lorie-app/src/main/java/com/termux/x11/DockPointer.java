@@ -138,6 +138,7 @@ final class DockPointer {
             taken[d.id] &= ~bit;
             // The Dock acts on the release, as the Launchpad does
             if (button == 1 && open()) host.dock().clickDriven();
+            else if (button == 3 && open()) host.dock().secondaryDriven();
             return;
         }
         d.button(button, down);
@@ -146,6 +147,7 @@ final class DockPointer {
     void click(Router.Device d, int button) {
         if (!open()) d.click(button);
         else if (button == 1) host.dock().clickDriven();
+        else if (button == 3) host.dock().secondaryDriven();
     }
 
     /** True while the Dock has the pointer: the wheel is not the content's then. */

@@ -160,9 +160,7 @@
     <string name="xd_on_display">On the display</string>
     <string name="xd_on_car">On the car</string>
     <string name="xd_linux_desktops">Linux desktops</string>
-    <string name="xd_linux_desktop">Linux desktop</string>
     <string name="xd_android_apps">Android apps</string>
-    <string name="xd_android_app">Android app</string>
     <string name="xd_chooser_close">Back to touchpad</string>
     <string name="xd_chooser_favourites">Favourites</string>
     <string name="xd_chooser_all_apps">All apps</string>
@@ -427,7 +425,10 @@
     <string name="xd_card_follow_default">Default</string>
     <string name="xd_card_mode">Input mode</string>
     <string name="xd_card_mode_note">Like a tablet: the app gets fingers, for apps, games or web pages that only respond to touch. Like a computer: a mouse</string>
-    <string name="xd_card_close">Close this app</string>
+    <string name="xd_card_open">Open</string>
+    <string name="xd_card_switch_to">Switch to</string>
+    <string name="xd_card_device_settings">%1$s settings</string>
+    <string name="xd_card_on_phone">Its settings are on the phone</string>
     <string name="xd_card_close_title">Close %1$s?</string>
 
     <!-- Termux environments in the launcher -->

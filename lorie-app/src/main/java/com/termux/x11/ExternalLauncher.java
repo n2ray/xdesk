@@ -22,6 +22,8 @@ final class ExternalLauncher {
         String current();
         String previous();
         void open(String key);
+        /** The item's card, a dialog on the phone (ItemCard). False when the key has none. */
+        boolean card(String key);
     }
 
     /** The dock's last tile: opens the switcher (SwitcherOverlay) on the external display. */
@@ -56,6 +58,11 @@ final class ExternalLauncher {
     static void open(Context c, String key) {
         if (host != null) host.open(key);
         else Toast.makeText(c, R.string.xd_launcher_need_phone, Toast.LENGTH_LONG).show();
+    }
+
+    /** The secondary button on an item of the external screen: its card opens on the phone. False when there is none. */
+    static boolean card(String key) {
+        return host != null && host.card(key);
     }
 
     /** False for an app that was uninstalled, or that the list has not reached yet. */

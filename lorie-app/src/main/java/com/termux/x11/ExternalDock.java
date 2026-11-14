@@ -15,6 +15,7 @@ import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.termux.x11.app.R;
 import java.util.List;
 
 /**
@@ -169,6 +170,17 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         View item = p.itemAt(Math.round(px), Math.round(py));
         if (item != null) item.performClick();
         else close();
+    }
+
+    /**
+     * The secondary button of the dock's pointer: on an icon its card opens on the phone (ItemCard) and the dock stays,
+     * saying so; beside the icons nothing.
+     */
+    void secondaryDriven() {
+        Panel p = panel;
+        if (!driven() || p == null) return;
+        View item = p.itemAt(Math.round(px), Math.round(py));
+        if (item != null) item.performContextClick();
     }
 
     /** No-op unless driven: over Android apps the dock closes by where Android's pointer is. */
@@ -403,6 +415,12 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.setOnClickListener(v -> {
                 ExternalLauncher.open(dc, key);
                 close();
+            });
+            // The secondary button (Android's own mouse, or secondaryDriven): the item's card, which is on the phone.
+            // Taken also when there is none (the Launchpad's tile), or it would count as a click
+            box.setOnContextClickListener(v -> {
+                if (ExternalLauncher.card(key)) showName(dc.getString(R.string.xd_card_on_phone), v);
+                return true;
             });
             LayoutParams at = new LayoutParams(-2, -2);
             at.leftMargin = at.rightMargin = dp(ITEM_GAP_DP / 2);

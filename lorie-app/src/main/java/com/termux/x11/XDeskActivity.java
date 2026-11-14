@@ -91,7 +91,7 @@ public class XDeskActivity extends Activity {
     private static final long CONNECT_TIMEOUT_MS = 40000;
     /** 注入服务还在结束时选了应用：等它结束再启动，否则新的会被一起结束。 */
     private static final long STOPPING_RETRY_MS = 200;
-    private static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
+    static final int DENSITY_MIN = 120, DENSITY_MAX = 220;
     private static final long RECAPTURE_DELAY_MS = 500;
     private static final long REFOCUS_DELAY_MS = 800;
     private static final int SCAN_A = 30, SCAN_X = 45, SCAN_C = 46, SCAN_V = 47, SCAN_Z = 44;
@@ -155,6 +155,7 @@ public class XDeskActivity extends Activity {
             if (ExternalLauncher.SWITCHER.equals(key)) showSwitcher(false);
             else chooseKey(key);
         }
+        @Override public boolean card(String key) { return showItemCard(key); }
     };
     private Dialog outputDialog;
     /** 设置页开着时的声音输出那一行。 */
@@ -985,7 +986,7 @@ public class XDeskActivity extends Activity {
 
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
         @Override public void onDockTap(String key) { chooseKey(key); }
-        @Override public void onItemLongPress(String key) { showAppCard(key); }
+        @Override public void onItemLongPress(String key) { showItemCard(key); }
         @Override public void onDockToggle(String key) {
             List<String> dock = savedLines(PREF_DOCK);
             if (!dock.remove(key)) dock.add(key);
@@ -3000,126 +3001,30 @@ public class XDeskActivity extends Activity {
         saveDock(dock);
     }
 
-    /** 长按图标打开：这个应用记住的一切都在这里。Termux 环境只有 Dock 这部分。 */
-    private void showAppCard(final String key) {
-        // Linux programs and Mac windows have no per-app card yet: their settings live with their source
-        if (Contents.sourceOf(key) != null) return;
-        final AppCatalog.App app = ChooserView.isAppKey(key) ? catalog.find(ChooserView.componentOf(key)) : null;
-        if (ChooserView.isAppKey(key) && app == null) return;
-        final SettingsUi s = ui();
-        final Dialog[] card = new Dialog[1];
-        final String name = app != null ? app.label : ChooserView.sessionOf(key);
-
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        int iconSize = dp(52);
-        if (app != null) {
-            ImageView icon = new ImageView(this);
-            catalog.showIcon(app, icon);
-            head.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
-        } else {
-            TextView tile = Style.label(this, ">_", Style.TEXT, 18);
-            tile.setTypeface(Typeface.MONOSPACE);
-            tile.setGravity(Gravity.CENTER);
-            tile.setBackground(Style.rounded(this, Style.SURFACE_RAISED, 14));
-            head.addView(tile, new LinearLayout.LayoutParams(iconSize, iconSize));
-        }
-        LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        TextView title = Style.label(this, name, Style.TEXT, 18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        titles.addView(title);
-        boolean onDisplay = key.equals(currentKey());
-        TextView sub = Style.label(this, getString(onDisplay ? (onCar() ? R.string.xd_on_car : R.string.xd_card_on_display) : app != null ? R.string.xd_android_app : R.string.xd_linux_desktop),
-            onDisplay ? Style.OK : Style.TEXT_DIM, Style.TEXT_SMALL + 1);
-        sub.setPadding(0, dp(2), 0, 0);
-        titles.addView(sub);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.leftMargin = dp(12);
-        head.addView(titles, tp);
-        final ImageView star = new ImageView(this);
-        int pad = dp(11);
-        star.setPadding(pad, pad, pad, pad);
-        star.setBackground(Style.ripple(this, Style.SURFACE, Style.RADIUS));
-        star.setContentDescription(getString(R.string.xd_chooser_favourites));
-        head.addView(star, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET)));
-
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-
-        // 收藏里的位置：只有在收藏里才显示
-        final LinearLayout order = s.card(c);
-        LinearLayout orderRow = new LinearLayout(this);
-        orderRow.setGravity(Gravity.CENTER_VERTICAL);
-        orderRow.setPadding(dp(12), dp(6), dp(8), dp(6));
-        orderRow.addView(Style.label(this, getString(R.string.xd_card_position), Style.TEXT, Style.TEXT_BODY), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView left = Style.button(this, "←", Style.SURFACE_RAISED, Style.TEXT_BODY + 1, Style.RADIUS);
-        left.setOnClickListener(v -> {
-            Style.tick(v);
-            moveInDock(key, -1);
-        });
-        orderRow.addView(left, new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET - 8)));
-        TextView right = Style.button(this, "→", Style.SURFACE_RAISED, Style.TEXT_BODY + 1, Style.RADIUS);
-        right.setOnClickListener(v -> {
-            Style.tick(v);
-            moveInDock(key, 1);
-        });
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET - 8));
-        rp.leftMargin = dp(6);
-        orderRow.addView(right, rp);
-        order.addView(orderRow, new LinearLayout.LayoutParams(-1, -2));
-
-        final Runnable applyStar = () -> {
-            boolean docked = savedLines(PREF_DOCK).contains(key);
-            star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
-            star.setColorFilter(docked ? Style.WARN : Style.TEXT_DIM);
-            order.setVisibility(docked ? View.VISIBLE : View.GONE);
-        };
-        applyStar.run();
-        star.setOnClickListener(v -> {
-            Style.tick(v);
-            chooserHost.onDockToggle(key);
-            applyStar.run();
-        });
-
-        if (app != null) {
-            int global = apps.savedDensity() > 0 ? apps.savedDensity() : apps.defaultDensity();
-            s.groupLabel(c, getString(R.string.xd_card_display));
-            LinearLayout display = s.card(c);
-            s.inlineNumberRow(display, getString(R.string.xd_density), global > 0 ? getString(R.string.xd_card_density_note_value, global) : getString(R.string.xd_card_density_note),
-                global > 0 ? String.valueOf(global) : getString(R.string.xd_chooser_default), apps.appDensity(app), DENSITY_MIN, DENSITY_MAX,
-                dpi -> apps.setAppDensity(app, dpi), () -> apps.setAppDensity(app, 0));
-            if (AppSession.fullscreenSupported()) {
-                s.segmentedRow(display, getString(R.string.xd_card_fullscreen), getString(apps.isFullscreenDefault() ? R.string.xd_card_fullscreen_note_on : R.string.xd_card_fullscreen_note_off),
-                    strings(R.string.xd_card_follow_default, R.string.xd_on, R.string.xd_off), apps.appFullscreen(app), which -> apps.setAppFullscreen(app, which));
-            }
-            if (AppSession.touchModeAllowed(app)) {
-                s.groupLabel(c, getString(R.string.xd_section_input));
-                LinearLayout input = s.card(c);
-                s.segmentedRow(input, getString(R.string.xd_card_mode), getString(R.string.xd_card_mode_note), strings(R.string.xd_mode_mouse, R.string.xd_mode_touch), apps.isTouchMode(app) ? 1 : 0, which -> {
-                    apps.setTouchMode(app, which == 1);
-                    updateStatus();
-                });
-            }
-            if (apps.canCloseApps()) {
-                TextView close = Style.button(this, getString(R.string.xd_card_close), Style.SURFACE, Style.TEXT_BODY, 16);
-                close.setTextColor(Style.DANGER);
-                close.setOnClickListener(v -> {
-                    Style.tick(v);
-                    s.confirm(getString(R.string.xd_card_close_title, app.label), getString(R.string.xd_unsaved_may_be_lost), getString(R.string.xd_close), () -> {
-                        card[0].dismiss();
-                        apps.closeApp(app);
-                    });
-                });
-                LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
-                cp.topMargin = dp(16);
-                c.addView(close, cp);
-            }
-        }
-        card[0] = s.bottomSheet(head, c);
+    /**
+     * The card of a launcher item (ItemCard): the same one for every kind of item, from a long press on the phone and
+     * from the secondary button on the external Launchpad and Dock. False when the key has none.
+     */
+    private boolean showItemCard(String key) {
+        // The external screen may ask while this activity is on its way out: no window to put a dialog in
+        if (isFinishing() || isDestroyed()) return false;
+        return ItemCard.show(this, cardHost, key);
     }
+
+    private final ItemCard.Host cardHost = new ItemCard.Host() {
+        @Override public String current() { return currentKey(); }
+        @Override public boolean onCar() { return XDeskActivity.this.onCar(); }
+        @Override public List<String> favourites() { return savedLines(PREF_DOCK); }
+        @Override public void toggleFavourite(String key) { chooserHost.onDockToggle(key); }
+        @Override public void moveFavourite(String key, int by) { moveInDock(key, by); }
+        @Override public void open(String key) {
+            // Asked for from the Launchpad, which is still open: it goes as when a tile is opened there
+            if (SwitcherOverlay.isShown()) SwitcherOverlay.hide(switcherHost);
+            chooseKey(key);
+        }
+        @Override public AppSession apps() { return apps; }
+        @Override public void appInputChanged() { updateStatus(); }
+    };
 
     // --- 外接屏上的切换器（DISPLAY.md §6） ---
 
@@ -3181,6 +3086,7 @@ public class XDeskActivity extends Activity {
         @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
         @Override public String current() { return currentKey(); }
         @Override public void open(String key) { chooseKey(key); }
+        @Override public boolean card(String key) { return showItemCard(key); }
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;

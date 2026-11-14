@@ -49,6 +49,7 @@ final class SwitcherOverlay {
     private static final int SCRIM = 0xE00B0D10, HOVER = 0x2EFFFFFF, CURRENT = 0x553D7EF5, FIELD = 0x26FFFFFF;
     private static final String TAB_RUNNING = "run", TAB_FAVOURITES = "fav";
     private static final int MAX_COLUMNS = 8, MAX_ROWS = 5;
+    private static final long NOTICE_MS = 4000;
 
     interface Host {
         /** Keys of what is running, most recent first (the current one first). */
@@ -57,6 +58,8 @@ final class SwitcherOverlay {
         /** The key on the screen now, or null. */
         String current();
         void open(String key);
+        /** The secondary button on a tile: the item's card, a dialog on the phone (ItemCard). False when it has none. */
+        boolean card(String key);
         /** The switcher was closed (so the cursor overlay can be raised again, the dock re-armed). */
         void closed();
     }
@@ -157,6 +160,7 @@ final class SwitcherOverlay {
         panel = null;
         p.devices.removeListener(p.changed);
         UI.removeCallbacks(p.refresh);
+        UI.removeCallbacks(p.noticeGone);
         try {
             p.wm.removeView(p.root);
         } catch (RuntimeException ignored) { }
@@ -206,6 +210,12 @@ final class SwitcherOverlay {
         final Runnable changed = () -> {
             UI.removeCallbacks(refresh);
             UI.postDelayed(refresh, 120);
+        };
+        /** A line shown in place of the search hint for a moment ("Its settings are on the phone"). */
+        String notice;
+        final Runnable noticeGone = () -> {
+            notice = null;
+            if (panel == this) showSearch();
         };
         String tab, current, query = "";
         int page, selected = -1, hiddenCount;
@@ -474,9 +484,7 @@ final class SwitcherOverlay {
             targets.clear();
             tiles.clear();
             selected = -1;
-            String hint = c.getString(R.string.xd_sw_search);
-            searchText.setText(query.isEmpty() ? "⌕  " + hint : query + "▏");
-            searchText.setTextColor(query.isEmpty() ? Style.TEXT_DIM : Color.WHITE);
+            showSearch();
             // Clicks on the search line and the device line do nothing (elsewhere on the scrim closes)
             targets.add(new Target(searchText, () -> { }, -1));
             targets.add(new Target(deviceBar, () -> { }, -1));
@@ -569,6 +577,24 @@ final class SwitcherOverlay {
             }
         }
 
+        void showSearch() {
+            String hint = notice != null ? notice : "⌕  " + c.getString(R.string.xd_sw_search);
+            searchText.setText(query.isEmpty() ? hint : query + "▏");
+            searchText.setTextColor(query.isEmpty() && notice == null ? Style.TEXT_DIM : Color.WHITE);
+        }
+
+        /**
+         * The item's card. It is a dialog on the phone, where its switches and numbers can be touched and typed; the
+         * Launchpad stays as it is and says where to look.
+         */
+        void card(String key) {
+            if (!host.card(key)) return;
+            notice = c.getString(R.string.xd_card_on_phone);
+            showSearch();
+            UI.removeCallbacks(noticeGone);
+            UI.postDelayed(noticeGone, NOTICE_MS);
+        }
+
         View tile(final Item it, final int index) {
             LinearLayout box = new LinearLayout(c);
             box.setOrientation(LinearLayout.VERTICAL);
@@ -596,6 +622,11 @@ final class SwitcherOverlay {
             }
             Runnable go = () -> open(it.key);
             box.setOnClickListener(v -> go.run());
+            // A mouse that is Android's own on this screen: its secondary button, as click(3) below
+            box.setOnContextClickListener(v -> {
+                card(it.key);
+                return true;
+            });
             box.setOnHoverListener((v, ev) -> {
                 if (ev.getActionMasked() == MotionEvent.ACTION_HOVER_ENTER) select(index);
                 return false;
@@ -716,11 +747,13 @@ final class SwitcherOverlay {
         }
 
         void click(int button) {
+            Target t = under();
             if (button != 1) {
-                if (!home) hide(host);
+                // The secondary button on a tile is its card; anywhere else it closes, as any other button does
+                if (button == 3 && t != null && t.tile >= 0) card(items.get(page * perPage() + t.tile).key);
+                else if (!home) hide(host);
                 return;
             }
-            Target t = under();
             if (t != null) t.action.run();
             else if (!home) hide(host);  // a click on empty space closes, as Launchpad
         }
