@@ -80,6 +80,16 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         }
     }
 
+    /** XDesk ends (结束 XDesk, swiped from the recents): no Mac goes on streaming to a screen nobody controls. */
+    public static void finishAll() {
+        for (MacActivity a : new java.util.ArrayList<>(live)) {
+            if (a.isFinishing()) continue;
+            a.quiet = true;
+            if (a.client != null) a.client.show(MacClient.NONE);
+            a.finish();
+        }
+    }
+
     /** The Mac can't be shown any more (it ended the session for good): the screen closes and says why. */
     public static void failedFor(String macId, String why) {
         MacActivity a = of(macId);

@@ -83,6 +83,9 @@ public class DesktopService extends Service {
             android.widget.Toast.makeText(app, app.getString(R.string.xd_service_not_moved), android.widget.Toast.LENGTH_LONG).show();
         }
         for (MainActivity m : new java.util.ArrayList<>(MainActivity.getInstances())) m.finishAndRemoveTask();
+        // A Mac's screen is XDesk's own activity on the external display: it would stay there, streaming
+        com.termux.x11.mac.MacActivity.finishAll();
+        SwitcherOverlay.hide(null);
         // 外接屏上的安卓应用移回手机。车机上的应用在 XDesk 自己的显示器上，AppSession 自己移回；Android Auto 的显示器上的东西不动
         android.view.Display real = TargetDisplay.real(app.getSystemService(android.hardware.display.DisplayManager.class));
         int external = real != null ? real.getDisplayId() : -1;

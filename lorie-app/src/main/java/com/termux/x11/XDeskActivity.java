@@ -428,6 +428,9 @@ public class XDeskActivity extends Activity {
             placeX11(id);
             needsPlacement = !resumed;
             updateStatus();
+            // The home over an apps-only X with nothing open was taken down with the display
+            ui.removeCallbacks(homeAgain);
+            ui.postDelayed(homeAgain, HOME_AGAIN_MS);
         }
         @Override public void onDisplayRemoved(int id) {
             SwitcherOverlay.hide(switcherHost);
