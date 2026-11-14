@@ -110,6 +110,7 @@ xdesk stop              # stop everything
 xdesk apps              # the programs XDesk can open one by one (.desktop files)
 xdesk launch SCOPE/ID   # open one of them, e.g. termux/org.xfce.mousepad
 xdesk start NAME+apps   # a session with only the window manager, no panel or desktop
+xdesk envs              # the environments (Termux, each proot or chroot) and their sessions
 ```
 
 A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit these files freely, `xdesk setup` will not overwrite them.

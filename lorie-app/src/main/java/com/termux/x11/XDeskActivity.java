@@ -53,7 +53,9 @@ public class XDeskActivity extends Activity {
     private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3;
     private static final String PKG_TERMUX = "com.termux";
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
-    private static final String TERMUX_STATE_COMMAND = DesktopSession.nonceEnv() + SCRIPT + " list; echo ---; " + SCRIPT + " status";
+    private static final String TERMUX_STATE_COMMAND = DesktopSession.nonceEnv() + SCRIPT + " list; echo ---; " + SCRIPT + " status; echo ---; "
+        // The environments (one device each, DEVICES.md §1). An xdesk without the command prints its usage here: no line of it has a tab
+        + SCRIPT + " envs";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
     private static final int NO_DISPLAY = R.string.xd_no_display;
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
@@ -960,9 +962,8 @@ public class XDeskActivity extends Activity {
         }
     }
 
-    /** What Devices (the launcher's device bar, Settings › Connect device) asks of the Linux sessions. */
+    /** What Devices (the launcher's device bar, Settings › Connect device) asks of the Linux environments: Stop, set up. */
     private final Devices.Actions deviceActions = new Devices.Actions() {
-        @Override public void startLinux(String name) { chooserHost.onSessionChosen(name); }
         @Override public void stopLinux() { confirmStop(); }
         @Override public void setUpLinux() { chooserHost.onTermuxHint(); }
     };
@@ -997,7 +998,8 @@ public class XDeskActivity extends Activity {
         private void sessionDecided(final String name) {
             leaveContentChoice();
             pendingApp = null;  // an Android app still waiting for its activation is no longer what was chosen
-            // "NAME+apps" is how a Linux device is connected (DEVICES.md §2), not something to list as recent
+            // Only a whole desktop is chosen here (整个桌面, the one thing that starts an environment's XFCE). "NAME+apps",
+            // what Linux programs run on, is started by needDesktop alone and is never listed as recent
             boolean appsOnly = name.endsWith(Devices.APPS_ONLY);
             if (!appsOnly) rememberRecent(ChooserView.recentKey(name));
             if (name.equals(runningSession)) {
@@ -1008,10 +1010,12 @@ public class XDeskActivity extends Activity {
                 } else {
                     reattach();
                 }
-            } else if (runningSession != null && runningSession.equals(name + Devices.APPS_ONLY)) {
-                // Its own apps-only variant runs: the whole desktop comes in its place, X and the windows stay
+            } else if (runningSession != null && runningSession.endsWith(Devices.APPS_ONLY)) {
+                // Only X and a window manager run, its own or another environment's: the whole desktop comes in their
+                // place (xdesk switch). X and the open programs stay, so there is nothing to ask
                 launchDesktop(name, true);
             } else if (runningSession != null) {
+                // One X server, one desktop session (DEVICES.md §2): another whole desktop ends first, after asking
                 ui().confirm(getString(R.string.xd_switch_desktop_title), getString(R.string.xd_switch_desktop, runningSession), getString(R.string.xd_switch), new Runnable() {
                     @Override public void run() { launchDesktop(name, true); }
                 });
@@ -2022,7 +2026,7 @@ public class XDeskActivity extends Activity {
             String label = e != null ? e.label : "";
             Devices dv = Devices.get(this);
             Devices.Device dev = dv.find(dv.deviceOf(contentKey));
-            if (dev != null && dev.state != Devices.State.CONNECTED)
+            if (dev != null && dev.type != Devices.Type.LINUX && dev.state != Devices.State.CONNECTED)
                 setStatus(Style.WARN, dev.name + " · " + getString(Devices.stateLabel(dev.state)) + (dev.note != null && !dev.note.isEmpty() ? " · " + dev.note : ""));
             else setStatus(Style.OK, getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, label));
             return;
@@ -3256,13 +3260,39 @@ public class XDeskActivity extends Activity {
             desktopThen = then;
             desktopFailed = failed;
             desktopFor = key;
-            if (runningSession != null && !session.isActive()) {
+            if (runningSession != null) {
+                startXFor(key);
+                return;
+            }
+            // Nothing known to run. What the list last read may be old (the Launchpad reads nothing): a desktop started
+            // from a shell would be taken for the apps-only X asked for here, xdesk only answers "already running"
+            final Runnable asked = then;
+            withFreshTermuxState(new Runnable() {
+                @Override public void run() {
+                    // Not if the user moved on, or X came by itself meanwhile (desktopConnected ran it)
+                    if (desktopThen == asked && key.equals(pendingContent)) startXFor(key);
+                }
+            });
+        }
+        /**
+         * A Linux program was opened and X is not on the screen (DEVICES.md §2). Something runs: back to it, the
+         * program opens in whatever it is, apps only or the whole desktop of any environment. Nothing runs: the light
+         * X of the program's environment ("NAME+apps": X, window manager, no desktop). Never the whole desktop.
+         */
+        private void startXFor(String key) {
+            if (session.isActive() && session.isConnected()) {
+                desktopConnected();
+            } else if (runningSession != null && !session.isActive()) {
                 // The same as tapping the running session: a waiting screen and the connect timeout, which fails us
                 reattach();
-            } else if (!session.isActive()) {
-                // Opening a Linux program connects Linux in apps-only mode, not the whole desktop (DEVICES.md §2)
-                String def = Devices.get(XDeskActivity.this).defaultSession();
-                launchDesktop(def != null ? def + Devices.APPS_ONLY : null, false);
+            } else if (runningSession != null) {
+                // The X window is placed and has not connected: without a timeout the open would wait for ever
+                if (!ui.hasCallbacks(connectTimeout)) ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
+            } else {
+                // Also with the X window already waiting for an X server: it sets the connect timeout, which fails us
+                Devices dv = Devices.get(XDeskActivity.this);
+                String device = dv.deviceOf(key);
+                launchDesktop(dv.appsSession(device.startsWith(Devices.LINUX) ? device : Devices.LINUX + Devices.TERMUX), false);
             }
         }
         @Override public boolean wanted(String key) {
@@ -3464,9 +3494,15 @@ public class XDeskActivity extends Activity {
         List<String> sessions = new ArrayList<String>();
         String defaultName = null, running = null;
         boolean status = false, x = false;
+        // After a second "---": xdesk envs, a tab separated line per environment
+        boolean envs = false;
+        List<String> envLines = new ArrayList<String>();
         for (String line : stdout.split("\n")) {
             if (line.equals("---")) {
+                envs = status;
                 status = true;
+            } else if (envs) {
+                if (line.indexOf('\t') > 0) envLines.add(line);
             } else if (!status) {
                 if (line.startsWith("* ") || line.startsWith("  ")) {
                     String name = line.substring(2).trim();
@@ -3485,6 +3521,7 @@ public class XDeskActivity extends Activity {
         if (android.os.SystemClock.uptimeMillis() < launchGuardUntil && runningSession != null
                 && (running == null || running.equals(launchedFrom))) running = runningSession;
         String before = runningSession;
+        Devices.get(this).setEnvironments(envLines);
         setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? getString(R.string.xd_termux_no_sessions) : null);
         // What the screen shows is what runs: a window recreated does not know the name; "NAME+apps" of a session
         // without an apps-only variant is started whole (xdesk start_session)
@@ -3886,7 +3923,7 @@ public class XDeskActivity extends Activity {
         desktopName = runningSession;
         pendingSession = runningSession;
         pendingReplace = false;
-        showSetup(getString(R.string.xd_reattach_title), getString(R.string.xd_reattach, runningSession), true, null, null);
+        showSetup(getString(R.string.xd_reattach_title), getString(R.string.xd_reattach, stripAppsOnly(runningSession)), true, null, null);
         ui.removeCallbacks(connectTimeout);
         ui.postDelayed(connectTimeout, CONNECT_TIMEOUT_MS);
     }
@@ -3929,9 +3966,12 @@ public class XDeskActivity extends Activity {
             attachDisplay(d);
         }
         askNotificationsOnce();
-        showSetup(getString(R.string.xd_starting_desktop_title), getString(R.string.xd_starting_desktop), true, null, null);
+        // "NAME+apps" is the light X a Linux program is opened on: no desktop is starting
+        boolean light = name != null && name.endsWith(Devices.APPS_ONLY);
+        showSetup(getString(light ? R.string.xd_starting_x_title : R.string.xd_starting_desktop_title), getString(R.string.xd_starting_desktop), true, null, null);
         if (!session.launch(name, replace)) return;
         if (name != null) {
+            Devices.get(this).setLinuxStarting(name);
             launchedSession = name;
             launchedFrom = runningSession;
             launchGuardUntil = android.os.SystemClock.uptimeMillis() + LAUNCH_GUARD_MS;
@@ -4076,7 +4116,19 @@ public class XDeskActivity extends Activity {
             ui().confirm(getString(R.string.xd_end_desktop_title), getString(R.string.xd_end_desktop_no_permission), getString(R.string.xd_ok), null);
             return;
         }
-        ui().confirm(getString(R.string.xd_end_desktop_confirm_title), getString(R.string.xd_end_desktop_message), getString(R.string.xd_end), new Runnable() {
+        // A Linux device's Stop (DEVICES.md §2): the X server all Linux environments share ends, with everything on it.
+        // Nothing to lose with only the light X and no window open: no question then
+        LinuxSource linux = LinuxSource.get();
+        int open = linux != null ? linux.windows().size() : 0;
+        String running = runningSession != null ? runningSession : desktopName;
+        boolean desktop = running != null && !running.endsWith(Devices.APPS_ONLY);
+        if (open == 0 && !desktop) {
+            stopDesktop();
+            return;
+        }
+        String message = getString(desktop ? R.string.xd_end_desktop_message : R.string.xd_stop_x_message);
+        if (open > 0) message += "\n\n" + getResources().getQuantityString(R.plurals.xd_stop_x_windows, open, open);
+        ui().confirm(getString(desktop ? R.string.xd_end_desktop_confirm_title : R.string.xd_stop_x_title), message, getString(R.string.xd_end), new Runnable() {
             @Override public void run() { stopDesktop(); }
         });
     }

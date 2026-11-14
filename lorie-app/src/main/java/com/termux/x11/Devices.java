@@ -20,9 +20,11 @@ import java.util.Objects;
 
 /**
  * The devices of DEVICES.md: the phone (internal, always connected) and the external devices (Linux environments,
- * paired Macs; Windows and other Android devices later), each with a state and connect/disconnect. Keys of the
- * content sources keep their format; {@link #deviceOf} assigns every key to a device. Also keeps the launcher's
- * hidden entries and the devices the user disconnected.
+ * paired Macs; Windows and other Android devices later), each with a state. A Mac is remote: it is connected and
+ * disconnected. A Linux environment is local, reached through the xdesk command: it has no connection, its programs
+ * are always listed, it is running or not, and can be stopped. Keys of the content sources keep their format;
+ * {@link #deviceOf} assigns every key to a device. Also keeps the launcher's hidden entries, the Macs the user
+ * disconnected and the Linux environments added as devices.
  *
  * Built from what the sources already have in memory: nothing here connects, reads files or blocks. UI thread.
  */
@@ -31,13 +33,30 @@ final class Devices {
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab",
-        PREF_SWITCHER_TAB = "switcher_tab";
-    /** A Linux connect that has not shown up in xdesk status by then is no longer "connecting". */
-    private static final long LINUX_CONNECT_MS = 45_000;
+        PREF_SWITCHER_TAB = "switcher_tab", PREF_LINUX = "linux", PREF_ENVS = "envs";
+    /** An X started for a Linux device that has not shown up by then is no longer "starting". */
+    private static final long LINUX_START_MS = 45_000;
 
     enum Type { PHONE, LINUX, MAC, WINDOWS, ANDROID }
 
+    /** For a Linux device CONNECTED reads "running", CONNECTING "starting" and DISCONNECTED "not running" (stateLabel). */
     enum State { NOT_SET_UP, DISCONNECTED, CONNECTING, CONNECTED, FAILED }
+
+    /** A Linux environment as xdesk envs reports it: Termux itself, or a proot or chroot system. */
+    static final class Env {
+        final String name, kind;
+        /** Its programs can be listed and opened one by one. */
+        final boolean apps;
+        /** Its desktop sessions, in xdesk's order. */
+        final List<String> sessions;
+
+        Env(String name, String kind, boolean apps, List<String> sessions) {
+            this.name = name;
+            this.kind = kind;
+            this.apps = apps;
+            this.sessions = sessions;
+        }
+    }
 
     static final class Device {
         final String id;
@@ -46,35 +65,38 @@ final class Devices {
         final State state;
         /** A short user-facing line about the state (a failure, "2 windows"), or null. */
         final String note;
-        /** Connect or disconnect can't be pressed now (a stop is under way). */
+        /** Connect, disconnect or stop can't be pressed now (a stop is under way). */
         final boolean busy;
+        /** A Linux device while the X server all of them share runs: "Stop" is offered. */
+        final boolean canStop;
 
         Device(String id, Type type, String name, State state, String note, boolean busy) {
+            this(id, type, name, state, note, busy, false);
+        }
+
+        Device(String id, Type type, String name, State state, String note, boolean busy, boolean canStop) {
             this.id = id;
             this.type = type;
             this.name = name;
             this.state = state;
             this.note = note;
             this.busy = busy;
+            this.canStop = canStop;
         }
 
         boolean external() {
             return type != Type.PHONE;
         }
 
-        /** A Linux environment without a desktop session has nothing to start: its programs start X themselves. */
+        /** Only a remote device is connected. A Linux environment is local: opening something of it starts what it needs. */
         boolean canConnect(Devices d) {
-            if (type == Type.MAC) return true;
-            if (type == Type.LINUX) return !d.sessionsOf(id).isEmpty();
-            return false;
+            return type == Type.MAC;
         }
     }
 
     /** What only XDeskActivity can do for a Linux environment. All calls on the UI thread. */
     interface Actions {
-        /** Start (or reattach) this desktop session, as tapping its row in the launcher. */
-        void startLinux(String session);
-        /** Ask, then end the X session with every Linux program (xdesk stop). */
+        /** End the X server with every Linux program (xdesk stop), after asking if anything is open. */
         void stopLinux();
         /** Termux is missing, has no permission or no sessions: what the launcher's Termux hint does. */
         void setUpLinux();
@@ -103,21 +125,30 @@ final class Devices {
     private final SharedPreferences prefs;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LinkedHashSet<String> hidden = new LinkedHashSet<>(), off = new LinkedHashSet<>();
+    /** The Linux environments added as devices, by name. Termux itself is always one and is not in here. */
+    private final LinkedHashSet<String> addedLinux = new LinkedHashSet<>();
+    /** The environments as xdesk envs last reported them; empty with an xdesk that has no such command. */
+    private List<Env> reportedEnvs = new ArrayList<>();
+    /** reportedEnvs, or the environments worked out from the session names. Termux first. */
+    private List<Env> envs = new ArrayList<>();
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private Actions actions;
 
     private List<String> sessions = new ArrayList<>();
     private String defaultSession, runningSession, stoppingSession, termuxHint;
     private boolean xRunning;
-    /** The Linux device being connected and since when (uptime), or null. */
-    private String linuxConnecting;
-    private long linuxConnectingSince;
+    /** The Linux device X is being started for and since when (uptime), or null. */
+    private String linuxStarting;
+    private long linuxStartingSince;
 
     private Devices(Context c) {
         context = c;
         prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         hidden.addAll(lines(prefs.getString(PREF_HIDDEN, "")));
         off.addAll(lines(prefs.getString(PREF_OFF, "")));
+        addedLinux.addAll(lines(prefs.getString(PREF_LINUX, "")));
+        reportedEnvs = parseEnvs(lines(prefs.getString(PREF_ENVS, "")));
+        rebuildEnvs();
     }
 
     private static List<String> lines(String s) {
@@ -160,7 +191,8 @@ final class Devices {
         runningSession = running;
         xRunning = x;
         termuxHint = hint;
-        if (linuxConnecting != null && running != null && linuxConnecting.equals(deviceOfSession(running))) linuxConnecting = null;
+        rebuildEnvs();
+        if (running != null) linuxStarting = null;
         changed();
     }
 
@@ -170,9 +202,109 @@ final class Devices {
         runningSession = running;
         if (running != null) {
             xRunning = true;
-            if (linuxConnecting != null && linuxConnecting.equals(deviceOfSession(running))) linuxConnecting = null;
+            linuxStarting = null;
+        } else {
+            // Only an X server that ended is told here (the light X or a desktop, with everything on it)
+            xRunning = false;
         }
         changed();
+    }
+
+    /** XDesk asked xdesk to start this session (the light X for a program, or a whole desktop): its device is "starting". */
+    void setLinuxStarting(String session) {
+        linuxStarting = session != null ? deviceOfSession(session) : null;
+        linuxStartingSince = SystemClock.uptimeMillis();
+        changed();
+    }
+
+    // --- the Linux environments (DEVICES.md §1, §5) ---
+
+    /**
+     * What "xdesk envs" printed, a line per environment: name, kind, "apps" or "-", its sessions joined by "/", tab
+     * separated. Nothing (an xdesk without the command): the environments are worked out from the session names.
+     * Call before {@link #setLinux}, which tells the views.
+     */
+    void setEnvironments(List<String> lines) {
+        List<Env> parsed = parseEnvs(lines);
+        if (!parsed.isEmpty() || !lines.isEmpty() || !reportedEnvs.isEmpty()) {
+            ArrayList<String> keep = new ArrayList<>();
+            for (String l : lines) if (l.indexOf('\t') > 0) keep.add(l);
+            prefs.edit().putString(PREF_ENVS, String.join("\n", keep)).apply();
+        }
+        reportedEnvs = parsed;
+        rebuildEnvs();
+    }
+
+    private static List<Env> parseEnvs(List<String> lines) {
+        ArrayList<Env> out = new ArrayList<>();
+        for (String line : lines) {
+            String[] f = line.split("\t", -1);
+            if (f.length < 4 || f[0].isEmpty() || f[0].startsWith("#")) continue;
+            ArrayList<String> s = new ArrayList<>();
+            for (String n : f[3].split("/")) if (!n.isEmpty()) s.add(n);
+            out.add(new Env(f[0], f[1], "apps".equals(f[2]), s));
+        }
+        return out;
+    }
+
+    private void rebuildEnvs() {
+        if (!reportedEnvs.isEmpty()) {
+            envs = reportedEnvs;
+            return;
+        }
+        // An xdesk without "envs": Termux has the termux-* sessions, every other session is an environment of its own
+        ArrayList<Env> out = new ArrayList<>();
+        ArrayList<String> own = new ArrayList<>();
+        for (String s : sessions) if (isTermuxName(s)) own.add(s);
+        out.add(new Env(TERMUX, TERMUX, true, own));
+        for (String s : sessions)
+            if (!isTermuxName(s)) out.add(new Env(s, s.startsWith("proot-") ? "proot" : "other", true, Collections.singletonList(s)));
+        envs = out;
+    }
+
+    private static boolean isTermuxName(String session) {
+        return session.equals(TERMUX) || session.startsWith(TERMUX + "-");
+    }
+
+    /** Every environment xdesk knows, Termux first: the ones to pick from in Add device › Linux. */
+    List<Env> environments() {
+        return envs;
+    }
+
+    Env environment(String deviceId) {
+        String name = deviceId.startsWith(LINUX) ? deviceId.substring(LINUX.length()) : deviceId;
+        for (Env e : envs) if (e.name.equals(name)) return e;
+        return null;
+    }
+
+    /** Whether this environment is a device (a tab of its own). Termux always is. */
+    boolean isLinuxAdded(String env) {
+        return env.equals(TERMUX) || addedLinux.contains(env);
+    }
+
+    /** Add device › Linux › an environment, or its removal. Nothing of the environment itself is touched. */
+    void setLinuxAdded(String env, boolean add) {
+        if (env.equals(TERMUX)) return;
+        if (add ? !addedLinux.add(env) : !addedLinux.remove(env)) return;
+        prefs.edit().putString(PREF_LINUX, String.join("\n", addedLinux)).apply();
+        changed();
+    }
+
+    /**
+     * The session whose apps-only variant ("NAME+apps": X, the window manager, no desktop) is started to open a
+     * program of this device when no X runs: the default session if it is this environment's, else its first, else
+     * the environment's name alone ("termux+apps" needs no session).
+     */
+    String appsSession(String deviceId) {
+        List<String> own = sessionsOf(deviceId);
+        String base = own.contains(defaultSession) ? defaultSession : !own.isEmpty() ? own.get(0)
+                : deviceId.startsWith(LINUX) ? deviceId.substring(LINUX.length()) : TERMUX;
+        return base + APPS_ONLY;
+    }
+
+    /** The session all Linux devices share is only X and a window manager, no desktop. */
+    boolean appsOnlyRunning() {
+        return runningSession != null && runningSession.endsWith(APPS_ONLY);
     }
 
     void setLinuxStopping(String name) {
@@ -190,10 +322,11 @@ final class Devices {
 
     // --- keys to devices ---
 
-    static String deviceOfSession(String session) {
+    String deviceOfSession(String session) {
         if (session == null) return LINUX + TERMUX;
         if (session.endsWith(APPS_ONLY)) session = session.substring(0, session.length() - APPS_ONLY.length());
-        return session.equals(TERMUX) || session.startsWith(TERMUX + "-") ? LINUX + TERMUX : LINUX + session;
+        for (Env e : envs) if (e.sessions.contains(session)) return LINUX + e.name;
+        return isTermuxName(session) ? LINUX + TERMUX : LINUX + session;
     }
 
     /** The desktop sessions of a Linux device, in xdesk's order. */
@@ -211,8 +344,9 @@ final class Devices {
             LinuxSource l = LinuxSource.get();
             String scope = l != null ? l.scopeOf(key) : null;
             if (scope != null) return LINUX + scope;
-            // A window no program claims: the running session's environment, else Termux, which runs X
-            return deviceOfSession(runningSession);
+            // A window no program claims: the environment whose whole desktop runs (started from its panel or a
+            // terminal there), else Termux, which runs X
+            return deviceOfSession(appsOnlyRunning() ? null : runningSession);
         }
         if (key.startsWith(MacSource.PREFIX)) {
             int end = key.indexOf(':', MacSource.PREFIX.length());
@@ -242,23 +376,18 @@ final class Devices {
         return null;
     }
 
+    /** The remote devices connected now. A local Linux environment is running or not, never "connected". */
     int connectedCount() {
         int n = 0;
-        for (Device d : external()) if (d.state == State.CONNECTED) n++;
+        for (Device d : external()) if (d.type != Type.LINUX && d.state == State.CONNECTED) n++;
         return n;
     }
 
+    /** Termux, then the environments added as devices that xdesk still knows, in its order. */
     private List<String> linuxIds() {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         ids.add(LINUX + TERMUX);
-        for (String s : sessions) ids.add(deviceOfSession(s));
-        LinuxSource l = LinuxSource.get();
-        if (l != null) {
-            for (ContentSource.Entry e : l.apps()) {
-                String scope = l.scopeOf(e.key);
-                if (scope != null) ids.add(LINUX + scope);
-            }
-        }
+        for (Env e : envs) if (addedLinux.contains(e.name)) ids.add(LINUX + e.name);
         return new ArrayList<>(ids);
     }
 
@@ -284,21 +413,31 @@ final class Devices {
         if (l != null) for (ContentSource.Entry e : l.windows()) if (deviceOf(e.key).equals(id)) windows++;
         boolean running = runningSession != null && deviceOfSession(runningSession).equals(id);
         boolean stopping = stoppingSession != null;
-        if (linuxConnecting != null && SystemClock.uptimeMillis() - linuxConnectingSince > LINUX_CONNECT_MS) linuxConnecting = null;
+        if (linuxStarting != null && SystemClock.uptimeMillis() - linuxStartingSince > LINUX_START_MS) linuxStarting = null;
+        // One X server for all of them (DEVICES.md §2): while it runs every Linux device can stop it
+        boolean x = xRunning || runningSession != null || anyLinuxWindow(l);
         if (stopping && (running || termux || windows > 0)) {
             return new Device(id, Type.LINUX, name, State.CONNECTED, context.getString(R.string.xd_chooser_stopping), true);
         }
-        if (running || windows > 0 || (termux && xRunning)) {
-            String note = windows > 0 ? context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows)
-                    : running ? (runningSession.endsWith(APPS_ONLY) ? context.getString(R.string.xd_dev_apps_only)
-                        : context.getString(R.string.xd_dev_whole_desktop) + " · " + runningSession)
-                    : context.getString(R.string.xd_dev_x_running);
-            return new Device(id, Type.LINUX, name, State.CONNECTED, note, false);
+        // Running: its whole desktop is the session, or programs of it are open. The apps-only session itself is not
+        // shown as anything: it is only what the programs run on
+        boolean desktop = running && !runningSession.endsWith(APPS_ONLY);
+        if (desktop || windows > 0) {
+            String note = desktop ? context.getString(R.string.xd_dev_whole_desktop) : null;
+            if (windows > 0) {
+                String w = context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows);
+                note = note != null ? note + " · " + w : w;
+            }
+            return new Device(id, Type.LINUX, name, State.CONNECTED, note, false, true);
         }
-        if (id.equals(linuxConnecting)) return new Device(id, Type.LINUX, name, State.CONNECTING, null, false);
-        if (termux && termuxHint != null && sessions.isEmpty()) return new Device(id, Type.LINUX, name, State.NOT_SET_UP, termuxHint, false);
-        String note = sessionsOf(id).isEmpty() ? context.getString(R.string.xd_dev_linux_no_session) : null;
-        return new Device(id, Type.LINUX, name, State.DISCONNECTED, note, false);
+        if (id.equals(linuxStarting)) return new Device(id, Type.LINUX, name, State.CONNECTING, null, false, x);
+        if (termux && termuxHint != null && sessions.isEmpty()) return new Device(id, Type.LINUX, name, State.NOT_SET_UP, termuxHint, false, x);
+        // X runs with nothing of this environment on it (idle after its last window closed, or busy with another's)
+        return new Device(id, Type.LINUX, name, State.DISCONNECTED, x ? context.getString(R.string.xd_dev_x_running) : null, stopping, x && !stopping);
+    }
+
+    private static boolean anyLinuxWindow(LinuxSource l) {
+        return l != null && !l.windows().isEmpty();
     }
 
     private Device mac(MacClient m) {
@@ -327,20 +466,16 @@ final class Devices {
             setOff(id, false);
             MacClient m = MacClients.get(context, id.substring(MAC.length()));
             if (m != null) m.touch();
-        } else if (id.startsWith(LINUX)) {
-            Device d = find(id);
-            if (d != null && d.state == State.NOT_SET_UP) {
-                if (actions != null) actions.setUpLinux();
-                return;
-            }
-            List<String> own = sessionsOf(id);
-            if (own.isEmpty() || actions == null) return;
-            String session = own.contains(defaultSession) ? defaultSession : own.get(0);
-            linuxConnecting = id;
-            linuxConnectingSince = SystemClock.uptimeMillis();
-            // Connecting is X with only the window manager: the whole desktop is the 整个桌面 entry (DEVICES.md §2)
-            actions.startLinux(session + APPS_ONLY);
         }
+        // A Linux environment has no connection: opening a program or its whole desktop starts what is needed
+        changed();
+    }
+
+    /** A Linux device's "Stop": ends the X server all Linux devices share, with everything on it. XDeskActivity asks first. */
+    void stop(String id) {
+        if (!id.startsWith(LINUX)) return;
+        linuxStarting = null;
+        if (actions != null) actions.stopLinux();
         changed();
     }
 
@@ -352,9 +487,6 @@ final class Devices {
             MacActivity.failedFor(macId, null);
             MacClient m = MacClients.get(context, macId);
             if (m != null) m.shutdown();
-        } else if (id.startsWith(LINUX)) {
-            linuxConnecting = null;
-            if (actions != null) actions.stopLinux();
         }
         changed();
     }
@@ -405,17 +537,18 @@ final class Devices {
     }
 
     /**
-     * Whether a device's windows and apps are listed: only once it is connected, the list is the real one then
-     * (DEVICES.md §3). One that can't be connected (a Linux environment without a session) lists its programs.
+     * Whether a device's windows and apps are listed: a remote one (a Mac) only once it is connected, the list is the
+     * real one then (DEVICES.md §3). The phone and the local Linux environments always: their programs are known
+     * whether or not X runs.
      */
     boolean listsCatalog(Device d) {
         return !d.external() || d.state == State.CONNECTED || !d.canConnect(this);
     }
 
-    /** A favourite of a device that isn't connected: drawn dim, opening it connects. */
+    /** A favourite of a remote device that isn't connected: drawn dim, opening it connects. */
     boolean offline(String key) {
         String id = deviceOf(key);
-        if (id.equals(PHONE)) return false;
+        if (id.equals(PHONE) || id.startsWith(LINUX)) return false;
         Device d = find(id);
         return d != null && d.state != State.CONNECTED;
     }
@@ -427,6 +560,17 @@ final class Devices {
             case CONNECTING: return Style.WARN;
             case FAILED: return Style.DANGER;
             default: return Style.SURFACE_RAISED;
+        }
+    }
+
+    /** The state in words: a Linux environment is running or not, anything else connected or not. */
+    static int stateLabel(Device d) {
+        if (d.type != Type.LINUX) return stateLabel(d.state);
+        switch (d.state) {
+            case NOT_SET_UP: return R.string.xd_dev_state_not_set_up;
+            case CONNECTING: return R.string.xd_dev_state_starting;
+            case CONNECTED: return R.string.xd_dev_state_running;
+            default: return R.string.xd_dev_state_not_running;
         }
     }
 

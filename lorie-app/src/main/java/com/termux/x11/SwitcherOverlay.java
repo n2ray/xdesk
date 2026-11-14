@@ -362,14 +362,16 @@ final class SwitcherOverlay {
             if (d.type == Devices.Type.PHONE) {
                 for (AppCatalog.App a : AppCatalog.get(c).apps()) apps.add(item(ChooserView.recentKey(a), a.label, null, a.packageName));
             } else {
-                // The whole desktop first, always (locked, still connecting): opening it connects and unlocks
+                // The whole desktop first, always (locked, still connecting): opening it connects and unlocks. For a
+                // Linux environment it is the only entry that starts its desktop; its programs never do
                 if (d.type == Devices.Type.LINUX)
                     for (String s : devices.sessionsOf(d.id)) {
                         Item i = item(ChooserView.recentKey(s), c.getString(R.string.xd_dev_whole_desktop), s, null);
                         i.desktop = true;
                         out.add(i);
                     }
-                // Not connected: only the whole desktop (opening it connects); the real list comes with the connection
+                // A Mac not connected: only the whole desktop (opening it connects); the real list comes with the
+                // connection. A Linux environment is local: its programs are always listed
                 boolean catalog = devices.listsCatalog(d);
                 ContentSource source = d.type == Devices.Type.LINUX ? LinuxSource.get() : d.type == Devices.Type.MAC ? Contents.sourceOf(MacSource.PREFIX) : null;
                 if (source != null) {
@@ -411,7 +413,7 @@ final class SwitcherOverlay {
                 for (Devices.Device d : devices.all()) deviceItems(d, all);
             } else if (TAB_RUNNING.equals(tab)) {
                 for (String k : new LinkedHashSet<>(host.running())) {
-                    // A Linux device's apps-only session is the connection, not something to switch to
+                    // An apps-only session is only what Linux programs run on, never a tile
                     if (k.startsWith("t:") && k.endsWith(Devices.APPS_ONLY)) continue;
                     Item i = itemForKey(k);
                     if (i != null) all.add(i);
@@ -526,7 +528,7 @@ final class SwitcherOverlay {
                 deviceState.setText(TAB_RUNNING.equals(tab) ? c.getString(R.string.xd_sw_running_note) : "");
                 return;
             }
-            String state = c.getString(Devices.stateLabel(d.state));
+            String state = c.getString(Devices.stateLabel(d));
             deviceState.setText(Devices.isLocked(c, d.id) ? c.getString(R.string.xd_dev_locked_hint)
                     : d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
             if ((d.state == Devices.State.DISCONNECTED || d.state == Devices.State.FAILED) && d.canConnect(devices)) {
