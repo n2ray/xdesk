@@ -128,6 +128,8 @@ final class TextBridge {
         if (!preserve) finishCurrent();
         final long mine = ++generation;
         activeGeneration = mine;
+        // When the keyboard seems dead: was a connection made, and could the input method have been told of it
+        Log.d(TAG, "IME: connection " + mine + (preserve ? ", text kept" : "") + ", window focus " + view.hasWindowFocus());
         o.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | (corrections ? 0 : InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         o.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_ACTION_NONE;
@@ -472,6 +474,8 @@ final class TextBridge {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     int u = event.getUnicodeChar();
                     if (u > 0) commitText(new String(Character.toChars(u)), 1);
+                    // Never which key
+                    else Log.d(TAG, "IME key: neither a character nor a key the bridge knows, dropped");
                 } else if (event.getAction() == KeyEvent.ACTION_MULTIPLE && event.getCharacters() != null) {
                     commitText(event.getCharacters(), 1);
                 }
