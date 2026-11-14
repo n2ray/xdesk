@@ -187,6 +187,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     }
 
     @Override protected void onDestroy() {
+        root.removeCallbacks(hideBlank);
         if (displayWatch != null) ((DisplayManager) getSystemService(DISPLAY_SERVICE)).unregisterDisplayListener(displayWatch);
         live.remove(this);
         boolean last = client != null && !replaced();
@@ -259,7 +260,24 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         layoutPicture();
     }
 
-    @Override public void cursor(Bitmap shape, float hx, float hy, float width, float height) {
+    /** The Mac's app shows an empty cursor (a player over its video): the arrow shows only while the mouse moves. */
+    private boolean blankCursor;
+    private static final long BLANK_HIDE_MS = 2000;
+    private final Runnable hideBlank = () -> {
+        if (blankCursor) cursor.setVisibility(View.GONE);
+    };
+
+    @Override public void cursor(Bitmap shape, float hx, float hy, float width, float height, boolean blank) {
+        root.removeCallbacks(hideBlank);
+        blankCursor = blank;
+        if (blank) {
+            // Nothing to draw. The Mac means it (Sill sends no "hidden", only the shape), so the pointer goes, but
+            // not under a moving mouse: an arrow of our own until it rests, or the pointer could not be found again
+            defaultArrow();
+            root.postDelayed(hideBlank, BLANK_HIDE_MS);
+            placeCursor(client.pointerX(), client.pointerY());
+            return;
+        }
         // Sizes are Mac points, as many pixels each as the client asked the Mac window for
         float density = client.pointScale();
         int w = Math.round(width * density), h = Math.round(height * density);
@@ -275,10 +293,18 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         placeCursor(client.pointerX(), client.pointerY());
     }
 
-    @Override public void pointer(float x, float y, boolean inside) {
+    /**
+     * The pointer moved: always shown, where the user's mouse (or the Mac's own) put it. Nothing the Mac reports
+     * hides it (MacClient, kind 26); only an empty cursor of the Mac's does, once the pointer rests (hideBlank).
+     */
+    @Override public void pointer(float x, float y) {
         // A locked Mac sends no cursor shape (Sill's LockPolicy): an arrow of our own, so the pointer can be found
         if (cursor.getDrawable() == null) defaultArrow();
-        cursor.setVisibility(inside ? View.VISIBLE : View.GONE);
+        cursor.setVisibility(View.VISIBLE);
+        if (blankCursor) {
+            root.removeCallbacks(hideBlank);
+            root.postDelayed(hideBlank, BLANK_HIDE_MS);
+        }
         placeCursor(x, y);
     }
 

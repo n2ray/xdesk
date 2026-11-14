@@ -63,12 +63,20 @@ final class MacSettings {
         for (final MacStore.Mac m : MacStore.all(c)) {
             LinearLayout card = s.section(content, m.name);
             s.infoRow(card, c.getString(R.string.xd_mac_address), null, m.address());
+            // Each switch writes its own option over what is saved now: the rows keep the Mac as it was when shown
             s.switchRow(card, c.getString(R.string.xd_mac_fit), c.getString(R.string.xd_mac_fit_note), m.fit, on -> {
-                MacStore.setOptions(c, m.id, on, m.macKeyboard);
+                MacStore.Mac now = saved(m);
+                MacStore.setOptions(c, m.id, on, now.macKeyboard, now.phoneIme);
                 MacClients.savedChanged(c);
             });
             s.switchRow(card, c.getString(R.string.xd_mac_keyboard), c.getString(R.string.xd_mac_keyboard_note), m.macKeyboard, on -> {
-                MacStore.setOptions(c, m.id, m.fit, on);
+                MacStore.Mac now = saved(m);
+                MacStore.setOptions(c, m.id, now.fit, on, now.phoneIme);
+                MacClients.savedChanged(c);
+            });
+            s.switchRow(card, c.getString(R.string.xd_mac_phone_ime), c.getString(R.string.xd_mac_phone_ime_note), m.phoneIme, on -> {
+                MacStore.Mac now = saved(m);
+                MacStore.setOptions(c, m.id, now.fit, now.macKeyboard, on);
                 MacClients.savedChanged(c);
             });
             s.dangerRow(content, c.getString(R.string.xd_mac_remove, m.name), c.getString(R.string.xd_mac_remove_note), () ->
@@ -78,6 +86,11 @@ final class MacSettings {
                     refresh();
                 }));
         }
+    }
+
+    private MacStore.Mac saved(MacStore.Mac shown) {
+        MacStore.Mac now = MacStore.find(c, shown.id);
+        return now != null ? now : shown;
     }
 
     private void askAddress() {

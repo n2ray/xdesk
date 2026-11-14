@@ -66,6 +66,31 @@ final class TextBridge {
     private boolean corrections = true;
     /** Set from any thread when the caret may have moved (a click): forgotten at the next edit. */
     private volatile boolean stale;
+    /** The target composes text itself from a physical keyboard's keys (setRaw). */
+    private boolean raw;
+
+    /**
+     * Raw keys (INPUT.md §5.2, a Mac with its own input method): the phone's input method must not compose what a
+     * physical keyboard types, so the Mac gets the keys and composes itself, its candidates in the picture. The
+     * connection says so by being a password field, which every input method types into key by key without
+     * composing or predicting: fcitx5 switches to its plain keyboard engine for one (fcitx's Password capability,
+     * from TYPE_TEXT_VARIATION_PASSWORD only) and hands every key back through sendKeyEvent, others let the keys
+     * pass to the window. (TYPE_NULL, Android's "send raw keys", is not enough: fcitx5-android only drops the
+     * preedit for it and still composes once its window is up.) A view that is no text editor at all would not
+     * do either: the input method still gets every key first (InputMethodManager.dispatchInputEvent asks only
+     * for a bound session), and with no connection fcitx5 has nowhere to hand them back.
+     * Text an input method commits all the same (a soft keyboard's, an emoji) still goes out as text.
+     */
+    void setRaw(boolean on) {
+        if (on == raw) return;
+        raw = on;
+        Log.d(TAG, "IME: " + (on ? "raw keys, the target composes" : "text through the phone's input method"));
+        forget();
+    }
+
+    boolean raw() {
+        return raw;
+    }
 
     TextBridge(View view, Out out) {
         this.view = view;
@@ -130,9 +155,11 @@ final class TextBridge {
         activeGeneration = mine;
         // When the keyboard seems dead: was a connection made, and could the input method have been told of it
         Log.d(TAG, "IME: connection " + mine + (preserve ? ", text kept" : "") + ", window focus " + view.hasWindowFocus());
-        o.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        o.inputType = raw ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
+            : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | (corrections ? 0 : InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        o.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_ACTION_NONE;
+        o.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_ACTION_NONE
+            | (raw ? EditorInfo.IME_FLAG_FORCE_ASCII | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING : 0);
         active = new Connection(mine);
         if (preserve && !state.text().isEmpty()) {
             Editable e = active.getEditable();

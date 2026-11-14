@@ -73,8 +73,10 @@ public final class MacClient {
     /** What a screen showing this Mac hears. Called on the UI thread. */
     public interface View {
         void videoSize(int width, int height);
-        void cursor(Bitmap shape, float hotX, float hotY, float width, float height);
-        void pointer(float x, float y, boolean inside);
+        /** The Mac's cursor, sizes in Mac points. blank: nothing visible in it (the Mac's app hides its cursor). */
+        void cursor(Bitmap shape, float hotX, float hotY, float width, float height, boolean blank);
+        /** Where the pointer is now, in fractions of the picture: moved here, or by the Mac's own mouse. */
+        void pointer(float x, float y);
         /** The state line changed: connecting, locked, taken over, failed; null when the picture is all there is. */
         void status(String line, boolean takenOver);
     }
@@ -133,7 +135,13 @@ public final class MacClient {
 
     // Pointer, in fractions of the streamed frame
     private volatile float pointerX = 0.5f, pointerY = 0.5f;
-    private volatile int inputsSent;
+    /**
+     * Input messages (kind 8) queued on this connection, counted when queued, as Sall's PointerSync does: a pointer
+     * report of the Mac's (kind 26) says how many the Mac had read, and one made before it read them all is older
+     * than this side's pointer. Counted when sent (as before), a report could pass while moves still waited in the
+     * queue, and the pointer jumped back to where the Mac had it and forward again with the next move.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger inputsQueued = new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean launchFailed;
 
     // Output queue: byte[] messages, float[] pointer moves (the last one is updated in place)
@@ -144,10 +152,23 @@ public final class MacClient {
     public MacClient(Context c, MacStore.Mac mac) {
         context = c.getApplicationContext();
         this.mac = mac;
-        video = new MacVideo((w, h) -> ui.post(() -> {
+        video = new MacVideo(this::videoSize);
+    }
+
+    /**
+     * The picture's size as the decoder (or a passthrough's SPS) last said it, 0 before. Kept, since a screen that
+     * shows this Mac later (a new MacActivity on a stream that goes on) is not told by the decoder again in time, or
+     * at all, and without a size it lays the picture over its whole screen: a 16:9 desktop stretched to 16:10.
+     */
+    private volatile int videoW, videoH;
+
+    private void videoSize(final int w, final int h) {
+        videoW = w;
+        videoH = h;
+        ui.post(() -> {
             View v = view;
             if (v != null) v.videoSize(w, h);
-        }));
+        });
     }
 
     public MacStore.Mac mac() { return mac; }
@@ -370,9 +391,9 @@ public final class MacClient {
 
     private void session(MacStore.Mac m) throws Exception {
         SillTls s = SillTls.connect(m.host, m.port, SillTls.SESSION, m.pin, CONNECT_MS, HANDSHAKE_MS);
+        inputsQueued.set(0);
         session = s;
         windowsPending = true;
-        inputsSent = 0;
         JSONObject hello = new JSONObject().put("protocol", 1).put("appVersion", appVersion()).put("device", Build.MODEL)
                 .put("build", "xdesk");
         s.send(SillWire.HELLO, hello.toString().getBytes(StandardCharsets.UTF_8));
@@ -410,6 +431,8 @@ public final class MacClient {
 
     private void clearSession() {
         video.reset();
+        videoW = videoH = 0;
+        lastCursor = null;
         windowsPending = true;
         activeWindow = -1;
         activeDesktop = false;
@@ -460,14 +483,12 @@ public final class MacClient {
                 if (item instanceof float[]) {
                     float[] p = (float[]) item;
                     s.send(SillWire.INPUT, pointerJson("move", p[0], p[1]));
-                    inputsSent++;
                 } else {
                     byte[] b = (byte[]) item;
                     int kind = b[0] & 255;
                     byte[] payload = new byte[b.length - 1];
                     System.arraycopy(b, 1, payload, 0, payload.length);
                     s.send(kind, payload);
-                    if (kind == SillWire.INPUT) inputsSent++;
                 }
             }
         } catch (InterruptedException | IOException e) {
@@ -481,6 +502,7 @@ public final class MacClient {
         b[0] = (byte) kind;
         System.arraycopy(payload, 0, b, 1, payload.length);
         synchronized (out) {
+            if (kind == SillWire.INPUT) inputsQueued.incrementAndGet();
             out.add(b);
             out.notifyAll();
         }
@@ -535,21 +557,25 @@ public final class MacClient {
             cursorShape(m);
             return;
         case SillWire.MAC_POINTER: {
+            // The Mac's own mouse (or another device) moved its pointer. This side's pointer is the one the user
+            // moves and looks at, so a report only ever moves it, as in Sall (PointerSync.accepts): never one built
+            // before the Mac read every input queued here, and never one that says the pointer is off the stream.
+            // That one used to hide the arrow, until the next move here: on a Mac with a second display, or with a
+            // window on Sill's virtual display, the pointer vanished whenever the Mac's own mouse was touched
             JSONObject p = new JSONObject(m.text());
-            // Built before the host read our latest input: ours is newer
-            if (p.optInt("seen", 0) < inputsSent) return;
-            final boolean inside = p.optBoolean("inside", false);
             final double x = p.optDouble("x", Double.NaN), y = p.optDouble("y", Double.NaN);
-            if (inside && !Double.isNaN(x) && !Double.isNaN(y)) {
+            if (!p.optBoolean("inside", false) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return;
+            synchronized (out) {
+                if (p.optLong("seen", 0) < inputsQueued.get()) return;
                 pointerX = (float) x;
                 pointerY = (float) y;
             }
             ui.post(() -> {
                 View v = view;
-                if (v != null) v.pointer(pointerX, pointerY, inside);
+                if (v != null) v.pointer(pointerX, pointerY);
             });
             Passthrough pt = pass;
-            if (pt != null) pt.cursorPosition(pointerX, pointerY, inside);
+            if (pt != null) pt.cursorPosition(pointerX, pointerY, true);
             return;
         }
         case SillWire.HOST_SETTINGS:
@@ -671,10 +697,38 @@ public final class MacClient {
         if (bm == null) return;
         lastCursor = java.util.Arrays.copyOf(m.payload, m.length);
         passCursor();
+        final boolean blank = blank(bm);
         ui.post(() -> {
             View v = view;
-            if (v != null) v.cursor(bm, hx, hy, w, h);
+            if (v != null) v.cursor(bm, hx, hy, w, h, blank);
         });
+    }
+
+    /** A kept cursor message (lastCursor) for a screen that starts showing this Mac. UI thread. */
+    private static void cursorTo(View v, byte[] c) {
+        if (c.length <= 16) return;
+        ByteBuffer b = ByteBuffer.wrap(c, 0, 16);
+        float hx = b.getFloat(), hy = b.getFloat(), w = b.getFloat(), h = b.getFloat();
+        Bitmap bm;
+        try {
+            bm = BitmapFactory.decodeByteArray(c, 16, c.length - 16);
+        } catch (RuntimeException e) {
+            return;
+        }
+        if (bm != null) v.cursor(bm, hx, hy, w, h, blank(bm));
+    }
+
+    /**
+     * Nothing to see in this cursor: the Mac's app set an empty one (a player over its video, a game). A cursor is a
+     * few thousand pixels and changes a few times a second at most.
+     */
+    private static boolean blank(Bitmap bm) {
+        int w = bm.getWidth(), h = bm.getHeight();
+        if (w > 512 || h > 512) return false;
+        int[] px = new int[w * h];
+        bm.getPixels(px, 0, w, 0, 0, w, h);
+        for (int p : px) if ((p >>> 24) > 24) return false;
+        return true;
     }
 
     // --- passthrough (DISPLAY.md §3.4): the screen's picture goes to a receiver that decodes HEVC itself ---
@@ -723,11 +777,7 @@ public final class MacClient {
             return;
         }
         // No decoder here says the size: the screen letterboxes by the SPS's
-        final int w = size[0], h = size[1];
-        ui.post(() -> {
-            View v = view;
-            if (v != null) v.videoSize(w, h);
-        });
+        videoSize(size[0], size[1]);
     }
 
     private void passCursor() {
@@ -756,10 +806,19 @@ public final class MacClient {
     // --- the screen ---
 
     /** A screen shows this Mac (MacActivity). One at a time: a new one replaces the old. */
-    public void attach(View v) {
+    public void attach(final View v) {
         view = v;
         touch();
         statusToView();
+        // The stream may be running already (this Mac was on another screen a moment ago): its size and cursor now
+        final int w = videoW, h = videoH;
+        if (w > 0 && h > 0) ui.post(() -> {
+            if (view == v) v.videoSize(w, h);
+        });
+        final byte[] c = lastCursor;
+        if (c != null) ui.post(() -> {
+            if (view == v) cursorTo(v, c);
+        });
     }
 
     public void detach(View v) {
@@ -907,6 +966,7 @@ public final class MacClient {
         if (now - lastSelect < DESKTOP_AGAIN_MS) return;
         Log.i(TAG, mac.name + ": the desktop does not stream yet, asking again");
         synchronized (out) {
+            inputsQueued.incrementAndGet();
             out.add(new float[] {pointerX, pointerY});
             out.notifyAll();
         }
@@ -1043,13 +1103,14 @@ public final class MacClient {
                 ((float[]) last)[0] = pointerX;
                 ((float[]) last)[1] = pointerY;
             } else {
+                inputsQueued.incrementAndGet();
                 out.add(new float[] {pointerX, pointerY});
                 out.notifyAll();
             }
         }
         ui.post(() -> {
             View v = view;
-            if (v != null) v.pointer(pointerX, pointerY, true);
+            if (v != null) v.pointer(pointerX, pointerY);
         });
     }
 

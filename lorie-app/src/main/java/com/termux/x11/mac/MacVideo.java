@@ -249,6 +249,9 @@ final class MacVideo {
         } catch (RuntimeException ignored) { }
         codec = null;
         codecSurface = null;
+        // The next decoder says its size again, also when it is the same: whoever shows the picture now (another
+        // MacActivity, after this Mac was off the screen) has not heard it and would stretch the picture over its screen
+        width = height = 0;
     }
 
     /** The parameter sets with start codes, as the last kind 0 gave them; null before. */

@@ -22,6 +22,8 @@
     <string name="xd_mac_fit_note">把 Mac 窗口改成这块屏的大小。串流结束时 Sill 会改回去</string>
     <string name="xd_mac_keyboard">Mac 键盘</string>
     <string name="xd_mac_keyboard_note">关着时按 PC 键盘处理：Ctrl 当 ⌘，Win 当 Ctrl，Alt 当 ⌥</string>
+    <string name="xd_mac_phone_ime">实体键盘用手机输入法打字</string>
+    <string name="xd_mac_phone_ime_note">关：手机上接的键盘用这台 Mac 自己的输入法，候选框在 Mac 画面里、紧挨着文字。开：由手机输入法拼字，候选在手机上。手机的软键盘始终用手机输入法</string>
     <string name="xd_mac_remove">移除 %1$s</string>
     <string name="xd_mac_remove_note">要再连就得重新配对。也请在 Mac 上 Sill 的设备列表里移除 XDesk</string>
     <string name="xd_mac_remove_action">移除</string>

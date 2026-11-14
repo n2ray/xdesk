@@ -23,6 +23,8 @@
     <string name="xd_mac_fit_note">Resize the Mac window to this screen. Sill puts it back when the stream ends</string>
     <string name="xd_mac_keyboard">Mac keyboard</string>
     <string name="xd_mac_keyboard_note">Off: a PC keyboard, Ctrl works as ⌘, Win as Ctrl, Alt as ⌥</string>
+    <string name="xd_mac_phone_ime">Keyboard types with the phone\'s input method</string>
+    <string name="xd_mac_phone_ime_note">Off: a keyboard on the phone types with this Mac\'s own input method, its candidates on the Mac\'s picture, at the text. On: the phone\'s input method composes, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
     <string name="xd_mac_remove">Remove %1$s</string>
     <string name="xd_mac_remove_note">To connect again you pair again. Remove XDesk in Sill\'s Devices on the Mac too</string>
     <string name="xd_mac_remove_action">Remove</string>

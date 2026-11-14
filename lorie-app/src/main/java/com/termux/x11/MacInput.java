@@ -56,6 +56,14 @@ final class MacInput implements InputSink {
         return client.want() == MacClient.DESKTOP;
     }
 
+    /**
+     * A physical keyboard's keys go to this Mac as keys, letters too (INPUT.md §5.2): the Mac's own input method
+     * composes, and its candidates are in the picture, at the text. False: this Mac is set to the phone's input method.
+     */
+    boolean rawKeys() {
+        return !client.mac().phoneIme;
+    }
+
     // --- pointer ---
 
     @Override public synchronized void move(int dx, int dy) {

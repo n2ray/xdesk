@@ -28,8 +28,13 @@ public final class MacStore {
         public final boolean fit;
         /** The keyboard is a Mac keyboard: no Ctrl↔⌘ swap (INPUT.md §5.5). */
         public final boolean macKeyboard;
+        /**
+         * A physical keyboard on the phone types through the phone's input method (text, composed on the phone)
+         * instead of as keys the Mac's own input method composes (INPUT.md §5.2, off by default).
+         */
+        public final boolean phoneIme;
 
-        Mac(String id, String name, String host, int port, byte[] pin, boolean fit, boolean macKeyboard) {
+        Mac(String id, String name, String host, int port, byte[] pin, boolean fit, boolean macKeyboard, boolean phoneIme) {
             this.id = id;
             this.name = name;
             this.host = host;
@@ -37,6 +42,7 @@ public final class MacStore {
             this.pin = pin;
             this.fit = fit;
             this.macKeyboard = macKeyboard;
+            this.phoneIme = phoneIme;
         }
 
         public String address() {
@@ -45,16 +51,18 @@ public final class MacStore {
 
         JSONObject json() throws JSONException {
             return new JSONObject().put("id", id).put("name", name).put("host", host).put("port", port)
-                    .put("pin", Base64.encodeToString(pin, Base64.NO_WRAP)).put("fit", fit).put("macKeyboard", macKeyboard);
+                    .put("pin", Base64.encodeToString(pin, Base64.NO_WRAP)).put("fit", fit).put("macKeyboard", macKeyboard)
+                    .put("phoneIme", phoneIme);
         }
 
         static Mac of(JSONObject o) throws JSONException {
             return new Mac(o.getString("id"), o.optString("name", ""), o.getString("host"), o.getInt("port"),
-                    Base64.decode(o.getString("pin"), Base64.NO_WRAP), o.optBoolean("fit", false), o.optBoolean("macKeyboard", false));
+                    Base64.decode(o.getString("pin"), Base64.NO_WRAP), o.optBoolean("fit", false), o.optBoolean("macKeyboard", false),
+                    o.optBoolean("phoneIme", false));
         }
 
-        Mac with(String name, boolean fit, boolean macKeyboard) {
-            return new Mac(id, name, host, port, pin, fit, macKeyboard);
+        Mac with(String name, boolean fit, boolean macKeyboard, boolean phoneIme) {
+            return new Mac(id, name, host, port, pin, fit, macKeyboard, phoneIme);
         }
     }
 
@@ -96,7 +104,8 @@ public final class MacStore {
         Mac old = null;
         for (int i = macs.size() - 1; i >= 0; i--) if (macs.get(i).id.equals(p.macId)) old = macs.remove(i);
         String name = p.name.isEmpty() ? (old != null ? old.name : "Mac") : p.name;
-        Mac m = new Mac(p.macId, name, host, port, p.pin, old != null && old.fit, old != null && old.macKeyboard);
+        Mac m = new Mac(p.macId, name, host, port, p.pin, old != null && old.fit, old != null && old.macKeyboard,
+                old != null && old.phoneIme);
         macs.add(m);
         save(c, macs);
         return m;
@@ -108,9 +117,10 @@ public final class MacStore {
         save(c, macs);
     }
 
-    public static synchronized void setOptions(Context c, String id, boolean fit, boolean macKeyboard) {
+    public static synchronized void setOptions(Context c, String id, boolean fit, boolean macKeyboard, boolean phoneIme) {
         List<Mac> macs = all(c);
-        for (int i = 0; i < macs.size(); i++) if (macs.get(i).id.equals(id)) macs.set(i, macs.get(i).with(macs.get(i).name, fit, macKeyboard));
+        for (int i = 0; i < macs.size(); i++)
+            if (macs.get(i).id.equals(id)) macs.set(i, macs.get(i).with(macs.get(i).name, fit, macKeyboard, phoneIme));
         save(c, macs);
     }
 
@@ -121,7 +131,7 @@ public final class MacStore {
         for (int i = 0; i < macs.size(); i++) {
             Mac m = macs.get(i);
             if (m.id.equals(id) && !name.isEmpty() && !name.equals(m.name)) {
-                macs.set(i, m.with(name, m.fit, m.macKeyboard));
+                macs.set(i, m.with(name, m.fit, m.macKeyboard, m.phoneIme));
                 changed = true;
             }
         }
