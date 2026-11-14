@@ -846,6 +846,13 @@ use)
     ;;
 status)
     if x_up; then echo "X server: running on $DPY"; else echo "X server: not running"; fi
+    # Started before XDesk was updated, it still runs the old APK's code, which the new app can't show (black)
+    xp=$(x_pid)
+    if [ -n "$xp" ] && grep -q 'base\.apk (deleted)' "/proc/$xp/maps" 2>/dev/null; then
+        echo "X server build: older than the installed XDesk (updated since it started). Restart: xdesk stop; xdesk start"
+    elif [ -n "$xp" ] && [ -r "/proc/$xp/maps" ]; then
+        echo "X server build: the installed XDesk"
+    fi
     DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | sed -n 's/.*\(current [0-9]* x [0-9]*\).*/Resolution: \1/p'
     if [ -n "$(session_pid)" ]; then echo "Session: $(cat "$RUN/session.name")"; else echo "Session: none"; fi
     echo "Default: $(current)"

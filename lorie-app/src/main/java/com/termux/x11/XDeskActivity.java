@@ -495,6 +495,7 @@ public class XDeskActivity extends Activity {
             if (!c) setDesktopTaken(false);
             if (c) {
                 ui.removeCallbacks(connectTimeout);
+                checkServerBuild();
                 showRunning();
                 desktopConnected();
                 DesktopScale.connected();
@@ -532,6 +533,12 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onDesktopStopFinished() {
             chooser.setStopping(null);
+            if (restartOldServer) {
+                // The old X server is gone: the same desktop again, on this build
+                restartOldServer = false;
+                launchDesktop(restartName, false);
+                return;
+            }
             if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
         }
         @Override public void onSessionError(String message) {
@@ -1034,9 +1041,44 @@ public class XDeskActivity extends Activity {
 
     private final Runnable connectTimeout = new Runnable() {
         @Override public void run() {
+            checkServerBuild();
             if (!session.isConnected()) showConnectFailure();
         }
     };
+
+    /** The X server already asked about its build, so each server is asked (and the user prompted) once. */
+    private android.os.IBinder buildAsked;
+    /** After xdesk stop: start the same desktop again (an old X server's restart). */
+    private boolean restartOldServer;
+    private String restartName;
+
+    /**
+     * An X server started before XDesk was updated keeps the old APK's code and doesn't work with this app (a black
+     * desktop, XServerBuild): ask once per server whether to restart the desktop. Never restarts without asking.
+     */
+    private void checkServerBuild() {
+        final ICmdEntryInterface s = MainActivity.verifiedServer;
+        if (s == null || s.asBinder() == buildAsked) return;
+        buildAsked = s.asBinder();
+        new Thread(() -> {
+            if (XServerBuild.differs(s)) ui.post(() -> askRestartOldServer(s));
+        }, "xdesk-xbuild").start();
+    }
+
+    private void askRestartOldServer(ICmdEntryInterface s) {
+        if (isFinishing() || isDestroyed() || MainActivity.verifiedServer != s || session.stopping() != null) return;
+        if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
+            ui().confirm(getString(R.string.xd_xbuild_title), getString(R.string.xd_xbuild_no_permission), getString(R.string.xd_ok), null);
+            return;
+        }
+        ui().confirm(getString(R.string.xd_xbuild_title), getString(R.string.xd_xbuild_message), getString(R.string.xd_xbuild_restart),
+            getString(R.string.xd_xbuild_later), () -> {
+                if (session.stopping() != null) return;
+                restartName = runningSession != null ? runningSession : desktopName;
+                restartOldServer = true;
+                stopDesktop();
+            });
+    }
 
     /**
      * A content opened on the external display (a Mac's screen) may have taken the focused display: the phone's
@@ -1119,6 +1161,7 @@ public class XDeskActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        checkServerBuild();
         ensureDashboard();
         apps.activateIfPaired();
         // 从系统设置或 Shizuku 授权回来、或装好缺的 App 回来时接着走

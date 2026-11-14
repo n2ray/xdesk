@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- X 服务器还在跑旧版 XDesk 的代码（XServerBuild） -->
+<resources>
+    <string name="xd_xbuild_title">桌面还是旧版本</string>
+    <string name="xd_xbuild_message">XDesk 更新时桌面没有关，X 还是旧版本，和新版 App 配不上（会黑屏），需要重启桌面。重启会关闭里面的程序。</string>
+    <string name="xd_xbuild_no_permission">XDesk 更新时桌面没有关，X 还是旧版本，和新版 App 配不上，需要重启桌面：在 Termux 里运行 xdesk stop，再运行 xdesk start。重启会关闭里面的程序。</string>
+    <string name="xd_xbuild_restart">重启</string>
+    <string name="xd_xbuild_later">稍后</string>
+</resources>

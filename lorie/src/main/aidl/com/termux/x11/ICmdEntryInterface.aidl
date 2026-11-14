@@ -24,4 +24,6 @@ interface ICmdEntryInterface {
     oneway void windowCommand(int window, int command);
     /** XDesk: runs xdesk scale dpi (XFCE's font DPI, panel, icons, cursor; DISPLAY.md §4.1) and returns at once. */
     oneway void setScale(int dpi);
+    /** XDesk: the build the X server runs (CmdEntryPoint.buildId). Last: an older X server answers null. */
+    String serverBuild();
 }

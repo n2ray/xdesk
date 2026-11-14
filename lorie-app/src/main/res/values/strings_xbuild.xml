@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The X server still runs an older XDesk's code (XServerBuild) -->
+<resources>
+    <string name="xd_xbuild_title">The desktop runs an older XDesk</string>
+    <string name="xd_xbuild_message">XDesk was updated while the desktop kept running, and the old X server doesn\'t work with the new app (a black screen). Restart the desktop? Programs in it will close.</string>
+    <string name="xd_xbuild_no_permission">XDesk was updated while the desktop kept running, and the old X server doesn\'t work with the new app. Restart it in Termux: xdesk stop, then xdesk start. Programs in it will close.</string>
+    <string name="xd_xbuild_restart">Restart</string>
+    <string name="xd_xbuild_later">Later</string>
+</resources>

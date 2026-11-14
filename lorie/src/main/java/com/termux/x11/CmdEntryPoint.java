@@ -204,6 +204,13 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     @Override public void setWindowListener(IXWindowListener listener) { XWindows.setListener(listener); }
     @Override public void windowCommand(int window, int command) { XWindows.command(window, command); }
     @Override public void setScale(int dpi) { XWindows.scale(dpi); }
+    @Override public String serverBuild() { return buildId(); }
+
+    /**
+     * This build's code: the app compares the X server's with its own (XServerBuild). An X server started before XDesk
+     * was updated keeps running the old APK's code, which does not work with the new app (a black desktop).
+     */
+    public static String buildId() { return BuildConfig.VERSION_NAME + " " + BuildConfig.COMMIT; }
 
     @CriticalNative private static native boolean connected();
 

@@ -274,11 +274,16 @@ final class SettingsUi {
 
     /** 确认一件不好撤销的事。 */
     Dialog confirm(String title, String message, String action, final Runnable onConfirm) {
+        return confirm(title, message, action, c.getString(R.string.xd_cancel), onConfirm);
+    }
+
+    /** confirm with its own word for not now. */
+    Dialog confirm(String title, String message, String action, String cancelLabel, final Runnable onConfirm) {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.END);
         final Dialog[] d = new Dialog[1];
         if (onConfirm != null) {
-            TextView cancel = pill(c.getString(R.string.xd_cancel), Style.SURFACE_RAISED);
+            TextView cancel = pill(cancelLabel, Style.SURFACE_RAISED);
             cancel.setOnClickListener(v -> d[0].dismiss());
             row.addView(cancel, pillParams());
         }
