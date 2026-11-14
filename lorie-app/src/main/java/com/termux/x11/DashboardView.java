@@ -45,6 +45,8 @@ final class DashboardView extends FrameLayout {
     private static final float GRID_CLOCK = 0.09f, GRID_DATE = 0.03f, GRID_STATUS = 0.024f, CELL = 0.18f, ICON = 0.105f, TILE_TEXT = 0.024f, GRID_HEIGHT = 0.62f, GRID_WIDTH = 0.84f;
     private static final float TILE_HOVER = 1.07f;
     private static final int TILE_BACK = 0x22FFFFFF, MIN_COLUMNS = 3, MAX_COLUMNS = 9;
+    /** The grid's size: the dashboard is a start, not the list (that is the Launchpad, its first tile). */
+    private static final int GRID_ROWS = 2, MOST_COLUMNS = 6;
     private static final long TILE_ZOOM_MS = 110;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -147,7 +149,12 @@ final class DashboardView extends FrameLayout {
         Context c = getContext();
         ExternalLauncher.Host host = ExternalLauncher.host();
         List<String> keys = new ArrayList<>();
-        if (host != null) for (String key : host.favorites()) if (ExternalLauncher.exists(c, key)) keys.add(key);
+        // The Launchpad first, always, then the favourites: two rows at most, the rest are in the Launchpad
+        if (host != null) {
+            keys.add(ExternalLauncher.SWITCHER);
+            for (String key : host.favorites())
+                if (!ExternalLauncher.SWITCHER.equals(key) && ExternalLauncher.exists(c, key)) keys.add(key);
+        }
         boolean show = !keys.isEmpty();
         if (show != gridShown) {
             gridShown = show;
@@ -159,6 +166,8 @@ final class DashboardView extends FrameLayout {
         if (show) {
             float side = Math.min(getWidth(), getHeight());
             int cell = Math.round(side * CELL), columns = Math.max(MIN_COLUMNS, Math.min(MAX_COLUMNS, (int) (getWidth() * GRID_WIDTH / cell)));
+            columns = Math.min(columns, MOST_COLUMNS);
+            while (keys.size() > columns * GRID_ROWS) keys.remove(keys.size() - 1);
             int across = Math.min(columns, keys.size());
             int rows = (keys.size() + columns - 1) / columns;
             LinearLayout row = null;

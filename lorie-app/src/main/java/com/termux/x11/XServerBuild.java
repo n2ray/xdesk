@@ -14,9 +14,9 @@ final class XServerBuild {
 
     private XServerBuild() { }
 
-    /** Binder call: run off the main thread. False when the server is gone (nothing to restart) or is this build. */
-    static boolean differs(ICmdEntryInterface s) {
-        String mine = CmdEntryPoint.buildId(), theirs;
+    /** Binder call: run off the main thread, with {@code mine} = CmdEntryPoint.buildId() taken on it (that class's init makes a Handler). False when the server is gone (nothing to restart) or is this build. */
+    static boolean differs(ICmdEntryInterface s, String mine) {
+        String theirs;
         try {
             theirs = s.serverBuild();
         } catch (DeadObjectException e) {

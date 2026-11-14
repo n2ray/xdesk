@@ -1066,8 +1066,9 @@ public class XDeskActivity extends Activity {
         final ICmdEntryInterface s = MainActivity.verifiedServer;
         if (s == null || s.asBinder() == buildAsked) return;
         buildAsked = s.asBinder();
+        final String mine = CmdEntryPoint.buildId(); // here: its class init makes a Handler, which needs a Looper
         new Thread(() -> {
-            if (XServerBuild.differs(s)) ui.post(() -> askRestartOldServer(s));
+            if (XServerBuild.differs(s, mine)) ui.post(() -> askRestartOldServer(s));
         }, "xdesk-xbuild").start();
     }
 
@@ -2037,6 +2038,7 @@ public class XDeskActivity extends Activity {
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         bumpIdle();
         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            lastFingerDown = android.os.SystemClock.uptimeMillis();
             if (apps.isActive()) apps.phoneTouched();
             // 摸手机屏会把焦点拿到手机上，设置页这类窗口关掉后焦点也留在手机屏
             if (phonePassive) refocusExternal();
@@ -2468,14 +2470,31 @@ public class XDeskActivity extends Activity {
         return false;
     }
 
+    /** Last finger on the phone's screen: a search line just touched is the user's, not to be taken for the mouse. */
+    private long lastFingerDown;
+
+    private boolean phoneTyping() {
+        View f = getCurrentFocus();
+        if (!(f instanceof android.widget.EditText)) return false;
+        WindowInsets in = getWindow().getDecorView().getRootWindowInsets();
+        boolean ime = in != null && in.isVisible(WindowInsets.Type.ime());
+        return ime || android.os.SystemClock.uptimeMillis() - lastFingerDown < 3000;
+    }
+
     private void updateCapture() {
         if (keyView == null) return;
         boolean home = updateHome();
         if (hasWindowFocus()) {
             // 只有 Termux 桌面和 Mac 这些内容才抓取。选择界面要用鼠标点，安卓应用的键鼠由注入服务接管，没接管时就该留给手机。
             // 外接屏上什么都没有时，鼠标归外接屏的主屏（启动台），手机上的选择界面用手指点
-            if (home || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
-                && chooser.getVisibility() != View.VISIBLE && hasExternalMouse()) keyView.requestPointerCapture();
+            // With an external screen the mouse belongs there even while the phone shows its list (fingers work that)
+            boolean external = externalDisplay() != null;
+            boolean want = home || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+                && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
+            // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
+            // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
+            if (want && !keyView.isFocused() && !phoneTyping()) keyView.requestFocus();
+            if (want) keyView.requestPointerCapture();
             else keyView.releasePointerCapture();
         }
         updateDiag();
@@ -2739,6 +2758,8 @@ public class XDeskActivity extends Activity {
         if (contentKey != null) return contentKey;
         AppCatalog.App a = apps.app();
         if (a != null) return ChooserView.recentKey(a);
+        // An apps-only X with nothing open shows no desktop: nothing is current (not a "termux-xfce+apps" tile)
+        if (desktopName != null && desktopName.endsWith(Devices.APPS_ONLY)) return null;
         return session.isActive() && desktopName != null ? ChooserView.recentKey(desktopName) : null;
     }
 
