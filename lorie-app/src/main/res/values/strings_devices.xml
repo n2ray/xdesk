@@ -70,4 +70,11 @@
     <string name="xd_dev_linux_found">Found</string>
     <string name="xd_dev_copy">Copy</string>
     <string name="xd_dev_copied">Copied</string>
+    <string name="xd_sw_running">Running</string>
+    <string name="xd_sw_running_note">Open apps and windows on every device</string>
+    <string name="xd_sw_search">Type to search</string>
+    <string name="xd_sw_results">Results on every device: %1$d</string>
+    <string name="xd_sw_show_hidden">Show hidden (%1$d)</string>
+    <string name="xd_sw_hide_hidden">Hide hidden apps again</string>
+    <string name="xd_sw_set_up_on_phone">set it up on the phone</string>
 </resources>

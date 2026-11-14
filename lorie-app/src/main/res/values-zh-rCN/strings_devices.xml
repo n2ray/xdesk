@@ -67,4 +67,11 @@
     <string name="xd_dev_linux_found">已找到</string>
     <string name="xd_dev_copy">复制</string>
     <string name="xd_dev_copied">已复制</string>
+    <string name="xd_sw_running">正在运行</string>
+    <string name="xd_sw_running_note">所有设备上打开的应用和窗口</string>
+    <string name="xd_sw_search">直接打字搜索</string>
+    <string name="xd_sw_results">所有设备里找到 %1$d 个</string>
+    <string name="xd_sw_show_hidden">显示已隐藏（%1$d）</string>
+    <string name="xd_sw_hide_hidden">收起已隐藏</string>
+    <string name="xd_sw_set_up_on_phone">请在手机上设置</string>
 </resources>

@@ -28,7 +28,8 @@ import java.util.Objects;
  */
 final class Devices {
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
-    private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab";
+    private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab",
+        PREF_SWITCHER_TAB = "switcher_tab";
     /** A Linux connect that has not shown up in xdesk status by then is no longer "connecting". */
     private static final long LINUX_CONNECT_MS = 45_000;
 
@@ -366,6 +367,15 @@ final class Devices {
 
     void setTab(String tab) {
         prefs.edit().putString(PREF_TAB, tab).apply();
+    }
+
+    /** The external screen's launcher (SwitcherOverlay) keeps its own last tab. */
+    String switcherTab() {
+        return prefs.getString(PREF_SWITCHER_TAB, null);
+    }
+
+    void setSwitcherTab(String tab) {
+        prefs.edit().putString(PREF_SWITCHER_TAB, tab).apply();
     }
 
     /** The state's colour for dots on tabs and rows. */
