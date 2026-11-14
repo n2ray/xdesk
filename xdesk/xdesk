@@ -479,12 +479,61 @@ ime_keys() {
 KEYS
 }
 
+# Pinyin's letters at the caret while composing, written once (never over a file that exists). Built for Android,
+# pinyin defaults to PreeditMode "Do not show" (fcitx5-chinese-addons im/pinyin/pinyin.h): the letters would only be
+# in the candidate window; and to predict the next word after each one, where a digit then picks a word instead of
+# being typed. These are its defaults everywhere else
+ime_pinyin() {
+    local f=$HOME/.config/fcitx5/conf/pinyin.conf
+    [ -e "$f" ] && return 1
+    [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ] || return 1
+    mkdir -p "$(dirname "$f")" || return 1
+    cat >"$f" <<PINYIN
+PreeditMode="Composing pinyin"
+PreeditCursorPositionAtBeginning=True
+Prediction=False
+PINYIN
+}
+
+# The candidate window. Termux builds fcitx5 for Android, and such a build starts in "on-screen keyboard" mode
+# (src/lib/fcitx/instance_p.h: inputMethodMode_ = isAndroid() ? OnScreenKeyboard : PhysicalKeyboard). In that mode the
+# only user interface it accepts is a virtual keyboard on D-Bus (userinterfacemanager.cpp, isUserInterfaceValid): with
+# none there it has no interface at all, classicui stays suspended, and it composes without showing anything. The
+# first real key takes it to the physical keyboard mode, but the code doing that belongs to the virtual keyboard
+# interface (src/ui/virtualkeyboard/virtualkeyboard.cpp, resume), which only runs while the keyboard's bus name has an
+# owner. So something owns that name: fcitx5 takes that interface, the first key switches the mode, and from then on
+# classicui draws the window. dbus-test-tool is part of dbus, which fcitx5 needs anyway; it answers every call with an
+# empty reply. It stays for as long as fcitx5 does: one that restarts itself (its settings window does that) needs it
+# again. Ends with stop_ime, or with its bus
+IME_VK_NAME=org.fcitx.Fcitx5.VirtualKeyboard
+ime_panel() {  # the address of fcitx5's bus
+    local p
+    [ -n "${1:-}" ] || return 1
+    p=$(cat "$RUN/ime-panel.pid" 2>/dev/null)
+    if [[ $p =~ ^[0-9]+$ ]] && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = dbus-test-tool ]; then
+        [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$1" ] && return 0
+        kill "$p" 2>/dev/null
+    fi
+    rm -f "${RUN:?}/ime-panel.pid"
+    command -v dbus-test-tool >/dev/null 2>&1 || { log "Input method: no dbus-test-tool, fcitx5 will show no candidate window"; return 1; }
+    DBUS_SESSION_BUS_ADDRESS=$1 setsid nohup dbus-test-tool echo --session --name=$IME_VK_NAME </dev/null >/dev/null 2>&1 9>&- &
+    echo $! >"$RUN/ime-panel.pid"
+}
+
+stop_ime_panel() {
+    local p
+    p=$(cat "$RUN/ime-panel.pid" 2>/dev/null)
+    if [[ $p =~ ^[0-9]+$ ]] && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = dbus-test-tool ]; then kill "$p" 2>/dev/null; fi
+    rm -f "${RUN:?}/ime-panel.pid"
+}
+
 # fcitx5's list of input methods, written once so that pinyin is there from the first start: the keyboard in the
 # layout X has, then pinyin (Shift+Space switches, see ime_keys). Never when a profile exists, and not without pinyin installed
 # (fcitx5's own default will do then). fcitx5 writes this file when it exits: only written while ours is not running
 ime_profile() {
     local f=$HOME/.config/fcitx5/profile l
     ime_keys
+    ime_pinyin
     [ -e "$f" ] && return 1
     [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ] || return 1
     l=$(ime_layout)
@@ -526,22 +575,29 @@ stop_ime() {
         kill -9 "$p" 2>/dev/null
     fi
     rm -f "${RUN:?}/ime.pid" "${RUN:?}/ime.token"
+    stop_ime_panel
 }
 
 # fcitx5 on the session bus of the Termux window manager given (so that the programs of that session reach it through
 # their modules), else on xdesk's own bus. One that runs where it is wanted stays; ours on another bus (the one of a
-# desktop that has ended) is started again on this one; one somebody else started is left alone
+# desktop that has ended) is started again on this one; one somebody else started is left alone (a Termux one still
+# gets its candidate window, see ime_panel)
 start_ime() {  # the window manager's pid, or nothing
     local wm=${1:-} bus="" p
     ime_enabled || return 0
     if [ -n "$wm" ] && [ "$(proc_env "$wm" PREFIX)" = "$PREFIX" ]; then bus=$(proc_env "$wm" DBUS_SESSION_BUS_ADDRESS); else wm=""; fi
     [ -n "$bus" ] || bus=$(apps_bus) || bus=""
     if p=$(ime_pid); then
-        ime_ours "$p" || return 0
-        [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$bus" ] && return 0
+        if ! ime_ours "$p"; then
+            [ "$(readlink "/proc/$p/exe" 2>/dev/null)" = "$PREFIX/bin/fcitx5" ] && ime_panel "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)"
+            return 0
+        fi
+        if [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$bus" ]; then ime_panel "$bus"; return 0; fi
         stop_ime
     fi
     ime_profile
+    # Before fcitx5: it finds the name owned as it starts
+    ime_panel "$bus"
     (
         if [ -n "$wm" ]; then import_env "$wm"; else eval "$(termux_env)"; fi
         unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI DESKTOP_STARTUP_ID
