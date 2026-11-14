@@ -585,7 +585,7 @@ public class XDeskActivity extends Activity {
             refocusSelf();
         }
         @Override public void onAppFailed(String message) {
-            client = null;
+            setTarget(null);
             router.cancelAll();
             showSetup(getString(R.string.xd_cannot_run_on_display), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
                 @Override public void onClick(View v) { backToChooser(); }
@@ -2449,7 +2449,7 @@ public class XDeskActivity extends Activity {
         Display real = TargetDisplay.real(displays);
         if (appOnDisplay) {
             releaseLatches();
-            client = null;
+            setTarget(null);
             router.cancelAll();
         }
         apps.endSession(appOnDisplay && real != null ? real.getDisplayId() : -1, () -> {
@@ -2504,7 +2504,8 @@ public class XDeskActivity extends Activity {
             boolean external = externalDisplay() != null;
             // The Launchpad draws its own pointer, moved only through INPUT: a mouse left to Android moves nothing there
             boolean launchpad = client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown() && hasExternalMouse();
-            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && phoneForwards()
+            // A content still opening (a Mac connecting) counts: the mouse stays off the phone until it is there
+            boolean want = home || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
                 && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
             // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
@@ -2809,7 +2810,9 @@ public class XDeskActivity extends Activity {
         chooser.setOverSession(false);
         chooser.setVisibility(View.VISIBLE);
         applyFullscreen();
-        keyView.releasePointerCapture();
+        // With an external screen the mouse stays there (its home, the desktop, a Mac) while fingers work this list;
+        // without, it is let go
+        updateCapture();
         updateAudioChip();
         refreshChooser();
     }
@@ -2821,7 +2824,7 @@ public class XDeskActivity extends Activity {
         chooser.setOverSession(true);
         chooser.setVisibility(View.VISIBLE);
         applyFullscreen();
-        keyView.releasePointerCapture();
+        updateCapture();
         refreshChooser();
     }
 
@@ -3084,12 +3087,13 @@ public class XDeskActivity extends Activity {
     private void chooseContent(final String key) {
         ContentSource s = Contents.sourceOf(key);
         if (s == null) return;
-        pendingContent = key;
         Display d = externalDisplay();
         if (d == null) {
+            // Nothing is opening: a content left pending here kept the home off the screen that comes later
             needDisplayNotice();
             return;
         }
+        pendingContent = key;
         rememberRecent(key);
         if (contentKey != null && !contentKey.equals(key)) leaveContent();
         contentDisplay = d.getDisplayId();
@@ -3110,6 +3114,20 @@ public class XDeskActivity extends Activity {
         contentKey = null;
         ContentSource s = Contents.sourceOf(key);
         if (s != null) s.hidden(key);
+        // A Mac taken off the screen still takes input on its connection, and would get the touchpad's clicks with
+        // no picture of where they land, until the next thing has started. (A Linux window stays on the screen and
+        // its input with it.)
+        if (key != null && key.startsWith(MacSource.PREFIX)) setTarget(null);
+    }
+
+    /**
+     * What the input goes to from now on. While the Launchpad is open it keeps the input, and this is what it hands
+     * the input to when it closes: set directly, the Launchpad stayed on the screen with nothing reaching it (an X
+     * desktop that stopped or connected under the home, a content that opened or ended under it).
+     */
+    private void setTarget(InputSink s) {
+        if (client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown()) beforeSwitcher = s;
+        else client = s;
     }
 
     private final ContentSource.Result contentResult = new ContentSource.Result() {
@@ -3123,7 +3141,7 @@ public class XDeskActivity extends Activity {
             pendingContent = null;
             contentKey = key;
             // A Linux program alone on the screen is a window (WindowScopedInput), not the whole desktop
-            client = input != null ? input : new WindowScopedInput(session.input());
+            setTarget(input != null ? input : new WindowScopedInput(session.input()));
             closeChooserOverSession();
             showRunning();
             updateCapture();
@@ -3176,7 +3194,7 @@ public class XDeskActivity extends Activity {
             if (key.equals(pendingContent)) pendingContent = null;
             if (!key.equals(contentKey)) return;
             contentKey = null;
-            client = apps.isActive() ? apps.input() : session.isActive() ? session.input() : null;
+            setTarget(apps.isActive() ? apps.input() : session.isActive() ? session.input() : null);
             refreshDocks();
             updateStatus();
             // Nothing to capture the mouse for any more: it is the phone's again
@@ -3410,7 +3428,7 @@ public class XDeskActivity extends Activity {
         setDesktopTaken(false);
         apps.desktopEnded();
         releaseLatches();
-        client = null;
+        setTarget(null);
         router.cancelAll();
         session.abandon();
         MainActivity m = MainActivity.getInstance("");
@@ -3688,7 +3706,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void attachApp() {
-        client = apps.input();
+        setTarget(apps.input());
         showRunning();
         updateCapture();
         updateStatus();
@@ -3710,7 +3728,7 @@ public class XDeskActivity extends Activity {
         applySize(d);
         session.attach();
         apps.connectForAudio();
-        client = session.input();
+        setTarget(session.input());
         updateCapture();
     }
 
@@ -3808,7 +3826,7 @@ public class XDeskActivity extends Activity {
 
     /** 界面重建时接回还在运行的会话。 */
     private void attachSession() {
-        client = session.input();
+        setTarget(session.input());
         if (session.isConnected()) {
             showRunning();
             updateStatus();
