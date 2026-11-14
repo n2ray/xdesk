@@ -259,10 +259,15 @@ clear_session_state() {
 }
 
 stop_session() {
-    local p
+    local p n
     p=$(session_pid) || { clear_session_state; return 0; }
-    DISPLAY=$DPY timeout 5 xfce4-session-logout --logout >/dev/null 2>&1
-    for _ in $(seq 8); do kill -0 "$p" 2>/dev/null || break; sleep 1; done
+    n=$(cat "$RUN/session.name" 2>/dev/null)
+    # An apps only session has no xfce4-session to log out of: asking it can take 13 s (the logout's timeout, then the
+    # wait for a session that never ends by itself) before 整个桌面 comes up
+    if [ "$n" = "${n%+apps}" ]; then
+        DISPLAY=$DPY timeout 5 xfce4-session-logout --logout >/dev/null 2>&1
+        for _ in $(seq 8); do kill -0 "$p" 2>/dev/null || break; sleep 1; done
+    fi
     kill -- "-$p" 2>/dev/null
     sleep 1
     kill -9 -- "-$p" 2>/dev/null
