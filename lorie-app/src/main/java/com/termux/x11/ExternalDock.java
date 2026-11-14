@@ -136,8 +136,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         width = bounds.width();
         height = bounds.height();
         px = Math.max(0f, Math.min(1f, x)) * (width - 1);
-        // A little above the edge: the arrow is drawn below its tip, at the very bottom nothing of it would show
-        py = height - 1 - dp(ROOM_BELOW_DP);
+        // Among the icons, not under them at the edge where only the arrow's tip would show
+        py = height - 1 - dp(ROOM_BELOW_DP + PAD_DP + ICON_DP * 0.55f);
         driven = true;
         if (arrow == null) {
             arrow = new CursorOverlay(context);

@@ -54,7 +54,7 @@ final class LinuxSource implements ContentSource {
     static final String PREFIX = "l:", APP = "l:a:", WINDOW = "l:w:";
     private static final String DEBUG_ACTION = "io.github.n2ray.xdesk.LINUX_DEBUG";
     private static final long WINDOW_TIMEOUT_MS = 15000, CATALOG_MAX_AGE_MS = 60000;
-    private static final int FLAG_FULLSCREEN = 1, FLAG_ACTIVE = 2, FLAG_AUX = 8, FLAG_MAXIMIZED = 16;
+    private static final int FLAG_FULLSCREEN = 1, FLAG_ACTIVE = 2, FLAG_AUX = 8, FLAG_MAXIMIZED = 16, FLAG_OWN_FRAME = 32;
     /**
      * Between maximizing a window and making it full screen. A program that draws its own frame (Chromium, GTK header
      * bars) ignores a full screen state the window manager gives it and goes on drawing its shadow and round corners
@@ -220,7 +220,51 @@ final class LinuxSource implements ContentSource {
     }
 
     /** The window this source made full screen (and maximized) back as it was. */
+    /**
+     * A program with its own frame (Chromium, GTK header bars) that did not take the full screen state in: it still
+     * draws its shadow margin, inside the full screen window (it says so: _GTK_FRAME_EXTENTS, FLAG_OWN_FRAME). Seen
+     * when the state comes while the program is still starting. Out of full screen and in again, with the window
+     * maximized in between, and it draws to the edges (tried on the device). A few times at most, never in a loop.
+     */
+    private static final long OWN_FRAME_SETTLE_MS = 700, OWN_FRAME_BACK_MS = 350;
+    private static final int OWN_FRAME_TRIES = 3;
+    private int frameWindow, frameTries;
+    private Runnable frameCheck;
+
+    private boolean ownFrameInFullscreen() {
+        Win w = windows.get(fullscreened);
+        return w != null && (w.flags & FLAG_FULLSCREEN) != 0 && (w.flags & FLAG_OWN_FRAME) != 0;
+    }
+
+    private void checkOwnFrame() {
+        if (frameWindow != fullscreened) {
+            frameWindow = fullscreened;
+            frameTries = 0;
+        }
+        if (frameCheck != null || fullscreenLater != null || frameTries >= OWN_FRAME_TRIES || !ownFrameInFullscreen()) return;
+        final int window = fullscreened;
+        frameCheck = () -> {
+            frameCheck = null;
+            final ICmdEntryInterface s = server;
+            // Still so after it had the time to follow by itself
+            if (s == null || fullscreened != window || fullscreenLater != null || !ownFrameInFullscreen()) return;
+            frameTries++;
+            Log.i(TAG, "window " + window + " keeps its own frame in full screen, setting the state again (" + frameTries + ")");
+            command(s, window, XWindows.MAXIMIZE_ON);
+            maximized = window;
+            command(s, window, XWindows.FULLSCREEN_OFF);
+            fullscreenLater = () -> {
+                fullscreenLater = null;
+                if (server == s && fullscreened == window && windows.containsKey(window)) command(s, window, XWindows.FULLSCREEN_ON);
+            };
+            ui.postDelayed(fullscreenLater, OWN_FRAME_BACK_MS);
+        };
+        ui.postDelayed(frameCheck, OWN_FRAME_SETTLE_MS);
+    }
+
     private void restore(ICmdEntryInterface s) {
+        if (frameCheck != null) ui.removeCallbacks(frameCheck);
+        frameCheck = null;
         if (fullscreenLater != null) ui.removeCallbacks(fullscreenLater);
         fullscreenLater = null;
         Win f = windows.get(fullscreened), m = windows.get(maximized);
@@ -508,6 +552,8 @@ final class LinuxSource implements ContentSource {
         maximized = 0;
         if (fullscreenLater != null) ui.removeCallbacks(fullscreenLater);
         fullscreenLater = null;
+        if (frameCheck != null) ui.removeCallbacks(frameCheck);
+        frameCheck = null;
         // The host ends a Linux content itself when its X goes
         shownKey = null;
         shownWindow = 0;
@@ -545,6 +591,7 @@ final class LinuxSource implements ContentSource {
             windows.put(w.id, w);
         }
         windowIcons.keySet().retainAll(windows.keySet());
+        checkOwnFrame();
         learnScopes();
         if (fullscreened != 0 && !windows.containsKey(fullscreened)) fullscreened = 0;
         if (maximized != 0 && !windows.containsKey(maximized)) maximized = 0;

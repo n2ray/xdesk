@@ -56,6 +56,8 @@
 /* No window of its own to show as an app: transient for another window (a dialog), a splash, a toolbox */
 #define FLAG_AUX 8
 #define FLAG_MAXIMIZED 16
+/* The program draws its own frame now: a shadow margin around its window (_GTK_FRAME_EXTENTS not all 0) */
+#define FLAG_OWN_FRAME 32
 
 #define MAX_TRACKED 256
 #define MAX_TEXT 400
@@ -75,7 +77,7 @@ static int nTracked;
 
 static Atom aClientList, aActive, aName, aUtf8, aState, aFullscreen, aHidden, aSkipTaskbar, aType, aTypeDock,
         aMaxVert, aMaxHorz, aTypeSplash, aTypeUtility, aTypeToolbar, aTypeMenu,
-        aTypeDesktop, aIcon, aPid, aStartupId, aCloseWindow;
+        aTypeDesktop, aIcon, aPid, aStartupId, aCloseWindow, aGtkFrame;
 
 static Atom atom(const char *name) {
     return MakeAtom(name, strlen(name), TRUE);
@@ -161,6 +163,12 @@ static Bool appendWindow(Buf *b, WindowPtr w, Window active) {
     } else {
         CARD32 owner = card32(prop(w, XA_WM_TRANSIENT_FOR), None);
         if (owner != None && w->parent && owner != w->drawable.pScreen->root->drawable.id) flags |= FLAG_AUX;
+    }
+    {
+        PropertyPtr frame = prop(w, aGtkFrame);
+        if (frame && frame->format == 32)
+            for (uint32_t i = 0; i < frame->size && i < 4; i++)
+                if (((CARD32 *) frame->data)[i] != 0) flags |= FLAG_OWN_FRAME;
     }
     if (w->drawable.id == active) flags |= FLAG_ACTIVE;
     clientPid = wClient(w) ? GetClientPid(wClient(w)) : -1;
@@ -325,7 +333,7 @@ static void propertyChanged(CallbackListPtr *list, void *closure, void *data) {
             schedule();
         return;
     }
-    if (a != aName && a != XA_WM_NAME && a != aState && a != aIcon && a != XA_WM_CLASS && a != aStartupId)
+    if (a != aName && a != XA_WM_NAME && a != aState && a != aIcon && a != XA_WM_CLASS && a != aStartupId && a != aGtkFrame)
         return;
     if ((t = trackedIndex(rec->win->drawable.id)) < 0)
         return;
@@ -435,6 +443,7 @@ void lorieInitWindows(void) {
     aPid = atom("_NET_WM_PID");
     aStartupId = atom("_NET_STARTUP_ID");
     aCloseWindow = atom("_NET_CLOSE_WINDOW");
+    aGtkFrame = atom("_GTK_FRAME_EXTENTS");
     /* A new server generation starts with no timers and no callbacks */
     timer = NULL;
     scheduled = FALSE;
