@@ -247,9 +247,45 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     }
 
     @Override public void pointer(float x, float y, boolean inside) {
-        if (cursor.getDrawable() == null) return;
+        // A locked Mac sends no cursor shape (Sill's LockPolicy): an arrow of our own, so the pointer can be found
+        if (cursor.getDrawable() == null) defaultArrow();
         cursor.setVisibility(inside ? View.VISIBLE : View.GONE);
         placeCursor(x, y);
+    }
+
+    /** A Mac-like arrow (black, white edge), hot spot at its tip, until the Mac sends its own shape. */
+    private void defaultArrow() {
+        float density = client.pointScale();
+        int w = Math.round(17 * density), h = Math.round(25 * density);
+        Bitmap b = Bitmap.createBitmap(Math.max(1, w), Math.max(1, h), Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(b);
+        float u = density;
+        android.graphics.Path arrow = new android.graphics.Path();
+        arrow.moveTo(1.5f * u, 1.5f * u);
+        arrow.lineTo(1.5f * u, 19f * u);
+        arrow.lineTo(5.8f * u, 15f * u);
+        arrow.lineTo(8.8f * u, 22f * u);
+        arrow.lineTo(11.6f * u, 20.8f * u);
+        arrow.lineTo(8.7f * u, 14f * u);
+        arrow.lineTo(14.5f * u, 14f * u);
+        arrow.close();
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        paint.setStyle(android.graphics.Paint.Style.STROKE);
+        paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+        paint.setStrokeWidth(2f * u);
+        paint.setColor(Color.WHITE);
+        c.drawPath(arrow, paint);
+        paint.setStyle(android.graphics.Paint.Style.FILL);
+        paint.setColor(Color.BLACK);
+        c.drawPath(arrow, paint);
+        cursor.setImageBitmap(b);
+        cursor.setScaleType(ImageView.ScaleType.FIT_XY);
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) cursor.getLayoutParams();
+        p.width = w;
+        p.height = h;
+        cursor.setLayoutParams(p);
+        hotX = 1.5f * u;
+        hotY = 1.5f * u;
     }
 
     private void placeCursor(float x, float y) {

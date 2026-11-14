@@ -350,6 +350,7 @@ public class XDeskActivity extends Activity {
             return false;
         }
         @Override public void text(String s) {
+            Log.d(TAG, "IME text: " + s.length() + " chars, client " + (client != null ? client.getClass().getSimpleName() : null));
             if (client == null) return;
             keysIn.text(s);
             releaseLatches();
@@ -2536,6 +2537,10 @@ public class XDeskActivity extends Activity {
             return true;
         }
         boolean forwarding = client != null && !apps.isActive() && d != null && d.isExternal() && phoneForwards();
+        // Where a physical key went (never which key: a Mac's password is typed this way)
+        if (d != null && d.isExternal() && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+            Log.d(TAG, "key: forwarding " + forwarding + ", client " + (client != null ? client.getClass().getSimpleName() : null)
+                + ", apps " + apps.isActive() + ", phoneForwards " + phoneForwards() + ", content " + contentKey);
         if (forwarding && mouseSideKey(e)) return true;
         if (forwarding && e.getScanCode() > 0) {
             // Media and volume keys work the phone, which plays the sound or sends it on (INPUT.md §5.5)
