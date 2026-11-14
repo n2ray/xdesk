@@ -18,7 +18,9 @@
 #   xdesk apps [--refresh]   list the programs XDesk can open one by one (from .desktop files)
 #   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
 #   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
+#   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
+#                            ("termux+apps" needs no session: Termux's own xfwm4)
 set -u
 APP=io.github.n2ray.xdesk.x11
 DPY=:1
@@ -232,14 +234,18 @@ start_session() {
         echo "Session $(cat "$RUN/session.name") is already running"
         return 0
     fi
-    migrate_session "$f"
+    [ "$f" = /dev/null ] || migrate_session "$f"
     if [ "$name" != "${name%+apps}" ]; then
-        # The app connects a Linux device as NAME+apps; a session that is not XFCE has no such variant: all of it then
-        if g=$(apps_only_script "$f"); then
+        # The app opens a Linux program on NAME+apps and never on the whole desktop. A session that is not XFCE has no
+        # such variant of its own: Termux's window manager then, which serves the programs of every environment
+        if [ "$f" != /dev/null ] && g=$(apps_only_script "$f" "${name%+apps}"); then
+            f=$g
+        elif g=$(termux_apps_script); then
+            [ "$f" = /dev/null ] || log "Session ${name%+apps} has no XFCE to start without its desktop: Termux's window manager instead"
             f=$g
         else
-            log "Session ${name%+apps} has no XFCE to start without its desktop: starting all of it"
-            name=${name%+apps}
+            say "No window manager for apps only: install one in Termux (pkg install xfwm4 xfce4-settings)"
+            return 1
         fi
     fi
     DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
@@ -350,15 +356,125 @@ ICON_PX=64
 # The file of a session, also for its "apps only" variant NAME+apps: X, xfwm4 and xfsettingsd, no panel or desktop
 session_file() {
     local f=$SESSIONS/${1%+apps}.sh
-    [ -f "$f" ] && echo "$f"
+    [ -f "$f" ] && { echo "$f"; return 0; }
+    # Termux's programs need no session to be opened: apps only on Termux's own window manager (termux_apps_script)
+    [ "$1" = termux+apps ] && echo /dev/null
 }
 
-# The session script with XFCE's start command replaced by the window manager and settings daemon alone
-apps_only_script() {
-    local out=$RUN/apps-session.sh
+# A D-Bus session bus of xdesk's own, for apps-only sessions in Termux. The programs opened there take the bus of the
+# window manager (launch_app), and one from dbus-run-session ends with the session: "xdesk switch" to the whole
+# desktop would close every GTK program with it (GLib exits when its session bus goes). This one lives until xdesk stop
+apps_bus() {
+    local a p out
+    a=$(cat "$RUN/bus.address" 2>/dev/null); p=$(cat "$RUN/bus.pid" 2>/dev/null)
+    if [ -n "$a" ] && [[ $p =~ ^[0-9]+$ ]] && kill -0 "$p" 2>/dev/null &&
+            tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q '^dbus-daemon '; then
+        echo "$a"
+        return 0
+    fi
+    command -v dbus-daemon >/dev/null 2>&1 || return 1
+    out=$(setsid dbus-daemon --session --fork --print-address=1 --print-pid=1 </dev/null 2>>"$LOG" 9>&-) || return 1
+    a=$(printf '%s\n' "$out" | sed -n 1p); p=$(printf '%s\n' "$out" | sed -n 2p)
+    [ -n "$a" ] && [[ $p =~ ^[0-9]+$ ]] || return 1
+    echo "$a" >"$RUN/bus.address"; echo "$p" >"$RUN/bus.pid"
+    log "D-Bus for apps only: pid $p"
+    echo "$a"
+}
+
+stop_apps_bus() {
+    local p
+    p=$(cat "$RUN/bus.pid" 2>/dev/null)
+    if [[ $p =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q '^dbus-daemon '; then kill "$p" 2>/dev/null; fi
+    rm -f "${RUN:?}/bus.address" "${RUN:?}/bus.pid"
+}
+
+# The session script with XFCE's start command replaced by the window manager and settings daemon alone. A session
+# of Termux itself (no root of its own, no .launch) runs them on xdesk's bus instead of one that ends with it
+apps_only_script() {  # file, session name
+    local out=$RUN/apps-session.sh bus
     grep -qE '(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|$)' "$1" || return 1
-    sed -E "s/(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|\$)/\\1sh -c 'xfsettingsd \\& exec xfwm4'\\3/" "$1" >"$out" || return 1
+    sed -E "s/(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|\$)/\\1sh -c 'xfsettingsd \\& exec xfwm4'\\3/" "$1" >"$out.tmp" || return 1
+    if [ "$(session_env "$2")" = termux ] && grep -qE '(^|[[:space:]])dbus-run-session[[:space:]]' "$out.tmp" && bus=$(apps_bus); then
+        { echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
+          sed -E 's/(^|[[:space:]])dbus-run-session[[:space:]]+(--[[:space:]]+)?/\1/' "$out.tmp"; } >"$out" || return 1
+        rm -f "$out.tmp"
+    else
+        mv -f "$out.tmp" "$out" || return 1
+    fi
     echo "$out"
+}
+
+# Apps only without any session: Termux's own window manager, for "termux+apps" and for sessions that are not XFCE
+termux_apps_script() {
+    local out=$RUN/apps-session.sh bus
+    command -v xfwm4 >/dev/null 2>&1 || return 1
+    {
+        termux_env
+        if bus=$(apps_bus); then
+            echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
+            echo "exec sh -c 'xfsettingsd & exec xfwm4'"
+        else
+            echo "exec dbus-run-session sh -c 'xfsettingsd & exec xfwm4'"
+        fi
+    } >"$out" || return 1
+    echo "$out"
+}
+
+# The environment a session belongs to: "termux" for one that runs in Termux itself, else its own name (a proot or
+# chroot system, the SCOPE of its programs). One environment is one device in the app
+session_env() {
+    local f=$SESSIONS/$1.sh
+    case "$1" in termux|termux-*) echo termux; return 0 ;; esac
+    if [ -z "$(session_root "$1")" ] && [ ! -f "$SESSIONS/$1.launch" ] && ! grep -qE '(^|[^[:alnum:]_-])(proot|proot-distro|chroot|unshare|nsenter)([[:space:]]|$)' "$f" 2>/dev/null; then
+        echo termux
+    else
+        echo "$1"
+    fi
+}
+
+# What the session script of an environment enters it with, for the app's list
+env_kind() {
+    local f=$SESSIONS/$1.sh
+    if grep -qE '(^|[^[:alnum:]_-])(proot|proot-distro)([[:space:]]|$)' "$f" 2>/dev/null; then echo proot
+    elif grep -qE '(^|[^[:alnum:]_-])(chroot|unshare|nsenter)([[:space:]]|$)' "$f" 2>/dev/null; then echo chroot
+    else echo other; fi
+}
+
+# One line per environment: NAME, kind (termux, proot, chroot, other), "apps" when its programs can be listed and
+# opened one by one (else "-"), its sessions joined by "/" (a name has no "/"). Tab separated; Termux first, always
+list_envs() {
+    local f n e apps sessions=""
+    echo "#xdesk-envs 1"
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        [ "$(session_env "$n")" = termux ] && sessions="$sessions${sessions:+/}$n"
+    done
+    printf 'termux\ttermux\tapps\t%s\n' "$sessions"
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        e=$(session_env "$n")
+        [ "$e" = termux ] && continue
+        apps=-
+        if [ -n "$(session_root "$n")" ] && { [ -f "$SESSIONS/$n.launch" ] || grep -q 'proot-distro login' "$f"; }; then apps=apps; fi
+        printf '%s\t%s\t%s\t%s\n' "$n" "$(env_kind "$n")" "$apps" "$n"
+    done
+}
+
+# The apps-only session a program of this scope is opened on when nothing runs: the environment's own, for Termux the
+# default session if it is one of Termux's, else the first of them, else none at all ("termux+apps")
+apps_session_for() {  # scope
+    local c f n
+    if [ "$1" != termux ]; then echo "$1+apps"; return 0; fi
+    c=$(current)
+    if [ -n "$c" ] && [ -f "$SESSIONS/$c.sh" ] && [ "$(session_env "$c")" = termux ]; then echo "$c+apps"; return 0; fi
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        [ "$(session_env "$n")" = termux ] && { echo "$n+apps"; return 0; }
+    done
+    echo termux+apps
 }
 
 # The root directory of a session's system, empty for one that runs in Termux itself
@@ -633,6 +749,27 @@ import_env() {  # pid
 TERM_WRAP='for t in xfce4-terminal x-terminal-emulator xterm; do command -v $t >/dev/null 2>&1 && break; done
 if [ "$t" = xfce4-terminal ]; then exec $t -x sh -c "$0"; else exec $t -e sh -c "$0"; fi'
 
+# A session started a moment ago (by the app, for this very program) may not have its window manager up yet. The
+# program's window must not come first: the request that makes it the full screen window would go to nobody
+wait_wm() {
+    local age i
+    age=$(( $(date +%s) - $(stat -c %Y "$RUN/session.pid" 2>/dev/null || echo 0) ))
+    [ "$age" -lt 20 ] || return 0
+    if command -v xprop >/dev/null 2>&1; then
+        for i in $(seq 24); do
+            DISPLAY=$DPY timeout 2 xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id" && return 0
+            sleep 0.25
+        done
+        return 0
+    fi
+    # Without xprop: the window manager's process, and a moment for it to take over the display if it is that new
+    for i in $(seq 24); do
+        session_wm_pid >/dev/null && break
+        sleep 0.25
+    done
+    [ "$age" -ge 4 ] || sleep 0.7
+}
+
 launch_app() {
     local sid="" key scope id file row cmd root prefix wm line
     while [ $# -gt 0 ]; do
@@ -665,18 +802,25 @@ launch_app() {
         line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh")
         [ -n "$line" ] || { say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"; exit 1; }
     fi
-    if ! x_up; then
+    # The X server (which runs this for the app) is on half the cores, and what is started here would inherit that
+    command -v taskset >/dev/null && taskset -p "$(printf '%x' $(( (1 << $(nproc --all)) - 1 )))" $$ >/dev/null 2>&1
+    # A program alone needs X and a window manager (the app makes its window the full screen one through it), never a
+    # desktop: with no session running, the apps-only one of its environment. The app has started it already when it
+    # opens a program; this is for "xdesk launch" from a shell and for a session that ended under a running X
+    if ! x_up || [ -z "$(session_pid)" ]; then
         need_tools
-        lock; start_x && start_audio || exit 1
+        # Also waits for an "xdesk start" that has X up and not yet its session: the app asks as soon as X connects
+        lock
+        if ! x_up; then start_x && start_audio || exit 1; fi
+        [ -n "$(session_pid)" ] || ( unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI; start_session "$(apps_session_for "$scope")" ) >/dev/null || log "Launching $scope/$id without a window manager"
         exec 9>&-
     fi
+    wait_wm
     # Who asks (the X server for the app) learns which process to follow, before everything goes to the log
     echo "pid $$"
     log "Launching $scope/$id: $cmd"
     exec </dev/null >>"$LOG" 2>&1
     [ -n "$sid" ] || sid="xdesk-$id-$$_TIME0"
-    # The X server runs on half the cores, and what it starts would inherit that
-    command -v taskset >/dev/null && taskset -p "$(printf '%x' $(( (1 << $(nproc --all)) - 1 )))" $$ >/dev/null 2>&1
     unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI
     if [ "$scope" = termux ]; then
         if wm=$(session_wm_pid) && tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
@@ -777,7 +921,7 @@ list_apps() {
     awk -F'\t' 'NR > 1 { printf "%-40s %s%s\n", $1, $2, ($3 == 1 ? " (terminal)" : "") }' "$cat"
 }
 
-usage() { sed -n '4,21p' "$0" | sed 's/^# \?//'; }
+usage() { sed -n '4,23p' "$0" | sed 's/^# \?//'; }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -829,6 +973,7 @@ stop)
     touch "$RUN/stopped"
     lock; stop_session
     pkill -f '^xdesk-x11 '
+    stop_apps_bus
     pulseaudio --kill 2>/dev/null
     am broadcast -a io.github.n2ray.xdesk.STOPPED -p "$APP" --es nonce "$(cat "$RUN/nonce" 2>/dev/null)" >/dev/null 2>&1
     say "Stopped"
@@ -870,6 +1015,7 @@ status)
     echo "Default: $(current)"
     ;;
 setup) setup ;;
+envs) list_envs ;;
 apps)
     case "${1:-}" in
     --refresh) list_apps 1 ;;
