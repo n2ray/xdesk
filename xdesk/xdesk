@@ -461,11 +461,30 @@ ime_layout() {
     else echo us; fi
 }
 
+# fcitx5's keys, written once (never over a config that exists; like the profile, only while ours is not running):
+# Shift+Space besides Ctrl+Space. Android takes Ctrl+Space for its own input method switch before any app sees it, so
+# on a keyboard attached to the phone it never reaches X; and Left Shift alone only goes back to an input method that
+# was active before, which after a start is none. Without another key pinyin could not be reached at all.
+ime_keys() {
+    local f=$HOME/.config/fcitx5/config
+    [ -e "$f" ] && return 1
+    mkdir -p "$(dirname "$f")" || return 1
+    cat >"$f" <<KEYS
+[Hotkey/TriggerKeys]
+0=Control+space
+1=Shift+space
+
+[Hotkey/AltTriggerKeys]
+0=Shift_L
+KEYS
+}
+
 # fcitx5's list of input methods, written once so that pinyin is there from the first start: the keyboard in the
-# layout X has, then pinyin (Ctrl+Space switches). Never when a profile exists, and not without pinyin installed
+# layout X has, then pinyin (Shift+Space switches, see ime_keys). Never when a profile exists, and not without pinyin installed
 # (fcitx5's own default will do then). fcitx5 writes this file when it exits: only written while ours is not running
 ime_profile() {
     local f=$HOME/.config/fcitx5/profile l
+    ime_keys
     [ -e "$f" ] && return 1
     [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ] || return 1
     l=$(ime_layout)
@@ -632,7 +651,7 @@ ime_setup() {
             echo "fcitx5 already runs here (pid $p, not started by xdesk): left as it is."
         else
             # Stopped first: a running fcitx5 would write its own list over the profile when it exits
-            [ -e "$HOME/.config/fcitx5/profile" ] || stop_ime
+            [ -e "$HOME/.config/fcitx5/profile" ] && [ -e "$HOME/.config/fcitx5/config" ] || stop_ime
             wm=$(session_wm_pid) || wm=""
             start_ime "$wm"
             sleep 1
@@ -644,7 +663,7 @@ ime_setup() {
     echo
     echo "From the next session start (in the app: open the desktop or a Linux program again; or: xdesk switch NAME)"
     echo "every program gets the input method. Programs that are open now do not have it: open them again."
-    echo "Ctrl+Space switches between the keyboard and pinyin (Left Shift: back and forth while typing)."
+    echo "Shift+Space switches between the keyboard and pinyin (Left Shift: back and forth once pinyin was used; Ctrl+Space is taken by Android)."
 }
 
 # The session script with XFCE's start command replaced by the window manager and settings daemon alone. A session

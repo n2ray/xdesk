@@ -203,7 +203,7 @@ Mac 接收器现在就是这么做的。手机接实体键盘、目标不是 And
      - 环境里自己设了输入法的（会话脚本或它的窗口管理器的环境里有 `XMODIFIERS`/`GTK_IM_MODULE`）不覆盖。
    - **第一次的配置：** 没有 `~/.config/fcitx5/profile` 而且装了拼音时，`xdesk` 写一份：X 当前布局的键盘 + 拼音（`Default Layout` 从 X 实际的 keymap 读，用 xkbcomp 上传的布局也认得）。已有的 profile 从不改。
    - **布局现在由 X 决定：** 原样的键按 X 服务器的 XKB 布局出字（和键盘直接插在一台 Linux 电脑上一样）。lorie 的 X 服务器默认是 `evdev` 规则、`pc105`、`us`；扫描码 +8 就是 X 的 keycode，和 PC 键盘的 evdev 键位一致。不是美式键盘时布局要在 X 这边对：fcitx5 会把 X 的布局设成 profile 里的那个（它的默认行为），所以 profile 的布局写对就行。走 §5.1 时布局是 Android 那边的，和 X 无关。
-   - **切换输入法：** fcitx5 自己的快捷键，默认 Ctrl+空格（XDesk 自己只占 Ctrl+Alt+M，不冲突；Android 系统可能先把 Ctrl+空格拿去切换键盘布局，那样就到不了 X，要在真机上看；到不了时用左 Shift，或在 fcitx5 里换一个键）。
+   - **切换输入法：** Shift+空格（`xdesk` 第一次配置 fcitx5 时写进它的配置；已有配置不覆盖）。fcitx5 默认的 Ctrl+空格在手机上用不了：Android 系统先把它拿去切换自己的输入法，应用收不到（真机验证过）。左 Shift 只能在用过拼音之后来回切，刚启动时没有“上一个输入法”，按了没反应。XDesk 自己只占 Ctrl+Alt+M，不冲突。
    - 每个 Linux 设备一个开关"实体键盘用手机输入法打字"（默认关 = 上面的自动判断），打开就回到 §5.1。
    - **手机软键盘还是 §5.1：** 它的字经文字桥变成 X 的按键事件。这时 X 这边的 fcitx5 如果正处在拼音状态，软键盘打的英文字母会被它再拼一次；fcitx5 默认是英文状态，切到拼音后又改用软键盘才会遇到，切回英文即可。
    - 命令：`xdesk ime`（状态）、`xdesk ime setup`（写配置、在当前 X 上起 fcitx5；没装时打印 `pkg install` 那一行）、`xdesk ime start|stop`、`xdesk ime off|on`（整个功能的开关，文件 `~/.config/xdesk/ime-off`）。
