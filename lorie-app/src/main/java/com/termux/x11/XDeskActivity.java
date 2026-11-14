@@ -556,6 +556,7 @@ public class XDeskActivity extends Activity {
             desktopName = null;
             launchedSession = null;
             Devices.get(XDeskActivity.this).setLinuxRunning(null);
+            Devices.get(XDeskActivity.this).setXIme(false);
             desktopGone();
             String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
             Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
@@ -1070,7 +1071,13 @@ public class XDeskActivity extends Activity {
     };
 
     private final InputManager.InputDeviceListener deviceListener = new InputManager.InputDeviceListener() {
-        @Override public void onInputDeviceAdded(int id) { updateCapture(); }
+        @Override public void onInputDeviceAdded(int id) {
+            updateCapture();
+            // A keyboard came: whether the X side has an input method for it is asked again (xdesk status)
+            InputDevice d = InputDevice.getDevice(id);
+            if (session.isActive() && d != null && d.isExternal() && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                ui.post(syncTermux);
+        }
         @Override public void onInputDeviceRemoved(int id) {
             // A key or button held on a keyboard or mouse that went away would stay down on the target (§2 cancel)
             keysIn.cancel();
@@ -1180,6 +1187,7 @@ public class XDeskActivity extends Activity {
         MacSource.switcher = prefix -> showSwitcher(true);
         LinuxSource.install(this); // "l:" Linux programs and X windows
         Devices.get(this).setActions(deviceActions); // DEVICES.md: connect/disconnect of the Linux environments
+        Devices.get(this).addListener(keyModeFollows); // the X side's input method, a Linux device's keyboard switch
         inputs = (InputManager) getSystemService(INPUT_SERVICE);
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);
@@ -1222,6 +1230,8 @@ public class XDeskActivity extends Activity {
         super.onResume();
         resumed = true;
         checkServerBuild();
+        // Back on this window, perhaps from a terminal where the X side's input method was set up or stopped
+        if (session.isActive()) ui.post(syncTermux);
         ensureDashboard();
         apps.activateIfPaired();
         // 从系统设置或 Shizuku 授权回来、或装好缺的 App 回来时接着走
@@ -1288,6 +1298,7 @@ public class XDeskActivity extends Activity {
         SwitcherOverlay.hide(null);
         if (MacSource.switcher != null) MacSource.switcher = null;
         if (Devices.get(this).actions() == deviceActions) Devices.get(this).setActions(null);
+        Devices.get(this).removeListener(keyModeFollows);
         MainActivity.keyHook = null;
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
@@ -2649,10 +2660,35 @@ public class XDeskActivity extends Activity {
             && ImePlacement.hasPhysicalKeyboard();
     }
 
-    /** The input connection follows macRawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
-    private void syncKeyMode() {
-        if (keyView != null) keyView.bridge().setRaw(macRawKeys());
+    /**
+     * INPUT.md §5.2, the same for X: the target is the X desktop or a Linux window, an input method runs on the X
+     * side (xdesk status, read at the moments parseTermuxState runs), the Linux device shown is not set to the
+     * phone's input method, a physical keyboard is on the phone and the soft keyboard is neither open nor asked for.
+     * The keys then go to X as the scan codes they always were (DesktopInput.key), letters too, in X's own layout.
+     */
+    private boolean xRawKeys() {
+        InputSink c = client;
+        if (c == null || (c != session.input() && !(c instanceof WindowScopedInput))) return false;
+        if (keyboardOpen || softKeysAsked) return false;
+        Devices dv = Devices.get(this);
+        if (!dv.xIme() || !ImePlacement.hasPhysicalKeyboard()) return false;
+        // The device of what is shown: a Linux program's environment, else the one whose desktop runs
+        String key = contentKey;
+        return !dv.linuxPhoneIme(key != null ? dv.deviceOf(key) : dv.deviceOfSession(runningSession));
     }
+
+    /** The target composes what a physical keyboard types: a Mac or the X side with its own input method. */
+    private boolean rawKeys() {
+        return macRawKeys() || xRawKeys();
+    }
+
+    /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
+    private void syncKeyMode() {
+        if (keyView != null) keyView.bridge().setRaw(rawKeys());
+    }
+
+    /** Devices changed: the X side's input method came or went, or a Linux device's keyboard switch was flipped. */
+    private final Runnable keyModeFollows = this::syncKeyMode;
 
     /** 外接键盘直接转扫描码，手机自身的按键（返回、音量）不动。输入法没接走的才会到这里。 */
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
@@ -2825,8 +2861,8 @@ public class XDeskActivity extends Activity {
             // afresh, not swallowed as the rest of the old press
             textKeys.delete(code);
         }
-        // A Mac that composes itself gets the letters as keys too (macRawKeys)
-        if (e.getRepeatCount() > 0 || !prefs.getBoolean(PREF_KEYS_VIA_IME, true) || client == SwitcherOverlay.INPUT || macRawKeys()) return false;
+        // A Mac or an X side that composes itself gets the letters as keys too (rawKeys)
+        if (e.getRepeatCount() > 0 || !prefs.getBoolean(PREF_KEYS_VIA_IME, true) || client == SwitcherOverlay.INPUT || rawKeys()) return false;
         if (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER || code == KeyEvent.KEYCODE_TAB) return false;
         boolean altGr = (e.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0;
         if (e.isCtrlPressed() || e.isMetaPressed() || (e.isAltPressed() && !altGr) || keySink.latched()) return false;
@@ -3470,7 +3506,7 @@ public class XDeskActivity extends Activity {
         ui.removeCallbacks(termuxNoReply);
         List<String> sessions = new ArrayList<String>();
         String defaultName = null, running = null;
-        boolean status = false, x = false;
+        boolean status = false, x = false, xIme = false;
         // After a second "---": xdesk envs, a tab separated line per environment
         boolean envs = false;
         List<String> envLines = new ArrayList<String>();
@@ -3491,8 +3527,13 @@ public class XDeskActivity extends Activity {
                 x = true;
             } else if (line.startsWith("Session: ") && !line.equals("Session: none")) {
                 running = line.substring("Session: ".length()).trim();
+            } else if (line.startsWith("Input method: ")) {
+                // An input method on the X side (fcitx5): an xdesk that knows none prints no such line
+                xIme = !line.startsWith("Input method: none");
             }
         }
+        // Its listener sets the key mode (keyModeFollows)
+        Devices.get(this).setXIme(x && xIme);
         prefs.edit().putString(PREF_SESSIONS, String.join("\n", sessions)).apply();
         // Just after XDesk started or switched a session xdesk may still report none, or the one being replaced
         if (android.os.SystemClock.uptimeMillis() < launchGuardUntil && runningSession != null

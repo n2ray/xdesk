@@ -87,6 +87,11 @@
     <string name="xd_dev_remove_linux_note">Only its tab goes. The environment itself is not touched; add it again from Add device › Linux.</string>
     <string name="xd_dev_linux_how">Used through the xdesk command</string>
     <string name="xd_dev_linux_how_note">On this phone, so there is nothing to connect. Its apps are always listed; opening one starts X by itself, without the desktop. Only “Whole desktop” starts the desktop.</string>
+    <string name="xd_linux_keyboard">Keyboard</string>
+    <string name="xd_linux_phone_ime">Keyboard types with the phone\'s input method</string>
+    <string name="xd_linux_phone_ime_note">Off: when an input method runs on the Linux side (fcitx5), a keyboard on the phone types with it, its candidates on the external screen, at the text; without one the phone\'s input method is used. On: always the phone\'s, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
+    <string name="xd_linux_x_ime_on">Now: an input method runs on the Linux side.</string>
+    <string name="xd_linux_x_ime_off">Now: none runs on the Linux side. To set one up, in Termux: xdesk ime setup</string>
     <string name="xd_dev_env_termux">Termux itself</string>
     <string name="xd_dev_env_apps">apps and desktop</string>
     <string name="xd_dev_env_desktop_only">desktop only</string>
