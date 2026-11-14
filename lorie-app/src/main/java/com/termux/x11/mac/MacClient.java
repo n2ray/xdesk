@@ -144,7 +144,19 @@ public final class MacClient {
     private final java.util.concurrent.atomic.AtomicInteger inputsQueued = new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean launchFailed;
 
-    // Output queue: byte[] messages, float[] pointer moves (the last one is updated in place)
+    /** A pointer move waiting for the sender; while it is the queue's last, later moves only change where it goes. */
+    private static final class Move {
+        float x, y;
+        /** When the first move it stands for was queued (uptime). */
+        final long at = SystemClock.uptimeMillis();
+
+        Move(float x, float y) {
+            this.x = x;
+            this.y = y;
+        }
+    }
+
+    // Output queue: byte[] messages, Move pointer moves (the last one is updated in place)
     private final ArrayDeque<Object> out = new ArrayDeque<>();
     private ClipboardManager.OnPrimaryClipChangedListener clipWatch;
     private String lastClipFromMac;
@@ -485,9 +497,12 @@ public final class MacClient {
                     if (session != s) return;
                     item = out.poll();
                 }
-                if (item instanceof float[]) {
-                    float[] p = (float[]) item;
-                    s.send(SillWire.INPUT, pointerJson("move", p[0], p[1]));
+                if (item instanceof Move) {
+                    Move p = (Move) item;
+                    byte[] json = pointerJson("move", p.x, p.y);
+                    long start = SystemClock.uptimeMillis();
+                    s.send(SillWire.INPUT, json);
+                    PointerStats.sent(start - p.at, SystemClock.uptimeMillis() - start);
                 } else {
                     byte[] b = (byte[]) item;
                     int kind = b[0] & 255;
@@ -1008,7 +1023,7 @@ public final class MacClient {
         Log.i(TAG, mac.name + ": the desktop does not stream yet, asking again");
         synchronized (out) {
             inputsQueued.incrementAndGet();
-            out.add(new float[] {pointerX, pointerY});
+            out.add(new Move(pointerX, pointerY));
             out.notifyAll();
         }
         selectSource(DESKTOP);
@@ -1328,6 +1343,13 @@ public final class MacClient {
         }
     }
 
+    private final java.util.concurrent.atomic.AtomicBoolean pointerPosted = new java.util.concurrent.atomic.AtomicBoolean();
+    private final Runnable showPointer = () -> {
+        pointerPosted.set(false);
+        View v = view;
+        if (v != null) v.pointer(pointerX, pointerY);
+    };
+
     /** Where the pointer is, in fractions of the frame; only the latest of a run of moves is sent. */
     public void pointerTo(float x, float y) {
         pointerX = Math.max(0, Math.min(1, x));
@@ -1335,19 +1357,17 @@ public final class MacClient {
         if (session == null) return;
         synchronized (out) {
             Object last = out.peekLast();
-            if (last instanceof float[]) {
-                ((float[]) last)[0] = pointerX;
-                ((float[]) last)[1] = pointerY;
+            if (last instanceof Move) {
+                ((Move) last).x = pointerX;
+                ((Move) last).y = pointerY;
             } else {
                 inputsQueued.incrementAndGet();
-                out.add(new float[] {pointerX, pointerY});
+                out.add(new Move(pointerX, pointerY));
                 out.notifyAll();
             }
         }
-        ui.post(() -> {
-            View v = view;
-            if (v != null) v.pointer(pointerX, pointerY);
-        });
+        // One for a run of moves: the mouse reports faster than the screen draws
+        if (pointerPosted.compareAndSet(false, true)) ui.post(showPointer);
     }
 
     /** leftDown, leftUp, rightDown, rightUp at the pointer. */
