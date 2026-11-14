@@ -127,6 +127,7 @@
 
     <!-- DashboardView -->
     <string name="xd_dash_choose">在手机上选择一个应用</string>
+    <string name="xd_dash_no_overlay">要在这块屏上显示启动台，请允许 XDesk 显示在其他应用上层（在手机的设置里）。在那之前，请在手机上选择应用。</string>
     <string name="xd_dash_car">车机已连接 · 在手机上用 XDesk 操作</string>
     <string name="xd_dash_cover">回到手机上的 XDesk 继续</string>
     <string name="xd_dash_battery">电量 %1$d%%</string>
@@ -153,16 +154,15 @@
     <string name="xd_on_car">正在车机上</string>
     <string name="xd_linux_desktops">Linux 桌面</string>
     <string name="xd_android_apps">安卓应用</string>
-    <string name="xd_chooser_close">回到触摸板</string>
+    <string name="xd_chooser_touchpad">触摸板</string>
     <string name="xd_chooser_favourites">我的收藏</string>
     <string name="xd_chooser_all_apps">所有应用</string>
-    <string name="xd_chooser_search">搜索应用名或包名</string>
+    <string name="xd_chooser_search">搜索所有设备（可用拼音首字母）</string>
     <string name="xd_chooser_clear">清除</string>
     <string name="xd_chooser_no_display">没有外接屏。用 USB-C 接显示器、连车机，或者点这里通过 Wi-Fi 投到 XDesk 接收器。</string>
     <string name="xd_chooser_stopping">正在结束，请稍候…</string>
     <string name="xd_chooser_stopping_short">结束中</string>
     <string name="xd_desktop_stopping">桌面还在结束中</string>
-    <string name="xd_chooser_running">正在运行，点按接回</string>
     <string name="xd_content_no_desktop">Linux 桌面没能启动</string>
     <string name="xd_content_running">正在运行</string>
     <string name="xd_switcher_title">打开的应用和窗口</string>

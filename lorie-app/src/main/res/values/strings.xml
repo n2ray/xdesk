@@ -135,6 +135,7 @@
 
     <!-- DashboardView on the external display and the car -->
     <string name="xd_dash_choose">Choose an app on the phone</string>
+    <string name="xd_dash_no_overlay">To get the launcher on this screen, allow XDesk to display over other apps (Settings on the phone). Until then, choose an app on the phone.</string>
     <string name="xd_dash_car">Car connected · Use XDesk on the phone</string>
     <string name="xd_dash_cover">Go back to XDesk on the phone to continue</string>
     <string name="xd_dash_battery">Battery %1$d%%</string>
@@ -161,16 +162,15 @@
     <string name="xd_on_car">On the car</string>
     <string name="xd_linux_desktops">Linux desktops</string>
     <string name="xd_android_apps">Android apps</string>
-    <string name="xd_chooser_close">Back to touchpad</string>
+    <string name="xd_chooser_touchpad">Touchpad</string>
     <string name="xd_chooser_favourites">Favourites</string>
     <string name="xd_chooser_all_apps">All apps</string>
-    <string name="xd_chooser_search">Search by app or package name</string>
+    <string name="xd_chooser_search">Search every device</string>
     <string name="xd_chooser_clear">Clear</string>
     <string name="xd_chooser_no_display">No display. Plug one into USB-C, use a car, or tap here to show on XDesk Receiver over Wi-Fi.</string>
     <string name="xd_chooser_stopping">Stopping, please wait…</string>
     <string name="xd_chooser_stopping_short">Stopping</string>
     <string name="xd_desktop_stopping">The desktop is still stopping</string>
-    <string name="xd_chooser_running">Running, tap to reattach</string>
     <string name="xd_content_no_desktop">The Linux desktop did not start</string>
     <string name="xd_content_running">Running</string>
     <string name="xd_switcher_title">Open apps and windows</string>

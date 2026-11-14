@@ -16,10 +16,10 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
-import java.util.List;
 
 /**
- * The dock at the bottom of the external display: the current and the previous app, then the favourites. Over Android
+ * The dock at the bottom of the external display: the switchboard's short strip (Switchboard.strip), what is
+ * on the screen and the one before it, then the favourites, then "All". Over Android
  * apps a strip a few pixels high along the bottom edge notices the pointer resting there; the dock then slides up and
  * goes again when the pointer leaves it. It never takes the keyboard focus.
  *
@@ -247,9 +247,10 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     }
 
     private void open(int above) {
-        ExternalLauncher.Host h = ExternalLauncher.host();
-        if (h == null || panel != null || windows == null) return;
-        Panel fresh = new Panel(h);
+        if (panel != null || windows == null) return;
+        Switchboard board = Switchboard.get(context);
+        if (board.host() == null) return;  // the phone's window is gone: nothing could be opened
+        Panel fresh = new Panel(board);
         if (fresh.empty()) return;
         try {
             WindowManager.LayoutParams p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, "XDesk dock");
@@ -311,7 +312,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         private boolean visited;
         private final int[] place = new int[2];
 
-        Panel(ExternalLauncher.Host h) {
+        Panel(Switchboard board) {
             super(dc);
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER_HORIZONTAL);
@@ -342,32 +343,28 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             back.setStroke(Math.max(1, dp(0.5f)), EDGE);
             bar.setBackground(back);
             addView(bar, new LayoutParams(-2, -2));
-            fill(h);
+            fill(board);
         }
 
         boolean empty() {
             return items == 0;
         }
 
-        private void fill(ExternalLauncher.Host h) {
+        /** The strip as the model has it; as many as fit, the last tile ("All") always. */
+        private void fill(Switchboard board) {
             int room = (int) (dc.getResources().getDisplayMetrics().widthPixels * WIDTH_USED - dp(2 * PAD_DP + 32));
             int each = dp(ICON_DP + ITEM_GAP_DP);
             int most = Math.max(1, room / each);
-            String current = h.current(), previous = h.previous();
-            boolean left = false;
-            if (current != null && ExternalLauncher.exists(dc, current) && items < most) {
-                bar.addView(item(current, true));
-                left = true;
-            }
-            if (previous != null && !previous.equals(current) && ExternalLauncher.exists(dc, previous) && items < most) {
-                bar.addView(item(previous, false));
-                left = true;
-            }
-            List<String> favorites = h.favorites();
-            boolean line = false;
-            for (String key : favorites) {
-                if (items >= most || !ExternalLauncher.exists(dc, key)) continue;
-                if (left && !line) {
+            boolean left = false, line = false;
+            for (Switchboard.Item it : board.strip(true)) {
+                if (it.strip == Switchboard.STRIP_ALL) {
+                    bar.addView(item(board, it));
+                    continue;
+                }
+                if (items >= most) continue;
+                if (it.strip != Switchboard.STRIP_FAVOURITE) {
+                    left = true;
+                } else if (left && !line) {
                     line = true;
                     View divider = new View(dc);
                     divider.setBackgroundColor(EDGE);
@@ -376,12 +373,13 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                     at.bottomMargin = dp(12);
                     bar.addView(divider, at);
                 }
-                bar.addView(item(key, false));
+                bar.addView(item(board, it));
             }
-            bar.addView(item(ExternalLauncher.SWITCHER, false));
         }
 
-        private View item(final String key, boolean running) {
+        private View item(final Switchboard board, Switchboard.Item it) {
+            final String key = it.key;
+            boolean running = it.strip == Switchboard.STRIP_CURRENT;
             items++;
             LinearLayout box = new LinearLayout(dc);
             box.setOrientation(VERTICAL);
@@ -404,8 +402,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             dotAt.topMargin = dp(4);
             dotAt.bottomMargin = dp(2);
             box.addView(dot, dotAt);
-            final String label = ExternalLauncher.label(dc, key);
-            box.setContentDescription(label);
+            // The name as the lists have it: a whole desktop says whose, not its session's name
+            box.setContentDescription(it.title);
             box.setOnHoverListener((v, e) -> {
                 int action = e.getActionMasked();
                 if (action == MotionEvent.ACTION_HOVER_ENTER) setOver(v);
@@ -413,13 +411,13 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                 return false;
             });
             box.setOnClickListener(v -> {
-                ExternalLauncher.open(dc, key);
+                board.open(key);
                 close();
             });
             // The secondary button (Android's own mouse, or secondaryDriven): the item's card, which is on the phone.
             // Taken also when there is none (the Launchpad's tile), or it would count as a click
             box.setOnContextClickListener(v -> {
-                if (ExternalLauncher.card(key)) showName(dc.getString(R.string.xd_card_on_phone), v);
+                if (board.card(key)) showName(dc.getString(R.string.xd_card_on_phone), v);
                 return true;
             });
             LayoutParams at = new LayoutParams(-2, -2);

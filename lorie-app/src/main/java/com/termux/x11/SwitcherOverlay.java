@@ -22,18 +22,17 @@ import android.widget.TextView;
 
 import com.termux.x11.app.R;
 
-import java.text.Collator;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
- * The launcher on the external display, like the Mac's Launchpad (DEVICES.md §4): a dark scrim over whatever is shown,
- * a search line and the tabs at the top (正在运行, 收藏, 手机, each external device), and a grid of big icons, page by
- * page. The tabs and their contents are the phone launcher's (Devices, the favourites, hidden apps). The dock's
- * "All", four fingers up and the handle open it on the last tab; three fingers up ("overview") on 正在运行.
+ * The switchboard on the external display (DEVICES.md §3), as a grid like the Mac's Launchpad: a dark scrim over
+ * whatever is shown, a search line and the tabs at the top, the tab's device bar, and a grid of big icons, page by
+ * page. What the tabs, the items and the bar are comes from Switchboard, the same model the phone draws as a list
+ * (ChooserView): the same tab and the same search on both, live. This draws it and has what belongs to this screen:
+ * its own pointer, the keyboard navigation, the typed search line, the pages. The dock's "All", four fingers up and
+ * the handle open it on the tab last used; three fingers up ("overview") on 正在运行. With nothing else on the screen
+ * it is the screen's home (showHome).
  *
  * Sizes come from the display's own density (its display context), so a 1280×720 TV and a 2560×1600 monitor both get a
  * grid that fits: icon and cell sizes in dp, capped by the screen, and every row is given its exact width.
@@ -44,22 +43,17 @@ import java.util.List;
  */
 final class SwitcherOverlay {
     private static final String TAG = "XDeskSwitcher";
-    /** The home has nothing to show through: under it is the dashboard, whose clock and tiles would read as a second layer. */
+    /**
+     * The home has nothing to show through: under it is the dashboard, whose big clock would read as a second layer,
+     * or the bare background of an X server with no window open. It says the time itself (CLOCK_MS).
+     */
     private static final int HOME_BACK = 0xFF0B0D10;
-    private static final int SCRIM = 0xE00B0D10, HOVER = 0x2EFFFFFF, CURRENT = 0x553D7EF5, FIELD = 0x26FFFFFF;
-    private static final String TAB_RUNNING = "run", TAB_FAVOURITES = "fav";
+    private static final int SCRIM = 0xE00B0D10, HOVER = 0x2EFFFFFF, CURRENT = Switchboard.CURRENT_TINT, FIELD = 0x26FFFFFF;
+    private static final long CLOCK_MS = 15000;
     private static final int MAX_COLUMNS = 8, MAX_ROWS = 5;
     private static final long NOTICE_MS = 4000;
 
     interface Host {
-        /** Keys of what is running, most recent first (the current one first). */
-        List<String> running();
-        List<String> favorites();
-        /** The key on the screen now, or null. */
-        String current();
-        void open(String key);
-        /** The secondary button on a tile: the item's card, a dialog on the phone (ItemCard). False when it has none. */
-        boolean card(String key);
         /** The switcher was closed (so the cursor overlay can be raised again, the dock re-armed). */
         void closed();
     }
@@ -113,8 +107,9 @@ final class SwitcherOverlay {
     }
 
     /**
-     * The external screen's home (INPUT.md: the home is a target like any other): nothing else is on the screen and
-     * a mouse is there, so the Launchpad is what the screen shows, over the dashboard. It does not close itself: Esc
+     * The external screen's home (INPUT.md: the home is a target like any other): nothing else is on the screen, so
+     * the switchboard is what the screen shows, over the dashboard, with or without a mouse on the phone (the phone's
+     * touchpad moves its pointer just the same). It does not close itself: Esc
      * only clears the search, a click on empty space and Back do nothing; it goes when something is opened or the
      * caller hides it.
      */
@@ -130,8 +125,8 @@ final class SwitcherOverlay {
         hide(null);
         if (display == null || !android.provider.Settings.canDrawOverlays(context)) return false;
         Panel p = new Panel(context.createDisplayContext(display), display, host, home);
-        String saved = p.devices.switcherTab();
-        p.tab = onlySystem || saved == null ? TAB_RUNNING : saved;
+        // The overview is the running tab; it does not become the tab to come back to
+        if (onlySystem) p.board.setTab(Switchboard.TAB_RUNNING, false);
         p.build();
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -146,7 +141,8 @@ final class SwitcherOverlay {
             return false;
         }
         panel = p;
-        p.devices.addListener(p.changed);
+        p.board.addListener(p.changed);
+        if (home) p.clock.run();
         p.place(p.width / 2f, p.height / 2f);
         // Its own pointer shows once something moves it: over an Android app the mouse is a real Android pointer
         // with the app's cursor, and a second dot resting in the middle would be taken for it
@@ -158,19 +154,16 @@ final class SwitcherOverlay {
         Panel p = panel;
         if (p == null) return;
         panel = null;
-        p.devices.removeListener(p.changed);
+        p.board.removeListener(p.changed);
         UI.removeCallbacks(p.refresh);
         UI.removeCallbacks(p.noticeGone);
+        UI.removeCallbacks(p.clock);
+        // A search is for finding one thing: it does not wait for the next time (the home's stays, it is not closed)
+        if (!p.home) p.board.setQuery("");
         try {
             p.wm.removeView(p.root);
         } catch (RuntimeException ignored) { }
         if (host != null) host.closed();
-    }
-
-    private static final class Item {
-        String key, label, detail, search;
-        boolean hidden, desktop, dim;
-        char initial;
     }
 
     /** Something the pointer can point at. */
@@ -193,20 +186,27 @@ final class SwitcherOverlay {
         final boolean home;
         final WindowManager wm;
         final Host host;
-        final Devices devices;
+        final Switchboard board;
         final float density;
         final int width, height;
         /** Pixel sizes worked out once per show from the display's dp. */
         final int icon, cellW, cellH, columns, rows, label, small, gap;
         final FrameLayout root;
         final LinearLayout column, tabRow, deviceBar, grid, bottom;
-        final TextView searchText, deviceState, deviceAction;
+        final TextView searchText, deviceState, time;
         final View pointer;
-        final Collator collator = Collator.getInstance();
         final List<Target> targets = new ArrayList<>();
         final List<View> tiles = new ArrayList<>();
-        final List<Item> items = new ArrayList<>();
+        /** The model's items of the tab (or the search), without its titles and notes: the tiles, over all pages. */
+        final List<Switchboard.Item> items = new ArrayList<>();
         final Runnable refresh = this::rebuildKeep;
+        /** The home's own clock, as the dashboard behind it can't be seen. */
+        final Runnable clock = new Runnable() {
+            @Override public void run() {
+                time.setText(DashboardView.clockLine(c));
+                UI.postDelayed(this, CLOCK_MS);
+            }
+        };
         final Runnable changed = () -> {
             UI.removeCallbacks(refresh);
             UI.postDelayed(refresh, 120);
@@ -217,9 +217,12 @@ final class SwitcherOverlay {
             notice = null;
             if (panel == this) showSearch();
         };
-        String tab, current, query = "";
+        /** The tab and the search the grid was last built for: changed from the phone, the page starts over. */
+        String shownTab, shownQuery;
+        /** What the model says in place of items (nothing running, no match), or null. */
+        String empty;
         int page, selected = -1, hiddenCount;
-        boolean showHidden, ctrl, shift;
+        boolean ctrl, shift;
         float px, py, wheel;
 
         Panel(Context dc, Display display, Host host, boolean home) {
@@ -227,7 +230,7 @@ final class SwitcherOverlay {
             this.home = home;
             wm = dc.getSystemService(WindowManager.class);
             this.host = host;
-            devices = Devices.get(dc);
+            board = Switchboard.get(dc);
             Point size = new Point();
             display.getRealSize(size);
             width = size.x;
@@ -279,13 +282,6 @@ final class SwitcherOverlay {
             deviceState = text("", small, Style.TEXT_DIM);
             deviceState.setSingleLine(true);
             deviceBar.addView(deviceState);
-            deviceAction = text("", small, Color.WHITE);
-            deviceAction.setPadding(dp(14), 0, dp(14), 0);
-            deviceAction.setGravity(Gravity.CENTER);
-            deviceAction.setBackground(round(Style.ACCENT, dp(14)));
-            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(28));
-            ap.leftMargin = dp(12);
-            deviceBar.addView(deviceAction, ap);
             LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(30));
             bp.topMargin = dp(8);
             column.addView(deviceBar, bp);
@@ -302,6 +298,13 @@ final class SwitcherOverlay {
             bottom = new LinearLayout(c);
             bottom.setGravity(Gravity.CENTER);
             column.addView(bottom, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)));
+
+            time = text("", small, Style.TEXT_DIM);
+            time.setVisibility(home ? View.VISIBLE : View.GONE);
+            FrameLayout.LayoutParams clockAt = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
+            clockAt.topMargin = dp(30);
+            clockAt.rightMargin = dp(28);
+            root.addView(time, clockAt);
 
             pointer = new View(c);
             GradientDrawable d = new GradientDrawable();
@@ -337,122 +340,17 @@ final class SwitcherOverlay {
             return g;
         }
 
-        // --- what each tab holds ---
-
-        List<String> tabIds() {
-            ArrayList<String> ids = new ArrayList<>();
-            ids.add(TAB_RUNNING);
-            ids.add(TAB_FAVOURITES);
-            for (Devices.Device d : devices.all()) ids.add(d.id);
-            return ids;
-        }
-
-        Item item(String key, String label, String detail, String extra) {
-            Item i = new Item();
-            i.key = key;
-            i.label = label != null ? label : "";
-            i.detail = detail != null && !detail.equalsIgnoreCase(i.label) ? detail : null;
-            i.search = (i.label + " " + (detail != null ? detail : "") + " " + (extra != null ? extra : "")).toLowerCase();
-            i.hidden = devices.isHidden(key);
-            return i;
-        }
-
-        Item itemForKey(String key) {
-            if (!ExternalLauncher.exists(c, key)) return null;
-            ContentSource.Entry e = Contents.find(key);
-            Item i = e != null ? item(key, e.label, e.detail, null) : item(key, ExternalLauncher.label(c, key), null, null);
-            i.desktop = ChooserView.isDesktopKey(key) || key.startsWith("t:");
-            return i;
-        }
-
-        /** A device's desktops and windows first (in their order), then its apps by initial. */
-        void deviceItems(Devices.Device d, List<Item> out) {
-            final int start = out.size();
-            ArrayList<Item> apps = new ArrayList<>();
-            if (d.type == Devices.Type.PHONE) {
-                for (AppCatalog.App a : AppCatalog.get(c).apps()) apps.add(item(ChooserView.recentKey(a), a.label, null, a.packageName));
-            } else {
-                // The whole desktop first, always (locked, still connecting): opening it connects and unlocks. For a
-                // Linux environment it is the only entry that starts its desktop; its programs never do
-                if (d.type == Devices.Type.LINUX)
-                    for (String s : devices.sessionsOf(d.id)) {
-                        Item i = item(ChooserView.recentKey(s), c.getString(R.string.xd_dev_whole_desktop), s, null);
-                        i.desktop = true;
-                        out.add(i);
-                    }
-                // A Mac not connected: only the whole desktop (opening it connects); the real list comes with the
-                // connection. A Linux environment is local: its programs are always listed
-                boolean catalog = devices.listsCatalog(d);
-                ContentSource source = d.type == Devices.Type.LINUX ? LinuxSource.get() : d.type == Devices.Type.MAC ? Contents.sourceOf(MacSource.PREFIX) : null;
-                if (source != null) {
-                    HashSet<String> shown = new HashSet<>();
-                    for (ContentSource.Entry e : source.windows()) {
-                        if (!devices.deviceOf(e.key).equals(d.id)) continue;
-                        shown.add(e.key);
-                        if (ChooserView.isDesktopKey(e.key)) {
-                            Item i = item(e.key, c.getString(R.string.xd_dev_whole_desktop), e.detail != null ? e.detail : e.label, e.label);
-                            i.desktop = true;
-                            out.add(start, i);
-                        } else if (catalog) {
-                            out.add(item(e.key, e.label, e.detail, null));
-                        }
-                    }
-                    if (catalog) for (ContentSource.Entry e : source.apps())
-                        if (!shown.contains(e.key) && devices.deviceOf(e.key).equals(d.id)) apps.add(item(e.key, e.label, null, null));
-                }
-            }
-            ArrayList<String> names = new ArrayList<>(apps.size());
-            for (Item i : apps) names.add(i.label);
-            Initials.prepare(names, changed);
-            for (Item i : apps) i.initial = Initials.of(i.label);
-            Collections.sort(apps, (a, b) -> {
-                int by = Integer.compare(Initials.rank(a.initial), Initials.rank(b.initial));
-                return by != 0 ? by : collator.compare(a.label, b.label);
-            });
-            out.addAll(apps);
-        }
+        // --- what the model holds ---
 
         void collect() {
             items.clear();
             hiddenCount = 0;
-            current = host.current();
-            ArrayList<Item> all = new ArrayList<>();
-            boolean searching = !query.isEmpty();
-            if (searching) {
-                // A search looks through every device, as Launchpad's does
-                for (Devices.Device d : devices.all()) deviceItems(d, all);
-            } else if (TAB_RUNNING.equals(tab)) {
-                for (String k : new LinkedHashSet<>(host.running())) {
-                    // An apps-only session is only what Linux programs run on, never a tile
-                    if (k.startsWith("t:") && k.endsWith(Devices.APPS_ONLY)) continue;
-                    Item i = itemForKey(k);
-                    if (i != null) all.add(i);
-                }
-            } else if (TAB_FAVOURITES.equals(tab)) {
-                for (String k : new LinkedHashSet<>(host.favorites())) {
-                    Item i = itemForKey(k);
-                    if (i == null || i.hidden) continue;
-                    i.dim = devices.offline(k);
-                    all.add(i);
-                }
-            } else {
-                Devices.Device d = devices.find(tab);
-                if (d != null) deviceItems(d, all);
+            empty = null;
+            for (Switchboard.Item i : board.items()) {
+                if (i.kind == Switchboard.ITEM) items.add(i);
+                else if (i.kind == Switchboard.FOLD) hiddenCount = i.count;
+                else if (i.kind == Switchboard.NOTE && empty == null) empty = i.label;
             }
-            HashSet<String> seen = new HashSet<>();
-            ArrayList<Item> hidden = new ArrayList<>();
-            for (Item i : all) {
-                if (!seen.add(i.key)) continue;
-                if (searching && !i.search.contains(query)) continue;
-                if (i.hidden && !searching) {
-                    hidden.add(i);
-                    continue;
-                }
-                items.add(i);
-            }
-            hiddenCount = hidden.size();
-            // The hidden fold: at the end, only when asked for
-            if (showHidden) items.addAll(hidden);
         }
 
         int perPage() {
@@ -466,18 +364,26 @@ final class SwitcherOverlay {
         // --- building ---
 
         void build() {
-            if (devices.find(tab) == null && !TAB_RUNNING.equals(tab) && !TAB_FAVOURITES.equals(tab)) tab = TAB_RUNNING;
             collect();
+            String tab = board.tab(), query = board.query();
+            if (!tab.equals(shownTab) || !query.equals(shownQuery)) page = 0;
+            shownTab = tab;
+            shownQuery = query;
             page = Math.max(0, Math.min(page, pages() - 1));
             render();
         }
 
-        /** Something changed while open (a Mac connected, icons came): same tab and page. */
+        /**
+         * Something changed while open (a Mac connected, icons came): same page, same tile. The tab or the search
+         * changed on the phone: from the start, as when it is changed here.
+         */
         void rebuildKeep() {
             if (panel != this) return;
+            boolean moved = !board.tab().equals(shownTab) || !board.query().equals(shownQuery);
             int keep = selected;
             build();
-            select(Math.min(keep, tiles.size() - 1));
+            // While searching the first result is the one Enter opens
+            select(moved ? (board.searching() ? 0 : -1) : Math.min(keep, tiles.size() - 1));
         }
 
         void render() {
@@ -496,28 +402,25 @@ final class SwitcherOverlay {
 
         void renderTabs() {
             tabRow.removeAllViews();
-            boolean searching = !query.isEmpty();
-            List<Devices.Device> all = devices.all();
-            addTab(TAB_RUNNING, c.getString(R.string.xd_sw_running), null, searching);
-            addTab(TAB_FAVOURITES, "★ " + c.getString(R.string.xd_chooser_favourites), null, searching);
-            for (Devices.Device d : all) addTab(d.id, d.name, d.external() ? d.state : null, searching);
+            boolean searching = board.searching();
+            String tab = board.tab();
+            for (Switchboard.Tab t : board.tabs()) addTab(t, t.id.equals(tab) && !searching);
         }
 
-        void addTab(final String id, String name, Devices.State state, boolean searching) {
-            boolean on = id.equals(tab) && !searching;
-            TextView t = text(name, small, on ? Color.WHITE : Style.TEXT_DIM);
+        void addTab(final Switchboard.Tab tab, boolean on) {
+            TextView t = text(tab.name, small, on ? Color.WHITE : Style.TEXT_DIM);
             t.setSingleLine(true);
             t.setGravity(Gravity.CENTER);
             t.setPadding(dp(14), 0, dp(14), 0);
             t.setBackground(round(on ? Style.ACCENT : 0x00000000, dp(16)));
-            if (state != null) {
-                GradientDrawable dot = Style.dot(Devices.color(state));
+            if (tab.state != null) {
+                GradientDrawable dot = Style.dot(Devices.color(tab.state));
                 int s = dp(7);
                 dot.setBounds(0, 0, s, s);
                 t.setCompoundDrawablesRelative(dot, null, null, null);
                 t.setCompoundDrawablePadding(dp(6));
             }
-            Runnable go = () -> setTab(id);
+            Runnable go = () -> setTab(tab.id);
             t.setOnClickListener(v -> go.run());
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32));
             p.leftMargin = p.rightMargin = dp(3);
@@ -525,43 +428,50 @@ final class SwitcherOverlay {
             targets.add(new Target(t, go, -1));
         }
 
+        /**
+         * The same bar as on the phone: the device's state and its actions, here to click with the pointer. What an
+         * action shows (a confirm, a settings page) is on the phone, and the search line says so.
+         */
         void renderDeviceBar() {
-            deviceAction.setVisibility(View.GONE);
-            Devices.Device d = query.isEmpty() ? devices.find(tab) : null;
-            if (!query.isEmpty()) {
-                deviceState.setText(c.getString(R.string.xd_sw_results, items.size()));
-                return;
+            while (deviceBar.getChildCount() > 1) deviceBar.removeViewAt(1);
+            Switchboard.Bar bar = board.bar();
+            deviceState.setText(bar != null ? bar.text : "");
+            if (bar == null) return;
+            if (bar.dot != 0) {
+                GradientDrawable dot = Style.dot(bar.dot);
+                int s = dp(7);
+                dot.setBounds(0, 0, s, s);
+                deviceState.setCompoundDrawablesRelative(dot, null, null, null);
+                deviceState.setCompoundDrawablePadding(dp(8));
+            } else {
+                deviceState.setCompoundDrawablesRelative(null, null, null, null);
             }
-            if (d == null || !d.external()) {
-                deviceState.setText(TAB_RUNNING.equals(tab) ? c.getString(R.string.xd_sw_running_note) : "");
-                return;
-            }
-            String state = c.getString(Devices.stateLabel(d));
-            deviceState.setText(Devices.isLocked(c, d.id) ? c.getString(R.string.xd_dev_locked_hint)
-                    : d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
-            if ((d.state == Devices.State.DISCONNECTED || d.state == Devices.State.FAILED) && d.canConnect(devices)) {
-                deviceAction.setText(R.string.xd_dev_connect);
-                deviceAction.setVisibility(View.VISIBLE);
-                final String id = d.id;
-                final boolean linux = d.type == Devices.Type.LINUX;
+            boolean first = true;
+            for (final Switchboard.Action a : bar.actions) {
+                TextView b = text(a.label, small, Color.WHITE);
+                b.setPadding(dp(14), 0, dp(14), 0);
+                b.setGravity(Gravity.CENTER);
+                // The first is what the device is waiting for (Connect, Stop); the rest are quieter
+                b.setBackground(round(first ? Style.ACCENT : FIELD, dp(14)));
+                b.setAlpha(a.enabled ? 1f : 0.4f);
+                LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(28));
+                ap.leftMargin = dp(first ? 12 : 8);
+                deviceBar.addView(b, ap);
                 Runnable go = () -> {
-                    // A Linux desktop takes the screen; a Mac's apps come into this grid when it is connected
-                    if (linux) hide(host);
-                    devices.connect(id);
+                    if (!a.enabled) return;
+                    if (a.onPhone) say(c.getString(R.string.xd_sw_on_phone));
+                    a.run();
                 };
-                deviceAction.setOnClickListener(v -> go.run());
-                targets.add(new Target(deviceAction, go, -1));
-            } else if (d.state == Devices.State.NOT_SET_UP) {
-                deviceState.setText(state + " · " + c.getString(R.string.xd_sw_set_up_on_phone));
+                b.setOnClickListener(v -> go.run());
+                targets.add(new Target(b, go, -1));
+                first = false;
             }
         }
 
         void renderGrid() {
             grid.removeAllViews();
             if (items.isEmpty()) {
-                TextView none = text(c.getString(!query.isEmpty() ? R.string.xd_chooser_no_match
-                        : TAB_RUNNING.equals(tab) ? R.string.xd_switcher_empty
-                        : TAB_FAVOURITES.equals(tab) ? R.string.xd_dev_no_favourites : R.string.xd_dev_empty), label, Style.TEXT_DIM);
+                TextView none = text(empty != null ? empty : c.getString(R.string.xd_dev_empty), label, Style.TEXT_DIM);
                 none.setGravity(Gravity.CENTER);
                 grid.addView(none, new LinearLayout.LayoutParams(columns * cellW, rows * cellH));
                 return;
@@ -578,9 +488,19 @@ final class SwitcherOverlay {
         }
 
         void showSearch() {
+            String query = board.query();
             String hint = notice != null ? notice : "⌕  " + c.getString(R.string.xd_sw_search);
-            searchText.setText(query.isEmpty() ? hint : query + "▏");
+            // A notice is about what was just clicked: it shows also over a search, which comes back after it
+            searchText.setText(notice != null ? notice : query.isEmpty() ? hint : query + "▏");
             searchText.setTextColor(query.isEmpty() && notice == null ? Style.TEXT_DIM : Color.WHITE);
+        }
+
+        /** A line in place of the search for a moment: where to look for what a click here opened. */
+        void say(String line) {
+            notice = line;
+            showSearch();
+            UI.removeCallbacks(noticeGone);
+            UI.postDelayed(noticeGone, NOTICE_MS);
         }
 
         /**
@@ -588,21 +508,17 @@ final class SwitcherOverlay {
          * Launchpad stays as it is and says where to look.
          */
         void card(String key) {
-            if (!host.card(key)) return;
-            notice = c.getString(R.string.xd_card_on_phone);
-            showSearch();
-            UI.removeCallbacks(noticeGone);
-            UI.postDelayed(noticeGone, NOTICE_MS);
+            if (board.card(key)) say(c.getString(R.string.xd_card_on_phone));
         }
 
-        View tile(final Item it, final int index) {
+        View tile(final Switchboard.Item it, final int index) {
             LinearLayout box = new LinearLayout(c);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setGravity(Gravity.CENTER_HORIZONTAL);
             box.setPadding(gap / 2, dp(8), gap / 2, dp(4));
             box.setClickable(true);
-            boolean isCurrent = it.key.equals(current);
-            box.setBackground(tileBack(it, isCurrent ? CURRENT : 0x00000000));
+            // What is on this screen now stands out, the same way as its row on the phone
+            box.setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
             box.addView(ExternalLauncher.icon(c, it.key, icon), new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
@@ -614,7 +530,7 @@ final class SwitcherOverlay {
             np.topMargin = dp(6);
             box.addView(name, np);
             if (it.detail != null) {
-                TextView detail = text(it.detail, small, Style.TEXT_DIM);
+                TextView detail = text(it.detail, small, it.current ? Switchboard.ACCENT_TEXT : Style.TEXT_DIM);
                 detail.setSingleLine(true);
                 detail.setEllipsize(TextUtils.TruncateAt.END);
                 detail.setGravity(Gravity.CENTER);
@@ -637,7 +553,7 @@ final class SwitcherOverlay {
         }
 
         /** A whole desktop gets a ring, so it stands apart from the apps. */
-        GradientDrawable tileBack(Item it, int color) {
+        GradientDrawable tileBack(Switchboard.Item it, int color) {
             GradientDrawable g = round(color, dp(18));
             if (it.desktop) g.setStroke(Math.max(2, dp(2)), Style.ACCENT);
             return g;
@@ -660,16 +576,17 @@ final class SwitcherOverlay {
                     targets.add(new Target(hit, go, -1));
                 }
             }
-            boolean deviceTab = query.isEmpty() && devices.find(tab) != null;
-            if (deviceTab && hiddenCount > 0) {
-                TextView fold = text(showHidden ? c.getString(R.string.xd_sw_hide_hidden) : c.getString(R.string.xd_sw_show_hidden, hiddenCount), small, Style.TEXT_DIM);
+            // The hidden fold of the list: here a button that puts the hidden ones at the end
+            if (hiddenCount > 0 && !board.searching()) {
+                final boolean open = board.hiddenOpen();
+                TextView fold = text(open ? c.getString(R.string.xd_sw_hide_hidden) : c.getString(R.string.xd_sw_show_hidden, hiddenCount), small, Style.TEXT_DIM);
                 fold.setGravity(Gravity.CENTER);
                 fold.setPadding(dp(12), 0, dp(12), 0);
                 fold.setBackground(round(FIELD, dp(14)));
                 Runnable go = () -> {
-                    showHidden = !showHidden;
+                    board.setHiddenOpen(!open);
                     build();
-                    if (showHidden) setPage(pages() - 1);
+                    if (!open) setPage(pages() - 1);
                 };
                 fold.setOnClickListener(v -> go.run());
                 LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(28));
@@ -683,23 +600,21 @@ final class SwitcherOverlay {
 
         void open(String key) {
             hide(host);
-            host.open(key);
+            board.open(key);
         }
 
         void setTab(String id) {
-            query = "";
-            tab = id;
+            board.setTab(id);
             page = 0;
-            showHidden = false;
-            devices.setSwitcherTab(id);
             build();
             select(-1);
         }
 
         void stepTab(int by) {
-            List<String> ids = tabIds();
-            int at = ids.indexOf(tab);
-            setTab(ids.get(((at < 0 ? 0 : at) + by + ids.size()) % ids.size()));
+            board.stepTab(by);
+            page = 0;
+            build();
+            select(-1);
         }
 
         void setPage(int p) {
@@ -712,8 +627,8 @@ final class SwitcherOverlay {
 
         void select(int i) {
             if (selected >= 0 && selected < tiles.size()) {
-                Item it = items.get(page * perPage() + selected);
-                tiles.get(selected).setBackground(tileBack(it, it.key.equals(current) ? CURRENT : 0x00000000));
+                Switchboard.Item it = items.get(page * perPage() + selected);
+                tiles.get(selected).setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             }
             selected = i >= 0 && i < tiles.size() ? i : -1;
             if (selected >= 0) tiles.get(selected).setBackground(tileBack(items.get(page * perPage() + selected), HOVER));
@@ -788,6 +703,7 @@ final class SwitcherOverlay {
             if (scan == 29 || scan == 97) { ctrl = down; return; }
             if (scan == 42 || scan == 54) { shift = down; return; }
             if (!down) return;
+            String query = board.query();
             switch (scan) {
                 case 1:  // Esc: clear the search, else close
                     if (!query.isEmpty()) setQuery("");
@@ -798,7 +714,7 @@ final class SwitcherOverlay {
                     return;
                 case 28: case 96:  // Enter
                     if (selected >= 0) open(items.get(page * perPage() + selected).key);
-                    else if (!items.isEmpty() && !query.isEmpty()) open(items.get(page * perPage()).key);
+                    else if (!items.isEmpty() && board.searching()) open(items.get(page * perPage()).key);
                     return;
                 case 15:  // Tab, Ctrl+Tab: the next tab; with Shift the one before
                     stepTab(shift ? -1 : 1);
@@ -821,16 +737,17 @@ final class SwitcherOverlay {
             if (s.equals("\n")) { key(28, true); return; }
             if (s.equals("\b")) { key(14, true); return; }
             String clean = s.replace("\n", "").replace("\r", "");
+            String query = board.query();
             if (clean.isEmpty() || (query.isEmpty() && clean.trim().isEmpty())) return;
-            setQuery(query + clean.toLowerCase());
+            setQuery(query + clean);
         }
 
         void setQuery(String q) {
-            query = q;
+            board.setQuery(q);
             page = 0;
             build();
             // While searching the first result is the one Enter opens
-            select(query.isEmpty() ? -1 : 0);
+            select(board.searching() ? 0 : -1);
         }
 
         void arrow(int dx, int dy) {

@@ -32,8 +32,8 @@ final class Devices {
     /** xdesk's "apps only" variant of a session: X, xfwm4 and xfsettingsd, no panel or desktop. */
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
-    private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_TAB = "tab",
-        PREF_SWITCHER_TAB = "switcher_tab", PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime";
+    private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
+        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
@@ -546,21 +546,17 @@ final class Devices {
         return Collections.unmodifiableList(new ArrayList<>(hidden));
     }
 
-    String tab() {
-        return prefs.getString(PREF_TAB, null);
+    /** Up to the switchboard the phone's list and the external Launchpad each kept a tab: the phone's is taken over. */
+    private static final String PREF_OLD_TAB = "tab", PREF_OLD_SWITCHER_TAB = "switcher_tab";
+
+    /** The switchboard's tab (Switchboard), one for the phone and the external screen. Null: never chosen. */
+    String boardTab() {
+        String tab = prefs.getString(PREF_BOARD_TAB, null);
+        return tab != null ? tab : prefs.getString(PREF_OLD_TAB, null);
     }
 
-    void setTab(String tab) {
-        prefs.edit().putString(PREF_TAB, tab).apply();
-    }
-
-    /** The external screen's launcher (SwitcherOverlay) keeps its own last tab. */
-    String switcherTab() {
-        return prefs.getString(PREF_SWITCHER_TAB, null);
-    }
-
-    void setSwitcherTab(String tab) {
-        prefs.edit().putString(PREF_SWITCHER_TAB, tab).apply();
+    void setBoardTab(String tab) {
+        prefs.edit().putString(PREF_BOARD_TAB, tab).remove(PREF_OLD_TAB).remove(PREF_OLD_SWITCHER_TAB).apply();
     }
 
     /** A Mac that is connected but locked: its apps come only after the desktop is opened and unlocked. */

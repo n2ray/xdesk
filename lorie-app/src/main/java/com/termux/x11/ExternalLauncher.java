@@ -6,82 +6,16 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
-import com.termux.x11.app.R;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * What the grid and the dock on the external display show, kept by the phone's window: "my favourites" there is the one
- * list, edited only on the phone. Main thread only.
+ * The icons of the switchboard's items on the external display (the Launchpad's tiles, the Dock), and the key of its
+ * own tile. What the items are, their labels and what opening one does is the Switchboard's. Main thread only.
  */
 final class ExternalLauncher {
-    interface Host {
-        List<String> favorites();
-        /** Null when there is none. */
-        String current();
-        String previous();
-        void open(String key);
-        /** The item's card, a dialog on the phone (ItemCard). False when the key has none. */
-        boolean card(String key);
-    }
-
     /** The dock's last tile: opens the switcher (SwitcherOverlay) on the external display. */
     static final String SWITCHER = "x:switcher";
 
-    private static Host host;
-    private static final List<Runnable> listeners = new ArrayList<>();
-
     private ExternalLauncher() { }
-
-    static void setHost(Host h) {
-        host = h;
-        changed();
-    }
-
-    static Host host() {
-        return host;
-    }
-
-    static void listen(Runnable r) {
-        listeners.add(r);
-    }
-
-    static void unlisten(Runnable r) {
-        listeners.remove(r);
-    }
-
-    static void changed() {
-        for (Runnable r : new ArrayList<>(listeners)) r.run();
-    }
-
-    static void open(Context c, String key) {
-        if (host != null) host.open(key);
-        else Toast.makeText(c, R.string.xd_launcher_need_phone, Toast.LENGTH_LONG).show();
-    }
-
-    /** The secondary button on an item of the external screen: its card opens on the phone. False when there is none. */
-    static boolean card(String key) {
-        return host != null && host.card(key);
-    }
-
-    /** False for an app that was uninstalled, or that the list has not reached yet. */
-    static boolean exists(Context c, String key) {
-        if (SWITCHER.equals(key)) return true;
-        if (Contents.sourceOf(key) != null) return Contents.find(key) != null;
-        return !ChooserView.isAppKey(key) || AppCatalog.get(c).find(ChooserView.componentOf(key)) != null;
-    }
-
-    static String label(Context c, String key) {
-        if (SWITCHER.equals(key)) return c.getString(R.string.xd_switcher_short);
-        if (Contents.sourceOf(key) != null) {
-            ContentSource.Entry e = Contents.find(key);
-            return e != null ? e.label : "";
-        }
-        if (!ChooserView.isAppKey(key)) return ChooserView.sessionOf(key);
-        AppCatalog.App a = AppCatalog.get(c).find(ChooserView.componentOf(key));
-        return a != null ? a.label : "";
-    }
 
     static View icon(Context c, String key, int size) {
         if (SWITCHER.equals(key)) {
@@ -93,7 +27,8 @@ final class ExternalLauncher {
             ContentSource.Entry e = Contents.find(key);
             ImageView icon = new ImageView(c);
             if (e != null && e.icon != null) icon.setImageBitmap(e.icon);
-            else icon.setImageDrawable(Style.letterIcon(c, e != null ? e.label : "?"));
+            // A whole desktop without a picture: the glyph it has in the phone's list
+            else icon.setImageDrawable(Style.letterIcon(c, ChooserView.isDesktopKey(key) ? "\u25A3" : e != null ? e.label : "?"));
             return icon;
         }
         AppCatalog.App a = ChooserView.isAppKey(key) ? AppCatalog.get(c).find(ChooserView.componentOf(key)) : null;

@@ -11,7 +11,8 @@ import java.util.concurrent.Executors;
 
 /**
  * The index letter of a name for the launcher's A–Z bar (DEVICES.md §3): A–Z for Latin letters, the pinyin initial
- * for a Chinese character, '#' for anything else. Pinyin comes from ICU's Han-Latin transliterator (public since
+ * for a Chinese character, '#' for anything else. And the same initials for every character of a name, which the
+ * switchboard's search matches on ({@link #letters}). Pinyin comes from ICU's Han-Latin transliterator (public since
  * API 29), which is slow to load: it runs on one background thread only, once per character, and a name whose
  * character is not known yet counts as '#' until {@link #prepare} calls back. UI thread, except the worker.
  */
@@ -63,14 +64,40 @@ final class Initials {
     }
 
     /**
+     * A name as the letters a search may be typed with, lower case: a Chinese character is its pinyin initial ("微信"
+     * is "wx"), letters and digits stay, everything else is left out. Characters not worked out yet (see
+     * {@link #prepare}) are left out too. Never blocks.
+     */
+    static String letters(String name) {
+        if (name == null) return "";
+        StringBuilder out = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); ) {
+            int cp = name.codePointAt(i);
+            i += Character.charCount(cp);
+            if (isHan(cp)) {
+                Character c = han.get(cp);
+                if (c != null && c != OTHER) out.append(Character.toLowerCase(c));
+            } else if (Character.isLetterOrDigit(cp)) {
+                out.appendCodePoint(Character.toLowerCase(cp));
+            }
+        }
+        return out.toString();
+    }
+
+    /**
      * Work out the initials of these names' Chinese characters in the background; {@code done} runs on the UI thread
      * if any became known. Cheap when they all are.
      */
     static void prepare(Iterable<String> names, final Runnable done) {
         final HashSet<Integer> todo = new HashSet<>();
+        // Every Chinese character of a name, not only its first: the search matches on all the initials (letters)
         for (String n : names) {
-            int cp = first(n);
-            if (cp >= 0 && isHan(cp) && !han.containsKey(cp) && asked.add(cp)) todo.add(cp);
+            if (n == null) continue;
+            for (int i = 0; i < n.length(); ) {
+                int cp = n.codePointAt(i);
+                i += Character.charCount(cp);
+                if (isHan(cp) && !han.containsKey(cp) && asked.add(cp)) todo.add(cp);
+            }
         }
         if (todo.isEmpty() || broken) return;
         if (worker == null) worker = Executors.newSingleThreadExecutor(r -> {
