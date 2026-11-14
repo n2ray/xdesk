@@ -1792,7 +1792,9 @@ public class XDeskActivity extends Activity {
 
     private void setLatch(Latch l, boolean on) {
         l.on = on;
-        if (client != null) keysIn.key(l.scan, on);
+        // Let go even with no target left: the release goes where the press went (the Router knows), and without it
+        // the keyboard stayed bound to that target, a Mac long gone, with everything typed later going there
+        if (client != null || !on) keysIn.key(l.scan, on);
         l.button.setBackground(Style.ripple(this, on ? Style.ACCENT : Style.SURFACE_RAISED, 8));
         applyComboRow();
     }
@@ -3044,6 +3046,9 @@ public class XDeskActivity extends Activity {
             return;
         }
         MacSource.userLooking();
+        // A latched Ctrl or Alt is held on what was the target: let go there, or the keyboard stays bound to it and
+        // the Launchpad's search gets nothing
+        releaseLatches();
         if (client != SwitcherOverlay.INPUT) beforeSwitcher = client;
         client = SwitcherOverlay.INPUT;
         // Over an Android app the mouse is the injector's and moves that app's cursor, which was put on the screen
