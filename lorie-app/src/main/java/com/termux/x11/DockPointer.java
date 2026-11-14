@@ -1,6 +1,5 @@
 package com.termux.x11;
 
-import android.os.SystemClock;
 import io.github.n2ray.xdesk.input.Caps;
 
 /**
@@ -13,13 +12,9 @@ import io.github.n2ray.xdesk.input.Caps;
  * Dock. Only Esc is taken from the keyboard, to close it.
  *
  * When it opens. The content's pointer is at the bottom (InputSink.pointerPlace, read before each move is sent on, so
- * what counts is only what goes beyond the edge) and is pushed further down, without a pause longer than GAP_MS and
- * more down than sideways, for DWELL_MS and PUSH units. Resting on the bottom row does not open it, nor does a flick
- * that lands there: a taskbar or a tab at the bottom of the picture is clicked exactly so. A whole desktop (XFCE, a
- * Mac's screen) has things of its own at that edge, a panel, the Mac's Dock that shows itself when the pointer
- * reaches the edge: there the push is DESKTOP_DWELL_MS and DESKTOP_PUSH, long after the Mac's Dock has come, so a
- * touch of the edge is the Mac's and a push kept up is XDesk's (DISPLAY.md §6). Never with a button held: a drag to
- * the edge is a drag.
+ * what counts is only what goes beyond the edge) and is pushed further down: the rule is EdgePush, the same one an
+ * Android app's Dock opens by (there the injector reports the pushes, ExternalDock.pushed). A whole desktop gets the
+ * rule's longer push. Never with a button held: a drag to the edge is a drag.
  *
  * A button that went down on the Dock comes up on the Dock, also when the Dock is gone by then; the Router sees
  * neither half. Main thread only.
@@ -32,9 +27,6 @@ final class DockPointer {
         ExternalDock dock();
     }
 
-    private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 700, GAP_MS = 250;
-    /** In units of pointer movement, about pixels of the content. */
-    private static final int PUSH = 60, DESKTOP_PUSH = 240, SIDE_SLACK = 12;
     private static final int KEY_ESC = 1;
 
     private final Host host;
@@ -44,8 +36,7 @@ final class DockPointer {
     private final int[] taken = new int[4];
     /** What the Dock is open over; null while this has not opened it. */
     private InputSink over;
-    private long edgeSince, lastPush;
-    private int push, side;
+    private final EdgePush rule = new EdgePush();
     private boolean escTaken;
 
     /** @param devices the phone's devices that move the pointer: none of them may hold a button when the Dock opens */
@@ -74,8 +65,7 @@ final class DockPointer {
     }
 
     private void forget() {
-        edgeSince = 0;
-        push = side = 0;
+        rule.forget();
     }
 
     void move(Router.Device d, int dx, int dy) {
@@ -96,25 +86,8 @@ final class DockPointer {
             forget();
             return;
         }
-        long now = SystemClock.uptimeMillis();
-        if (edgeSince == 0 || now - lastPush > GAP_MS) {
-            edgeSince = lastPush = now;
-            push = side = 0;
-        }
-        if (dy > 0) lastPush = now;
-        push += dy;
-        side += Math.abs(dx);
-        if (side > push + SIDE_SLACK) {
-            // Along the edge, not against it: start again
-            edgeSince = now;
-            push = side = 0;
-            return;
-        }
         Caps caps = t.caps();
-        boolean desktop = caps != null && caps.scope == Caps.DESKTOP;
-        if (now - edgeSince < (desktop ? DESKTOP_DWELL_MS : DWELL_MS) || push < (desktop ? DESKTOP_PUSH : PUSH)) return;
-        forget();
-        if (dock.openDriven(place[0])) over = t;
+        if (rule.pushed(dx, dy, caps != null && caps.scope == Caps.DESKTOP) && dock.openDriven(place[0])) over = t;
     }
 
     private boolean holding() {

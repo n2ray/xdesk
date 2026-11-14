@@ -234,6 +234,12 @@ public class InjectorService extends IInjector.Stub {
                         if (l != null) l.onFingers(x, y);
                     } catch (RemoteException ignored) { }
                 }
+                @Override public void onEdgePush(int dx, int dy, boolean held) {
+                    IInjectorListener l = listener;
+                    try {
+                        if (l != null) l.onEdgePush(dx, dy, held);
+                    } catch (RemoteException ignored) { }
+                }
             });
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.e(TAG, "no input injection", e);

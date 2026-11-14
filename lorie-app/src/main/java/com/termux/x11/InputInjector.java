@@ -26,6 +26,12 @@ final class InputInjector {
     interface CursorListener {
         void onCursor(int x, int y);
         void onFingers(float[] x, float[] y);
+        /**
+         * A relative move asked for while the pointer was at the bottom edge already: what the clamping takes away,
+         * and what the Dock opens by (EdgePush). dy below 0 once when the pointer has left the edge again.
+         * @param held a button or a finger is down: a drag to the edge
+         */
+        void onEdgePush(int dx, int dy, boolean held);
     }
 
     private static final String TAG = "XDeskInjector";
@@ -445,6 +451,7 @@ final class InputInjector {
 
     /** Pixels on the display, already scaled by the caller. */
     void moveBy(float dx, float dy) throws ReflectiveOperationException, InterruptedException {
+        reportPush(dx, dy);
         x = Math.max(0, Math.min(width - 1, x + dx));
         y = Math.max(0, Math.min(height - 1, y + dy));
         if (touching()) {
@@ -463,6 +470,34 @@ final class InputInjector {
 
     /** A pointer placed from a computer has that computer's own cursor on it: only the others need ours. */
     private boolean placedFromComputer;
+
+    /** Pushes were reported and the pointer has not been told to have left the edge since. */
+    private boolean pushing;
+    /** What of a push is less than a whole pixel yet. */
+    private float pushX, pushY;
+
+    /**
+     * Before a move is clamped: at the bottom edge already, the whole of it is a push against (or along, or away
+     * from) the edge, which only this process can know, as the pointer does not move for it. Placing from a computer
+     * is no push: its pointer stops at the edge of its own picture.
+     */
+    private void reportPush(float dx, float dy) {
+        if (placedFromComputer) return;
+        if (y < height - 1) {
+            if (pushing) cursor.onEdgePush(0, -1, false);
+            pushing = false;
+            pushX = pushY = 0;
+            return;
+        }
+        pushing = true;
+        pushX += dx;
+        pushY += dy;
+        int wholeX = (int) pushX, wholeY = (int) pushY;
+        pushX -= wholeX;
+        pushY -= wholeY;
+        if (wholeX == 0 && wholeY == 0) return;
+        cursor.onEdgePush(wholeX, wholeY, buttons != 0 || pendingButton != 0 || pressBit != 0 || directActive || screenActive);
+    }
 
     private void reportCursor() throws ReflectiveOperationException {
         if (!placedFromComputer) cursor.onCursor((int) x, (int) y);
