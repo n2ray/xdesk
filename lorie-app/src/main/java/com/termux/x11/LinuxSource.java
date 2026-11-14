@@ -279,7 +279,8 @@ final class LinuxSource implements ContentSource {
         p.app = a;
         p.result = result;
         p.before = new HashSet<>(windows.keySet());
-        p.startupId = "xdesk-" + a.shortStem.replaceAll("[^A-Za-z0-9._-]", "") + "-" + SystemClock.uptimeMillis() + "_TIME0";
+        // The environment goes into the launch token: the window that carries it is that environment's (scopeOfStartupId)
+        p.startupId = "xdesk-" + scopeToken(scopeOfApp(a)) + "--" + a.shortStem.replaceAll("[^A-Za-z0-9._-]", "") + "-" + SystemClock.uptimeMillis() + "_TIME0";
         p.timeout = () -> {
             if (pending != p) return;
             pending = null;
@@ -341,8 +342,12 @@ final class LinuxSource implements ContentSource {
         // A splash or a dialog is not the program's window while it may still open one (it would be made full screen)
         boolean aux = SystemClock.uptimeMillis() - p.since >= AUX_AFTER_MS;
         for (Win w : windows.values()) if (!p.before.contains(w.id) && (aux || (w.flags & FLAG_AUX) == 0)) fresh.add(w);
+        // A new window of unknown environment is looked up among the launched program's environment: the same program
+        // may be installed in another one too, which appOf(w) would prefer
+        final String scope = scopeOfApp(p.app);
         for (Win w : fresh) {
-            if ((!w.startupId.isEmpty() && w.startupId.equals(p.startupId)) || appOf(w) == p.app) {
+            if ((!w.startupId.isEmpty() && w.startupId.equals(p.startupId))
+                    || (windowScopes.containsKey(w.id) ? appOf(w) : appOf(w, scope)) == p.app) {
                 matched(p, w.id);
                 return;
             }
@@ -386,6 +391,8 @@ final class LinuxSource implements ContentSource {
         Log.i(TAG, p.app.key + " has window " + window);
         // Its windows are the app's from now on, whatever their class: Chromium's are chromium-browser, its id chromium
         Win w = windows.get(window);
+        // Launched by xdesk in that app's environment, whatever the window says about itself
+        if (w != null) windowScopes.put(window, scopeOfApp(p.app));
         if (w != null && appOf(w) != p.app && !w.cls.isEmpty()) learnedClasses.put(w.cls.toLowerCase(Locale.ROOT), p.app.key);
         ICmdEntryInterface s = server;
         if (s == null) {
@@ -495,6 +502,7 @@ final class LinuxSource implements ContentSource {
         server = s;
         windows.clear();
         windowIcons.clear();
+        windowScopes.clear();
         haveSnapshot = false;
         fullscreened = 0;
         maximized = 0;
@@ -537,6 +545,7 @@ final class LinuxSource implements ContentSource {
             windows.put(w.id, w);
         }
         windowIcons.keySet().retainAll(windows.keySet());
+        learnScopes();
         if (fullscreened != 0 && !windows.containsKey(fullscreened)) fullscreened = 0;
         if (maximized != 0 && !windows.containsKey(maximized)) maximized = 0;
         settle(old);
@@ -632,6 +641,8 @@ final class LinuxSource implements ContentSource {
             appKey = key.substring(APP.length());
         } else if (key.startsWith(WINDOW)) {
             Win w = windows.get(parseWindow(key));
+            String known = w != null ? windowScopes.get(w.id) : null;
+            if (known != null) return known;
             App a = w != null ? appOf(w) : null;
             if (a != null) appKey = a.key;
         }
@@ -656,24 +667,97 @@ final class LinuxSource implements ContentSource {
      * process, not the launched one) was never found: no picture.
      */
     private App appOf(Win w) {
+        // All environments share one X server (DEVICES.md §2), and the same program may be installed in several: a
+        // window whose environment is known is only ever a program of that one. Not known (started from a desktop's
+        // panel or a terminal): the environment whose whole desktop runs first, else Termux, then any
+        String scope = windowScopes.get(w.id);
+        if (scope != null) return appOf(w, scope);
+        App a = appOf(w, homeScope());
+        return a != null ? a : appOf(w, null);
+    }
+
+    /** @param scope only programs of this environment, null: of any */
+    private App appOf(Win w, String scope) {
         String inst = w.instance.toLowerCase(Locale.ROOT), cls = w.cls.toLowerCase(Locale.ROOT);
         if (inst.isEmpty() && cls.isEmpty()) return null;
         for (App a : catalog)
-            if (!a.wmClass.isEmpty() && (a.wmClass.equals(cls) || a.wmClass.equals(inst))) return a;
+            if (in(a, scope) && !a.wmClass.isEmpty() && (a.wmClass.equals(cls) || a.wmClass.equals(inst))) return a;
         for (App a : catalog)
-            if (a.wmClass.isEmpty() && (a.stem.equals(cls) || a.stem.equals(inst) || a.shortStem.equals(cls) || a.shortStem.equals(inst)))
+            if (in(a, scope) && a.wmClass.isEmpty() && (a.stem.equals(cls) || a.stem.equals(inst) || a.shortStem.equals(cls) || a.shortStem.equals(inst)))
                 return a;
         String learned = learnedClasses.get(cls);
         if (learned != null) {
             App a = app(learned);
+            // Learned from the same program of another environment: this environment's one, if it has it
+            if (a != null && !in(a, scope)) a = app(scope + learned.substring(learned.indexOf('/')));
             if (a != null) return a;
         }
         App best = null;
         for (App a : catalog)
-            if (a.wmClass.isEmpty() && (best == null || a.stem.length() > best.stem.length())
+            if (in(a, scope) && a.wmClass.isEmpty() && (best == null || a.stem.length() > best.stem.length())
                     && (cls.startsWith(a.stem + "-") || inst.startsWith(a.stem + "-")))
                 best = a;
         return best;
+    }
+
+    // --- which environment a window belongs to ---
+
+    /**
+     * The environment (xdesk's SCOPE: "termux" or a proot or chroot session's name) of the windows where it is known:
+     * the launch token XDesk gave the program (DESKTOP_STARTUP_ID, which also survives a restart of XDesk under a
+     * running X), the launch that was matched to the window, or another window of the same process. A window says
+     * nothing else about where its program runs: proot and chroot programs are ordinary clients of the one X server.
+     */
+    private final HashMap<Integer, String> windowScopes = new HashMap<>();
+
+    private static String scopeOfApp(App a) {
+        int slash = a.key.indexOf('/');
+        return slash > 0 ? a.key.substring(0, slash) : Devices.TERMUX;
+    }
+
+    private static boolean in(App a, String scope) {
+        return scope == null || (a.key.startsWith(scope) && a.key.length() > scope.length() && a.key.charAt(scope.length()) == '/');
+    }
+
+    private static String scopeToken(String scope) {
+        return scope.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    /** "xdesk-SCOPE--…", as launch() makes it: the scope, if it is one of the catalog's. */
+    private String scopeOfStartupId(String id) {
+        if (id == null || !id.startsWith("xdesk-")) return null;
+        String best = null;
+        for (App a : catalog) {
+            String scope = scopeOfApp(a);
+            if ((best == null || scope.length() > best.length()) && id.startsWith("xdesk-" + scopeToken(scope) + "--")) best = scope;
+        }
+        return best;
+    }
+
+    private String homeScope() {
+        Devices d = Devices.get(context);
+        return d.deviceOfSession(d.appsOnlyRunning() ? null : d.runningSession()).substring(Devices.LINUX.length());
+    }
+
+    private void learnScopes() {
+        windowScopes.keySet().retainAll(windows.keySet());
+        for (Win w : windows.values()) {
+            if (windowScopes.containsKey(w.id)) continue;
+            String scope = scopeOfStartupId(w.startupId);
+            if (scope != null) windowScopes.put(w.id, scope);
+        }
+        // The program's other windows: the same process as one whose environment is known
+        for (Win w : windows.values()) {
+            if (windowScopes.containsKey(w.id)) continue;
+            for (Win o : windows.values()) {
+                String scope = windowScopes.get(o.id);
+                boolean same = (w.pid > 0 && w.pid == o.pid) || (w.clientPid > 0 && w.clientPid == o.clientPid);
+                if (scope != null && same && o != w) {
+                    windowScopes.put(w.id, scope);
+                    break;
+                }
+            }
+        }
     }
 
     /** The program's most recently active window; a dialog or a splash (FLAG_AUX) only when it has no other. */

@@ -432,14 +432,24 @@ final class ChooserView extends LinearLayout {
         }
         deviceBar.setVisibility(VISIBLE);
         deviceDot.setBackground(Style.dot(Devices.color(d.state)));
-        String state = str(Devices.stateLabel(d.state));
+        String state = str(Devices.stateLabel(d));
         deviceState.setText(d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
         deviceButton.setEnabled(!d.busy);
         deviceButton.setAlpha(d.busy ? 0.4f : 1f);
         deviceButton.setOnClickListener(null);
         Runnable act = null;
         int label = 0;
-        if (d.state == Devices.State.CONNECTED) {
+        if (d.type == Devices.Type.LINUX) {
+            // Local, reached through the xdesk command: no connect or disconnect. Running or not, and a Stop for the
+            // X server while it runs (DEVICES.md §2)
+            if (d.state == Devices.State.NOT_SET_UP) {
+                label = R.string.xd_dev_set_up;
+                act = () -> DeviceSettings.setUp(getContext(), d.type);
+            } else if (d.canStop) {
+                label = R.string.xd_dev_stop;
+                act = () -> devices.stop(d.id);  // XDeskActivity asks first if anything is open
+            }
+        } else if (d.state == Devices.State.CONNECTED) {
             label = R.string.xd_dev_disconnect;
             act = () -> confirmDisconnect(d);
         } else if (d.state == Devices.State.CONNECTING) {
@@ -471,10 +481,6 @@ final class ChooserView extends LinearLayout {
     }
 
     private void confirmDisconnect(final Devices.Device d) {
-        if (d.type == Devices.Type.LINUX) {
-            devices.disconnect(d.id);  // XDeskActivity asks first, it knows what the X session holds
-            return;
-        }
         new SettingsUi(getContext()).confirm(getContext().getString(R.string.xd_dev_disconnect_title, d.name),
                 str(R.string.xd_dev_disconnect_mac_note), str(R.string.xd_dev_disconnect), () -> devices.disconnect(d.id));
     }
@@ -491,7 +497,7 @@ final class ChooserView extends LinearLayout {
     private Row sessionRow(final String name) {
         Row r = new Row();
         r.key = recentKey(name);
-        // The whole desktop of a Linux environment; connecting is the device bar's (apps only, DEVICES.md §2)
+        // The whole desktop of a Linux environment: the only thing that starts its XFCE session (DEVICES.md §2)
         r.title = str(R.string.xd_dev_whole_desktop);
         r.isSession = true;
         r.sessionName = name;
@@ -503,7 +509,6 @@ final class ChooserView extends LinearLayout {
         if (r.stopping) state = str(R.string.xd_chooser_stopping);
         else if (r.key.equals(current)) state = str(onCar ? R.string.xd_on_car : R.string.xd_on_display);
         else if (r.running) state = str(R.string.xd_chooser_running);
-        else if ((name + Devices.APPS_ONLY).equals(running)) state = str(R.string.xd_dev_open_whole);
         r.subtitle = state != null ? name + " · " + state : name;
         r.action = () -> host.onSessionChosen(name);
         return r;

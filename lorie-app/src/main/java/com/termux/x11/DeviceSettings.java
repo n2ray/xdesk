@@ -13,8 +13,9 @@ import android.widget.Toast;
 import com.termux.x11.app.R;
 
 /**
- * Settings › Connect device (DEVICES.md §5): the external devices with their state, each one's page (connect,
- * disconnect, its own settings), and Add device › type › that type's own flow. Mac pairing and Mac options stay in
+ * Settings › Connect device (DEVICES.md §5): the external devices with their state, each one's page (a Mac: connect,
+ * disconnect, its own settings; a Linux environment: stop, remove), and Add device › type › that type's own flow:
+ * for Linux, picking from the environments the xdesk command reports. Mac pairing and Mac options stay in
  * MacSettings; this only hosts their entry points. UI thread.
  */
 final class DeviceSettings {
@@ -63,7 +64,7 @@ final class DeviceSettings {
     }
 
     private String stateText(Devices.Device d) {
-        String state = c.getString(Devices.stateLabel(d.state));
+        String state = c.getString(Devices.stateLabel(d));
         return d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state;
     }
 
@@ -118,9 +119,14 @@ final class DeviceSettings {
             }
             LinearLayout state = s.section(content, typeName(d.type));
             s.infoRow(state, c.getString(R.string.xd_dev_state), null, stateText(d));
-            if (d.state == Devices.State.CONNECTED && !d.busy) {
-                s.valueRow(state, c.getString(R.string.xd_dev_disconnect), c.getString(d.type == Devices.Type.LINUX
-                        ? R.string.xd_dev_disconnect_linux_note : R.string.xd_dev_disconnect_mac_note), "", () -> devices.disconnect(id));
+            if (d.type == Devices.Type.LINUX) {
+                // Local: nothing to connect. Stop ends the X server all Linux devices share (asks if anything is open)
+                if (d.canStop && !d.busy)
+                    s.valueRow(state, c.getString(R.string.xd_dev_stop), c.getString(R.string.xd_dev_stop_note), "", () -> devices.stop(id));
+                if (d.state == Devices.State.NOT_SET_UP)
+                    s.valueRow(state, c.getString(R.string.xd_dev_set_up), null, "", () -> setUp(c, d.type));
+            } else if (d.state == Devices.State.CONNECTED && !d.busy) {
+                s.valueRow(state, c.getString(R.string.xd_dev_disconnect), c.getString(R.string.xd_dev_disconnect_mac_note), "", () -> devices.disconnect(id));
             } else if (d.state == Devices.State.NOT_SET_UP) {
                 s.valueRow(state, c.getString(R.string.xd_dev_set_up), null, "", () -> setUp(c, d.type));
             } else if (d.state != Devices.State.CONNECTING && d.canConnect(devices)) {
@@ -131,10 +137,15 @@ final class DeviceSettings {
                 java.util.List<String> own = devices.sessionsOf(id);
                 if (own.isEmpty()) s.infoRow(sessions, c.getString(R.string.xd_dev_linux_no_session), null, null);
                 for (String name : own)
-                    s.infoRow(sessions, name, null, name.equals(devices.runningSession()) ? c.getString(R.string.xd_dev_state_connected)
+                    s.infoRow(sessions, name, null, name.equals(devices.runningSession()) ? c.getString(R.string.xd_dev_state_running)
                             : name.equals(devices.defaultSession()) ? c.getString(R.string.xd_chooser_default) : null);
                 LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
+                s.infoRow(more, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
                 s.valueRow(more, c.getString(R.string.xd_dev_linux_add_more), null, "", this::linuxSetUp);
+                final String env = id.substring(Devices.LINUX.length());
+                if (!env.equals(Devices.TERMUX))
+                    s.valueRow(more, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_dev_remove_linux_note), "",
+                            () -> devices.setLinuxAdded(env, false));
             } else if (d.type == Devices.Type.MAC) {
                 LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
                 s.valueRow(more, c.getString(R.string.xd_mac_settings), c.getString(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
@@ -151,9 +162,35 @@ final class DeviceSettings {
         }
     }
 
-    /** Add device › Linux: Termux, its permission, then xdesk setup (proot) or xdesk add (chroot). */
+    private String envName(Devices.Env e) {
+        return Devices.linuxName(c, Devices.LINUX + e.name);
+    }
+
+    private String envNote(Devices.Env e) {
+        String kind = e.kind.equals(Devices.TERMUX) ? c.getString(R.string.xd_dev_env_termux) : e.kind.equals("proot") ? "proot"
+                : e.kind.equals("chroot") ? "chroot" : e.name;
+        String what = c.getString(e.apps ? R.string.xd_dev_env_apps : R.string.xd_dev_env_desktop_only);
+        return e.sessions.isEmpty() ? kind + " · " + what : kind + " · " + what + " · " + String.join(", ", e.sessions);
+    }
+
+    /**
+     * Add device › Linux: the environments the xdesk command reports, each added or removed as a device with a tap
+     * (Termux itself always is one); then how to make xdesk know more: Termux, its permission, xdesk setup (proot)
+     * or xdesk add (chroot).
+     */
     private void linuxSetUp() {
         live(c.getString(R.string.xd_dev_type_linux), content -> {
+            LinearLayout found = s.section(content, c.getString(R.string.xd_dev_linux_found));
+            for (final Devices.Env e : devices.environments()) {
+                if (e.name.equals(Devices.TERMUX)) {
+                    s.infoRow(found, envName(e), envNote(e), c.getString(R.string.xd_dev_env_always));
+                } else {
+                    final boolean added = devices.isLinuxAdded(e.name);
+                    s.valueRow(found, envName(e), envNote(e), c.getString(added ? R.string.xd_dev_env_added : R.string.xd_dev_env_add),
+                            () -> devices.setLinuxAdded(e.name, !added));
+                }
+            }
+            s.infoRow(found, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
             LinearLayout steps = s.section(content, c.getString(R.string.xd_dev_linux_steps));
             boolean termux = termuxInstalled();
             if (!termux) {
@@ -173,9 +210,6 @@ final class DeviceSettings {
                 Devices.Actions a = devices.actions();
                 if (a != null) a.setUpLinux();
             });
-            LinearLayout found = s.section(content, c.getString(R.string.xd_dev_linux_found));
-            for (Devices.Device d : devices.external())
-                if (d.type == Devices.Type.LINUX) s.infoRow(found, d.name, stateText(d), null);
         });
     }
 
