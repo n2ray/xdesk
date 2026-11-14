@@ -461,7 +461,8 @@ public final class MacClient {
         switch (m.kind) {
         case SillWire.FRAME: {
             Surface target = surface;
-            if (locked() || target == null) return;
+            // Only another user's session hides the picture; a locked screen is shown, so the desktop can be unlocked (as sall)
+            if (locked && offConsole && !offConsoleView || target == null) return;
             if (passFrame(s, m)) return;
             if (!video.frame(m.payload, m.length, m.keyframe, m.timestamp, target)) askKeyframe(s);
             return;
@@ -924,7 +925,7 @@ public final class MacClient {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_connecting, name());
         } else if (locked && offConsole && !offConsoleView) {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_other_user);
-        } else if (locked && !offConsoleView) {
+        } else if (locked && !offConsoleView && want != DESKTOP) {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_locked, name());
         } else if (pendingLaunch != null) {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_opening);
