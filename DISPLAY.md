@@ -255,7 +255,10 @@ Windows（以后）┘
 - Android 密度 = 160 · b · u · R/N
 - XFCE 面板、图标、光标按同一比例单独设
 - XDesk 外壳和光标 = b · u 个 dp
-- Mac 窗口用 Sill viewport 的 scale = b · u
+- Mac 窗口：每个 Mac 点 = max(b · u · R/N, 1.5) 个屏幕像素（`MacClient.pointScale`），窗口长边最多 2320 点。
+  Sill 的虚拟显示器按 viewport 的长边 ÷ 0.5 做成正方形、2 倍像素，太大建不出来（M4 上 4096 点失败，最大成功过 2316 点），
+  失败就退回串真实窗口，右键菜单等弹出窗口就不在画面里了。所以 viewport 的长边限在 1160 点，窗口再大靠 scale（窗口 = viewport ÷ scale，0.5–1）。
+  scale 只在窗口在虚拟显示器上（Sill 的 kind 16 `stream.onVirtualDisplay`）或用户开了"适配屏幕"时发；其他时候不发，不动真实窗口。
 
 ppi 的来源：
 - 有线外屏用 EDID 的物理尺寸，算出来不在 40–300 之间就丢掉，改用 b = 1.1。

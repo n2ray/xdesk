@@ -231,8 +231,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     }
 
     @Override public void cursor(Bitmap shape, float hx, float hy, float width, float height) {
-        float density = getResources().getDisplayMetrics().density;
-        // Sizes are Mac points: drawn as dp on this screen
+        // Sizes are Mac points, as many pixels each as the client asked the Mac window for
+        float density = client.pointScale();
         int w = Math.round(width * density), h = Math.round(height * density);
         cursor.setImageBitmap(shape);
         cursor.setScaleType(ImageView.ScaleType.FIT_XY);

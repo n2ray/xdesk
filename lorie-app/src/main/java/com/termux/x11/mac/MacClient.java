@@ -120,6 +120,8 @@ public final class MacClient {
     private final MacVideo video;
     private volatile int surfaceW, surfaceH;
     private volatile float density = 1;
+    /** Whether the streamed window is (or the next one will be) on Sill's virtual display; null before Sill says. */
+    private volatile Boolean staging;
     private volatile int frameX, frameY, frameW, frameH, screenW, screenH;
     private volatile int fps = 60;
     /** What this XDesk wants streamed while shown: a window id, DESKTOP, or NONE. */
@@ -186,6 +188,31 @@ public final class MacClient {
     public boolean activeDesktop() { return activeDesktop; }
     public float pointerX() { return pointerX; }
     public float pointerY() { return pointerY; }
+
+    /**
+     * Screen pixels per Mac point: how big the Mac window is asked to be on this screen (sendViewport) and how big
+     * its cursor is drawn. A dp, as Sall does on a phone, but at least POINT_MIN_PX on a big screen: XDesk sets an
+     * external screen's density from its physical size, near 1 on a desk monitor, and a Mac window of 2560×1440
+     * points there would need a virtual display Sill can't make (Sill.log 2026-11-14: "not at 4096×4096 @2×") and
+     * a picture of four times the screen's pixels. 1.5 is a MacBook Air's own look (1707×960 on a 2560 screen).
+     * And never so small that the window's longer side passes WINDOW_MAX.
+     */
+    public float pointScale() {
+        float k = Math.max(density, POINT_MIN_PX);
+        int longest = Math.max(surfaceW, surfaceH);
+        return longest > 0 ? Math.max(k, longest / WINDOW_MAX) : k;
+    }
+
+    private static final float POINT_MIN_PX = 1.5f;
+    /**
+     * The longest panel side sent to Sill, in points. Sill makes its virtual display a square of the panel's longer
+     * side ÷ 0.5 (VirtualDisplaySize.envelope) at 2× backing; the largest it ever made on the user's M4 was 2316 pt
+     * wide (4632 px), and 4096 failed. A window bigger than this comes from the scale (window = panel ÷ scale).
+     */
+    private static final float PANEL_MAX = 1160;
+    /** The longest Mac window side asked for: PANEL_MAX at the smallest scale Sill's envelope allows for (0.5). */
+    private static final float WINDOW_MAX = 2 * PANEL_MAX;
+
     public void setListener(Listener l) { listener = l; }
 
     private void changed() {
@@ -489,6 +516,9 @@ public final class MacClient {
             if (pt != null) pt.cursorPosition(pointerX, pointerY, inside);
             return;
         }
+        case SillWire.HOST_SETTINGS:
+            hostSettings(new JSONObject(m.text()));
+            return;
         case SillWire.CLIPBOARD:
             clipboardFromMac(new JSONObject(m.text()).optString("text", ""));
             return;
@@ -662,8 +692,8 @@ public final class MacClient {
         if (p == null || c == null || fw <= 0 || c.length <= 16) return;
         ByteBuffer b = ByteBuffer.wrap(c, 0, 16);
         float hx = b.getFloat(), hy = b.getFloat(), w = b.getFloat(), h = b.getFloat();
-        // Mac points are dp on the display; the picture is fw pixels wide on it
-        float k = density / fw;
+        // A Mac point is pointScale pixels on the display; the picture is fw pixels wide on it
+        float k = pointScale() / fw;
         p.cursorShape(c, 16, c.length - 16, w * k, h * k, hx * k, hy * k);
         p.cursorPosition(pointerX, pointerY, true);
     }
@@ -827,15 +857,44 @@ public final class MacClient {
         } catch (JSONException ignored) { }
     }
 
-    /** The screen's size in its own dp; a scale only with "fit to screen" (the host restores the window when it ends). */
+    /**
+     * The panel and scale that make the Mac window the screen in Mac points (pointScale) while keeping Sill's virtual
+     * display small: Sill sizes a window to panel ÷ scale and its display to the panel alone, so a big window is a
+     * panel of at most PANEL_MAX with a scale under 1. The scale goes only where it sizes a window XDesk may size:
+     * on Sill's virtual display (where no scale means 1×, a window the size of the panel), or with "fit to screen"
+     * (the real window, put back when the stream ends). Elsewhere no scale leaves the Mac window alone.
+     */
     public void sendViewport() {
         if (surfaceW <= 0 || surfaceH <= 0) return;
+        float k = pointScale();
+        double w = surfaceW / k, h = surfaceH / k, longest = Math.max(w, h);
+        double s = longest > PANEL_MAX ? PANEL_MAX / longest : 1;
         try {
-            JSONObject v = new JSONObject().put("width", Math.max(1, Math.min(16384, surfaceW / density)))
-                    .put("height", Math.max(1, Math.min(16384, surfaceH / density))).put("fps", fps);
-            if (mac.fit) v.put("scale", 1.0);
+            JSONObject v = new JSONObject().put("width", Math.max(1, Math.min(16384, w * s)))
+                    .put("height", Math.max(1, Math.min(16384, h * s))).put("fps", fps);
+            if (mac.fit || Boolean.TRUE.equals(staging)) v.put("scale", Math.max(0.5, Math.min(1, s)));
             enqueue(SillWire.VIEWPORT, v);
         } catch (JSONException ignored) { }
+    }
+
+    /**
+     * Sill's settings state (kind 16, after the window list and whenever it changes): whether a window streams from
+     * its virtual display, so sendViewport knows whether a scale sizes it there. Where the running stream is a window
+     * its own onVirtualDisplay decides (a staging can fail and stream the real window); otherwise the setting.
+     */
+    private void hostSettings(JSONObject o) {
+        JSONObject settings = o.optJSONObject("settings"), stream = o.optJSONObject("stream");
+        boolean on = settings != null && settings.optBoolean("virtualDisplay", false)
+                && o.optBoolean("virtualDisplayAvailable", true);
+        if (activeWindow >= 0 && !activeDesktop && stream != null && stream.has("onVirtualDisplay")) {
+            on = stream.optBoolean("onVirtualDisplay", on);
+        }
+        Boolean before = staging;
+        staging = on;
+        if (before == null || before != on) {
+            Log.i(TAG, "virtual display " + (on ? "in use" : "not in use"));
+            if (state == State.CONNECTED && surface != null) sendViewport();
+        }
     }
 
     public void windowCommand(long id, String action) {

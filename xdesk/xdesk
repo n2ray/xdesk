@@ -563,6 +563,8 @@ build_catalog() {
                 ic=""
                 icon=$(find_icon "$root" "$theme" "$icon") && ic=$(icon_png64 "$icon")
                 [ "$term" = true ] && term=1 || term=0
+                # A packager's unfilled template (Termux's chromium.desktop: @@startup_wm_class) names no class
+                case "$wmclass" in *@@*) wmclass="" ;; esac
                 printf '%s/%s\t%s\t%s\t%s\t%s\n' "$scope" "${ids[$file]}" "$name" "$term" "$wmclass" "$ic"
             done < <(desktop_rows "$loc" "${files[@]}")
             unset ids

@@ -307,6 +307,9 @@ final class LinuxSource implements ContentSource {
         ui.removeCallbacks(p.timeout);
         pending = null;
         Log.i(TAG, p.app.key + " has window " + window);
+        // Its windows are the app's from now on, whatever their class: Chromium's are chromium-browser, its id chromium
+        Win w = windows.get(window);
+        if (w != null && appOf(w) != p.app && !w.cls.isEmpty()) learnedClasses.put(w.cls.toLowerCase(Locale.ROOT), p.app.key);
         ICmdEntryInterface s = server;
         if (s == null) {
             p.result.failed(p.key, context.getString(R.string.xd_linux_no_x));
@@ -469,6 +472,8 @@ final class LinuxSource implements ContentSource {
             a.name = f[1];
             a.terminal = "1".equals(f[2]);
             a.wmClass = f[3].toLowerCase(Locale.ROOT);
+            // A packager's unfilled template (Termux's chromium.desktop: @@startup_wm_class) names no class
+            if (a.wmClass.contains("@@")) a.wmClass = "";
             String id = a.key.substring(a.key.indexOf('/') + 1).toLowerCase(Locale.ROOT);
             a.stem = id;
             a.shortStem = id.substring(id.lastIndexOf('.') + 1);
@@ -492,7 +497,16 @@ final class LinuxSource implements ContentSource {
         return null;
     }
 
-    /** The app a window belongs to: StartupWMClass, else WM_CLASS equal to the desktop id or its last part. */
+    /** WM_CLASS (lowercase) → app key, learned from a launched app's first window (matched). */
+    private final HashMap<String, String> learnedClasses = new HashMap<>();
+
+    /**
+     * The app a window belongs to: StartupWMClass, else WM_CLASS equal to the desktop id or its last part, else the
+     * class one of its launches showed (learnedClasses), else a class that is the id and a dash-suffix ("chromium" for
+     * chromium-browser, the longest such id). Without the last two, an app whose class is not its id seemed to have no
+     * window, so every pick launched it again, and a single-instance program's new window (opened by its running
+     * process, not the launched one) was never found: no picture.
+     */
     private App appOf(Win w) {
         String inst = w.instance.toLowerCase(Locale.ROOT), cls = w.cls.toLowerCase(Locale.ROOT);
         if (inst.isEmpty() && cls.isEmpty()) return null;
@@ -501,7 +515,17 @@ final class LinuxSource implements ContentSource {
         for (App a : catalog)
             if (a.wmClass.isEmpty() && (a.stem.equals(cls) || a.stem.equals(inst) || a.shortStem.equals(cls) || a.shortStem.equals(inst)))
                 return a;
-        return null;
+        String learned = learnedClasses.get(cls);
+        if (learned != null) {
+            App a = app(learned);
+            if (a != null) return a;
+        }
+        App best = null;
+        for (App a : catalog)
+            if (a.wmClass.isEmpty() && (best == null || a.stem.length() > best.stem.length())
+                    && (cls.startsWith(a.stem + "-") || inst.startsWith(a.stem + "-")))
+                best = a;
+        return best;
     }
 
     private Win newestWindowOf(App a) {
