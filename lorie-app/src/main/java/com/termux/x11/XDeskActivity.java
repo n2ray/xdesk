@@ -597,6 +597,9 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onAppStarted() {
             attachApp();
+            // Physical keys and mouse belong to the external screen (the phone's is worked by finger): every app starts
+            // with them, whatever was switched for the one before (INPUT.md §12). Ctrl+Alt+M still gives them back.
+            if (externalDisplay() != null && hasExternalInput()) apps.setForwarding(true);
             refocusSelf();
         }
         @Override public void onAppFailed(String message) {
@@ -981,6 +984,7 @@ public class XDeskActivity extends Activity {
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionStop(String name) { confirmStop(); }
         @Override public void onSessionChosen(final String name) {
+            phoneKeys = true;
             if (session.stopping() != null) {
                 Toast.makeText(XDeskActivity.this, R.string.xd_desktop_stopping, Toast.LENGTH_SHORT).show();
                 return;
@@ -2519,6 +2523,16 @@ public class XDeskActivity extends Activity {
 
     // --- 物理键鼠 ---
 
+    /** An external mouse or a real keyboard on the phone (Bluetooth, USB). */
+    private boolean hasExternalInput() {
+        for (int id : inputs.getInputDeviceIds()) {
+            InputDevice d = inputs.getInputDevice(id);
+            if (d == null || !d.isExternal() || d.isVirtual()) continue;
+            if (d.supportsSource(InputDevice.SOURCE_MOUSE) || d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return true;
+        }
+        return false;
+    }
+
     private boolean hasExternalMouse() {
         for (int id : inputs.getInputDeviceIds()) {
             InputDevice d = inputs.getInputDevice(id);
@@ -3147,6 +3161,7 @@ public class XDeskActivity extends Activity {
             needDisplayNotice();
             return;
         }
+        phoneKeys = true;
         pendingContent = key;
         pendingApp = null;  // an Android app still waiting for its activation is no longer what was chosen
         rememberRecent(key);
@@ -3340,6 +3355,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void chooseKey(String key) {
+        phoneKeys = true;  // whatever opens starts with the keys and mouse; giving them to the phone lasts for one content
         if (Contents.sourceOf(key) != null) {
             chooseContent(key);
             return;
