@@ -77,4 +77,7 @@
     <string name="xd_sw_show_hidden">Show hidden (%1$d)</string>
     <string name="xd_sw_hide_hidden">Hide hidden apps again</string>
     <string name="xd_sw_set_up_on_phone">set it up on the phone</string>
+    <string name="xd_dev_whole_desktop">Whole desktop</string>
+    <string name="xd_dev_desktop_header">Desktop</string>
+    <string name="xd_dev_locked_hint">Locked — open the desktop to unlock</string>
 </resources>

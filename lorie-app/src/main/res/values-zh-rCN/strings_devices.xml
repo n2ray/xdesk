@@ -74,4 +74,7 @@
     <string name="xd_sw_show_hidden">显示已隐藏（%1$d）</string>
     <string name="xd_sw_hide_hidden">收起已隐藏</string>
     <string name="xd_sw_set_up_on_phone">请在手机上设置</string>
+    <string name="xd_dev_whole_desktop">整个桌面</string>
+    <string name="xd_dev_desktop_header">桌面</string>
+    <string name="xd_dev_locked_hint">已锁定 — 打开桌面解锁</string>
 </resources>

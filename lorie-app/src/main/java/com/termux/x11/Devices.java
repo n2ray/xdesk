@@ -378,6 +378,13 @@ final class Devices {
         prefs.edit().putString(PREF_SWITCHER_TAB, tab).apply();
     }
 
+    /** A Mac that is connected but locked: its apps come only after the desktop is opened and unlocked. */
+    static boolean isLocked(Context c, String deviceId) {
+        if (!deviceId.startsWith(MAC)) return false;
+        MacClient m = MacClients.get(c, deviceId.substring(MAC.length()));
+        return m != null && m.state() == MacClient.State.CONNECTED && m.locked();
+    }
+
     /** The state's colour for dots on tabs and rows. */
     static int color(State s) {
         switch (s) {

@@ -93,6 +93,8 @@ final class ChooserView extends LinearLayout {
         String sessionName;
         /** An app (not a window or a desktop): can be hidden. */
         boolean hideable, hidden;
+        /** A whole desktop: drawn apart from the apps. */
+        boolean desktop;
         /** Its letter in the A–Z part, 0 outside it. */
         char initial;
     }
@@ -490,6 +492,7 @@ final class ChooserView extends LinearLayout {
         r.title = name;
         r.isSession = true;
         r.sessionName = name;
+        r.desktop = true;
         r.running = name.equals(devices.runningSession());
         r.stopping = name.equals(devices.stoppingSession());
         if (r.stopping) r.subtitle = str(R.string.xd_chooser_stopping);
@@ -657,7 +660,7 @@ final class ChooserView extends LinearLayout {
             }
         }
         if (!desktops.isEmpty()) {
-            rows.add(header(str(R.string.xd_linux_desktops)));
+            rows.add(header(str(R.string.xd_dev_desktop_header)));
             rows.addAll(desktops);
         }
         sourceRows(device, LinuxSource.get(), R.string.xd_dev_linux_windows, sorted, hiddenRows);
@@ -671,6 +674,24 @@ final class ChooserView extends LinearLayout {
         for (ContentSource.Entry e : s.windows()) {
             if (!devices.deviceOf(e.key).equals(device.id)) continue;
             shown.add(e.key);
+            if (isDesktopKey(e.key)) {
+                // The whole desktop first, always, even locked or still connecting: opening it is how a locked Mac is
+                // unlocked, and only then does Sill send the apps (DEVICES.md §3)
+                if (!query.isEmpty() && !entryMatches(e)) continue;
+                Row r = contentRow(e, false);
+                r.title = str(R.string.xd_dev_whole_desktop);
+                r.desktop = true;
+                if (r.subtitle == null) r.subtitle = e.label;
+                rows.add(header(str(R.string.xd_dev_desktop_header)));
+                rows.add(r);
+                if (query.isEmpty() && Devices.isLocked(getContext(), device.id)) {
+                    Row hint = new Row();
+                    hint.title = str(R.string.xd_dev_locked_hint);
+                    hint.action = r.action;
+                    rows.add(hint);
+                }
+                continue;
+            }
             if (entryMatches(e)) open.add(contentRow(e, false));
         }
         if (!open.isEmpty()) {
@@ -679,6 +700,11 @@ final class ChooserView extends LinearLayout {
         }
         for (ContentSource.Entry e : s.apps())
             if (!shown.contains(e.key) && entryMatches(e) && devices.deviceOf(e.key).equals(device.id)) addApp(contentRow(e, true), sorted, hiddenRows);
+    }
+
+    /** A whole desktop of a device (a Mac's "m:<id>:desktop"; later Windows'). */
+    static boolean isDesktopKey(String key) {
+        return key.startsWith(MacSource.PREFIX) && key.endsWith(":desktop");
     }
 
     private void sortRows(List<Row> list) {
@@ -822,6 +848,7 @@ final class ChooserView extends LinearLayout {
             }
             v.setAlpha(r.hidden ? 0.55f : 1f);
             h.title.setText(r.title);
+            h.title.setTextColor(r.desktop ? Style.ACCENT : Style.TEXT);
             h.subtitle.setText(r.subtitle);
             h.subtitle.setVisibility(r.subtitle != null ? VISIBLE : GONE);
             if (r.app != null) {
@@ -831,7 +858,7 @@ final class ChooserView extends LinearLayout {
                 h.icon.setVisibility(VISIBLE);
                 h.icon.setTag(null);
                 if (r.bitmap != null) h.icon.setImageBitmap(r.bitmap);
-                else h.icon.setImageDrawable(Style.letterIcon(c, r.title));
+                else h.icon.setImageDrawable(Style.letterIcon(c, r.desktop ? "\u25A3" : r.title));
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);

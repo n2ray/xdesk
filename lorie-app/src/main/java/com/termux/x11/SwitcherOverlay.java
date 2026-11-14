@@ -142,7 +142,7 @@ final class SwitcherOverlay {
 
     private static final class Item {
         String key, label, detail, search;
-        boolean hidden;
+        boolean hidden, desktop;
         char initial;
     }
 
@@ -324,25 +324,38 @@ final class SwitcherOverlay {
         Item itemForKey(String key) {
             if (!ExternalLauncher.exists(c, key)) return null;
             ContentSource.Entry e = Contents.find(key);
-            if (e != null) return item(key, e.label, e.detail, null);
-            return item(key, ExternalLauncher.label(c, key), null, null);
+            Item i = e != null ? item(key, e.label, e.detail, null) : item(key, ExternalLauncher.label(c, key), null, null);
+            i.desktop = ChooserView.isDesktopKey(key) || key.startsWith("t:");
+            return i;
         }
 
         /** A device's desktops and windows first (in their order), then its apps by initial. */
         void deviceItems(Devices.Device d, List<Item> out) {
+            final int start = out.size();
             ArrayList<Item> apps = new ArrayList<>();
             if (d.type == Devices.Type.PHONE) {
                 for (AppCatalog.App a : AppCatalog.get(c).apps()) apps.add(item(ChooserView.recentKey(a), a.label, null, a.packageName));
             } else {
+                // The whole desktop first, always (locked, still connecting): opening it connects and unlocks
                 if (d.type == Devices.Type.LINUX)
-                    for (String s : devices.sessionsOf(d.id)) out.add(item(ChooserView.recentKey(s), s, c.getString(R.string.xd_linux_desktop), null));
+                    for (String s : devices.sessionsOf(d.id)) {
+                        Item i = item(ChooserView.recentKey(s), c.getString(R.string.xd_dev_whole_desktop), s, null);
+                        i.desktop = true;
+                        out.add(i);
+                    }
                 ContentSource source = d.type == Devices.Type.LINUX ? LinuxSource.get() : d.type == Devices.Type.MAC ? Contents.sourceOf(MacSource.PREFIX) : null;
                 if (source != null) {
                     HashSet<String> shown = new HashSet<>();
                     for (ContentSource.Entry e : source.windows()) {
                         if (!devices.deviceOf(e.key).equals(d.id)) continue;
                         shown.add(e.key);
-                        out.add(item(e.key, e.label, e.detail, null));
+                        if (ChooserView.isDesktopKey(e.key)) {
+                            Item i = item(e.key, c.getString(R.string.xd_dev_whole_desktop), e.detail != null ? e.detail : e.label, e.label);
+                            i.desktop = true;
+                            out.add(start, i);
+                        } else {
+                            out.add(item(e.key, e.label, e.detail, null));
+                        }
                     }
                     for (ContentSource.Entry e : source.apps())
                         if (!shown.contains(e.key) && devices.deviceOf(e.key).equals(d.id)) apps.add(item(e.key, e.label, null, null));
@@ -482,7 +495,8 @@ final class SwitcherOverlay {
                 return;
             }
             String state = c.getString(Devices.stateLabel(d.state));
-            deviceState.setText(d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
+            deviceState.setText(Devices.isLocked(c, d.id) ? c.getString(R.string.xd_dev_locked_hint)
+                    : d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state);
             if ((d.state == Devices.State.DISCONNECTED || d.state == Devices.State.FAILED) && d.canConnect(devices)) {
                 deviceAction.setText(R.string.xd_dev_connect);
                 deviceAction.setVisibility(View.VISIBLE);
@@ -528,7 +542,7 @@ final class SwitcherOverlay {
             box.setPadding(gap / 2, dp(8), gap / 2, dp(4));
             box.setClickable(true);
             boolean isCurrent = it.key.equals(current);
-            box.setBackground(round(isCurrent ? CURRENT : 0x00000000, dp(18)));
+            box.setBackground(tileBack(it, isCurrent ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden ? 0.5f : 1f);
             box.addView(ExternalLauncher.icon(c, it.key, icon), new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
@@ -555,6 +569,13 @@ final class SwitcherOverlay {
             tiles.add(box);
             targets.add(new Target(box, go, index));
             return box;
+        }
+
+        /** A whole desktop gets a ring, so it stands apart from the apps. */
+        GradientDrawable tileBack(Item it, int color) {
+            GradientDrawable g = round(color, dp(18));
+            if (it.desktop) g.setStroke(Math.max(2, dp(2)), Style.ACCENT);
+            return g;
         }
 
         void renderBottom() {
@@ -627,10 +648,10 @@ final class SwitcherOverlay {
         void select(int i) {
             if (selected >= 0 && selected < tiles.size()) {
                 Item it = items.get(page * perPage() + selected);
-                tiles.get(selected).setBackground(round(it.key.equals(current) ? CURRENT : 0x00000000, dp(18)));
+                tiles.get(selected).setBackground(tileBack(it, it.key.equals(current) ? CURRENT : 0x00000000));
             }
             selected = i >= 0 && i < tiles.size() ? i : -1;
-            if (selected >= 0) tiles.get(selected).setBackground(round(HOVER, dp(18)));
+            if (selected >= 0) tiles.get(selected).setBackground(tileBack(items.get(page * perPage() + selected), HOVER));
         }
 
         // --- pointer ---
