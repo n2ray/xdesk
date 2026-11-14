@@ -422,6 +422,8 @@ public class XDeskActivity extends Activity {
             }
             // 可能换了显示器：按新尺寸算分辨率，再把桌面放回去
             desktopOnCar = false;
+            // A Linux program shown as the content stayed full screen in X: it is on this display now
+            if (contentKey != null && contentKey.startsWith(LinuxSource.PREFIX)) contentDisplay = id;
             applySize(added);
             placeX11(id);
             needsPlacement = !resumed;
@@ -429,10 +431,13 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onDisplayRemoved(int id) {
             SwitcherOverlay.hide(switcherHost);
-            if (contentKey != null && id == contentDisplay) {
-                // DISPLAY.md §5.4: a Mac stops streaming, a Linux window is left as it is; the content does not end
+            if (contentKey != null && id == contentDisplay && !contentKey.startsWith(LinuxSource.PREFIX)) {
+                // DISPLAY.md §5.4: a Mac stops streaming. A Linux window is left as it is, full screen in X, which
+                // goes back onto the display when it returns (onDisplayAdded): that content does not end
                 String gone = contentKey;
+                displayGoing = true;  // nothing to go back to on a display that is gone
                 contentsHost.contentEnded(gone);
+                displayGoing = false;
                 ContentSource s = Contents.sourceOf(gone);
                 if (s != null) s.hidden(gone);
             }
@@ -498,6 +503,8 @@ public class XDeskActivity extends Activity {
             if (c) {
                 ui.removeCallbacks(connectTimeout);
                 checkServerBuild();
+                adoptLaunched();
+                syncTermuxLater();
                 showRunning();
                 desktopConnected();
                 DesktopScale.connected();
@@ -528,6 +535,8 @@ public class XDeskActivity extends Activity {
             // 不自动重启：启动和结束桌面都由用户决定
             runningSession = null;
             desktopName = null;
+            launchedSession = null;
+            Devices.get(XDeskActivity.this).setLinuxRunning(null);
             desktopGone();
             String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
             Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
@@ -542,6 +551,7 @@ public class XDeskActivity extends Activity {
                 return;
             }
             if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
+            else ui.post(syncTermux);  // the Launchpad's device tabs and the home follow it too
         }
         @Override public void onSessionError(String message) {
             showSetup(getString(R.string.xd_termux_unreachable), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
@@ -982,6 +992,7 @@ public class XDeskActivity extends Activity {
         }
         private void sessionDecided(final String name) {
             leaveContentChoice();
+            pendingApp = null;  // an Android app still waiting for its activation is no longer what was chosen
             // "NAME+apps" is how a Linux device is connected (DEVICES.md §2), not something to list as recent
             boolean appsOnly = name.endsWith(Devices.APPS_ONLY);
             if (!appsOnly) rememberRecent(ChooserView.recentKey(name));
@@ -1975,6 +1986,18 @@ public class XDeskActivity extends Activity {
             updateAppStatus();
             return;
         }
+        if (contentKey != null && !desktopTaken && (session.isConnected() || !contentKey.startsWith(LinuxSource.PREFIX))) {
+            // A content has the screen: say what it is. Without this a Mac read "Desktop not connected", which is
+            // about the X desktop, and a Linux program read as its session's name
+            ContentSource.Entry e = Contents.find(contentKey);
+            String label = e != null ? e.label : "";
+            Devices dv = Devices.get(this);
+            Devices.Device dev = dv.find(dv.deviceOf(contentKey));
+            if (dev != null && dev.state != Devices.State.CONNECTED)
+                setStatus(Style.WARN, dev.name + " · " + getString(Devices.stateLabel(dev.state)) + (dev.note != null && !dev.note.isEmpty() ? " · " + dev.note : ""));
+            else setStatus(Style.OK, getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, label));
+            return;
+        }
         if (session.isConnected() && desktopTaken) setStatus(Style.OK, getString(R.string.xd_status_desktop_taken, desktopName != null ? desktopName : ""));
         else if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
         else setStatus(Style.WARN, getString(R.string.xd_status_desktop_not_connected));
@@ -2511,7 +2534,9 @@ public class XDeskActivity extends Activity {
     private boolean updateHome() {
         Display d = externalDisplay();
         // A Linux device connected apps-only with no program on the screen yet: only the bare X background, so the home too
-        boolean idleX = session.isActive() && runningSession != null && runningSession.endsWith(Devices.APPS_ONLY);
+        // By what XDesk itself started or switched to (desktopName): runningSession is xdesk status as last read, which
+        // still said "+apps" after 整个桌面 was chosen, and the home then covered the whole desktop
+        boolean idleX = session.isActive() && desktopName != null && desktopName.endsWith(Devices.APPS_ONLY);
         boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && (!session.isActive() || idleX) && contentKey == null
             && pendingContent == null && !desktopTaken && phoneForwards() && (idleX || hasExternalMouse());
         if (!want) {
@@ -2964,7 +2989,8 @@ public class XDeskActivity extends Activity {
             String current = currentKey(), previous = previousKey();
             if (current != null) keys.add(current);
             if (previous != null && ChooserView.isAppKey(previous)) keys.add(previous);
-            for (ContentSource s : Contents.sources()) for (ContentSource.Entry e : s.windows()) keys.add(e.key);
+            // Only what is open: a Mac that is not connected still lists its desktop (that entry is how to connect it)
+            for (ContentSource s : Contents.sources()) for (ContentSource.Entry e : s.windows()) if (e.running) keys.add(e.key);
             return keys;
         }
         @Override public List<String> favorites() { return savedLines(PREF_DOCK); }
@@ -2995,12 +3021,13 @@ public class XDeskActivity extends Activity {
     private void chooseContent(final String key) {
         ContentSource s = Contents.sourceOf(key);
         if (s == null) return;
-        pendingContent = key;
         Display d = externalDisplay();
         if (d == null) {
             needDisplayNotice();
             return;
         }
+        pendingContent = key;
+        pendingApp = null;  // an Android app still waiting for its activation is no longer what was chosen
         rememberRecent(key);
         if (contentKey != null && !contentKey.equals(key)) leaveContent();
         contentDisplay = d.getDisplayId();
@@ -3019,8 +3046,38 @@ public class XDeskActivity extends Activity {
     private void leaveContent() {
         String key = contentKey;
         contentKey = null;
+        // X goes on without the window as the content: its sink is the whole desktop's again (INPUT.md §1.1)
+        if (client instanceof WindowScopedInput) client = ((WindowScopedInput) client).desktop();
+        if (beforeSwitcher instanceof WindowScopedInput) beforeSwitcher = ((WindowScopedInput) beforeSwitcher).desktop();
         ContentSource s = Contents.sourceOf(key);
         if (s != null) s.hidden(key);
+    }
+
+    /** With a content that draws itself (a Mac) on top: the Android app was in front of the X desktop under it, not behind. */
+    private boolean appWasInFront;
+    private boolean displayGoing;
+
+    /**
+     * A content that drew itself over the display (a Mac's screen) ended on its own: what it covered shows again, so
+     * XDesk goes back to it, as it does to an app when the desktop window goes (desktopGone). Without this the X
+     * desktop or the Android app was on the screen with no input and the phone said nothing ran.
+     */
+    private void resumeUnderContent() {
+        Display d = externalDisplay();
+        if (d == null || displayGoing || apps.isActive() || session.isActive() || contentKey != null || pendingContent != null || isFinishing()) return;
+        ICmdEntryInterface x = MainActivity.verifiedServer;
+        boolean desktop = MainActivity.getInstance("") != null && x != null && x.asBinder().isBinderAlive();
+        if ((appWasInFront || !desktop) && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
+            showSetup(getString(R.string.xd_returning_to, apps.label()), "", true, null, null);
+            return;
+        }
+        if (!desktop) return;
+        if (runningSession != null) {
+            reattach();
+        } else {
+            attachDisplay(d);
+            showWaiting();
+        }
     }
 
     private final ContentSource.Result contentResult = new ContentSource.Result() {
@@ -3049,6 +3106,8 @@ public class XDeskActivity extends Activity {
             pendingContent = null;
             Toast.makeText(XDeskActivity.this, reason, Toast.LENGTH_LONG).show();
             refreshDocks();
+            // Nothing took the screen after all: the external home again
+            updateCapture();
         }
     };
 
@@ -3074,8 +3133,13 @@ public class XDeskActivity extends Activity {
                 launchDesktop(def != null ? def + Devices.APPS_ONLY : null, false);
             }
         }
+        @Override public boolean wanted(String key) {
+            return key.equals(pendingContent);
+        }
         @Override public void freeDisplay() {
             releaseLatches();
+            if (apps.isActive()) appWasInFront = true;
+            else if (session.isActive()) appWasInFront = false;
             if (session.isActive()) leaveDesktop();
             apps.suspend();
         }
@@ -3088,6 +3152,7 @@ public class XDeskActivity extends Activity {
             if (!key.equals(contentKey)) return;
             contentKey = null;
             client = apps.isActive() ? apps.input() : session.isActive() ? session.input() : null;
+            if (!key.startsWith(LinuxSource.PREFIX)) resumeUnderContent();
             refreshDocks();
             updateStatus();
             // Nothing to capture the mouse for any more: it is the phone's again
@@ -3284,7 +3349,58 @@ public class XDeskActivity extends Activity {
             }
         }
         prefs.edit().putString(PREF_SESSIONS, String.join("\n", sessions)).apply();
+        // Just after XDesk started or switched a session xdesk may still report none, or the one being replaced
+        if (android.os.SystemClock.uptimeMillis() < launchGuardUntil && runningSession != null
+                && (running == null || running.equals(launchedFrom))) running = runningSession;
+        String before = runningSession;
         setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? getString(R.string.xd_termux_no_sessions) : null);
+        // What the screen shows is what runs: a window recreated does not know the name; "NAME+apps" of a session
+        // without an apps-only variant is started whole (xdesk start_session)
+        boolean sameSession = running != null && desktopName != null && !running.equals(desktopName)
+            && stripAppsOnly(running).equals(stripAppsOnly(desktopName));
+        if (session.isActive() && running != null && (desktopName == null || sameSession)) desktopName = running;
+        else if (java.util.Objects.equals(before, running)) return;
+        refreshDocks();
+        updateStatus();
+        updateCapture();
+    }
+
+    private static String stripAppsOnly(String session) {
+        return session.endsWith(Devices.APPS_ONLY) ? session.substring(0, session.length() - Devices.APPS_ONLY.length()) : session;
+    }
+
+    /** The session XDesk has just asked xdesk to start or switch to, until X is there; and what ran before. */
+    private String launchedSession, launchedFrom;
+    private long launchGuardUntil;
+    private static final long LAUNCH_GUARD_MS = 25000;
+
+    /**
+     * X is connected after XDesk started or switched a session: that session is the one running, before xdesk status
+     * is read again (only the phone's list reads it). The device tabs and the external home go by it.
+     */
+    private void adoptLaunched() {
+        if (launchedSession == null) return;
+        runningSession = launchedSession;
+        launchedSession = null;
+        Devices.get(this).setLinuxRunning(runningSession);
+    }
+
+    /** xdesk list and status, read without first showing the saved state as refreshTermux does. */
+    private final Runnable syncTermux = new Runnable() {
+        @Override public void run() {
+            if (isFinishing() || isDestroyed() || !installed(PKG_TERMUX) || checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) return;
+            TermuxCommand.run(XDeskActivity.this, TERMUX_STATE_COMMAND, new TermuxCommand.Callback() {
+                @Override public void onOutput(String stdout) { if (!isDestroyed()) parseTermuxState(stdout); }
+                @Override public void onFailure(String message) { }
+            });
+        }
+    };
+
+    /** Once the session has had time to start, and once more for a slow one. */
+    private void syncTermuxLater() {
+        ui.removeCallbacks(syncTermux);
+        ui.postDelayed(syncTermux, 6000);
+        ui.postDelayed(syncTermux, LAUNCH_GUARD_MS + 2000);
     }
 
     /**
@@ -3316,6 +3432,11 @@ public class XDeskActivity extends Activity {
      */
     private void desktopGone() {
         ui.removeCallbacks(connectTimeout);
+        // A Linux program was the content, or one waited for this desktop: gone with it (abandon tells no listener)
+        if (contentKey != null && contentKey.startsWith(LinuxSource.PREFIX)) contentsHost.contentEnded(contentKey);
+        if (pendingContent != null && pendingContent.startsWith(LinuxSource.PREFIX)) pendingContent = null;
+        desktopThen = null;
+        desktopFailed = null;
         takeDesktopWhenBack = false;
         ui.removeCallbacks(retakeDesktop);
         setDesktopTaken(false);
@@ -3678,8 +3799,15 @@ public class XDeskActivity extends Activity {
         askNotificationsOnce();
         showSetup(getString(R.string.xd_starting_desktop_title), getString(R.string.xd_starting_desktop), true, null, null);
         if (!session.launch(name, replace)) return;
+        if (name != null) {
+            launchedSession = name;
+            launchedFrom = runningSession;
+            launchGuardUntil = android.os.SystemClock.uptimeMillis() + LAUNCH_GUARD_MS;
+        }
         // xdesk switch 不断开 X，不会再有“连上了”的通知
         if (session.isConnected()) {
+            adoptLaunched();
+            syncTermuxLater();
             showRunning();
             updateStatus();
             return;
@@ -3806,6 +3934,8 @@ public class XDeskActivity extends Activity {
         if (m != null) m.finishAndRemoveTask();
         runningSession = null;
         desktopName = null;
+        launchedSession = null;
+        launchGuardUntil = 0;
         if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
     }
 

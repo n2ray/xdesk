@@ -260,7 +260,9 @@ final class DashboardView extends FrameLayout {
         }
         s.append("   ·   ");
         AppSession apps = AppSession.get(c);
-        String input = c.getString(apps.isForwarding() ? R.string.xd_dash_input_display
+        // The home (the Launchpad over this) has the mouse and the keyboard, captured by the phone for this screen
+        String input = c.getString(SwitcherOverlay.isHome() ? R.string.xd_dash_input_home
+            : apps.isForwarding() ? R.string.xd_dash_input_display
             : apps.hasInjector() ? R.string.xd_dash_input_phone_hotkey : R.string.xd_dash_input_phone);
         s.append(input);
         status.setText(s);

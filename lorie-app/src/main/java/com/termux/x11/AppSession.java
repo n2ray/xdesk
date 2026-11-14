@@ -908,6 +908,8 @@ final class AppSession {
      */
     void suspend() {
         if (!active) return;
+        // An app still being started must not come up over what takes the display now (prepare and launch check this)
+        generation++;
         forwardOnReturn = forwarding;
         appBehindDesktop = started;
         ui.removeCallbacks(bindTimeout);

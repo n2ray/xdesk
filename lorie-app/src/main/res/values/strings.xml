@@ -143,6 +143,7 @@
     <string name="xd_dash_input_display">Mouse &amp; keyboard on the display, Ctrl+Alt+M gives them back</string>
     <string name="xd_dash_input_phone_hotkey">Mouse &amp; keyboard on the phone, Ctrl+Alt+M takes them over</string>
     <string name="xd_dash_input_phone">Mouse &amp; keyboard on the phone</string>
+    <string name="xd_dash_input_home">Mouse &amp; keyboard on this screen</string>
 
     <!-- DockBar -->
     <string name="xd_dock_empty">Tap the star next to an app to add it here</string>

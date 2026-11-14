@@ -44,6 +44,8 @@ import java.util.List;
  */
 final class SwitcherOverlay {
     private static final String TAG = "XDeskSwitcher";
+    /** The home has nothing to show through: under it is the dashboard, whose clock and tiles would read as a second layer. */
+    private static final int HOME_BACK = 0xFF0B0D10;
     private static final int SCRIM = 0xE00B0D10, HOVER = 0x2EFFFFFF, CURRENT = 0x553D7EF5, FIELD = 0x26FFFFFF;
     private static final String TAB_RUNNING = "run", TAB_FAVOURITES = "fav";
     private static final int MAX_COLUMNS = 8, MAX_ROWS = 5;
@@ -235,7 +237,7 @@ final class SwitcherOverlay {
             rows = Math.max(1, Math.min(MAX_ROWS, (height - top - below) / cellH));
 
             root = new FrameLayout(c);
-            root.setBackgroundColor(SCRIM);
+            root.setBackgroundColor(home ? HOME_BACK : SCRIM);
             root.setOnClickListener(v -> { if (!home) hide(host); });
             column = new LinearLayout(c);
             column.setOrientation(LinearLayout.VERTICAL);

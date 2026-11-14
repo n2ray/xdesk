@@ -135,6 +135,7 @@
     <string name="xd_dash_input_display">键鼠在外接屏，Ctrl+Alt+M 交还手机</string>
     <string name="xd_dash_input_phone_hotkey">键鼠在手机，Ctrl+Alt+M 接管</string>
     <string name="xd_dash_input_phone">键鼠在手机</string>
+    <string name="xd_dash_input_home">键鼠在这块屏上</string>
 
     <!-- DockBar -->
     <string name="xd_dock_empty">点列表右边的星把常用的加到这里</string>

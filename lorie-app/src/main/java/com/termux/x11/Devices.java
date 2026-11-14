@@ -154,11 +154,24 @@ final class Devices {
 
     void setLinux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
         sessions = new ArrayList<>(sessionNames);
-        defaultSession = defaultName;
+        // The list is first shown from what was saved, without the default, until Termux answers: the one known stays,
+        // or a Linux program opened in that moment would start the whole default desktop instead of apps only
+        if (defaultName != null || !sessionNames.contains(defaultSession)) defaultSession = defaultName;
         runningSession = running;
         xRunning = x;
         termuxHint = hint;
         if (linuxConnecting != null && running != null && linuxConnecting.equals(deviceOfSession(running))) linuxConnecting = null;
+        changed();
+    }
+
+    /** XDesk itself started, switched to or ended a session: known before xdesk status is read again. */
+    void setLinuxRunning(String running) {
+        if (Objects.equals(running, runningSession)) return;
+        runningSession = running;
+        if (running != null) {
+            xRunning = true;
+            if (linuxConnecting != null && linuxConnecting.equals(deviceOfSession(running))) linuxConnecting = null;
+        }
         changed();
     }
 
