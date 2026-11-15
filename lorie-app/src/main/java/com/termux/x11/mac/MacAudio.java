@@ -53,6 +53,8 @@ final class MacAudio {
     private final ArrayBlockingQueue<byte[]> queue = new ArrayBlockingQueue<>(256);
     private final Thread thread;
     private volatile boolean running = true, overflow;
+    /** Muted by the "mute this device" switch or the headphones going away (AudioMute): decode, play nothing. */
+    private volatile boolean muted;
 
     // The thread's own
     private byte[] asc;
@@ -111,6 +113,11 @@ final class MacAudio {
     void close() {
         running = false;
         thread.interrupt();
+    }
+
+    /** The mute changed (AudioMute): the decoder stays in step, nothing is written to the track. */
+    void setMuted(boolean muted) {
+        this.muted = muted;
     }
 
     private void loop() {
@@ -305,8 +312,19 @@ final class MacAudio {
         }
         int frames = samples / 2, skip = Math.min(dropFrames, frames);
         dropFrames -= skip;
-        if (frames == skip) return;
         AudioTrack t = track;
+        if (frames == skip) return;
+        if (muted) {
+            // Muted: keep the decoder in step, play nothing. A track left running would empty itself, and on
+            // unmute the first bytes would go out without the prefill, which crackles. Stop it now, so unmute
+            // prefills again (and the headphone path is released once they are pulled)
+            if (t.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                t.pause();
+                t.flush();
+                prefilled = 0;
+            }
+            return;
+        }
         // Blocks while the track is full: that is what paces this thread to the sound card
         t.write(pcm, skip * 2, (frames - skip) * 2);
         if (t.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {

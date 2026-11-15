@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Surface;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -114,6 +115,8 @@ public final class MacClient {
     private volatile boolean wanted;
     private long lastUse = SystemClock.uptimeMillis();
     private volatile long lastPong;
+    /** The round trips of the pings, from the session's start (Sall's diagnosticsRtt); for the settings page. */
+    private volatile Rtt rtt;
 
     // The screen
     private final Object surfaceLock = new Object();
@@ -300,6 +303,11 @@ public final class MacClient {
         if (s != null) s.close();
         synchronized (lock) {
             if (runner != null && backingOff) runner.interrupt();
+            // Under the lock helloAudio takes, and wanted already false: a mute made before this is closed here,
+            // one after this is never made (its receiver would otherwise outlive this MacClient)
+            AudioMute m = mute;
+            mute = null;
+            if (m != null) m.close();
         }
         stopClipboard();
     }
@@ -404,6 +412,7 @@ public final class MacClient {
     private void session(MacStore.Mac m) throws Exception {
         SillTls s = SillTls.connect(m.host, m.port, SillTls.SESSION, m.pin, CONNECT_MS, HANDSHAKE_MS);
         inputsQueued.set(0);
+        rtt = new Rtt();
         session = s;
         windowsPending = true;
         JSONObject hello = new JSONObject().put("protocol", 1).put("appVersion", appVersion()).put("device", Build.MODEL)
@@ -463,25 +472,32 @@ public final class MacClient {
 
     private void pingLoop(SillTls s) {
         try {
+            long lastSent = SystemClock.uptimeMillis();
             while (session == s) {
-                boolean streaming = surface != null;
-                Thread.sleep(streaming ? 1000 : 4000);
-                if (SystemClock.uptimeMillis() - lastPong > PONG_DEADLINE_MS) {
-                    Log.i(TAG, "no pong: the connection is gone");
-                    s.close();
-                    return;
-                }
-                s.send(SillWire.PING, ByteBuffer.allocate(8).putDouble(System.nanoTime() / 1e9).array());
-                checkLaunch();
-                askAgain();
-                if (statusSettling && !settling()) statusToView();
-                synchronized (lock) {
-                    if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
-                        wanted = false;
+                // A screen wants the pongs for liveness; the settings page for the round trip it shows (Sall pings
+                // always). The interval is read again after each short step, so the page's 1 s cadence starts at
+                // once when it opens mid-wait, not up to 4 s later
+                long interval = surface != null || settingsListener != null ? 1000 : 4000;
+                if (SystemClock.uptimeMillis() - lastSent >= interval) {
+                    if (SystemClock.uptimeMillis() - lastPong > PONG_DEADLINE_MS) {
+                        Log.i(TAG, "no pong: the connection is gone");
                         s.close();
                         return;
                     }
+                    s.send(SillWire.PING, ByteBuffer.allocate(8).putDouble(System.nanoTime() / 1e9).array());
+                    lastSent = SystemClock.uptimeMillis();
+                    checkLaunch();
+                    askAgain();
+                    if (statusSettling && !settling()) statusToView();
+                    synchronized (lock) {
+                        if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
+                            wanted = false;
+                            s.close();
+                            return;
+                        }
+                    }
                 }
+                Thread.sleep(250);
             }
         } catch (InterruptedException | IOException e) {
             s.close();
@@ -554,6 +570,13 @@ public final class MacClient {
             return;
         case SillWire.PONG:
             lastPong = SystemClock.uptimeMillis();
+            // The pong echoes the ping's send time: one round trip sample (Sall's ConnectionDiagnostics.Rtt)
+            if (m.length == 8) {
+                double elapsed = System.nanoTime() / 1e9 - ByteBuffer.wrap(m.payload, 0, 8).getDouble();
+                Rtt r = rtt;
+                if (r != null && Double.isFinite(elapsed) && elapsed >= 0 && elapsed <= 60)
+                    r.add(elapsed, SystemClock.uptimeMillis());
+            }
             return;
         case SillWire.WINDOW_LIST:
             windowList(new JSONObject(m.text()));
@@ -951,6 +974,9 @@ public final class MacClient {
         } else {
             stopClipboard();
         }
+        // Whether sound plays at all follows the surface; only then does a pulled headphone plug mean anything
+        AudioMute m = mute;
+        if (m != null) m.setWatched(s != null);
     }
 
     private void askKeyframeSoon() {
@@ -1107,6 +1133,8 @@ public final class MacClient {
     private Double pendingSettingsScale;
     private volatile MacStore.Stream streamOptions;
     private volatile MacAudio audio;
+    /** This device's mute (Sall's LocalAudioControl), from the first session with sound to shutdown. */
+    private volatile AudioMute mute;
     /** Where XDesk's sound setting sends sound (AudioRoute, set by MacSource); null: the system's choice. */
     public static volatile java.util.function.Supplier<android.media.AudioDeviceInfo> audioDevice;
 
@@ -1229,12 +1257,26 @@ public final class MacClient {
             java.util.function.Supplier<android.media.AudioDeviceInfo> d = audioDevice;
             return d != null ? d.get() : null;
         });
+        // The mute holds across sessions (MacStore.Stream.muted); the receiver is one for this Mac's lifetime.
+        // Made under the lock shutdown() takes, and never after it: the abandoned audio above is closed with the
+        // session (clearSession), and a mute made past a shutdown would register a receiver nobody unregisters
+        synchronized (lock) {
+            if (!wanted) return;
+            AudioMute m = mute;
+            if (m == null) {
+                m = mute = new AudioMute(context, MacStore.stream(context, mac.id).muted, this::audioMuteChanged, this::audioMuteToast);
+            }
+            m.setPlayer(audio);
+            m.setWatched(surface != null);
+        }
     }
 
     /** Kind 43. Formats always; packets only while a screen shows this Mac (the idle connection stays silent). */
     private void audioMessage(SillWire.Message m) {
         MacAudio a = audio;
         if (a == null || m.length < 1) return;
+        AudioMute mu = mute;
+        if (mu != null) mu.received(m.payload);
         if (m.payload[0] == 2 && surface == null) return;
         a.receive(m.payload, m.length);
     }
@@ -1243,6 +1285,45 @@ public final class MacClient {
         MacAudio a = audio;
         audio = null;
         if (a != null) a.close();
+        AudioMute m = mute;
+        if (m != null) m.setPlayer(null);
+    }
+
+    // --- round trip and this device's mute (Sall's ConnectionDiagnostics.Rtt, LocalAudioControl) ---
+
+    /** The round trip of the latest pongs, in milliseconds; null before a connection or a pong in the last 1.5 s. */
+    public Long rttMedian() {
+        Rtt r = rtt;
+        return r == null ? null : r.median(SystemClock.uptimeMillis());
+    }
+
+    /** Whether the round trip has stayed high for a while (Rtt.slow): the settings page's slow-link advice. */
+    public boolean rttSlow() {
+        Rtt r = rtt;
+        return r != null && r.slow(SystemClock.uptimeMillis());
+    }
+
+    /** The "mute this device" switch: at once on the live sound, remembered for the next session either way. UI thread. */
+    public void setSoundMuted(boolean muted) {
+        // Persist even when the live policy already holds this value: the page's switch follows the store, and a
+        // policy created from a stale store stays in step with what the user just picked
+        MacStore.Stream own = streamOptions();
+        MacStore.setStreamOptions(context, mac.id, own.fpsCap, own.sound, muted);
+        AudioMute m = mute;
+        if (m != null) m.setMuted(muted); // the listener fires only when the policy changed; the store is right either way
+    }
+
+    /** The mute changed (the switch, or the headphones went away): remember it and redraw the settings page. UI thread. */
+    private void audioMuteChanged(boolean muted) {
+        MacStore.Stream own = streamOptions();
+        MacStore.setStreamOptions(context, mac.id, own.fpsCap, own.sound, muted);
+        SettingsListener l = settingsListener;
+        if (l != null) l.settingsChanged();
+    }
+
+    /** The headphones went away while the Mac's sound played to them: it is muted now (Sall's headphonesOut). UI thread. */
+    private void audioMuteToast() {
+        Toast.makeText(context, context.getString(com.termux.x11.app.R.string.xd_mac_sound_muted_headphones), Toast.LENGTH_LONG).show();
     }
 
     public void windowCommand(long id, String action) {

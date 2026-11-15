@@ -151,9 +151,9 @@ public final class HostSettings {
                 + "|" + thisConnectionAway + "/" + awayRunning + "|" + linkState + "/" + suggestedBitrate + "/" + suggestedCaptureScale;
     }
 
-    /** What the Mac's link report asks of the user (Sall's ConnectionDiagnostics.advice, without its round trip part). */
+    /** What the Mac's link report and the round trip ask of the user (Sall's ConnectionDiagnostics.advice). */
     public static final class Advice {
-        public static final int NONE = 0, BEHIND = 1, BEHIND_HOME_RUNS = 2, BEHIND_SUGGESTION = 3;
+        public static final int NONE = 0, BEHIND = 1, BEHIND_HOME_RUNS = 2, BEHIND_SUGGESTION = 3, SLOW = 4;
         public final int kind;
         /** With BEHIND_SUGGESTION: the preset that would fit, and 1 or 2 when the resolution should change too. */
         public final int bitrate;
@@ -170,9 +170,16 @@ public final class HostSettings {
      * "behind": the link cannot carry the quality (frames withheld in 3 of the last 5 seconds, LinkJudge.swift). Any
      * other state reads as keeping up. A suggestion is offered only when it is one of the presets and a resolution
      * the host takes; away while a device at home holds the Mac at its home quality, there is nothing to pick.
+     *
+     * Otherwise a link that stayed slow for a while (Rtt.slow) on a host from before the away quality gets a plain
+     * SLOW advice. Sall shows it only for a remote route (ConnectionRouteLabel); XDesk has no route label, so any
+     * address counts as remote and the advice also shows on a slow local link, where it is just as true.
      */
-    public Advice advice() {
-        if (!"behind".equals(linkState)) return new Advice(Advice.NONE, 0, null);
+    public Advice advice(boolean slow) {
+        if (!"behind".equals(linkState)) {
+            if (slow && !hasAway) return new Advice(Advice.SLOW, 0, null);
+            return new Advice(Advice.NONE, 0, null);
+        }
         if (thisConnectionAway && !awayRunning) return new Advice(Advice.BEHIND_HOME_RUNS, 0, null);
         int rate = suggestedBitrate == null ? 0 : suggestedBitrate.intValue();
         boolean known = suggestedBitrate != null && suggestedBitrate.doubleValue() == rate && preset(rate) >= 0;

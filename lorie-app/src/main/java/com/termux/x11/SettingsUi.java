@@ -436,12 +436,17 @@ final class SettingsUi {
         return v;
     }
 
-    /** 只显示，点不了。 */
-    void infoRow(LinearLayout card, String label, String description, String value) {
+    /** 只显示，点不了。返回右边的值文字（没有值时是 null），以后可以改。 */
+    TextView infoRow(LinearLayout card, String label, String description, String value) {
         LinearLayout row = plainRow();
         row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
-        if (value != null) row.addView(valueText(value));
+        TextView v = null;
+        if (value != null) {
+            v = valueText(value);
+            row.addView(v);
+        }
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return v;
     }
 
     void switchRow(LinearLayout card, String label, String description, boolean on, final Consumer<Boolean> onChange) {
