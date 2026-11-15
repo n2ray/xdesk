@@ -122,7 +122,7 @@
     <string name="xd_audio_cannot_switch">Can\'t switch the system sound: %1$s</string>
 
     <!-- TermuxCommand -->
-    <string name="xd_termux_not_allowed">Termux does not let other apps run commands. Run xdesk enable-app-start in Termux, then tap here</string>
+    <string name="xd_termux_not_allowed">Termux does not let other apps run commands yet. No xdesk in Termux yet: install it (below), it asks for this. Already installed: run xdesk enable-app-start in Termux. Then tap here</string>
     <string name="xd_termux_refused">Termux did not run the command: %1$s</string>
     <string name="xd_termux_no_xdesk">xdesk is not installed in Termux yet. Run this line in Termux, then tap here:\n%1$s</string>
     <string name="xd_termux_failed">xdesk failed (%1$d): %2$s</string>
@@ -234,7 +234,7 @@
     <string name="xd_car_gone_title">Car disconnected</string>
     <string name="xd_car_gone">The desktop is still running. It comes back when you open XDesk on the car again</string>
     <string name="xd_car_gone_status">Car disconnected. The desktop is still running. It comes back when you open XDesk on the car again</string>
-    <string name="xd_termux_no_reply">Termux did not answer. Run xdesk enable-app-start in Termux, then come back</string>
+    <string name="xd_termux_no_reply">Termux did not answer. No xdesk in Termux yet: install it, it asks for this. Already installed: run xdesk enable-app-start in Termux, then come back</string>
     <string name="xd_display_gone_desktop">Display disconnected. The desktop keeps running and comes back when you plug it in again</string>
     <string name="xd_desktop_ended">Desktop ended.</string>
     <string name="xd_desktop_crashed">The desktop stopped unexpectedly and will not restart by itself.</string>

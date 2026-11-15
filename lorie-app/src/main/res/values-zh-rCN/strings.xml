@@ -114,7 +114,7 @@
     <string name="xd_audio_cannot_switch">无法切换系统声音：%1$s</string>
 
     <!-- TermuxCommand -->
-    <string name="xd_termux_not_allowed">Termux 不让别的应用运行命令。在 Termux 里运行 xdesk enable-app-start 后点这里</string>
+    <string name="xd_termux_not_allowed">Termux 还不让别的应用运行命令。Termux 里还没装 xdesk：先安装它（见下面），安装时会问这一项；已经装了：在 Termux 里运行 xdesk enable-app-start。然后点这里</string>
     <string name="xd_termux_refused">Termux 没有运行命令：%1$s</string>
     <string name="xd_termux_no_xdesk">Termux 里还没有装 xdesk。在 Termux 里运行下面这行，装好后点这里：\n%1$s</string>
     <string name="xd_termux_failed">xdesk 出错了（%1$d）：%2$s</string>
@@ -221,7 +221,7 @@
     <string name="xd_car_gone_title">车机已断开</string>
     <string name="xd_car_gone">桌面还在运行，在车机上重新打开 XDesk 后自动恢复</string>
     <string name="xd_car_gone_status">车机已断开。桌面还在运行，在车机上重新打开 XDesk 后自动恢复</string>
-    <string name="xd_termux_no_reply">Termux 没有回应。在 Termux 里运行 xdesk enable-app-start 后再回来</string>
+    <string name="xd_termux_no_reply">Termux 没有回应。Termux 里还没装 xdesk：先安装它，安装时会问这一项；已经装了：在 Termux 里运行 xdesk enable-app-start，然后再回来</string>
     <string name="xd_display_gone_desktop">外接屏已断开，桌面还在运行，插回后自动恢复</string>
     <string name="xd_desktop_ended">桌面已结束。</string>
     <string name="xd_desktop_crashed">桌面意外停止了，不会自动重启。</string>
