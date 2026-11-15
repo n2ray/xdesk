@@ -582,14 +582,9 @@ final class ChooserView extends LinearLayout {
             h.subtitle.setText(r.detail);
             h.subtitle.setTextColor(r.current ? Switchboard.ACCENT_TEXT : Style.TEXT_DIM);
             h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
-            if (r.app != null) {
+            if (r.app != null || r.content || r.session) {
                 h.icon.setVisibility(VISIBLE);
-                AppCatalog.get(c).showIcon(r.app, h.icon);
-            } else if (r.content) {
-                h.icon.setVisibility(VISIBLE);
-                h.icon.setTag(null);
-                if (r.bitmap != null) h.icon.setImageBitmap(r.bitmap);
-                else h.icon.setImageDrawable(Style.letterIcon(c, r.desktop ? "\u25A3" : r.label));
+                ExternalLauncher.icon(c, r, h.icon);
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);

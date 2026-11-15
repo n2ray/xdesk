@@ -217,6 +217,11 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         if (driven()) close();
     }
 
+    /** The keys and mouse went to the phone (Ctrl+Alt+M, its button): nothing moves the Dock any more, so it goes. */
+    void closeForPhone() {
+        close();
+    }
+
     private void endDriven() {
         driven = false;
         if (arrow != null) arrow.hide();
@@ -421,7 +426,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.setClickable(true);
             box.setFocusable(false);
             box.setClipChildren(false);
-            final View icon = ExternalLauncher.icon(dc, key, dp(ICON_DP));
+            final View icon = ExternalLauncher.icon(dc, it);
             box.setTag(icon);
             box.addView(icon, new LayoutParams(dp(ICON_DP), dp(ICON_DP)));
             icon.setPivotX(dp(ICON_DP) / 2f);

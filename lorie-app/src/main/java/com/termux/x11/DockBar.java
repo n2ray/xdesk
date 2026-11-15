@@ -1,14 +1,11 @@
 package com.termux.x11;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import com.termux.x11.app.R;
 
 /**
@@ -81,7 +78,7 @@ final class DockBar extends LinearLayout {
     private View item(final Switchboard.Item it) {
         final String key = it.key;
         boolean current = it.strip == Switchboard.STRIP_CURRENT;
-        View v = it.content ? buildContent(it, current) : build(it.app, it.title, current);
+        View v = build(it, current);
         v.setOnClickListener(view -> {
             Style.tick(view);
             host.onDockTap(key);
@@ -93,18 +90,7 @@ final class DockBar extends LinearLayout {
         return v;
     }
 
-    private View buildContent(Switchboard.Item it, boolean current) {
-        View box = build(null, it.title, current);
-        ImageView icon = new ImageView(getContext());
-        if (it.bitmap != null) icon.setImageBitmap(it.bitmap);
-        else icon.setImageDrawable(Style.letterIcon(getContext(), it.desktop ? "\u25A3" : it.label));
-        ViewGroup g = (ViewGroup) box;
-        g.removeAllViews();
-        g.addView(icon, new LayoutParams(dp(36), dp(36)));
-        return box;
-    }
-
-    private View build(AppCatalog.App app, String label, boolean current) {
+    private View build(Switchboard.Item it, boolean current) {
         Context c = getContext();
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(VERTICAL);
@@ -115,22 +101,11 @@ final class DockBar extends LinearLayout {
         box.setMinimumHeight(dp(Style.TARGET));
         box.setPadding(dp(4), dp(2), dp(4), dp(2));
         box.setBackground(Style.ripple(c, current ? Style.ACCENT : Style.BACKGROUND, Style.RADIUS));
-        box.setContentDescription(label);
+        box.setContentDescription(it.title);
         int size = dp(36);
-        if (app != null) {
-            ImageView icon = new ImageView(c);
-            AppCatalog.get(c).showIcon(app, icon);
-            box.addView(icon, new LayoutParams(size, size));
-        } else {
-            TextView tile = new TextView(c);
-            tile.setText(">_");
-            tile.setTextColor(Style.TEXT);
-            tile.setTextSize(14);
-            tile.setTypeface(Typeface.MONOSPACE);
-            tile.setGravity(Gravity.CENTER);
-            tile.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
-            box.addView(tile, new LayoutParams(size, size));
-        }
+        ImageView icon = new ImageView(c);
+        ExternalLauncher.icon(c, it, icon);
+        box.addView(icon, new LayoutParams(size, size));
         LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);
         box.setLayoutParams(p);

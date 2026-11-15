@@ -51,6 +51,8 @@ final class Switchboard {
         boolean card(String key);
         /** The phone's window, for what a device action shows there (a confirm, a settings page). */
         Context phone();
+        /** Whether a Linux device's Stop asks on the phone first (it does when something would be lost). */
+        boolean stopAsks();
         /** The hint row of Termux was chosen: ask for its permission, or read it again. */
         void termuxHint();
         /** Only be the display of an X server the user runs himself. */
@@ -309,7 +311,8 @@ final class Switchboard {
             // Local, reached through the xdesk command: no connect or disconnect. Running or not, and a Stop for the
             // X server while it runs (DEVICES.md §2); XDeskActivity asks first if anything is open
             if (d.state == Devices.State.NOT_SET_UP) actions.add(setUp(d));
-            else if (d.canStop) actions.add(new Action(str(R.string.xd_dev_stop), !d.busy, true, () -> devices.stop(d.id)));
+            else if (d.canStop) actions.add(new Action(str(R.string.xd_dev_stop), !d.busy,
+                host != null && host.stopAsks(), () -> devices.stop(d.id)));
         } else if (d.state == Devices.State.CONNECTED) {
             actions.add(new Action(str(R.string.xd_dev_disconnect), !d.busy, true, () -> {
                 if (phone() != null) ItemCard.confirmDisconnect(phone(), d);

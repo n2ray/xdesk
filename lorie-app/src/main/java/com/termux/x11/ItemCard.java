@@ -150,7 +150,7 @@ final class ItemCard {
         LinearLayout head = new LinearLayout(c);
         head.setGravity(Gravity.CENTER_VERTICAL);
         int iconSize = dp(52);
-        head.addView(icon(iconSize), new LinearLayout.LayoutParams(iconSize, iconSize));
+        head.addView(icon(), new LinearLayout.LayoutParams(iconSize, iconSize));
         LinearLayout titles = new LinearLayout(c);
         titles.setOrientation(LinearLayout.VERTICAL);
         title = Style.label(c, "", Style.TEXT, 18);
@@ -225,13 +225,12 @@ final class ItemCard {
     }
 
     /** What the lists draw for it. */
-    private View icon(int size) {
-        if (ChooserView.isDesktopKey(key)) {
-            ImageView desktop = new ImageView(c);
-            desktop.setImageDrawable(Style.letterIcon(c, "▣"));
-            return desktop;
-        }
-        return ExternalLauncher.icon(c, key, size);
+    private View icon() {
+        ImageView view = new ImageView(c);
+        Switchboard.Item it = Switchboard.get(c).find(key);
+        if (it != null) ExternalLauncher.icon(c, it, view);
+        else view.setImageDrawable(Style.letterIcon(c, "?"));  // gone: the card is closing
+        return view;
     }
 
     /** Name, device and state, the actions: everything that can change while the card is open. */

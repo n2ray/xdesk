@@ -168,6 +168,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public boolean card(String key) { return showItemCard(key); }
         @Override public Context phone() { return isFinishing() || isDestroyed() ? null : XDeskActivity.this; }
+        @Override public boolean stopAsks() { return XDeskActivity.this.stopAsks(); }
         @Override public void termuxHint() { chooserHost.onTermuxHint(); }
         @Override public void attachX() { chooserHost.onAttachChosen(); }
     };
@@ -272,7 +273,10 @@ public class XDeskActivity extends Activity {
     private final Ownership ownership = new Ownership(new Ownership.Side() {
         @Override public boolean active() { return apps.isActive(); }
         @Override public boolean forwarded() { return apps.isForwarding(); }
-        @Override public void forward(boolean on) { apps.setForwarding(on); }
+        @Override public void forward(boolean on) {
+            apps.setForwarding(on);
+            if (!on) closeDockForPhone();
+        }
     }, new Ownership.Side() {
         // The X desktop, its Linux windows and a Mac: the phone's own window passes keys and mouse on (INPUT.md §5.1,
         // the keys through the phone's input method). With that switched off, the X desktop's old takeover (focus
@@ -280,6 +284,7 @@ public class XDeskActivity extends Activity {
         @Override public boolean active() { return !apps.isActive() && (session.isActive() || contentKey != null); }
         @Override public boolean forwarded() { return oldTakeover() ? desktopTaken : phoneKeys; }
         @Override public void forward(boolean on) {
+            if (!on) closeDockForPhone();
             if (oldTakeover()) {
                 setDesktopTaken(on);
                 return;
@@ -308,6 +313,14 @@ public class XDeskActivity extends Activity {
     private boolean phoneForwards() {
         return phoneKeys || oldTakeover();
     }
+
+    /** The keys and mouse went to the phone: the external Dock had only that pointer to work it. */
+    private void closeDockForPhone() {
+        if (externalDock != null) externalDock.closeForPhone();
+    }
+
+    /** Whether the app session had the keys and mouse at the last state: there the injector's evdev reader hears Ctrl+Alt+M. */
+    private boolean appForwarded;
 
     /** 应用切换（三指横滑，按住不放）：Dock 里的前一个、后一个，抬起手指时才换过去。 */
     private final ArrayList<String> switchKeys = new ArrayList<String>();
@@ -638,6 +651,11 @@ public class XDeskActivity extends Activity {
             });
         }
         @Override public void onAppStateChanged() {
+            // The injector hears Ctrl+Alt+M in an app session and gives the keys and mouse back itself: the Dock goes
+            // with them. A Dock opened by the phone's touchpad while they are already the phone's is not one of these.
+            boolean forwarding = apps.isForwarding();
+            if (appForwarded && !forwarding) closeDockForPhone();
+            appForwarded = forwarding;
             updateStatus();
             refreshDocks();
         }
@@ -1218,6 +1236,7 @@ public class XDeskActivity extends Activity {
         prefs = getPreferences(MODE_PRIVATE);
         session = DesktopSession.get(this);
         apps = AppSession.get(this);
+        appForwarded = apps.isForwarding();  // the session may outlive this window
         catalog = AppCatalog.get(this);
         Switchboard.get(this).setHost(boardHost);
         audioRoute = AudioRoute.get(this);
@@ -4269,21 +4288,40 @@ public class XDeskActivity extends Activity {
         if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
     }
 
+    /** The windows a Stop would close. */
+    private int stopWindows() {
+        LinuxSource linux = LinuxSource.get();
+        return linux != null ? linux.windows().size() : 0;
+    }
+
+    /** The whole desktop a Stop would end, or null (the light X alone is not worth a question). */
+    private String stopSession() {
+        String running = runningSession != null ? runningSession : desktopName;
+        return running != null && !running.endsWith(Devices.APPS_ONLY) ? running : null;
+    }
+
+    /**
+     * Whether a Linux Stop asks on the phone first: something would be lost, or the permission to stop is missing.
+     * The device bar's "Continue on the phone" (Switchboard.Action.onPhone) is this same answer.
+     */
+    private boolean stopAsks() {
+        return checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED || stopWindows() > 0 || stopSession() != null;
+    }
+
     private void confirmStop() {
+        // A Linux device's Stop (DEVICES.md §2): the X server all Linux environments share ends, with everything on it.
+        // Nothing to lose with only the light X and no window open: no question then
+        boolean asks = stopAsks();
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             ui().confirm(getString(R.string.xd_end_desktop_title), getString(R.string.xd_end_desktop_no_permission), getString(R.string.xd_ok), null);
             return;
         }
-        // A Linux device's Stop (DEVICES.md §2): the X server all Linux environments share ends, with everything on it.
-        // Nothing to lose with only the light X and no window open: no question then
-        LinuxSource linux = LinuxSource.get();
-        int open = linux != null ? linux.windows().size() : 0;
-        String running = runningSession != null ? runningSession : desktopName;
-        boolean desktop = running != null && !running.endsWith(Devices.APPS_ONLY);
-        if (open == 0 && !desktop) {
+        if (!asks) {
             stopDesktop();
             return;
         }
+        int open = stopWindows();
+        boolean desktop = stopSession() != null;
         String message = getString(desktop ? R.string.xd_end_desktop_message : R.string.xd_stop_x_message);
         if (open > 0) message += "\n\n" + getResources().getQuantityString(R.plurals.xd_stop_x_windows, open, open);
         ui().confirm(getString(desktop ? R.string.xd_end_desktop_confirm_title : R.string.xd_stop_x_title), message, getString(R.string.xd_end), new Runnable() {
