@@ -650,6 +650,9 @@ final class Switchboard {
      */
     private Item forKey(String key) {
         if (key == null) return null;
+        // Termux removed (from the phone or as a device): its programs and desktops leave the favourites and
+        // Docks too. What is on the display now stays while it is there
+        if (devices.deviceOf(key).startsWith(Devices.LINUX) && !devices.linuxShown() && !key.equals(current)) return null;
         if (ChooserView.isAppKey(key)) {
             AppCatalog.App a = AppCatalog.get(c).find(ChooserView.componentOf(key));
             return a != null ? appItem(a) : null;

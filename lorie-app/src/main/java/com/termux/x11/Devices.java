@@ -35,7 +35,7 @@ final class Devices {
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String TERMUX_PACKAGE = "com.termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
-        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime";
+        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime", PREF_TERMUX = "termux";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
@@ -313,16 +313,41 @@ final class Devices {
         return null;
     }
 
-    /** Whether this environment is a device (a tab of its own). Termux always is. */
+    /** Whether this environment is a device (a tab of its own). */
     boolean isLinuxAdded(String env) {
-        return env.equals(TERMUX) || addedLinux.contains(env);
+        return env.equals(TERMUX) ? termuxAdded() : addedLinux.contains(env);
+    }
+
+    /**
+     * Termux is a device like the others, added when wanted: a first start of XDesk has the phone's apps only. It is
+     * there by itself once xdesk has answered (it is set up: an update, or Termux was added before), and the user can
+     * add or remove it like any other. The other environments live in Termux, so none of them is there without it.
+     */
+    private boolean termuxAdded() {
+        String p = prefs.getString(PREF_TERMUX, "");
+        if (p.equals("on")) return true;
+        if (p.equals("off")) return false;
+        return !reportedEnvs.isEmpty() || !sessions.isEmpty() || xRunning || runningSession != null;
+    }
+
+    /** Whether Linux devices are shown at all: Termux is installed and added. Keys of Linux items are gone otherwise. */
+    boolean linuxShown() {
+        return termuxAdded() && termuxInstalled();
     }
 
     /** Add device › Linux › an environment, or its removal. Nothing of the environment itself is touched. */
     void setLinuxAdded(String env, boolean add) {
-        if (env.equals(TERMUX)) return;
+        if (env.equals(TERMUX)) {
+            if (add == termuxAdded() && prefs.contains(PREF_TERMUX)) return;
+            prefs.edit().putString(PREF_TERMUX, add ? "on" : "off").apply();
+            changed();
+            return;
+        }
         if (add ? !addedLinux.add(env) : !addedLinux.remove(env)) return;
-        prefs.edit().putString(PREF_LINUX, String.join("\n", addedLinux)).apply();
+        SharedPreferences.Editor ed = prefs.edit().putString(PREF_LINUX, String.join("\n", addedLinux));
+        // A proot or chroot needs Termux, so adding one adds Termux too
+        if (add && !termuxAdded()) ed.putString(PREF_TERMUX, "on");
+        ed.apply();
         changed();
     }
 
@@ -420,12 +445,12 @@ final class Devices {
     }
 
     /**
-     * Termux, then the environments added as devices that xdesk still knows, in its order. None without Termux:
-     * someone who only uses Android apps and Macs gets no empty Termux tab (Add device › Linux says how to install it).
+     * Termux, then the environments added as devices that xdesk still knows, in its order. None without Termux installed
+     * and added (Add device › Linux says how to install it), so someone who only uses Android apps and Macs has no Linux tabs.
      */
     private List<String> linuxIds() {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
-        if (!termuxInstalled()) return new ArrayList<>(ids);
+        if (!linuxShown()) return new ArrayList<>(ids);
         ids.add(LINUX + TERMUX);
         for (Env e : envs) if (addedLinux.contains(e.name)) ids.add(LINUX + e.name);
         return new ArrayList<>(ids);

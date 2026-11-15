@@ -94,7 +94,6 @@
     <string name="xd_dev_env_termux">Termux itself</string>
     <string name="xd_dev_env_apps">apps and desktop</string>
     <string name="xd_dev_env_desktop_only">desktop only</string>
-    <string name="xd_dev_env_always">Always a device</string>
     <string name="xd_dev_env_added">Added · tap to remove</string>
     <string name="xd_dev_env_add">Add</string>
     <string name="xd_stop_x_title">Stop Linux?</string>

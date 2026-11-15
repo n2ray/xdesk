@@ -91,7 +91,6 @@
     <string name="xd_dev_env_termux">Termux 本身</string>
     <string name="xd_dev_env_apps">应用和桌面</string>
     <string name="xd_dev_env_desktop_only">只有桌面</string>
-    <string name="xd_dev_env_always">始终是设备</string>
     <string name="xd_dev_env_added">已添加 · 点按移除</string>
     <string name="xd_dev_env_add">添加</string>
     <string name="xd_stop_x_title">停止 Linux？</string>

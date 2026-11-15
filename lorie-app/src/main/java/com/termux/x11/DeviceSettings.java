@@ -154,9 +154,8 @@ final class DeviceSettings {
                 s.infoRow(more, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
                 s.valueRow(more, c.getString(R.string.xd_dev_linux_add_more), null, "", this::linuxSetUp);
                 final String env = id.substring(Devices.LINUX.length());
-                if (!env.equals(Devices.TERMUX))
-                    s.valueRow(more, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_dev_remove_linux_note), "",
-                            () -> devices.setLinuxAdded(env, false));
+                s.valueRow(more, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_dev_remove_linux_note), "",
+                        () -> devices.setLinuxAdded(env, false));
             } else if (d.type == Devices.Type.MAC) {
                 LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
                 s.valueRow(more, c.getString(R.string.xd_mac_settings), c.getString(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
@@ -193,13 +192,13 @@ final class DeviceSettings {
         live(c.getString(R.string.xd_dev_type_linux), content -> {
             LinearLayout found = s.section(content, c.getString(R.string.xd_dev_linux_found));
             for (final Devices.Env e : devices.environments()) {
-                if (e.name.equals(Devices.TERMUX)) {
-                    s.infoRow(found, envName(e), envNote(e), c.getString(R.string.xd_dev_env_always));
-                } else {
-                    final boolean added = devices.isLinuxAdded(e.name);
-                    s.valueRow(found, envName(e), envNote(e), c.getString(added ? R.string.xd_dev_env_added : R.string.xd_dev_env_add),
-                            () -> devices.setLinuxAdded(e.name, !added));
-                }
+                final boolean added = devices.isLinuxAdded(e.name);
+                s.valueRow(found, envName(e), envNote(e), c.getString(added ? R.string.xd_dev_env_added : R.string.xd_dev_env_add), () -> {
+                    devices.setLinuxAdded(e.name, !added);
+                    // Added: ask Termux what it has now (its permission first, the first time)
+                    Devices.Actions a = devices.actions();
+                    if (!added && a != null) a.setUpLinux();
+                });
             }
             s.infoRow(found, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
             LinearLayout steps = s.section(content, c.getString(R.string.xd_dev_linux_steps));
