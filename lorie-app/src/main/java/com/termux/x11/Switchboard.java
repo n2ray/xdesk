@@ -386,11 +386,6 @@ final class Switchboard {
                 if (i != null) out.add(across(i, null));
             }
         } else if (TAB_FAVOURITES.equals(id)) {
-            if (devices.termuxSuggested())
-                out.add(note(str(R.string.xd_dev_termux_suggest), str(R.string.xd_dev_termux_suggest_note), () -> {
-                    devices.setLinuxAdded(Devices.TERMUX, true);
-                    if (host != null) host.termuxHint();   // the permission, then what Termux has
-                }));
             favouriteRows(out);
         } else {
             Devices.Device d = devices.find(id);
@@ -476,6 +471,9 @@ final class Switchboard {
             if (d.id.equals(Devices.LINUX + Devices.TERMUX) && !searching) {
                 String hint = devices.termuxHint();
                 if (hint != null) desktops.add(note(hint, null, () -> { if (host != null) host.termuxHint(); }));
+                // Not set up yet (just added, or xdesk is missing): the install line, one tap from Termux
+                if (hint != null && devices.sessions().isEmpty())
+                    desktops.add(note(str(R.string.xd_termux_install_xdesk), str(R.string.xd_termux_install_xdesk_note), () -> TermuxCommand.copyInstallAndOpen(c)));
                 // The environments are all listed. Only for a program started with xdesk run, or when Termux's state
                 // can't be read, is there a reason to attach to X directly
                 boolean x = devices.xRunning();

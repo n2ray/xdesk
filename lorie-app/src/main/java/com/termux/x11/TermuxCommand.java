@@ -2,6 +2,8 @@ package com.termux.x11;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -9,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.SparseArray;
+import android.widget.Toast;
 import com.termux.x11.app.R;
 
 /** 让 Termux 运行命令并把输出传回来。和 DesktopSession.run 一样要 RUN_COMMAND 权限和 allow-external-apps。 */
@@ -33,6 +36,23 @@ final class TermuxCommand {
     private static int nextId = 1;
 
     private TermuxCommand() { }
+
+    /**
+     * XDesk cannot install xdesk itself: a fresh Termux runs no commands from other apps until allow-external-apps is
+     * set in it, which the install line does. So the line goes to the clipboard and Termux opens, to paste it there.
+     */
+    static void copyInstallAndOpen(Context c) {
+        ClipboardManager cm = c.getSystemService(ClipboardManager.class);
+        if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("xdesk", INSTALL));
+        Toast.makeText(c, R.string.xd_termux_install_copied, Toast.LENGTH_LONG).show();
+        Intent open = c.getPackageManager().getLaunchIntentForPackage("com.termux");
+        if (open == null) return;
+        try {
+            c.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Opening Termux", e);
+        }
+    }
 
     /** 在 bash -c 里运行。结果回到主线程；Termux 不理就没有回调，调用方自己算超时。 */
     static boolean run(Context c, String script, Callback callback) {

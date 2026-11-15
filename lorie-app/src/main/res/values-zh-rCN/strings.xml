@@ -410,6 +410,13 @@
     <string name="xd_card_close_title">关闭 %1$s？</string>
 
     <string name="xd_termux_not_installed">没有安装 Termux，装好后点这里</string>
+    <string name="xd_termux_gone_title">Termux 已被卸载</string>
+    <string name="xd_termux_gone">这台手机上已经没有 Termux 了，XDesk 移除了 Termux 设备，也清掉了记下的它的东西：桌面、程序，以及收藏和最近使用里的 Linux 项目。要再用的话，先装 Termux，再到「添加设备 › Linux」里添加。</string>
+    <string name="xd_termux_new_title">Termux 被重新安装了</string>
+    <string name="xd_termux_new">这是一个新的 Termux，里面不一定还有原来的桌面和程序。XDesk 移除了 Termux 设备，清掉了记下的旧 Termux 的东西。请到「添加设备 › Linux」里重新添加。</string>
+    <string name="xd_termux_install_xdesk">在 Termux 里安装 xdesk</string>
+    <string name="xd_termux_install_xdesk_note">复制安装命令并打开 Termux：长按、粘贴、回车。安装时会问是否允许别的应用在 Termux 里运行命令，XDesk 需要这一项，回答 y。装好后回到这里。</string>
+    <string name="xd_termux_install_copied">已复制。在 Termux 里长按，点粘贴，再回车</string>
     <string name="xd_termux_permission">点这里允许 XDesk 读取 Termux 环境</string>
     <string name="xd_termux_no_sessions">没有找到环境。在 Termux 里运行 xdesk setup 后点这里</string>
 

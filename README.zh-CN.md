@@ -109,7 +109,7 @@ v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-它会安装 `xdesk` 命令和加载器，找出你已有的桌面，还会下载 App，已经装过的话不用管。还没装桌面的话，可以运行 `pkg install xfce4 xfce4-terminal && xdesk setup`。然后在 XDesk 里添加 Termux：点收藏页最上面的「把 Termux 添加为设备」（或「添加设备 › Linux」），允许它在 Termux 里运行命令。之后这些桌面就会出现在 XDesk 的启动器里。
+它会安装 `xdesk` 命令和加载器，找出你已有的桌面，还会下载 App，已经装过的话不用管。还没装桌面的话，可以运行 `pkg install xfce4 xfce4-terminal && xdesk setup`。然后在 XDesk 的「添加设备 › Linux」里添加 Termux，并允许它在 Termux 里运行命令。之后这些桌面就会出现在 XDesk 的启动器里。
 
 > 运行之前建议先看看脚本：[install.sh](xdesk/install.sh)。
 

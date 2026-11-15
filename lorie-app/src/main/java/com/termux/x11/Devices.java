@@ -34,6 +34,8 @@ final class Devices {
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String TERMUX_PACKAGE = "com.termux";
+    /** What forgetGoneTermux did. */
+    static final int TERMUX_SAME = 0, TERMUX_FORGOTTEN = 1, TERMUX_REMOVED = 2, TERMUX_REINSTALLED = 3;
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
         PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime", PREF_TERMUX = "termux",
         PREF_TERMUX_AT = "termux_installed_at";
@@ -331,15 +333,6 @@ final class Devices {
         return !reportedEnvs.isEmpty() || !sessions.isEmpty() || xRunning || runningSession != null;
     }
 
-    /**
-     * Termux is on the phone but was never added or removed: likely someone who just ran the install script, whose
-     * XDesk cannot ask Termux anything before it has the permission. The favourites offer to add it; once tapped or
-     * removed it is the user's choice and the offer goes.
-     */
-    boolean termuxSuggested() {
-        return !prefs.contains(PREF_TERMUX) && !termuxAdded() && termuxInstalled();
-    }
-
     /** Whether Linux devices are shown at all: Termux is installed and added. Keys of Linux items are gone otherwise. */
     boolean linuxShown() {
         return termuxAdded() && termuxInstalled();
@@ -482,15 +475,20 @@ final class Devices {
 
     /**
      * Termux removed, or installed anew, since the last look: what XDesk knew of it is forgotten here (its
-     * environments, sessions, added devices, hidden entries), and true tells the caller to forget its part too
-     * (favourites, recents, the program list). A new Termux need not have any of the old programs.
+     * environments, sessions, added devices, hidden entries), and the caller forgets its part too (favourites,
+     * recents, the program list). A new Termux need not have any of the old programs. The device goes as well: only
+     * Add device brings it back.
+     *
+     * @return TERMUX_SAME, TERMUX_FORGOTTEN (it was not a device: nothing to tell), or TERMUX_REMOVED /
+     *     TERMUX_REINSTALLED, which the user is told
      */
-    boolean forgetGoneTermux() {
+    int forgetGoneTermux() {
         long at = termuxInstallTime(), saved = prefs.getLong(PREF_TERMUX_AT, -1);
-        if (at == saved) return false;
+        if (at == saved) return TERMUX_SAME;
         prefs.edit().putLong(PREF_TERMUX_AT, at).apply();
         // The first look on this version with Termux there: nothing to say it changed
-        if (saved == -1 && at != 0) return false;
+        if (saved == -1 && at != 0) return TERMUX_SAME;
+        boolean was = saved > 0 && termuxAdded();
         addedLinux.clear();
         linuxPhoneIme.clear();
         reportedEnvs = new ArrayList<>();
@@ -499,14 +497,14 @@ final class Devices {
         xRunning = false;
         linuxStarting = null;
         boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX));
-        SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS).remove(PREF_LINUX_PHONE_IME).remove(PREF_TERMUX);
+        SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS).remove(PREF_LINUX_PHONE_IME).putString(PREF_TERMUX, "off");
         if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden));
         String tab = boardTab();
         if (tab != null && tab.startsWith(LINUX)) ed.remove(PREF_BOARD_TAB).remove(PREF_OLD_TAB);
         ed.apply();
         rebuildEnvs();
         changed();
-        return true;
+        return !was ? TERMUX_FORGOTTEN : at == 0 ? TERMUX_REMOVED : TERMUX_REINSTALLED;
     }
 
     static String linuxName(Context c, String deviceId) {

@@ -211,6 +211,8 @@ final class DeviceSettings {
                 });
             } else {
                 s.infoRow(steps, c.getString(R.string.xd_dev_linux_install), null, c.getString(R.string.xd_dev_done));
+                s.valueRow(steps, c.getString(R.string.xd_termux_install_xdesk), c.getString(R.string.xd_termux_install_xdesk_note), "",
+                        () -> TermuxCommand.copyInstallAndOpen(c));
             }
             copyRow(steps, c.getString(R.string.xd_dev_linux_setup), c.getString(R.string.xd_dev_linux_setup_note), "xdesk setup");
             copyRow(steps, c.getString(R.string.xd_dev_linux_chroot), c.getString(R.string.xd_dev_linux_chroot_note),

@@ -96,8 +96,6 @@
     <string name="xd_dev_env_desktop_only">desktop only</string>
     <string name="xd_dev_env_added">Added · tap to remove</string>
     <string name="xd_dev_env_add">Add</string>
-    <string name="xd_dev_termux_suggest">Add Termux as a device</string>
-    <string name="xd_dev_termux_suggest_note">Termux is on this phone. Installed xdesk in it? Tap to add its desktops and programs (XDesk asks for permission to run commands in Termux). Not wanted: remove it again from its device page.</string>
     <string name="xd_stop_x_title">Stop Linux?</string>
     <string name="xd_stop_x_message">The X server ends, with every Linux program in all environments. Unsaved work will be lost.</string>
     <plurals name="xd_stop_x_windows">

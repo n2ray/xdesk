@@ -87,7 +87,7 @@ Optional, and Android apps need none of it. This part needs [Termux](https://git
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-It installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app, which you can ignore if it is already installed. No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`. Then add Termux in XDesk: tap **Add Termux as a device** at the top of the favourites (or Add device › Linux) and allow it to run commands in Termux. Your sessions then appear in XDesk's launcher.
+It installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app, which you can ignore if it is already installed. No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`. Then add Termux in XDesk, in **Add device › Linux**, and allow it to run commands in Termux. Your sessions then appear in XDesk's launcher.
 
 > Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh).
 

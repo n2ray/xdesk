@@ -433,6 +433,13 @@
 
     <!-- Termux environments in the launcher -->
     <string name="xd_termux_not_installed">Termux is not installed. Install it, then tap here</string>
+    <string name="xd_termux_gone_title">Termux was removed</string>
+    <string name="xd_termux_gone">Termux is no longer on this phone, so XDesk removed the Termux device and forgot what it knew of it: its desktops, programs, and the Linux favourites and recents. To use it again, install Termux and add it in Add device › Linux.</string>
+    <string name="xd_termux_new_title">Termux was installed again</string>
+    <string name="xd_termux_new">This is a new Termux, which need not have the old desktops or programs. XDesk removed the Termux device and forgot what it knew of the old one. Add it again in Add device › Linux.</string>
+    <string name="xd_termux_install_xdesk">Install xdesk in Termux</string>
+    <string name="xd_termux_install_xdesk_note">Copies the install line and opens Termux: long-press, paste, press Enter. It asks whether to let apps run commands in Termux: XDesk needs that, answer y. Then come back here.</string>
+    <string name="xd_termux_install_copied">Copied. In Termux: long-press, Paste, Enter</string>
     <string name="xd_termux_permission">Tap here to let XDesk read the Termux environments</string>
     <string name="xd_termux_no_sessions">No environments found. Run xdesk setup in Termux, then tap here</string>
 

@@ -3568,10 +3568,17 @@ public class XDeskActivity extends Activity {
     /**
      * Termux removed or installed anew: everything XDesk kept of it goes (DEVICES.md §1). A new Termux need not have
      * the old programs or desktops, so favourites and recents of Linux go too, with the sessions and the program list.
+     * When it was a device the user is told, it was taken away from under them.
      */
     private void forgetGoneTermux() {
         Devices dv = Devices.get(this);
-        if (!dv.forgetGoneTermux()) return;
+        int what = dv.forgetGoneTermux();
+        if (what == Devices.TERMUX_SAME) return;
+        if (what != Devices.TERMUX_FORGOTTEN) {
+            boolean removed = what == Devices.TERMUX_REMOVED;
+            new SettingsUi(this).confirm(getString(removed ? R.string.xd_termux_gone_title : R.string.xd_termux_new_title),
+                getString(removed ? R.string.xd_termux_gone : R.string.xd_termux_new), getString(R.string.xd_ok), null);
+        }
         SharedPreferences.Editor ed = prefs.edit().remove(PREF_SESSIONS);
         for (String pref : new String[]{PREF_DOCK, PREF_RECENTS}) {
             List<String> keep = new ArrayList<>();

@@ -63,6 +63,26 @@ if touch /sdcard/Download/.xdesk-test 2>/dev/null; then
 fi
 cp "$TMP/xdesk.apk" "$APK"
 
+# XDesk starts desktops and reads what is set up through Termux's RUN_COMMAND, which a fresh Termux refuses.
+# Allowing it opens Termux to other apps, so it is the user's choice: asked, never done silently
+if ! grep -qs '^allow-external-apps *= *true' "$HOME/.termux/termux.properties"; then
+    cat <<'ASK'
+
+XDesk starts your desktops and lists your programs by running commands in Termux.
+Termux refuses that until you allow other apps to run commands (allow-external-apps).
+Only apps you also grant the "Run commands in Termux" permission can then use it,
+and XDesk asks for that permission itself. Without it XDesk cannot use Termux.
+ASK
+    answer=
+    if [ -r /dev/tty ]; then
+        printf 'Allow it now? [y/N] '
+        { read -r answer </dev/tty; } 2>/dev/null || { answer=; echo; }
+    fi
+    case "$answer" in
+        [yY]*) "$PREFIX/bin/xdesk" enable-app-start ;;
+        *) echo "Not changed. To allow it later: xdesk enable-app-start" ;;
+    esac
+fi
 "$PREFIX/bin/xdesk" setup
 
 cat <<DONE
@@ -70,7 +90,7 @@ cat <<DONE
 Done. Next:
  1. Install the app: $APK
     Open it from a file manager, or if that fails: adb install -r xdesk.apk
- 2. Open XDesk and tap "Add Termux as a device" (allow it to run commands in Termux).
+ 2. Open XDesk, Add device › Linux › Termux, and allow it to run commands in Termux.
  3. Plug in a display and choose a desktop or a program.
 
 No desktop yet? For example: pkg install xfce4 xfce4-terminal && xdesk setup
