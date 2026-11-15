@@ -46,7 +46,7 @@ final class Router {
     // Linux key codes used for actions on desktops
     static final int KEY_ESC = 1, KEY_MINUS = 12, KEY_EQUAL = 13, KEY_TAB = 15, KEY_W = 17, KEY_LEFTBRACE = 26,
         KEY_RIGHTBRACE = 27, KEY_LEFTCTRL = 29, KEY_D = 32, KEY_LEFTSHIFT = 42, KEY_LEFTALT = 56, KEY_F4 = 62,
-        KEY_F11 = 87, KEY_UP = 103, KEY_LEFT = 105, KEY_RIGHT = 106, KEY_LEFTMETA = 125;
+        KEY_F11 = 87, KEY_RIGHTCTRL = 97, KEY_UP = 103, KEY_LEFT = 105, KEY_RIGHT = 106, KEY_LEFTMETA = 125, KEY_RIGHTMETA = 126;
 
     private final Host host;
     private final Device[] devices = new Device[DEVICES];
@@ -97,9 +97,18 @@ final class Router {
         /** Held app switching on a desktop: the modifier that is down, 0 when none. */
         private int switchModifier;
         private final WheelSteps wheel = new WheelSteps();
+        /** This device's keyboard is a Mac keyboard (a receiver said KEYBOARD kind 1): its Command arrives as Meta. */
+        private boolean macKeyboard;
+        /** Which held Command keys went out as Ctrl (bit 0 left, bit 1 right), so their releases match. */
+        private int metaAsCtrl;
 
         Device(int id) {
             this.id = id;
+        }
+
+        /** What kind of keyboard this device has, said by the receiver (WirelessDisplay KEYBOARD). Before its keys. */
+        void setMacKeyboard(boolean mac) {
+            macKeyboard = mac;
         }
 
         private boolean holding() {
@@ -202,6 +211,25 @@ final class Router {
         }
 
         @Override public void key(int scan, boolean down) {
+            // A Mac keyboard's Command comes as Meta (INPUT.md §5.5): for a non-Mac target it becomes Ctrl, as the
+            // Mac receiver's own translation had it, so those targets see exactly what they saw before. A Mac target
+            // gets the Meta untranslated (MacInput skips pcToMac for a Mac keyboard).
+            if (macKeyboard && (scan == KEY_LEFTMETA || scan == KEY_RIGHTMETA)) {
+                // Decided at the press and kept for its release: a target change in between must not leave a
+                // Ctrl down that is released as Meta
+                int bit = scan == KEY_LEFTMETA ? 1 : 2;
+                boolean asCtrl;
+                if (down) {
+                    InputSink t = target();
+                    Caps c = t != null ? t.caps() : null;
+                    asCtrl = c == null || !c.macKeys;
+                    metaAsCtrl = asCtrl ? metaAsCtrl | bit : metaAsCtrl & ~bit;
+                } else {
+                    asCtrl = (metaAsCtrl & bit) != 0;
+                    metaAsCtrl &= ~bit;
+                }
+                if (asCtrl) scan = scan == KEY_LEFTMETA ? KEY_LEFTCTRL : KEY_RIGHTCTRL;
+            }
             InputSink t;
             if (down) {
                 t = bindTo();

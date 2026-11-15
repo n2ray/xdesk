@@ -13,6 +13,7 @@ const T = zh ? {
   noVideo: '这个浏览器不能播放 H.264 视频流，请换 Safari、Chrome、Edge 或 Firefox', connect: '连接',
   noteHttp: '提示：添加到主屏幕后，可以像 App 一样全屏使用。',
   full: '全屏', kbd: '键盘', sound: '声音', quit: '断开', soundOn: '点一下画面打开声音',
+  back: '返回', home: '主页', overview: '总览',
   backBlocked: '已拦住返回，要离开请点工具栏的断开', bye: '已断开。', reconnect: '重新连接',
   lockHint: '点一下画面锁定鼠标，按 Esc 解锁', ended: '手机结束了投屏', leave: '要断开 XDesk 吗？',
   pairing: '另一个浏览器正在配对，稍后自动重试', noPicture: '连上了手机，但几次都没有画面，已停止重连。看一下手机上 XDesk 的提示。',
@@ -23,6 +24,7 @@ const T = zh ? {
   noVideo: 'This browser cannot play an H.264 stream. Try Safari, Chrome, Edge or Firefox', connect: 'Connect',
   noteHttp: 'Tip: add this page to the home screen to use it full screen like an app.',
   full: 'Full screen', kbd: 'Keyboard', sound: 'Sound', quit: 'Disconnect', soundOn: 'Tap the picture to turn on sound',
+  back: 'Back', home: 'Home', overview: 'Overview',
   backBlocked: 'Back is blocked; disconnect from the toolbar to leave', bye: 'Disconnected.', reconnect: 'Connect again',
   lockHint: 'Click the picture to capture the mouse, Esc to release', ended: 'The phone ended the stream', leave: 'Disconnect XDesk?',
   pairing: 'Another browser is pairing; trying again shortly', noPicture: 'Connected several times without a picture, so this stopped trying. Look at XDesk on the phone.',
@@ -30,7 +32,10 @@ const T = zh ? {
 
 // ---------------------------------------------------------------- protocol
 const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10;
-const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
+const FEATURES = 18;
+const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_ANDROID = 27;
+// FEATURES bits: 0 the phone handles ANDROID 4 (the switchboard); 1 a Mac keyboard; 2 SETTINGS
+const FEATURE_ACTIONS = 1;
 
 const $ = id => document.getElementById(id);
 const stage = $('stage'), video = $('video'), canvas = $('canvas'), kbd = $('kbd');
@@ -43,6 +48,8 @@ let ws = null, live = false, quitting = false, retryTimer = 0, retryDelay = 1500
 let lastSent = 0;
 // Sessions in a row that ended before any picture: stop after 3 rather than reconnecting forever
 let gotPicture = false, noPicture = 0;
+// What the phone said in FEATURES: bit 0 it handles ANDROID 4 (the switchboard button)
+let features = 0;
 let player = null, sound = null, streamW = 0, streamH = 0;
 
 const store = {
@@ -289,6 +296,8 @@ function debugTick() {
 let pingTimer = 0, debugTimer = 0;
 function startSession() {
   live = true;
+  features = 0;
+  applyFeatures();
   announceLayout();
   panel.classList.add('hidden');
   if (!player) {
@@ -341,8 +350,16 @@ function onMessage(v) {
     case PING: break;
     case TIME: if (len >= 16) onTime(v); break;
     case POINTER: stage.classList.toggle('phone-pointer', len >= 1 && p[0] === 1); break;
+    case FEATURES:
+      if (len >= 4) { features = v.getUint32(5); applyFeatures(); }
+      break;
     case BYE: quitting = true; show(T.ended, { button: T.reconnect }); ws.close(); break;
   }
+}
+
+// The Overview button only for a phone that said FEATURES bit 0: it opens the switchboard (ANDROID 4)
+function applyFeatures() {
+  $('b-overview').classList.toggle('hidden', !(features & FEATURE_ACTIONS));
 }
 
 // At most once a second, as XDesk Receiver: a decoder behind would otherwise ask with every frame, and a run of
@@ -1056,12 +1073,17 @@ function onFullscreen() { $('b-full').classList.toggle('on', !!fullscreenEl()); 
 document.addEventListener('fullscreenchange', onFullscreen);
 document.addEventListener('webkitfullscreenchange', onFullscreen);
 
-const icons = { full: '⛶', kbd: '⌨', sound: '♪', quit: '⏻' };
-for (const [k, id] of [['full', 'b-full'], ['kbd', 'b-kbd'], ['sound', 'b-sound'], ['quit', 'b-quit']]) {
+const icons = { back: '↩', home: '⌂', overview: '⊞', full: '⛶', kbd: '⌨', sound: '♪', quit: '⏻' };
+for (const [k, id] of [['back', 'b-back'], ['home', 'b-home'], ['overview', 'b-overview'], ['full', 'b-full'], ['kbd', 'b-kbd'], ['sound', 'b-sound'], ['quit', 'b-quit']]) {
   $(id).textContent = icons[k];
   $(id).title = T[k];
   $(id).setAttribute('aria-label', T[k]);
 }
+// The phone does the actions for whatever is on the picture (receiver/PROTOCOL.md ANDROID)
+function sendAndroid(which) { send(IN_ANDROID, new Uint8Array([which])); }
+$('b-back').addEventListener('click', () => sendAndroid(1));
+$('b-home').addEventListener('click', () => sendAndroid(2));
+$('b-overview').addEventListener('click', () => sendAndroid(4));
 $('b-full').addEventListener('click', toggleFullscreen);
 $('b-kbd').addEventListener('click', () => {
   if (document.activeElement === kbd) { kbd.blur(); return; }

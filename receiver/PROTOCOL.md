@@ -87,6 +87,8 @@ Phone → receiver:
 | 4 | AUDIO_DATA | u64 presentation time in µs, then PCM |
 | 5 | PING | empty |
 | 6 | BYE | empty: the phone stops on purpose; the receiver goes back to its idle screen at once |
+| 18 | FEATURES | u32 bitmask of what this phone understands, sent right after the session starts, and again whenever the stream starts over on a new connection (a receiver came back, a browser returned). bit 0: the ANDROID (27) actions 4 and 5; bit 1: a Mac keyboard, told in KEYBOARD (32), whose Command arrives as KEY_LEFTMETA/RIGHTMETA (125/126), untranslated; bit 2: SETTINGS (19). A receiver that never gets it assumes 0 |
+| 19 | SETTINGS | UTF-8 JSON object, every field optional. Only to a receiver that said FEATURES bit 2 |
 | 16 | CURSOR_SHAPE | Only to a receiver with codecs bit 2. u16 width, u16 height, u16 hot spot x, u16 hot spot y, each 0 to 65535 of the picture's **width**, then the cursor as PNG (at most 1 MiB): draw it over the picture |
 | 17 | CURSOR_POSITION | Only to a receiver with codecs bit 2. u16 x, u16 y (0 to 65535 across and down the picture), u8 shown: where that cursor's hot spot is; 0 hides it |
 
@@ -153,6 +155,7 @@ display sends:
 | 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
 | 23 | KEY | u16 Linux input key code, u8 down |
 | 24 | TEXT | UTF-8 text from an input method, at most 4096 bytes |
+| 27 | ANDROID | u8: 1 Back, 2 Home, 4 the switchboard (only when FEATURES bit 0 is set) |
 | 10 | POINTER | Phone → browser. u8 1: the phone's touchpad took the pointer, the page hides the computer's until that moves |
 | 9 | TIME | With `?debug`, and from a computer.  8 bytes of the browser's own; the phone answers with TIME: those 8 bytes, then u64 its clock in microseconds, the clock of the frames' timestamps |
 
@@ -167,10 +170,11 @@ A receiver with bit 7 of its codecs set is XDesk for a computer, or XDesk Receiv
 | 11 | ADDRESSES | Receiver → phone. UTF-8, comma-separated IPv4 addresses where this receiver can also be reached |
 | 12 | CLIPBOARD | Both ways. The clipboard as UTF-8 text, at most 256 KiB, when it changes |
 | 13 | APPS | Phone → receiver. Lines of key, tab, label: the apps it can switch to |
-| 14 | INPUT_MODE | Phone → receiver. u8: 1 the Termux desktop is showing, 0 Android apps, 2 (only to XDesk Receiver) an Android app that takes touches rather than a mouse. XDesk Receiver works as a touchpad with the phone's cursor unless it is 2 |
+| 14 | INPUT_MODE | Phone → receiver. u8: 1 the display takes keys as the desktop does (X is connected and no Android app is on it: the Linux desktop, a Linux program, a Mac window, the switchboard), 0 Android apps, 2 (only to XDesk Receiver) an Android app that takes touches rather than a mouse. XDesk Receiver works as a touchpad with the phone's cursor unless it is 2 |
 | 15 | IME_AREA | Phone → XDesk Receiver. u16: where the phone's input method begins, 0 to 65535 down the picture, 65535 while it is not showing. Looked at after taps and every second while it shows. There the receiver presses where the finger is, also as a touchpad |
-| 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS |
+| 27 | ANDROID | Receiver → phone. u8: 1 Back, 2 Home, 3 ask for APPS, 4 open the switchboard on the display (the Launchpad, as the dock's "All" does), 5 one step of the app switcher (the phone's three-finger switch). 4 and 5 only when FEATURES bit 0 is set |
 | 28 | CHOOSE | Receiver → phone. A key from APPS |
+| 32 | KEYBOARD | Receiver → phone. u8: 1 a Mac keyboard: its Command arrives as KEY_LEFTMETA/RIGHTMETA (125/126), untranslated. Sent once per connection, only when FEATURES bit 1 is set |
 | 29, 30, 31 | FILE_START, FILE_DATA, FILE_END | Both ways. A file's UTF-8 name, its bytes in chunks, and its end: saved in Downloads. An empty name drops what came of the file so far |
 
 If the connection to such a receiver is lost the phone keeps the session for 8 seconds and connects again: to the address in use, then to the others. Over USB the computer forwards the port with `adb reverse` and sends the broadcast `com.termux.x11.ConnectReceiver` (extras `host`, `port`, `name`), which only the shell user may send. A session on `127.0.0.1` allows a picture up to 2560 by 1600.

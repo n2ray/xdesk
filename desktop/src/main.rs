@@ -2,7 +2,8 @@
 //! keyboard and mouse while the window is in front and the pointer is on it.
 //!
 //! Control+Option with: Esc gives the keyboard and mouse back until the next click, F full screen, B back, H home,
-//! R recent apps, D the latency panel, L low latency. The same things are in the bar at the top edge and in the menu.
+//! R the recent apps of an old phone, or the switchboard (总览) with FEATURES bit 0, D the latency panel, L low
+//! latency. The same things are in the bar at the top edge and in the menu.
 
 mod clip;
 mod menu;
@@ -49,7 +50,10 @@ const BAR_TOP_FULLSCREEN: u32 = 34;
 const BAR_HEIGHT: u32 = 36;
 const BAR_PADDING: u32 = 16;
 const BAR_TEXT: f32 = 14.0;
+/// An old phone's bar: 最近 asks for its list of apps (APPS), the panel this window draws.
 const BAR: [(&str, u8); 5] = [("返回", ACT_BACK), ("主页", ACT_HOME), ("最近", ACT_RECENTS), ("全屏", ACT_FULLSCREEN), ("断开", ACT_DISCONNECT)];
+/// With FEATURES bit 0 the phone handles ANDROID 4: the same place in the bar is 总览, which opens the switchboard.
+const BAR_ACTIONS: [(&str, u8); 5] = [("返回", ACT_BACK), ("主页", ACT_HOME), ("总览", ACT_RECENTS), ("全屏", ACT_FULLSCREEN), ("断开", ACT_DISCONNECT)];
 const LIST_WIDTH: u32 = 520;
 const LIST_ROW: u32 = 44;
 const LIST_MAX_ROWS: usize = 14;
@@ -288,6 +292,7 @@ fn main() -> Result<(), String> {
     let mut bar_hover: Option<usize> = None;
     let mut bar_labels: Vec<(u8, Words)> = Vec::new();
     let mut bar_scale = 0f32;
+    let mut bar_actions = false;
     let mut apps: Option<Vec<(String, Words)>> = None;
     let mut apps_hover: Option<usize> = None;
     let mut composing_image: Option<Words> = None;
@@ -300,10 +305,12 @@ fn main() -> Result<(), String> {
         let points = canvas.window().size();
         let scale = area.0 as f32 / points.0.max(1) as f32;
         let fullscreen = canvas.window().fullscreen_state() != FullscreenType::Off;
-        if (scale - bar_scale).abs() > 0.01 {
+        let features_actions = net::features_actions();
+        if (scale - bar_scale).abs() > 0.01 || features_actions != bar_actions {
             bar_scale = scale;
+            bar_actions = features_actions;
             bar_labels.clear();
-            for (name, action) in BAR {
+            for (name, action) in if features_actions { &BAR_ACTIONS } else { &BAR } {
                 if let Some(image) = words.label(name, BAR_TEXT * scale) {
                     bar_labels.push((action, words_texture(&creator, &image)?));
                 }
@@ -330,7 +337,8 @@ fn main() -> Result<(), String> {
                     tap::COMPOSING.store(false, Ordering::Relaxed);
                     composing_image = None;
                     dirty = true;
-                    if tap::active() && tap::DESKTOP.load(Ordering::Relaxed) {
+                    // What the Mac's input method committed goes as TEXT, whatever the phone's INPUT_MODE says
+                    if tap::active() {
                         out(Out::Text(text));
                     }
                 }
@@ -357,10 +365,8 @@ fn main() -> Result<(), String> {
                 },
                 Event::MouseMotion { x, y, .. } => {
                     mouse = (x, y);
-                    if tap::DESKTOP.load(Ordering::Relaxed) {
-                        // Where the candidates of the Mac's input method go: the X cursor's place is not known here
-                        text_input.set_rect(Rect::new(x, y + COMPOSING_BELOW, 1, COMPOSING_HEIGHT));
-                    }
+                    // Where the candidates of the Mac's input method go: the X cursor's place is not known here
+                    text_input.set_rect(Rect::new(x, y + COMPOSING_BELOW, 1, COMPOSING_HEIGHT));
                     let over_something = apps.is_some() || (bar_open && index_at(&bar, pixel(mouse)).is_some());
                     if over_something || tap::RELEASED.load(Ordering::Relaxed) || picture.0 == 0 {
                         continue;
@@ -423,7 +429,8 @@ fn main() -> Result<(), String> {
             match action {
                 ACT_BACK => out(Out::Android(1)),
                 ACT_HOME => out(Out::Android(2)),
-                ACT_RECENTS => out(Out::Android(3)),
+                // 3 asks for the app list (an old phone's panel); 4 opens the switchboard (FEATURES bit 0)
+                ACT_RECENTS => out(Out::Android(if net::features_actions() { 4 } else { 3 })),
                 ACT_FULLSCREEN => {
                     let next = if canvas.window().fullscreen_state() == FullscreenType::Off { FullscreenType::Desktop } else { FullscreenType::Off };
                     canvas.window_mut().set_fullscreen(next)?;

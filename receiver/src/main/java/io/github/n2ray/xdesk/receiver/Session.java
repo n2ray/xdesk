@@ -29,7 +29,8 @@ final class Session extends Thread implements Video.Listener {
     private static final int PROTOCOL = 2, NONCE_LENGTH = 64;
     // Message types
     static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, IME_AREA = 15, FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
+            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, IME_AREA = 15, FEATURES = 18,
+            FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
     /** A Mac picture passed through the phone as the Mac sent it: its cursor, which is not in the picture (PROTOCOL.md) */
     static final int CURSOR_SHAPE = 16, CURSOR_POSITION = 17, MAX_CURSOR = 1 << 20;
     /** Codecs bit 2, with bit 1: VIDEO_FORMAT may switch to H.265 and back during a stream, and the cursor messages are drawn */
@@ -313,6 +314,16 @@ final class Session extends Thread implements Video.Listener {
                         }
                         int mode = in.readUnsignedByte();
                         if (control && r.isActive(this)) r.ui.inputMode(mode);
+                        break;
+                    }
+                    case FEATURES: {
+                        if (len < 4) {
+                            skip(len);
+                            break;
+                        }
+                        int bits = in.readInt();
+                        skip(len - 4);
+                        if (control && r.isActive(this)) r.ui.features(bits);
                         break;
                     }
                     case CLIPBOARD: {

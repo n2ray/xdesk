@@ -51,6 +51,9 @@ final class Receiver {
         /** What is in front on the phone's display: 1 the Linux desktop, 0 an Android app, 2 an Android app in touch mode. */
         void inputMode(int mode);
 
+        /** What the phone said in FEATURES: bit 0 it handles the ANDROID actions 4 (Overview) and 5 (Switcher). */
+        void features(int bits);
+
         /** Where the phone's input method begins on the picture, 0 to 65535 down; 65535 while it is not showing. */
         void imeArea(int top);
 

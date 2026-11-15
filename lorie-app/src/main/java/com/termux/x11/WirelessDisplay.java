@@ -72,6 +72,11 @@ final class WirelessDisplay {
     private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4, CHALLENGE = 5;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
         SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11, CLIPBOARD = 12;
+    /** FEATURES (18): what this phone understands, sent right after the session starts. SETTINGS (19) is its JSON
+     *  sibling, for a later change: only the constant is defined here. */
+    private static final int FEATURES = 18, SETTINGS = 19;
+    /** FEATURES bits: 0 the ANDROID (27) actions 4 and 5; 1 a Mac keyboard, KEYBOARD (32); 2 SETTINGS (19). */
+    private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -82,6 +87,10 @@ final class WirelessDisplay {
     private static final int CODECS_NOT_COMPUTER = 0x40;
     private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
+    /** Receiver → phone (a Mac receiver): u8 the kind of its keyboard. Sent once per connection, with FEATURES bit 1. */
+    private static final int KEYBOARD = 32;
+    /** KEYBOARD kinds: a Mac keyboard, whose Command arrives as KEY_LEFTMETA/RIGHTMETA (125/126), untranslated. */
+    static final int KEYBOARD_MAC = 1;
     /** Phone → XDesk Receiver: u16 where the input method begins, 0 to 65535 down the picture; 65535 while it is not showing. */
     private static final int IME_AREA = 15;
     private static final int IME_NONE = 0xFFFF;
@@ -124,6 +133,8 @@ final class WirelessDisplay {
     private volatile boolean inputReceiver;
     /** An input receiver that is a computer: connected to again by itself, and a cable to it may move the stream there. */
     private volatile boolean computer;
+    /** KEYBOARD kind the receiver said this session, 0 until it does: KEYBOARD_MAC for a Mac keyboard. */
+    private volatile int keyboardKind;
     /** A new picture size the receiver asked for, taken up by the stream. */
     private volatile int[] resizeTo;
     /** Where a computer can be reached besides the address in use, and where it asked to be reached next. */
@@ -268,6 +279,7 @@ final class WirelessDisplay {
             web = false;
             inputReceiver = false;
             computer = false;
+            keyboardKind = 0;
             resizeTo = null;
             receiverId = null;
             receiverDensity = 0;
@@ -405,6 +417,8 @@ final class WirelessDisplay {
         webClient = null;
         displayId = Display.INVALID_DISPLAY;
         soundCaptured = false;
+        keyboardKind = 0;
+        MacInput.setSourceMacKeyboard(false);
         // A drag or a held Ctrl from the browser must not stay pressed on the desktop
         if (web || inputReceiver) ui.post(this::releaseWebInput);
         WebServer.get(context).sessionEnded();
@@ -455,6 +469,7 @@ final class WirelessDisplay {
         webClient = id;
         receiverId = null;
         receiverDensity = density;
+        keyboardKind = 0;
         endReason = null;
         address = null;
         receiverName = name;
@@ -918,6 +933,7 @@ final class WirelessDisplay {
         sentInputMode = -1;
         ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
         writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+        sendFeatures();
         byte[] config = lastConfig;
         if (config != null) {
             byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
@@ -925,6 +941,16 @@ final class WirelessDisplay {
         }
         lastSyncRequest = 0;
         keyFrameWanted = true;
+    }
+
+    /**
+     * FEATURES (18), right after the session starts and again with every new connection: what this phone understands.
+     * bit 0 the ANDROID actions 4 and 5, bit 1 a Mac keyboard (KEYBOARD) whose Command comes as Meta. bit 2 (SETTINGS)
+     * is defined but not set: that belongs to a later change.
+     */
+    private void sendFeatures() throws IOException {
+        ByteBuffer b = ByteBuffer.allocate(4).putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND);
+        writeMessage(FEATURES, b.array(), 0, 4);
     }
 
     boolean clipboardSyncOn() {
@@ -1068,6 +1094,11 @@ final class WirelessDisplay {
         return (web || inputReceiver) && state == STREAMING ? receiverName : null;
     }
 
+    /** The receiver's keyboard kind this session (KEYBOARD): KEYBOARD_MAC for a Mac keyboard, 0 for a PC-style one. */
+    int keyboardKind() {
+        return keyboardKind;
+    }
+
     /** A computer's connection is gone and is being looked for. */
     boolean reconnecting() {
         return inputReceiver && webLost;
@@ -1186,6 +1217,11 @@ final class WirelessDisplay {
                     if (type == FILE_START && inputReceiver) fileStart(new String(b, StandardCharsets.UTF_8));
                     else if (type == FILE_DATA && inputReceiver) fileData(b);
                     else if (type == FILE_END && inputReceiver) fileEnd(true);
+                    else if (type == KEYBOARD && size == 1) {
+                        // The receiver's keyboard, once per connection: a Mac keyboard's Command comes as Meta
+                        keyboardKind = b[0] & 0xff;
+                        MacInput.setSourceMacKeyboard(keyboardKind == KEYBOARD_MAC);
+                    }
                     else if (type >= IN_MOVE) webInput(type, b);
                     else if (type == KEY_FRAME) {
                         MacPass p = macPass;
@@ -1340,6 +1376,7 @@ final class WirelessDisplay {
             });
             ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
             writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+            sendFeatures();
             while (true) {
                 pump(encoder, died, id);
                 int[] size = resizeTo;

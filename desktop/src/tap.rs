@@ -2,7 +2,7 @@
 //! Cmd+Space, Control+Space and Cmd+Tab reach the phone. Needs the Accessibility permission of whatever started it.
 
 use crate::net::{out, set_layout, Out};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::os::raw::{c_ulong, c_void};
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
@@ -68,12 +68,14 @@ pub const ACT_PANEL: u8 = 2;
 pub const ACT_LOW_LATENCY: u8 = 37;
 pub const ACT_DISCONNECT: u8 = 200;
 const CHORD_KEYS: [u8; 6] = [ACT_BACK, ACT_HOME, ACT_RECENTS, ACT_FULLSCREEN, ACT_PANEL, ACT_LOW_LATENCY];
-/// Linux codes of Ctrl and Alt: what made a character must not stay held on the other side.
-const CTRL_ALT: [u16; 4] = [29, 97, 56, 100];
+/// Linux codes of Ctrl and Alt, and of Command where FEATURES bit 1 sends it as Meta: what made a character must not
+/// stay held on the other side.
+const CTRL_ALT: [u16; 6] = [29, 97, 56, 100, 125, 126];
 
 static TAP: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 pub static FOCUSED: AtomicBool = AtomicBool::new(false);
-/// The phone shows the Termux desktop, which takes any text: there the Mac's own input method does the typing.
+/// What the phone said in INPUT_MODE (14): 1 the display takes keys as the desktop does. No longer read here: the
+/// Mac's own input method takes the typing whatever the mode, and the keys go by FEATURES.
 pub static DESKTOP: AtomicBool = AtomicBool::new(false);
 /// The Mac's input method is in the middle of something.
 pub static COMPOSING: AtomicBool = AtomicBool::new(false);
@@ -94,6 +96,8 @@ struct State {
     held: HashSet<u16>,
     typed: HashSet<i64>,
     modifiers: HashSet<i64>,
+    /// The scan each held modifier went down with: FEATURES (and so the Command translation) may arrive in between.
+    mod_scans: HashMap<i64, u16>,
     /// Left to macOS when they went down: their release goes the same way.
     passed: HashSet<i64>,
 }
@@ -118,6 +122,7 @@ pub fn release_all() {
     }
     s.typed.clear();
     s.passed.clear();
+    s.mod_scans.clear();
 }
 
 /// macOS key code → Linux key code, by place on the keyboard.
@@ -139,8 +144,10 @@ fn linux_code(mac: i64) -> u16 {
     }
 }
 
-/// The Linux code a modifier key sends, with its flag. Command does what Ctrl does on the phone.
+/// The Linux code a modifier key sends, with its flag. Command does what Ctrl does on the phone; with FEATURES bit 1
+/// (a Mac keyboard, KEYBOARD kind 1) it goes as Meta and the phone translates it per target (INPUT.md §5.5).
 fn modifier(mac: i64) -> Option<(u16, u64)> {
+    let raw = crate::net::raw_command();
     match mac {
         56 => Some((42, SHIFT)),
         60 => Some((54, SHIFT)),
@@ -148,8 +155,8 @@ fn modifier(mac: i64) -> Option<(u16, u64)> {
         62 => Some((97, CONTROL)),
         58 => Some((56, OPTION)),
         61 => Some((100, OPTION)),
-        55 => Some((29, COMMAND)),
-        54 => Some((97, COMMAND)),
+        55 => Some((if raw { 125 } else { 29 }, COMMAND)),
+        54 => Some((if raw { 126 } else { 97 }, COMMAND)),
         _ => None,
     }
 }
@@ -183,11 +190,10 @@ fn input_method_on() -> bool {
     }
 }
 
-/// Whether this key is for macOS and not the phone: switching input method, and typing into an input method.
+/// Whether this key is for macOS and not the phone: switching input method, and typing into an input method. Whatever
+/// the phone's INPUT_MODE says: with an input method on, the Mac's own input method takes the typing, and what it
+/// commits is sent as TEXT (INPUT.md §5.1). A plain layout such as ABC types as before, letter by letter.
 fn for_the_mac(event: Ref, mac: i64, flags: u64) -> bool {
-    if !DESKTOP.load(Ordering::Relaxed) {
-        return false;
-    }
     if mac == KEY_SPACE && flags & CONTROL != 0 && flags & COMMAND == 0 {
         return true;
     }
@@ -254,11 +260,15 @@ fn flags_changed(mac: i64, flags: u64) {
     let Some((scan, flag)) = modifier(mac) else { return };
     let mut s = STATE.lock().unwrap();
     let down = flags & flag != 0 && !s.modifiers.contains(&mac);
-    if down {
+    let scan = if down {
         s.modifiers.insert(mac);
+        s.mod_scans.insert(mac, scan);
+        scan
     } else {
         s.modifiers.remove(&mac);
-    }
+        // The same scan it went down with, or its release would not reach the phone
+        s.mod_scans.remove(&mac).unwrap_or(scan)
+    };
     if active() {
         key(&mut s, scan, down);
     }
