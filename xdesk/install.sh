@@ -11,12 +11,31 @@ missing=
 for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux setsid:util-linux sha256sum:coreutils pgrep:procps; do
     command -v "${pair%%:*}" >/dev/null || missing="$missing ${pair##*:}"
 done
-if [ -n "$missing" ]; then
-    echo "Installing:$missing"
+# Adreno GPUs work with Turnip, Mesa's open Vulkan driver, and Mesa then runs OpenGL on the real GPU
+# through zink. Mesa picks this by itself and falls back to software rendering when the GPU is too old
+# for Turnip, so installing it is safe on every Adreno.
+turnip=
+if [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
+    turnip=1
+fi
+if [ -n "$missing$turnip" ]; then
+    # Termux does not support partial upgrades: a new package against old libraries can break both
     pkg upgrade -y
     pkg install -y x11-repo
+fi
+if [ -n "$missing" ]; then
+    echo "Installing:$missing"
     # shellcheck disable=SC2086
     pkg install -y $missing
+fi
+if [ -n "$turnip" ]; then
+    echo "Installing Turnip, the Adreno Vulkan driver"
+    # Not fatal: without it the desktop uses software rendering
+    if pkg install -y mesa mesa-vulkan-icd-freedreno; then
+        echo "If the desktop shows broken graphics, remove it again: pkg uninstall mesa-vulkan-icd-freedreno"
+    else
+        echo "Turnip was not installed; the desktop will use software rendering."
+    fi
 fi
 
 TAG=${XDESK_VERSION:-$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}
