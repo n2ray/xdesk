@@ -3663,7 +3663,7 @@ public class XDeskActivity extends Activity {
     private void parseTermuxState(String stdout) {
         ui.removeCallbacks(termuxNoReply);
         List<String> sessions = new ArrayList<String>();
-        String defaultName = null, running = null;
+        String defaultName = null, running = null, xLayout = null;
         boolean status = false, x = false, xIme = false;
         // After a second "---": xdesk envs, a tab separated line per environment
         boolean envs = false;
@@ -3688,10 +3688,16 @@ public class XDeskActivity extends Activity {
             } else if (line.startsWith("Input method: ")) {
                 // An input method on the X side (fcitx5): an xdesk that knows none prints no such line
                 xIme = !line.startsWith("Input method: none");
+            } else if (line.startsWith("Keyboard layout: ")) {
+                // The remembered X side layout (INPUT.md §5.2): "from X" means none is set. An xdesk that knows
+                // none prints no such line
+                xLayout = line.substring("Keyboard layout: ".length()).trim();
+                if (xLayout.equals("from X")) xLayout = null;
             }
         }
         // Its listener sets the key mode (keyModeFollows)
         Devices.get(this).setXIme(x && xIme);
+        Devices.get(this).setXLayout(xLayout);
         prefs.edit().putString(PREF_SESSIONS, String.join("\n", sessions)).apply();
         // Just after XDesk started or switched a session xdesk may still report none, or the one being replaced
         if (android.os.SystemClock.uptimeMillis() < launchGuardUntil && runningSession != null

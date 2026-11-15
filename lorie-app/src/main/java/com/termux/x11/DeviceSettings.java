@@ -21,6 +21,15 @@ import com.termux.x11.app.R;
 final class DeviceSettings {
     private static final String TERMUX = "com.termux";
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
+    private static final String XDESK = "/data/data/com.termux/files/usr/bin/xdesk";
+    /** INPUT.md §5.2: the layouts offered for "Keyboard layout (X side)", as xdesk ime layout names them. */
+    private static final String[] X_LAYOUTS = {"auto", "us", "gb", "de", "de-nodeadkeys", "ch-de_nodeadkeys",
+            "fr", "es", "it", "pt", "nl", "se"};
+    private static final int[] X_LAYOUT_NAMES = {R.string.xd_linux_x_layout_auto, R.string.xd_linux_x_layout_us,
+            R.string.xd_linux_x_layout_gb, R.string.xd_linux_x_layout_de, R.string.xd_linux_x_layout_de_nodeadkeys,
+            R.string.xd_linux_x_layout_ch_de_nodeadkeys, R.string.xd_linux_x_layout_fr, R.string.xd_linux_x_layout_es,
+            R.string.xd_linux_x_layout_it, R.string.xd_linux_x_layout_pt, R.string.xd_linux_x_layout_nl,
+            R.string.xd_linux_x_layout_se};
 
     private final Context c;
     private final SettingsUi s;
@@ -150,6 +159,10 @@ final class DeviceSettings {
                 s.switchRow(keys, c.getString(R.string.xd_linux_phone_ime),
                         c.getString(R.string.xd_linux_phone_ime_note) + "\n" + c.getString(devices.xIme() ? R.string.xd_linux_x_ime_on : R.string.xd_linux_x_ime_off),
                         devices.linuxPhoneIme(id), on -> devices.setLinuxPhoneIme(id, on));
+                String layout = devices.xLayout();
+                s.valueRow(keys, c.getString(R.string.xd_linux_x_layout), c.getString(R.string.xd_linux_x_layout_note),
+                        layout != null ? layoutName(layout) : c.getString(R.string.xd_linux_x_layout_auto),
+                        () -> pickXLayout(devices));
                 LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
                 s.infoRow(more, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
                 s.valueRow(more, c.getString(R.string.xd_dev_linux_add_more), null, "", this::linuxSetUp);
@@ -222,6 +235,37 @@ final class DeviceSettings {
                 Devices.Actions a = devices.actions();
                 if (a != null) a.setUpLinux();
             });
+        });
+    }
+
+    /** The layout's human name, or the layout name itself for one xdesk knows and XDesk does not. */
+    private String layoutName(String layout) {
+        for (int i = 1; i < X_LAYOUTS.length; i++)
+            if (X_LAYOUTS[i].equals(layout)) return c.getString(X_LAYOUT_NAMES[i]);
+        return layout;
+    }
+
+    /** INPUT.md §5.2: the remembered X side keyboard layout; choosing one runs xdesk ime layout, then reads the state again. */
+    private void pickXLayout(final Devices d) {
+        final String current = d.xLayout();
+        int checked = 0;
+        if (current != null)
+            for (int i = 1; i < X_LAYOUTS.length; i++)
+                if (X_LAYOUTS[i].equals(current)) checked = i;
+        String[] names = new String[X_LAYOUTS.length];
+        for (int i = 0; i < X_LAYOUTS.length; i++) names[i] = c.getString(X_LAYOUT_NAMES[i]);
+        s.choice(c.getString(R.string.xd_linux_x_layout), c.getString(R.string.xd_linux_x_layout_note), names, checked, which -> {
+            boolean sent = TermuxCommand.run(c, XDESK + " ime layout " + X_LAYOUTS[which], new TermuxCommand.Callback() {
+                @Override public void onOutput(String stdout) {
+                    // The command saved it and applied it: read xdesk status again so the row shows it
+                    Devices.Actions a = d.actions();
+                    if (a != null) a.setUpLinux();
+                }
+                @Override public void onFailure(String message) {
+                    Toast.makeText(c, message, Toast.LENGTH_LONG).show();
+                }
+            });
+            if (!sent) Toast.makeText(c, R.string.xd_termux_not_installed, Toast.LENGTH_LONG).show();
         });
     }
 

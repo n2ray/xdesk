@@ -19,7 +19,7 @@
 #   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
 #   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
 #   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
-#   xdesk ime [status|setup|start|stop|on|off]   the X side's input method (fcitx5 in Termux, for every environment)
+#   xdesk ime [status|setup|start|stop|on|off|layout [NAME]]   the X side's input method and keyboard layout (fcitx5 in Termux)
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 #                            ("termux+apps" needs no session: Termux's own xfwm4)
 set -u
@@ -132,6 +132,19 @@ lock() {
     flock -w 60 9 || { say "Timed out waiting for another xdesk command"; exit 1; }
 }
 
+# The remembered keyboard layout, with no fcitx5 to set X's layout (none installed, or ime off): set it on the
+# X server just started, so raw keys type right (INPUT.md §5.2). fcitx5 sets X from its profile itself.
+x_layout() {
+    local s v=""
+    s=$(layout_setting) || return 0
+    [ -n "$s" ] || return 0
+    ime_enabled && return 0
+    command -v setxkbmap >/dev/null 2>&1 || return 0
+    v=${s#*-}; [ "$v" = "$s" ] && v=""
+    DISPLAY=$DPY setxkbmap -layout "${s%%-*}" ${v:+-variant "$v"} 2>/dev/null || return 0
+    log "X keyboard layout: $s"
+}
+
 start_x() {
     local up=0 p
     x_up && up=1
@@ -141,7 +154,7 @@ start_x() {
         # Ours but not answering (still starting, or busy): never remove its socket and start a
         # second one, wait for it instead.
         for _ in $(seq 20); do
-            x_up && return 0
+            x_up && { x_layout; return 0; }
             sleep 0.5
         done
         say "The X server (pid $p) is running but does not answer on $DPY. Run: xdesk stop, then start again."
@@ -165,7 +178,7 @@ start_x() {
         -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
         </dev/null >>"$LOG" 2>&1 9>&- &
     for _ in $(seq 40); do
-        x_up && return 0
+        x_up && { x_layout; return 0; }
         sleep 0.5
     done
     say "X server did not start, see $LOG"
@@ -462,9 +475,13 @@ ime_vars() {  # bus | xim
     return 0
 }
 
+# The remembered keyboard layout of the X side (INPUT.md §5.2), set with "xdesk ime layout NAME", removed with
+# "auto". One fcitx5-style name per line ("de-nodeadkeys")
+layout_setting() { cat "$CONF/keyboard-layout" 2>/dev/null; }
+
 # The keyboard layout X has now, as fcitx5 names it ("us", "de", "de-nodeadkeys"); "us" when it cannot be read.
 # From the keymap itself: one loaded with xkbcomp leaves the root window's layout property as it was
-ime_layout() {
+ime_x_layout() {
     local s l
     s=$(DISPLAY=$DPY timeout 3 xkbcomp -w0 "$DPY" - 2>/dev/null | sed -n 's/^xkb_symbols[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     # "pc+de(nodeadkeys)+inet(evdev)": the part after "pc"
@@ -473,6 +490,14 @@ ime_layout() {
     if [[ $l =~ ^([a-z]{2,8})\(([A-Za-z0-9_-]+)\)$ ]]; then echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
     elif [[ $l =~ ^[a-z]{2,8}$ ]]; then echo "$l"
     else echo us; fi
+}
+
+# The layout a new profile uses: the remembered one when there is one, else X's own now
+ime_layout() {
+    local s
+    s=$(layout_setting)
+    [ -n "$s" ] && { echo "$s"; return 0; }
+    ime_x_layout
 }
 
 # fcitx5's keys, written once (never over a config that exists; like the profile, only while ours is not running):
@@ -579,6 +604,85 @@ PROFILE
     log "Input method: wrote $f (keyboard-$l, pinyin)"
 }
 
+# Checks a layout name against this system's XKB files: "de-nodeadkeys" is symbols/de with a
+# xkb_symbols "nodeadkeys" section. Says why not and fails (exit 2 from the caller) for anything else.
+valid_layout() {  # name
+    local base=${1%%-*} variant=${1#*-} f
+    [ "$variant" = "$1" ] && variant=""
+    if ! [[ $base =~ ^[a-z]{2,8}$ ]]; then
+        say "No such layout '$1': a layout is a fcitx5 name like 'us' or 'de-nodeadkeys'" >&2
+        return 2
+    fi
+    if [ -n "$variant" ] && ! [[ $variant =~ ^[A-Za-z0-9_]+$ ]]; then
+        say "No such layout '$1': a variant is letters, digits or _" >&2
+        return 2
+    fi
+    f=$PREFIX/share/X11/xkb/symbols/$base
+    [ -f "$f" ] || { say "No such layout '$1': $f is not installed (pkg install xkeyboard-config has it)" >&2; return 2; }
+    [ -z "$variant" ] && return 0
+    grep -q "xkb_symbols[[:space:]]*\"$variant\"" "$f" || { say "No such layout '$1': '$variant' is not a variant in $f" >&2; return 2; }
+}
+
+# Makes the remembered layout take effect: rewrites the profile's layout, with our fcitx5 stopped first (it would
+# write its own over the profile when it exits), and sets X's now with setxkbmap when X runs. The profile is only
+# edited, like in ime_setup, when one exists; fcitx5 sets X from the profile itself
+apply_ime_layout() {  # name
+    local l=$1 f=$HOME/.config/fcitx5/profile p was=0 v="" wm=""
+    if [ -e "$f" ]; then
+        if p=$(ime_pid) && ime_ours "$p"; then
+            was=1
+            stop_ime
+        fi
+        sed -i "s/^Default Layout=.*/Default Layout=$l/" "$f"
+        sed -i "s/^Name=keyboard-.*/Name=keyboard-$l/" "$f"
+    fi
+    if x_up; then
+        if command -v setxkbmap >/dev/null 2>&1; then
+            v=${l#*-}; [ "$v" = "$l" ] && v=""
+            if DISPLAY=$DPY setxkbmap -layout "${l%%-*}" ${v:+-variant "$v"}; then
+                log "X keyboard layout: $l (setxkbmap)"
+            else
+                say "setxkbmap could not set the layout"
+            fi
+        else
+            echo "setxkbmap is not installed: X keeps its layout for now (fcitx5 sets X from the profile; pkg install xorg-setxkbmap)"
+        fi
+    fi
+    # Ours was stopped for the edit: start it again where it ran, like xdesk ime start
+    if [ $was = 1 ] && x_up; then
+        wm=$(session_wm_pid) || wm=""
+        start_ime "$wm"
+    fi
+}
+
+# "xdesk ime layout": the remembered layout, or the profile's. With a NAME it is saved (validated against this
+# system's XKB files) and applied; "auto" goes back to X's own layout
+ime_layout_cmd() {  # NAME, or nothing
+    local f=$HOME/.config/fcitx5/profile name=${1:-} m s
+    if [ -z "$name" ]; then
+        if s=$(layout_setting) && [ -n "$s" ]; then
+            echo "Layout: $s"
+        else
+            echo "Layout: not set: from X ($(ime_layout))"
+        fi
+        if [ -e "$f" ]; then
+            m=$(sed -n 's/^Default Layout=//p' "$f" | head -1)
+            [ -n "$m" ] && echo "Profile: Default Layout=$m"
+        fi
+        return 0
+    fi
+    if [ "$name" = auto ]; then
+        rm -f "${CONF:?}/keyboard-layout"
+        echo "Layout: not set: from X ($(ime_layout))"
+        return 0
+    fi
+    valid_layout "$name" || return $?
+    mkdir -p "$CONF"
+    printf '%s\n' "$name" >"$CONF/keyboard-layout"
+    say "Layout: $name"
+    apply_ime_layout "$name"
+}
+
 stop_ime() {
     local p
     p=$(cat "$RUN/ime.pid" 2>/dev/null)
@@ -665,7 +769,7 @@ ime_export() {
 }
 
 ime_status() {
-    local p f=$HOME/.config/fcitx5/profile m name file pkg l
+    local p f=$HOME/.config/fcitx5/profile m name file pkg l s
     if ! ime_installed; then
         echo "fcitx5: not installed. Install it with: pkg install $IME_PACKAGES"
         return 0
@@ -683,7 +787,7 @@ ime_status() {
         echo "  GTK 3 does not list the module yet. Run: gtk-query-immodules-3.0 --update-cache"
     fi
     l=""
-    x_up && l=$(ime_layout)
+    x_up && l=$(ime_x_layout)
     if [ -e "$f" ]; then
         echo "Profile: $f ($(sed -n 's/^Name=//p' "$f" | sed 1d | tr '\n' ' ' | sed 's/ $//'))"
         m=$(sed -n 's/^Default Layout=//p' "$f" | head -1)
@@ -697,6 +801,7 @@ ime_status() {
         echo "Profile: none yet (fcitx5's own default)"
     fi
     [ -n "$l" ] && echo "X keyboard layout: $l"
+    s=$(layout_setting) && [ -n "$s" ] && echo "Layout: $s (remembered; xdesk ime layout, removes it: xdesk ime layout auto)"
     if p=$(ime_pid); then
         m=$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)
         echo "Running: pid $p$(ime_ours "$p" || echo " (not started by xdesk)"), session bus ${m:-none}"
@@ -1370,6 +1475,8 @@ status)
     echo "Default: $(current)"
     # Read by the app: with an input method on the X side a keyboard on the phone types as keys (INPUT.md §5.2)
     if x_up && imp=$(ime_pid); then echo "Input method: fcitx5 (pid $imp)"; else echo "Input method: none"; fi
+    # Read by the app: the remembered X side keyboard layout (INPUT.md §5.2); "from X" without one
+    if s=$(layout_setting) && [ -n "$s" ]; then echo "Keyboard layout: $s"; else echo "Keyboard layout: from X"; fi
     ;;
 setup) setup ;;
 envs) list_envs ;;
@@ -1400,6 +1507,10 @@ ime)
         touch "$CONF/ime-off"
         stop_ime
         echo "xdesk no longer starts fcitx5 or sets its environment (sessions and programs started from now on)"
+        ;;
+    layout)
+        [ $# -le 2 ] || { usage; exit 2; }
+        ime_layout_cmd "${2:-}" || exit $?
         ;;
     *) usage; exit 2 ;;
     esac
