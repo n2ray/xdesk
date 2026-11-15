@@ -1,6 +1,6 @@
 # 游戏直通（GAMING.md）
 
-状态：设想 v0.1（2026-11-15），还没有写代码，要先做下面 §5 的实验。来源：用户发现的用法——外屏开手机上的 GeForce NOW，蓝牙手柄玩游戏很流畅，无线投到投影机的接收端也没问题；但实体键盘和鼠标进不了 GeForce NOW。
+状态：设想 v0.1（2026-11-15），还没有写代码；§5 的关键实验 2026-11-15 在 15 Ultra 上手动做通了（见 §6）。来源：用户发现的用法——外屏开手机上的 GeForce NOW，蓝牙手柄玩游戏很流畅，无线投到投影机的接收端也没问题；但实体键盘和鼠标进不了 GeForce NOW。
 相关：INPUT.md §7（键鼠归属）、§15（手柄原本不在范围内）、SHORTCUTS.md（Ctrl+Alt+G）。
 
 ## 1. 目标
@@ -10,7 +10,7 @@
 ## 2. 现在为什么不行
 
 - 外屏上是安卓应用时，键鼠「在外屏」的意思是：注入服务独占实体键鼠（EvdevReader 的 EVIOCGRAB），再用 `injectInputEvent` 把模拟的事件送进外屏（绝对坐标的悬停、点按、触摸）。
-- GeForce NOW 的鼠标模式用 Android 的**指针捕获**（`requestPointerCapture`）：只收真实鼠标的相对移动（`SOURCE_MOUSE_RELATIVE`）。模拟注入的事件变不成捕获事件，所以「键鼠模式」在它里面完全无用。
+- GeForce NOW 要的是**真实鼠标的事件**（实测它没开指针捕获，直接读真实事件里的相对移动）。XDesk 注入的是模拟事件，它不认，所以「键鼠模式」在它里面完全无用。（最初猜是指针捕获，§6 的实测更正了。）
 - 触控模式能点、能按住拖动，是因为我们注入的触摸它认。
 - 手柄从来没被抓，安卓直接送给前台应用，所以一直好用。
 
@@ -40,3 +40,21 @@ INPUT.md §15 写着「手柄不在范围内」，指的是 XDesk 不转发手�
 5. Steam Link、Moonlight 是不是同样。
 
 实验 2 不行的话（HyperOS 不把鼠标送到外屏），退路是用 Android 的输入端口关联把鼠标绑到外屏（`InputManager` 的显示器端口关联，要 shell 权限）。XDesk 自己在外屏上抓指针再转发不是出路：转发出去的仍是模拟事件，变不成游戏要的捕获事件。
+
+## 6. 手动实验结果（2026-11-15，15 Ultra，HyperOS 3，GeForce NOW 串流中）
+
+做法：没写代码，用现有的功能拼出来。
+1. 外屏上开 GeForce NOW（XDesk 起的安卓应用会话），进到串流画面（`com.nvidia.gsPlayer.RemoteVideo`）。
+2. Ctrl+Alt+M 把键鼠交还给手机，或者干脆离开 XDesk（XDesk 不在前台时本来就交还）：注入服务不再独占键鼠。
+3. 用 shell 在外屏角上点一下（`input -d 17 tap 4 4`），系统的顶层焦点显示器变成外屏（`mTopFocusedDisplayId=17`，焦点窗口是 RemoteVideo）。
+
+结果：**实体键盘和鼠标都能直接玩，用户说「非常顺畅」。**
+- 键盘：焦点在外屏，Android 直接送给 GeForce NOW。
+- 鼠标：系统鼠标仍绑在手机屏（`dumpsys input` 的 `Pointer Display ID: 0`），也**没有**指针捕获（`Pointer Capture: Disabled`），可 GeForce NOW 照样收到真实鼠标的移动和按键。所以 §5 实验 2 担心的「鼠标到不了外屏」对它不是问题；不保证别的游戏也这样（要指针捕获的游戏可能还需要鼠标在外屏）。
+- 手柄一直可用。
+
+顺带发现的坑：
+- 键鼠交还给手机、但手机上的 XDesk 窗口还在前台又没有焦点窗口时，实体键盘的按键送到 XDesk，5 秒没人收，系统报「XDesk 无响应」（`Input dispatching timed out (Application does not have a focused window)`），XDesk 本身是空闲的。直通时要么让焦点明确在外屏，要么手机上的 XDesk 窗口能收下这些键。
+- 一碰手机屏，焦点就回手机，键盘跟着回去。
+
+所以实现可以很小：Ctrl+Alt+G = 注入服务放开独占（继续只读听 Ctrl+Alt+G）+ `focusDisplay(外屏)` + 藏起 XDesk 的光标；退出 = 重新独占 + 恢复。§3 的设计不变，只是不依赖指针捕获。
