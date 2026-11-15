@@ -20,7 +20,8 @@ import android.view.WindowManager;
  * MacMenus), over Android apps by Android's own hover. Sizes from Sizing.shell, never the display's density.
  */
 final class CornerButton {
-    static final float SIZE_DP = 24;
+    /** The bar of the Mac menu is as high (MacMenuBar: 24 dp of row and 2 + 2 of padding), so the ≡ sits level with it. */
+    static final float SIZE_DP = 28;
     /** The plate under the glyph: the notification panel's dark surface, slightly see-through, and its edge. */
     private static final int PLATE = 0xE61B1E24, PLATE_EDGE = 0x33FFFFFF;
     /** The pointer within this much of the button keeps it lit (NOTIFY.md §4.1). */

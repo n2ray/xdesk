@@ -383,7 +383,7 @@ final class MacMenus {
                     | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
             hintParams.gravity = Gravity.TOP | Gravity.START;
-            hintParams.x = dp(36);
+            hintParams.x = dp(CornerButton.SIZE_DP + 16);
             hintParams.y = dp(6);
             hintParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
             hintParams.setFitInsetsTypes(0);

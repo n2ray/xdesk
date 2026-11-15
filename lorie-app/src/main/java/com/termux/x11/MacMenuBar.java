@@ -119,7 +119,7 @@ final class MacMenuBar {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
-        params.x = dp(36);  // right of the ≡ button (8 + 20 + 8)
+        params.x = dp(CornerButton.SIZE_DP + 16);  // right of the ≡ button: 8, the button, 8
         params.y = dp(8);
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         params.setFitInsetsTypes(0);
