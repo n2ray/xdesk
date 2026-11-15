@@ -2546,8 +2546,9 @@ public class XDeskActivity extends Activity {
         s.valueRow(more, getString(R.string.xd_x11_settings), getString(R.string.xd_x11_settings_note), "",
             this::showX11Settings);
         s.valueRow(more, getString(R.string.xd_section_about), null, versionName(), this::showAboutSettings);
-        LinearLayout experiments = s.section(c, getString(R.string.xd_section_experiments));
-        s.valueRow(experiments, getString(R.string.xd_split_row), getString(R.string.xd_split_row_note), "", this::showSplitSettings);
+        // The split screen prototype (DISPLAY.md §15, issue #10) has no entry for now (owner, 2026-11-15): input does
+        // not reach the cells yet, it could not be closed on a real device, and the external display was left disabled
+        // afterwards. Its code stays for the work on #10; showSplitSettings is unused until then
 
         if (session.isActive()) {
             s.dangerRow(c, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
