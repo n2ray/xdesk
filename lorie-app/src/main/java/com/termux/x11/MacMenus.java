@@ -387,7 +387,7 @@ final class MacMenus {
                     | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
             hintParams.gravity = Gravity.TOP | Gravity.START;
-            hintParams.x = dp(CornerButton.SIZE_DP + 16);
+            hintParams.x = dp(CornerButton.SIZE_DP + 8) - 1;
             hintParams.y = dp(6);
             hintParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
             hintParams.setFitInsetsTypes(0);
@@ -432,9 +432,24 @@ final class MacMenus {
         py = Math.max(0f, Math.min(height - 1, py + dy));
         int x = Math.round(px), y = Math.round(py);
         arrow.moveTo(x, y);
+        // The ≡, the bar and its dropdown are one surface (they touch): the arrow goes from one to the other and
+        // stays the menu's; only leaving all of them gives the pointer back to the Mac's picture
+        boolean onBar = bar != null && !bar.closing() && bar.holds(x, y);
+        if (over == SURFACE_BUTTON && !buttonHolds(x, y) && onBar) {
+            over = SURFACE_BAR;
+            hideHint();
+            ui.removeCallbacks(barLeave);
+        } else if (over == SURFACE_BAR && button != null && buttonHolds(x, y)) {
+            over = SURFACE_BUTTON;
+            return null;
+        }
         if (over == SURFACE_BAR) {
-            if (bar.holds(x, y)) {
+            if (onBar) {
                 bar.pointerAt(x, y);  // the row under the arrow is highlighted, as on the Mac
+                return null;
+            }
+            if (bar == null) {  // closed under the arrow (the hotkey, a press): the pointer is the picture's again
+                endDriven();
                 return null;
             }
             bar.rect(rect);

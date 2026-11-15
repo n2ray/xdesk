@@ -121,7 +121,9 @@ final class MacMenuBar {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
-        params.x = dp(CornerButton.SIZE_DP + 16);  // right of the ≡ button: 8, the button, 8
+        // Joined to the ≡ (owner, 2026-11-15): no gap the pointer could fall through between them; the button,
+        // raised above the bar, covers the pixel they share
+        params.x = dp(CornerButton.SIZE_DP + 8) - 1;
         params.y = dp(8);
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         params.setFitInsetsTypes(0);
@@ -406,7 +408,7 @@ final class MacMenuBar {
         int[] barAt = new int[2];
         root.getLocationOnScreen(barAt);
         dropdownParams.x = at[0];
-        dropdownParams.y = barAt[1] + root.getHeight() + dp(2);
+        dropdownParams.y = barAt[1] + root.getHeight() - 1;  // joined to the bar: no gap to fall through
         try {
             if (dropdown.getParent() == null) {
                 windows.addView(dropdown, dropdownParams);
