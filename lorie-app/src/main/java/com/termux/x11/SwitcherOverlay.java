@@ -262,6 +262,15 @@ final class SwitcherOverlay {
             root = new FrameLayout(c);
             root.setBackgroundColor(home ? HOME_BACK : SCRIM);
             root.setOnClickListener(v -> { if (!home) hide(host); });
+            // Over an Android app the Launchpad is worked by Android's own pointer (the injector's): its wheel comes
+            // as this window's scroll event, not through INPUT. The same page per notch (AXIS_VSCROLL is positive up)
+            root.setOnGenericMotionListener((v, ev) -> {
+                if (ev.getActionMasked() != MotionEvent.ACTION_SCROLL) return false;
+                float dy = -ev.getAxisValue(MotionEvent.AXIS_VSCROLL), dx = ev.getAxisValue(MotionEvent.AXIS_HSCROLL);
+                if (dy == 0 && dx == 0) return false;
+                wheelNotch(dy != 0 ? dy : dx);
+                return true;
+            });
             column = new LinearLayout(c);
             column.setOrientation(LinearLayout.VERTICAL);
             column.setGravity(Gravity.CENTER_HORIZONTAL);
