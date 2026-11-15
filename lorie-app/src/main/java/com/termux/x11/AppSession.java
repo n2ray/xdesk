@@ -270,7 +270,6 @@ final class AppSession {
             // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice
             pointerAtHeight(y * cursorPolicy.height(), false);
             final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
-            EdgeListener l = bottomEdge;
             pointerAtCorner(px, py, false);
             EdgeListener l = bottomEdge;
             if (l != null && l.wantsPlace()) {
