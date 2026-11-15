@@ -73,7 +73,7 @@ Sall plays the Mac's sound against the video's presentation clock: `AudioRuntime
 `AudioDecodeMapping`, `AudioOutputTimeline`, `AudioPresentationClock`, `AudioScheduleJoin`, `AudioStartupSupply`
 (about 1500 lines, Java 17), and stops it on any underrun. XDesk shows a frame as soon as it is decoded and has no
 such clock, so `MacAudio` plays the sound as it arrives behind a short buffer, like `AudioPlayer` does for the
-Linux desktop: 40 ms before the track starts, a 100 ms track, and a backlog over 200 ms is dropped. It goes to the
+Linux desktop, but with a cushion that adapts to the link (60 ms, 40 ms more after each underrun up to 300 ms, back down after 30 s without one; a 400 ms track) and, past the cushion plus 250 ms, only the oldest messages dropped, down to the cushion (owner heard gaps over Tailscale, 2026-11-15). It goes to the
 output of XDesk's sound setting (`AudioRoute`, through `MacClient.audioDevice`). Two switches: the Mac's "Send Audio"
 (`sendAudio`, for every device, off at first) and this device's "Play the Mac's sound here" (`MacStore.Stream.sound`,
 saved as `playSound`: the hello lists `aac-eld`, so it takes a new connection). Unlike Sall's, the second is on at

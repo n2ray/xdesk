@@ -32,15 +32,22 @@ import java.util.concurrent.TimeUnit;
  *
  * Not Sall's playout: Sall schedules every packet against the video's presentation clock (AudioPlayout,
  * AudioPresentationClock, AudioScheduleJoin, about 1500 lines) and stops the sound on any underrun. XDesk shows a
- * frame as soon as it is decoded, so the sound is played as it arrives too, behind a short buffer, the way
- * XDesk's own AudioPlayer plays the Linux desktop's sound: a prefill before the track starts, and whatever piles
- * up past MAX_BACKLOG_MS is dropped so the sound never runs late. A failure here never ends the connection.
+ * frame as soon as it is decoded, so the sound is played as it arrives too, behind a short buffer.
+ * Like XDesk's own AudioPlayer for the Linux desktop: a prefill before the track starts (here adapting to the link),
+ * and the oldest of what piles up past it is dropped so the sound never runs late. A failure here never ends the connection.
  */
 final class MacAudio {
     private static final String TAG = "XDeskMac";
     private static final int RATE = 48000, FRAME = 4;
-    private static final int TRACK_MS = 100, PREFILL_MS = 40, MAX_BACKLOG_MS = 200;
-    private static final long IDLE_PAUSE_MS = 150, IDLE_CLOSE_MS = 10_000, ROUTE_CHECK_MS = 500;
+    // The cushion before the track starts adapts to the link: PREFILL_MIN_MS on a steady one, one PREFILL_STEP_MS more
+    // after every underrun up to PREFILL_MAX_MS (Tailscale and Wi-Fi bring packets in bursts), back down after
+    // CALM_MS without one. The track holds the largest cushion. Past the cushion plus BACKLOG_EXTRA_MS the oldest
+    // packets go, only as many as needed, so the sound never runs late and never drops all at once.
+    private static final int TRACK_MS = 400, PREFILL_MIN_MS = 60, PREFILL_MAX_MS = 300, PREFILL_STEP_MS = 40,
+        BACKLOG_EXTRA_MS = 250;
+    private static final long CALM_MS = 30_000;
+    // A gap this long is the Mac going quiet, not a late packet
+    private static final long IDLE_PAUSE_MS = 500, IDLE_CLOSE_MS = 10_000, ROUTE_CHECK_MS = 500;
     /** AudioMessage.maxFormatPayload and maxPacketsPayload: a larger message is dropped whole. */
     private static final int MAX_FORMAT = 4096, MAX_PACKETS = 16384;
 
@@ -64,6 +71,9 @@ final class MacAudio {
     private AudioTrack track;
     private boolean submitted, floatPcm, failed;
     private int dropFrames, prefilled, preferredId = -1;
+    // The audio thread's own: the cushion now, and the track's underruns as last seen
+    private int prefillMs = PREFILL_MIN_MS, underruns;
+    private long calmSince;
     private long lastRouteCheck, lastPacket;
     private short[] pcm = new short[2048];
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
@@ -177,6 +187,11 @@ final class MacAudio {
                 + " frames a packet");
     }
 
+    /** What waits in the queue, in ms (a message is one packet or more: this counts each as one, the least). */
+    private long backlogMs() {
+        return queue.size() * (long) framesPerPacket * 1000 / RATE;
+    }
+
     /** type 2 · epoch UInt16 · seq UInt32 · flags UInt8 · count UInt8 · count × (length UInt16 · bytes), big endian. */
     private void packets(byte[] m) throws Exception {
         if (m.length < 9 || asc == null) return;
@@ -190,11 +205,12 @@ final class MacAudio {
         lastPacket = SystemClock.uptimeMillis();
         boolean lost = overflow;
         overflow = false;
-        // More waiting than a listener should hear late (the track was blocked, or the thread was): skip to now
-        if (queue.size() * (long) framesPerPacket * 1000 / RATE > MAX_BACKLOG_MS) {
-            queue.clear();
+        // More waiting than a listener should hear late (a burst after a stall): drop the oldest, down to the cushion
+        if (backlogMs() > prefillMs + BACKLOG_EXTRA_MS) {
+            int n = 0;
+            while (backlogMs() > prefillMs && queue.poll() != null) n++;
             lost = true;
-            Log.i(TAG, "Mac sound: dropped a backlog");
+            Log.i(TAG, "Mac sound: dropped " + n + " late messages, cushion " + prefillMs + " ms");
         }
         if (codec == null) {
             open();
@@ -329,9 +345,32 @@ final class MacAudio {
         t.write(pcm, skip * 2, (frames - skip) * 2);
         if (t.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
             prefilled += frames - skip;
-            if (prefilled >= PREFILL_MS * RATE / 1000) t.play();
+            if (prefilled >= prefillMs * RATE / 1000) {
+                t.play();
+                underruns = t.getUnderrunCount();
+                calmSince = SystemClock.uptimeMillis();
+            }
+        } else {
+            adapt(t);
         }
         checkRoute(t);
+    }
+
+    /** The cushion follows the link: larger after an underrun (heard as a gap), smaller after a calm while. */
+    private void adapt(AudioTrack t) {
+        long now = SystemClock.uptimeMillis();
+        int u = t.getUnderrunCount();
+        if (u > underruns) {
+            underruns = u;
+            calmSince = now;
+            if (prefillMs < PREFILL_MAX_MS) {
+                prefillMs = Math.min(PREFILL_MAX_MS, prefillMs + PREFILL_STEP_MS);
+                Log.i(TAG, "Mac sound: underrun, cushion now " + prefillMs + " ms");
+            }
+        } else if (now - calmSince > CALM_MS && prefillMs > PREFILL_MIN_MS) {
+            calmSince = now;
+            prefillMs = Math.max(PREFILL_MIN_MS, prefillMs - PREFILL_STEP_MS / 2);
+        }
     }
 
     /** XDesk's sound setting may change while this plays (AudioRoute): follow it, as AudioPlayer does. */
