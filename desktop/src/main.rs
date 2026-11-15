@@ -12,7 +12,7 @@ mod stats;
 mod tap;
 mod vt;
 
-use net::{out, Out, Video};
+use net::{out, Out, Video, NATURAL_SCROLL};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
 use overlay::Image;
@@ -413,7 +413,9 @@ fn main() -> Result<(), String> {
                     if dy != 0.0 || dx != 0.0 {
                         scroll.0 -= dy;
                         scroll.1 -= dx;
-                        out(Out::Scroll(-dy as i16, dx as i16));
+                        // macOS already applies its own natural direction; the phone's off setting (SETTINGS) turns it around
+                        let sign = if NATURAL_SCROLL.load(Ordering::Relaxed) { -1.0 } else { 1.0 };
+                        out(Out::Scroll((sign * dy) as i16, (-sign * dx) as i16));
                     }
                 }
                 _ => {}

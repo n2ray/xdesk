@@ -71,7 +71,7 @@ final class WirelessDisplay {
     private static final int VERSION = 2;
     private static final int OK = 0, PAIR = 1, BUSY = 2, BAD_VERSION = 3, REFUSED = 4, CHALLENGE = 5;
     private static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-        SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11, CLIPBOARD = 12;
+        SIZE = 7, KEY_FRAME = 8, ADDRESSES = 11, CLIPBOARD = 12, SETTINGS = 19;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -923,6 +923,8 @@ final class WirelessDisplay {
             byte[] head = ByteBuffer.allocate(9).putLong(0).put((byte) 1).array();
             writeMessage(VIDEO_FRAME, head, ByteBuffer.wrap(config), config.length);
         }
+        // The receiver on this connection may be a fresh one (a browser that reloaded): its settings start over too
+        sendSettings();
         lastSyncRequest = 0;
         keyFrameWanted = true;
     }
@@ -933,6 +935,29 @@ final class WirelessDisplay {
 
     void setClipboardSync(boolean on) {
         prefs.edit().putBoolean("clipboard_sync", on).apply();
+    }
+
+    /** Main thread. The input settings (INPUT.md §12) as SETTINGS JSON; sent now, and again at each session start. */
+    void setSettings(String json) {
+        settingsJson = json;
+        if (state != STREAMING) return;
+        // A write may block on a slow network: off the main thread
+        new Thread(() -> {
+            try {
+                byte[] b = json.getBytes(StandardCharsets.UTF_8);
+                writeMessage(SETTINGS, b, 0, b.length);
+            } catch (IOException e) {
+                Log.i(TAG, "settings: " + e);
+            }
+        }, "xdesk-wireless-settings").start();
+    }
+
+    /** Right after the stream begins, so a receiver never keeps the settings of an earlier one. */
+    private void sendSettings() throws IOException {
+        String json = settingsJson;
+        if (json == null) return;
+        byte[] b = json.getBytes(StandardCharsets.UTF_8);
+        writeMessage(SETTINGS, b, 0, b.length);
     }
 
     /** A computer that was connected to and may be again without asking. Null if there is none or it was disconnected by hand. */
@@ -948,6 +973,8 @@ final class WirelessDisplay {
     /** Whether the computer is looking at the Termux desktop, which takes any text, or at Android apps. */
     private volatile boolean desktopShown;
     private volatile int sentInputMode = -1;
+    /** The input settings of INPUT.md §12 as SETTINGS (type 19) JSON, set by XDeskActivity, sent on change and at every session start. */
+    private volatile String settingsJson;
 
     // Where the phone's input method is on a tablet's picture: there a tablet touches the keys, elsewhere it may be a
     // touchpad. Android says nothing about it, so a tap is followed by a few looks, and while it shows it is looked at
@@ -1340,6 +1367,7 @@ final class WirelessDisplay {
             });
             ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) width).putShort((short) height);
             writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
+            sendSettings();
             while (true) {
                 pump(encoder, died, id);
                 int[] size = resizeTo;

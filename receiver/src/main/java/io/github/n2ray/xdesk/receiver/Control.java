@@ -179,6 +179,23 @@ final class Control {
         tuning.naturalScroll = on;
     }
 
+    /** The phone's pointer speed (INPUT.md §12): the touchpad's gain, 1 the default. */
+    void setPointerSpeed(float s) {
+        tuning.pointerSpeed = s > 0 ? s : 1;
+    }
+
+    /** The phone's scroll speed: finger travel per wheel step, 1 the default. */
+    void setScrollSpeed(float s) {
+        tuning.setScrollSpeed(s);
+    }
+
+    /** Back to the defaults of INPUT.md §12: the next phone may never send SETTINGS. */
+    void resetSettings() {
+        tuning.pointerSpeed = 1;
+        tuning.setScrollSpeed(1);
+        tuning.naturalScroll = true;
+    }
+
     /** Hover, wheel and buttons of a mouse; touches with a mouse come here from onTouch too. */
     boolean onMouse(MotionEvent e) {
         int a = e.getActionMasked();

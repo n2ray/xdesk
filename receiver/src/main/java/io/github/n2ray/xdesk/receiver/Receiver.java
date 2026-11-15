@@ -59,6 +59,12 @@ final class Receiver {
 
         /** Where that cursor is, 0 to 1 across and down the picture; hidden when not shown. */
         void cursorPosition(float x, float y, boolean shown);
+
+        /** A Mac is passed through (CURSOR_SHAPE is used): the cursor is drawn here, so the local pointer hides. */
+        void passthrough(boolean on);
+
+        /** The phone's input settings (SETTINGS, type 19, INPUT.md §12). Only while this device controls the phone. */
+        void settings(float pointerSpeed, float scrollSpeed, boolean naturalScroll);
     }
 
     final Store store;

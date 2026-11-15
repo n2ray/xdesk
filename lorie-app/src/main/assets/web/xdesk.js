@@ -29,7 +29,7 @@ const T = zh ? {
 };
 
 // ---------------------------------------------------------------- protocol
-const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10;
+const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10, SETTINGS = 19;
 const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26;
 
 const $ = id => document.getElementById(id);
@@ -341,6 +341,16 @@ function onMessage(v) {
     case PING: break;
     case TIME: if (len >= 16) onTime(v); break;
     case POINTER: stage.classList.toggle('phone-pointer', len >= 1 && p[0] === 1); break;
+    case SETTINGS: {
+      // The phone's input settings (INPUT.md §12), every field optional: without them the defaults below stand
+      let s = null;
+      try { s = JSON.parse(new TextDecoder().decode(p)); } catch (e) { break; }
+      if (!s || typeof s !== 'object') break;
+      if (typeof s.naturalScroll === 'boolean') naturalScroll = s.naturalScroll;
+      if (typeof s.pointerSpeed === 'number' && isFinite(s.pointerSpeed) && s.pointerSpeed > 0) pointerSpeed = s.pointerSpeed;
+      if (typeof s.scrollSpeed === 'number' && isFinite(s.scrollSpeed) && s.scrollSpeed > 0) scrollSpeed = s.scrollSpeed;
+      break;
+    }
     case BYE: quitting = true; show(T.ended, { button: T.reconnect }); ws.close(); break;
   }
 }
@@ -823,6 +833,8 @@ stage.addEventListener('wheel', e => {
 const touches = new Map();
 let tapStart = 0, tapMoved = 0, maxFingers = 0, lastTapEnd = 0, dragging = false, scrollAcc = 0, scrollAccX = 0;
 const TOUCH_SPEED = 1.6, TAP_MS = 220, TAP_MOVE = 12, SCROLL_STEP = 36;
+// The phone's input settings (SETTINGS, INPUT.md §12), 1 and on: the same as without the message
+let pointerSpeed = 1, scrollSpeed = 1, naturalScroll = true;
 
 function touchDown(e) {
   e.preventDefault();
@@ -844,13 +856,15 @@ stage.addEventListener('pointermove', e => {
   t.x = e.clientX; t.y = e.clientY;
   tapMoved += Math.abs(dx) + Math.abs(dy);
   if (touches.size === 1) {
-    const f = toRemote() * TOUCH_SPEED;
+    const f = toRemote() * TOUCH_SPEED * pointerSpeed;
     queueMove(dx * f, dy * f);
   } else if (touches.size === 2) {
-    // Two fingers scroll, content follows the fingers. Half for each finger's event
-    scrollAcc += -dy / 2; scrollAccX += -dx / 2;
-    const y = Math.trunc(scrollAcc / SCROLL_STEP), x = Math.trunc(scrollAccX / SCROLL_STEP);
-    if (x || y) { scrollAcc -= y * SCROLL_STEP; scrollAccX -= x * SCROLL_STEP; sendScroll(y, x); }
+    // Two fingers scroll, content follows the fingers (the phone's naturalScroll turns it around).
+    // Half for each finger's event; scrollSpeed shortens the travel per wheel step
+    const sign = naturalScroll ? -1 : 1, step = SCROLL_STEP / scrollSpeed;
+    scrollAcc += sign * dy / 2; scrollAccX += sign * dx / 2;
+    const y = Math.trunc(scrollAcc / step), x = Math.trunc(scrollAccX / step);
+    if (x || y) { scrollAcc -= y * step; scrollAccX -= x * step; sendScroll(y, x); }
   }
 });
 function touchUp(e, cancelled) {
