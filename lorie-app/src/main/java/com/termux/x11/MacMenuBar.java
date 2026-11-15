@@ -77,6 +77,10 @@ final class MacMenuBar {
     private boolean closing;
     /** The top level says no Accessibility (NOT_TRUSTED): the bar is only the one line that says so. */
     private boolean noAccess;
+    /** The top level the bar was last built from: the same one again builds nothing. */
+    private boolean shownTop, shownStale;
+    private Integer shownVersion;
+    private String shownNote;
 
     MacMenuBar(Context dc, float density, Host host, WindowManager windows) {
         this.dc = dc;
@@ -161,6 +165,14 @@ final class MacMenuBar {
     /** The top level came or moved (the version changed): the bar follows it; an open menu opens again. */
     void setTop(MacMenuState.Top t) {
         if (closing) return;
+        // Every answer to a fetch comes with the top level too (MacClient.macMenu): only a changed one rebuilds the
+        // bar. Rebuilding closed the dropdown and fetched again, whose answer did the same: the items never showed
+        if (shownTop && java.util.Objects.equals(t.version, shownVersion) && java.util.Objects.equals(t.note, shownNote)
+                && t.stale == shownStale) return;
+        shownTop = true;
+        shownVersion = t.version;
+        shownNote = t.note;
+        shownStale = t.stale;
         if (t.version == null) {
             // Subscribed but no top level yet: the bar says so until the first one comes
             top = new ArrayList<>();

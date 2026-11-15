@@ -22,8 +22,10 @@ import android.os.SystemClock;
  */
 final class EdgePush {
     /** The edges the rule is told apart by. BOTTOM pushes down (the Dock), TOP up and RIGHT right (the centre),
-     *  LEFT left (the Mac menu's corner). */
-    static final int BOTTOM = 0, TOP = 1, RIGHT = 2, LEFT = 3;
+     *  LEFT left (the Mac menu's corner). Never 0: everywhere an edge is passed around, 0 means "at no edge"
+     *  (InputInjector.reportPush, NotifyCorner, DockPointer). BOTTOM was 0 once, and the injector then never reported
+     *  a push at the bottom: no Dock over Android apps (2026-11-15). */
+    static final int NONE = 0, BOTTOM = 4, TOP = 1, RIGHT = 2, LEFT = 3;
 
     private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 700, GAP_MS = 250;
     /** In units of pointer movement, about pixels of the content. */
