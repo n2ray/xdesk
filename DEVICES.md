@@ -29,7 +29,7 @@
 | 类型 | 设备 | 现在 | key 归属 |
 |---|---|---|---|
 | 内部 | 手机（只有一个，总是已连接，不能断开） | 有 | `a:` |
-| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里，**总是有**），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot，`xdesk add` 加的 chroot） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
+| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里；装了 Termux 就**总是有**，没装就一个 Linux 设备都没有，只用安卓应用和 Mac 的人看不到空的 Termux 标签，「添加设备 › Linux」里有安装步骤），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot，`xdesk add` 加的 chroot） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
 | Mac | 每台配对过的 Mac（Sill） | 有 | `m:<mac>:…` |
 | Windows | 以后（RDP / Moonlight） | 「添加设备」里显示「即将支持」，不能点 | — |
 | 其他 Android 设备 | 以后（scrcpy 式） | 同上 | — |

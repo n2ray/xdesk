@@ -2,6 +2,7 @@ package com.termux.x11;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -32,6 +33,7 @@ final class Devices {
     /** xdesk's "apps only" variant of a session: X, xfwm4 and xfsettingsd, no panel or desktop. */
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
+    private static final String TERMUX_PACKAGE = "com.termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
         PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
@@ -417,12 +419,26 @@ final class Devices {
         return n;
     }
 
-    /** Termux, then the environments added as devices that xdesk still knows, in its order. */
+    /**
+     * Termux, then the environments added as devices that xdesk still knows, in its order. None without Termux:
+     * someone who only uses Android apps and Macs gets no empty Termux tab (Add device › Linux says how to install it).
+     */
     private List<String> linuxIds() {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (!termuxInstalled()) return new ArrayList<>(ids);
         ids.add(LINUX + TERMUX);
         for (Env e : envs) if (addedLinux.contains(e.name)) ids.add(LINUX + e.name);
         return new ArrayList<>(ids);
+    }
+
+    /** A quick question to the package manager, no I/O of our own. Asked on every rebuild: installing Termux shows up. */
+    private boolean termuxInstalled() {
+        try {
+            context.getPackageManager().getPackageInfo(TERMUX_PACKAGE, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
     }
 
     static String linuxName(Context c, String deviceId) {
