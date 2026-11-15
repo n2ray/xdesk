@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 外屏上的通知，NOTIFY.md -->
+    <string name="xd_notify_service">XDesk 通知使用权</string>
+    <string name="xd_section_notifications">通知</string>
+    <string name="xd_notify_on">在外屏上显示通知</string>
+    <string name="xd_notify_on_note">关：不弹横幅，铃铛只计数；通知中心仍可手动打开</string>
+    <string name="xd_notify_content">横幅里的内容</string>
+    <string name="xd_notify_content_note">投到 XDesk 接收端时默认只显示应用名，直到你在这里选</string>
+    <string name="xd_notify_content_all">全部</string>
+    <string name="xd_notify_content_name">只显示应用名</string>
+    <string name="xd_notify_content_none">不弹横幅</string>
+    <string name="xd_notify_access">通知使用权</string>
+    <string name="xd_notify_access_on">已开启</string>
+    <string name="xd_notify_access_off">未开启——点按打开系统设置页</string>
+    <string name="xd_notify_access_note">没给通知使用权时一切照旧：没有横幅，通知中心是空的。在下面给 XDesk 开启后，手机的通知就出现在外屏上。</string>
+    <string name="xd_notify_access_title">读取手机的通知</string>
+    <string name="xd_notify_access_message">XDesk 把手机的通知放到外屏上：右上角弹横幅，还有一个通知中心让它们留在那里。内容不落盘、不外传，只在内存里。下一页由系统询问你是否允许。</string>
+    <string name="xd_notify_access_open">打开设置页</string>
+    <string name="xd_notify_per_app">按应用</string>
+    <string name="xd_notify_per_app_note">最近发过通知的应用</string>
+    <string name="xd_notify_mode_banner">横幅 + 通知中心</string>
+    <string name="xd_notify_mode_center">只进通知中心</string>
+    <string name="xd_notify_mode_hidden">不显示</string>
+    <string name="xd_notify_bell">铃铛</string>
+    <string name="xd_notify_bell_note">全屏视频等内容时自动淡出；推角、Ctrl+Alt+N 仍能打开通知中心</string>
+    <string name="xd_notify_battery_banner">低电量横幅</string>
+    <string name="xd_notify_battery_banner_note">没在充电时，电量降到 15% 和 5% 各弹一次</string>
+    <string name="xd_notify_battery">手机电量 %1$d%%</string>
+    <string name="xd_notify_battery_short">电</string>
+    <string name="xd_notify_battery_app">电量</string>
+    <string name="xd_notify_dnd">勿扰</string>
+    <string name="xd_notify_dnd_on">勿扰已开</string>
+    <string name="xd_notify_dnd_title">允许 XDesk 切换勿扰</string>
+    <string name="xd_notify_dnd_message">这个开关设置手机的勿扰，和系统快捷开关里的勿扰一样。下一页由安卓询问你是否允许。</string>
+    <string name="xd_notify_dnd_open">打开设置页</string>
+    <string name="xd_notify_clear_all">全部清除</string>
+    <string name="xd_notify_empty">没有通知</string>
+    <string name="xd_notify_new_message">新消息</string>
+    <string name="xd_notify_new_messages">%1$d 条新消息</string>
+    <string name="xd_notify_reply">回复</string>
+    <string name="xd_notify_reply_hint">回复…</string>
+    <string name="xd_notify_send">发送</string>
+    <string name="xd_notify_unlock">请在手机上解锁，解锁后接着打开</string>
+    <string name="xd_notify_unlock_short">锁</string>
+    <string name="xd_notify_unlock_app">已锁定</string>
+</resources>

@@ -27,11 +27,14 @@ final class InputInjector {
         void onCursor(int x, int y);
         void onFingers(float[] x, float[] y);
         /**
-         * A relative move asked for while the pointer was at the bottom edge already: what the clamping takes away,
-         * and what the Dock opens by (EdgePush). dy below 0 once when the pointer has left the edge again.
+         * A relative move asked for while the pointer was at an edge already: what the clamping takes away, and what
+         * the Dock (BOTTOM) and the notification centre (TOP, RIGHT, NOTIFY.md §4.1) open by (EdgePush).
+         * @param edge EdgePush.BOTTOM, TOP or RIGHT
+         * @param x, y the pointer's place at that edge, so only the centre's corner counts
+         * @param left the pointer has left the edge, explicitly (never an outward move for TOP)
          * @param held a button or a finger is down: a drag to the edge
          */
-        void onEdgePush(int dx, int dy, boolean held);
+        void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left);
     }
 
     private static final String TAG = "XDeskInjector";
@@ -471,32 +474,41 @@ final class InputInjector {
     /** A pointer placed from a computer has that computer's own cursor on it: only the others need ours. */
     private boolean placedFromComputer;
 
-    /** Pushes were reported and the pointer has not been told to have left the edge since. */
-    private boolean pushing;
+    /** The edge the pointer is being pushed against, 0 when at none; the pointer has not been told it left. */
+    private int pushingEdge;
     /** What of a push is less than a whole pixel yet. */
     private float pushX, pushY;
 
     /**
-     * Before a move is clamped: at the bottom edge already, the whole of it is a push against (or along, or away
-     * from) the edge, which only this process can know, as the pointer does not move for it. Placing from a computer
-     * is no push: its pointer stops at the edge of its own picture.
+     * Before a move is clamped: at an edge already, the whole of it is a push against (or along, or away from) the
+     * edge, which only this process can know, as the pointer does not move for it. Placing from a computer is no
+     * push: its pointer stops at the edge of its own picture. The bottom edge is the Dock's (DISPLAY.md §7), the
+     * top and right edges the notification centre's corner (NOTIFY.md §4.1); the app keeps only the pushes inside
+     * the corner. At a corner the bottom or top edge wins, the sideways part of the move is the rule's to judge.
+     * Leaving an edge is said explicitly (left), once: it must not read as an outward move on another edge.
      */
     private void reportPush(float dx, float dy) {
         if (placedFromComputer) return;
-        if (y < height - 1) {
-            if (pushing) cursor.onEdgePush(0, -1, false);
-            pushing = false;
+        int edge = y >= height - 1 ? EdgePush.BOTTOM : y <= 0 ? EdgePush.TOP : x >= width - 1 ? EdgePush.RIGHT : 0;
+        if (edge == 0) {
+            if (pushingEdge != 0) cursor.onEdgePush(pushingEdge, 0, 0, false, (int) x, (int) y, true);
+            pushingEdge = 0;
             pushX = pushY = 0;
             return;
         }
-        pushing = true;
+        if (pushingEdge != 0 && pushingEdge != edge) {
+            cursor.onEdgePush(pushingEdge, 0, 0, false, (int) x, (int) y, true);
+            pushX = pushY = 0;
+        }
+        pushingEdge = edge;
         pushX += dx;
         pushY += dy;
         int wholeX = (int) pushX, wholeY = (int) pushY;
         pushX -= wholeX;
         pushY -= wholeY;
         if (wholeX == 0 && wholeY == 0) return;
-        cursor.onEdgePush(wholeX, wholeY, buttons != 0 || pendingButton != 0 || pressBit != 0 || directActive || screenActive);
+        cursor.onEdgePush(edge, wholeX, wholeY, buttons != 0 || pendingButton != 0 || pressBit != 0 || directActive || screenActive,
+            (int) x, (int) y, false);
     }
 
     private void reportCursor() throws ReflectiveOperationException {

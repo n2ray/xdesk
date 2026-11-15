@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 外屏上的通知，NOTIFY.md -->
+    <string name="xd_notify_service">Notifications for XDesk</string>
+    <string name="xd_section_notifications">Notifications</string>
+    <string name="xd_notify_on">Show notifications on the external screen</string>
+    <string name="xd_notify_on_note">Off: no banners, the bell only counts; the notification centre still opens</string>
+    <string name="xd_notify_content">Banner content</string>
+    <string name="xd_notify_content_note">A wireless receiver shows the app name only until you choose here</string>
+    <string name="xd_notify_content_all">Everything</string>
+    <string name="xd_notify_content_name">App name only</string>
+    <string name="xd_notify_content_none">No banners</string>
+    <string name="xd_notify_access">Notification access</string>
+    <string name="xd_notify_access_on">On</string>
+    <string name="xd_notify_access_off">Off — tap to open the system page</string>
+    <string name="xd_notify_access_note">Without the notification access everything works as before: no banners, an empty centre. Give XDesk the access below and the phone\'s notifications show on the external screen.</string>
+    <string name="xd_notify_access_title">Read the phone\'s notifications</string>
+    <string name="xd_notify_access_message">XDesk shows your phone\'s notifications on the external screen: banners in the corner, and a centre where they stay. Nothing is stored or sent anywhere — the content lives in memory only. The system asks you to allow it on the next page.</string>
+    <string name="xd_notify_access_open">Open the page</string>
+    <string name="xd_notify_per_app">Per app</string>
+    <string name="xd_notify_per_app_note">Apps that posted notifications recently</string>
+    <string name="xd_notify_mode_banner">Banner + centre</string>
+    <string name="xd_notify_mode_center">Centre only</string>
+    <string name="xd_notify_mode_hidden">Not shown</string>
+    <string name="xd_notify_bell">Bell</string>
+    <string name="xd_notify_bell_note">Fades during full-screen video; the corner and Ctrl+Alt+N still open the centre</string>
+    <string name="xd_notify_battery_banner">Low battery banners</string>
+    <string name="xd_notify_battery_banner_note">At 15% and 5%, while not charging</string>
+    <string name="xd_notify_battery">Phone battery %1$d%%</string>
+    <string name="xd_notify_battery_short">B</string>
+    <string name="xd_notify_battery_app">Battery</string>
+    <string name="xd_notify_dnd">Do not disturb</string>
+    <string name="xd_notify_dnd_on">Do not disturb on</string>
+    <string name="xd_notify_dnd_title">Let XDesk switch Do not disturb</string>
+    <string name="xd_notify_dnd_message">The switch sets the phone\'s Do not disturb, as the system\'s quick settings would. Android asks you to allow that on the next page.</string>
+    <string name="xd_notify_dnd_open">Open the page</string>
+    <string name="xd_notify_clear_all">Clear all</string>
+    <string name="xd_notify_empty">No notifications</string>
+    <string name="xd_notify_new_message">New message</string>
+    <string name="xd_notify_new_messages">%1$d new messages</string>
+    <string name="xd_notify_reply">Reply</string>
+    <string name="xd_notify_reply_hint">Reply…</string>
+    <string name="xd_notify_send">Send</string>
+    <string name="xd_notify_unlock">Please unlock the phone — then it opens</string>
+    <string name="xd_notify_unlock_short">K</string>
+    <string name="xd_notify_unlock_app">Locked</string>
+</resources>
