@@ -167,7 +167,7 @@ final class MacMenuBar {
             pills.clear();
             barRow.removeAllViews();
             barRow.setVisibility(View.VISIBLE);
-            note(dc.getString(R.string.xd_mac_menu_loading), false);
+            sayNote(dc.getString(R.string.xd_mac_menu_loading), true);
             closeDropdown();
             return;
         }
@@ -184,6 +184,7 @@ final class MacMenuBar {
             return;
         }
         barRow.setVisibility(View.VISIBLE);
+        hideNote();  // the loading line, once the menus are there
         nav.setBar(top);
         for (int i = 0; i < top.size(); i++) {
             final int at = i;
