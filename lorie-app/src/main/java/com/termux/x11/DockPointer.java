@@ -3,12 +3,13 @@ package com.termux.x11;
 import io.github.n2ray.xdesk.input.Caps;
 
 /**
- * The Dock and the notification centre over a content that has the mouse to itself (ExternalDock, NOTIFY.md): over an
- * X desktop, a Linux window or a Mac the phone's mouse is captured and sent on as moves, the content draws its own
- * pointer, and Android has no pointer on the external display for their edges and windows to notice. The phone's
- * mouse and touchpad, and a receiver's pointer over X or a Mac, pass through here on their way to the Router, so this
- * knows when the content's pointer is pushed against the bottom of the screen (opens the Dock), when it is pushed
- * out through the top-right corner (opens the notification centre), and gives them the pointer while they are open.
+ * The Dock, the notification centre and the Mac menu over a content that has the mouse to itself (ExternalDock,
+ * NOTIFY.md, MACMENU.md): over an X desktop, a Linux window or a Mac the phone's mouse is captured and sent on as
+ * moves, the content draws its own pointer, and Android has no pointer on the external display for their edges and
+ * windows to notice. The phone's mouse and touchpad, and a receiver's pointer over X or a Mac, pass through here on
+ * their way to the Router, so this knows when the content's pointer is pushed against the bottom of the screen
+ * (opens the Dock), when it is pushed out through the top-right corner (opens the notification centre) or the
+ * top-left one (opens the Mac menu), and gives them the pointer while they are open.
  * `client` is not swapped as it is for the Launchpad: the keyboard, the text bridge and everything else stay with the
  * content, only moves, buttons and the wheel of these devices turn to the Dock or the centre. Only Esc is taken from
  * the keyboard, to close them.
@@ -33,10 +34,12 @@ final class DockPointer {
         ExternalDock dock();
         /** Null while the notification centre's windows are not on the display. */
         Notify notifyCenter();
+        /** Null while the Mac menu's windows are not on the display. */
+        MacMenus menus();
     }
 
     private static final int KEY_ESC = 1;
-    private static final int SURFACE_DOCK = 1, SURFACE_NOTIFY = 2;
+    private static final int SURFACE_DOCK = 1, SURFACE_NOTIFY = 2, SURFACE_MENU = 3;
 
     private final Host host;
     private final Router.Device[] devices;
@@ -50,6 +53,8 @@ final class DockPointer {
     private final EdgePush rule = new EdgePush();
     /** The centre's corner rule (NOTIFY.md §4.1), TOP and RIGHT edges. */
     private final EdgePush corner = new EdgePush();
+    /** The Mac menu's corner rule (MACMENU.md §3), TOP and LEFT edges. */
+    private final EdgePush menuCorner = new EdgePush();
     private boolean escTaken;
 
     /** @param devices the devices that move the pointer (the phone's mouse and touchpad, the receiver): none of them may hold a button when the Dock or the centre opens */
@@ -74,9 +79,12 @@ final class DockPointer {
         }
         Notify notify = host.notifyCenter();
         if (notify != null && notify.driven() && host.target() == over) return true;
+        MacMenus menus = host.menus();
+        if (menus != null && menus.driven() && host.target() == over) return true;
         over = null;
         surface = 0;
         if (notify != null) notify.drivenClosed();
+        if (menus != null) menus.drivenClosed();
         return false;
     }
 
@@ -89,6 +97,7 @@ final class DockPointer {
     private void forget() {
         rule.forget();
         corner.forget();
+        menuCorner.forget();
     }
 
     void move(Router.Device d, int dx, int dy) {
@@ -97,9 +106,9 @@ final class DockPointer {
                 host.dock().moveBy(dx, dy);
                 return;
             }
-            // The centre's windows have the pointer. When the arrow left one, what it moved by goes to the
-            // content: its pointer ends where the arrow left, outside the window (NotifyGrab)
-            int[] left = host.notifyCenter().moveBy(dx, dy);
+            // The centre's or the menu's windows have the pointer. When the arrow left one, what it moved by
+            // goes to the content: its pointer ends where the arrow left, outside the window (NotifyGrab)
+            int[] left = surface == SURFACE_NOTIFY ? host.notifyCenter().moveBy(dx, dy) : host.menus().moveBy(dx, dy);
             if (left != null) d.move(left[0], left[1]);
             return;
         }
@@ -128,7 +137,8 @@ final class DockPointer {
      * The centre's corner over X and a Mac (NOTIFY.md §4.1): the content's pointer is inside the top-right corner's
      * 48 shell dp (on the right or the top edge) and is pushed further out. The same rule as the Dock's, with the
      * longer push over a whole desktop. Also the centre's windows take the pointer while it is over them (grab):
-     * an open panel, a banner, the bell.
+     * an open panel, a banner, the bell. The Mac menu's top-left corner is the same, after the centre's (its
+     * button only exists over a Mac window or app, where the centre's corner is the other side).
      */
     private void cornerPushed(int dx, int dy) {
         InputSink t = host.target();
@@ -155,6 +165,42 @@ final class DockPointer {
             surface = SURFACE_NOTIFY;
         } else {
             notify.pointerAt(place[0], place[1]);  // the bell's fade follows where the pointer is
+            menuPushed(dx, dy);
+        }
+    }
+
+    /**
+     * The Mac menu's corner (MACMENU.md §3): the content's pointer is inside the top-left corner's 48 shell dp
+     * (on the left or the top edge) and is pushed further out — only over a Mac window or app, so the push is
+     * never the desktop's longer one. Also the menu's windows take the pointer while it is over them (grab):
+     * the open bar, the ≡ button.
+     */
+    private void menuPushed(int dx, int dy) {
+        InputSink t = host.target();
+        MacMenus menus = host.menus();
+        if (t == null || menus == null || !menus.attached() || holding() || !t.pointerPlace(place)) {
+            menuCorner.forget();
+            return;
+        }
+        int edge = menus.cornerEdge(place[0], place[1]);
+        if (edge != 0) {
+            if (menuCorner.pushed(edge, dx, dy, false) && menus.openDriven(place[0], place[1])) {
+                over = t;
+                surface = SURFACE_MENU;
+                ExternalDock dock = host.dock();
+                if (dock != null) dock.closeDriven();  // one surface at a time has the pointer
+                Notify notify = host.notifyCenter();
+                if (notify != null) notify.drivenClosed();  // the centre's panel goes, the bar takes its place
+                return;
+            }
+        } else {
+            menuCorner.forget();
+        }
+        if (menus.grab(place[0], place[1])) {
+            over = t;
+            surface = SURFACE_MENU;
+        } else {
+            menus.pointerAt(place[0], place[1]);  // the ≡ button's fade follows where the pointer is
         }
     }
 
@@ -180,10 +226,11 @@ final class DockPointer {
             // They act on the release, as the Launchpad does
             if (button == 1 && open()) {
                 if (surface == SURFACE_DOCK) host.dock().clickDriven();
-                else host.notifyCenter().clickDriven();
+                else if (surface == SURFACE_NOTIFY) host.notifyCenter().clickDriven();
+                else host.menus().clickDriven();
             } else if (button == 3 && open()) {
                 if (surface == SURFACE_DOCK) host.dock().secondaryDriven();
-                else host.notifyCenter().secondaryDriven();
+                else if (surface == SURFACE_NOTIFY) host.notifyCenter().secondaryDriven();
             }
             return;
         }
@@ -194,10 +241,11 @@ final class DockPointer {
         if (!open()) d.click(button);
         else if (button == 1) {
             if (surface == SURFACE_DOCK) host.dock().clickDriven();
-            else host.notifyCenter().clickDriven();
+            else if (surface == SURFACE_NOTIFY) host.notifyCenter().clickDriven();
+            else host.menus().clickDriven();
         } else if (button == 3) {
             if (surface == SURFACE_DOCK) host.dock().secondaryDriven();
-            else host.notifyCenter().secondaryDriven();
+            else if (surface == SURFACE_NOTIFY) host.notifyCenter().secondaryDriven();
         }
     }
 
@@ -218,12 +266,14 @@ final class DockPointer {
         }
         if (escTaken) return true;  // its repeats
         if (!open()) return false;
-        // The centre's Esc is Notify.key's own (the panel, a reply field); a pointer merely resting over a banner
-        // or the bell does not make Esc theirs
+        // The centre's Esc is Notify.key's own (the panel, a reply field), the menu's is MacMenus.key's own (the
+        // bar's levels); a pointer merely resting over a banner, the bell or the ≡ does not make Esc theirs
         if (surface == SURFACE_NOTIFY && !host.notifyCenter().takesEsc()) return false;
+        if (surface == SURFACE_MENU && !host.menus().takesEsc()) return false;
         over = null;
         if (surface == SURFACE_DOCK) host.dock().closeDriven();
-        else host.notifyCenter().closeDriven();
+        else if (surface == SURFACE_NOTIFY) host.notifyCenter().closeDriven();
+        else host.menus().closeDriven();
         surface = 0;
         escTaken = true;
         return true;

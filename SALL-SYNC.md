@@ -17,7 +17,8 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 | `MacStreamSettings.java`'s round trip row and slow-link advice (`HostSettings.advice(boolean slow)`) | `MainActivity.refreshDiagnostics` (the readout, the 1 s tick), `ConnectionDiagnostics.advice`'s `olderHost && remote && slow` case. XDesk has no route label (`ConnectionRouteLabel` is not ported), so any address counts as remote: the advice also shows on a slow local link, where it is just as true |
 | `mac/AudioMute.java`; `MacStreamSettings.java`'s "mute this device" switch; `MacAudio.setMuted` | `LocalAudioControl.java`, `AudioMutePolicy.java` (the switch, `ACTION_AUDIO_BECOMING_NOISY`, the "mute only if sound played" rule); `MainActivity`'s `soundMuted` preference (XDesk keeps it per Mac in `MacStore.Stream.muted`, beside `sound`), `muteIndex` row, `case 43`'s `localAudio.received` |
 | `mac/MacClient.java`, section "Sill's settings": `settingsState`, `changeSetting`, `settingsCleared` | `MainActivity.java`: `case 16`, `changeHostSetting`, the reset on disconnect. Field and method names kept (`pendingSettingsToken`, `pendingSettingsField`, …) |
-| `mac/MacMenuState.java` | `MacMenuState.java` (the mirrored menus: version, tokens, the refusals by their `note` words; Sall's rows and sections are not ported — XDesk has no menu bar UI). Plain Java, tested in /tmp |
+| `mac/MacMenuState.java` | `MacMenuState.java` (the mirrored menus: version, tokens, the refusals by their `note` words, and the row shaping — `Row`, `Content`, `topRows`, `sections`, `mark`, `clean`; `MacMenuRow.noteText`). Plain Java, tested in /tmp |
+| `mac/MacMenuNav.java`; `MacMenus.java`, `MacMenuBar.java`, `MacMenuDialog.java`; `CornerButton.java` (the bell's and the ≡'s shared button) | `MacMenuAdapter.java` (the row: mark, title, key, ›), `MainActivity.java`'s `showMenuRows`/`openMenuRow`/`sendMenuCommand` (the dialogs, the fetch on open, the press, the refusals as note rows, "The menus changed…" and the no-Accessibility words). XDesk's bar is its own overlay (MACMENU.md: the corner button, the push, Ctrl+Alt+Space, the driven pointer's grab as the notification centre's), Sall has no such thing |
 | `mac/MacClient.java`, section "quitting an app": `quitApp`, `case 24`, kinds 25 and 27 | `MainActivity.java`: `sendMenuCommand`, `sendMenu`, `case 24` (without the dialog rows); `Sources/StreamProtocol/MacMenu.swift` (kinds 24, 25 and 27, the rules in its header); `Sources/SillHost/MenuMirror.swift`, `MenuReader.swift`, `MenuPolicy.swift` (what each refusal's `note` says — matched to tell them apart) |
 | `MacStreamSettings.java` (the page) | `MainActivity.settings()`: `refreshInlineHostSettings`, `addHostChoice`, `addHostSegments`, `addHostToggle`, `showQualityMenu`, `refreshDiagnostics`, `applyDiagnosticsAdvice` |
 | `mac/AacEldConfig.java` | `AacEldConfig.java`, unchanged but for the package and records written as classes (XDesk builds as Java 9) |
@@ -37,7 +38,7 @@ cd sall && git fetch && git diff 3d17c0e..origin/main --stat -- \
   Sources/StreamProtocol/StreamMessage.swift Sources/SillHost/DeviceSettings.swift \
   Sources/StreamProtocol/Pairing.swift Sources/StreamProtocol/MacMenu.swift \
   Sources/SillHost/{MenuMirror,MenuReader,MenuPolicy}.swift \
-  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection,MacMenuState}.java
+  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection,MacMenuState,MacMenuAdapter,MacMenuRow}.java
 # the settings panel lives in one big file: look at just its functions
 git log -p 3d17c0e..origin/main -L '/private void changeHostSetting(String field, Object value, Double/,+16:AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java'
 git diff 3d17c0e..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java | grep -n 'hostSettings\|addHost\|QUALITY_'
@@ -82,9 +83,10 @@ host's refusals come as `note` words (`MenuPolicy.swift`'s `MenuRefusal.note`); 
 words to tell them apart (the menus changed, the app is gone, it is not answering, no Accessibility, too
 many requests…).
 
-XDesk has no menu bar UI; the protocol is used for one thing: **quitting an app** (`MacClient.quitApp`, the
-Running app item's "Quit", `MacSource.close` on an "app" key; MACMENU.md §8: a window's card only closes it,
-quitting is the menu's, ⌘Q's and the app item's). Sill can't quit an app on its own, and
+The protocol serves the menu bar UI (MACMENU.md, `MacMenus`/`MacMenuBar`/`MacMenuDialog`: the ≡ corner
+button, the bar overlay, the phone's list) and **quitting an app** (`MacClient.quitApp`, the Running app item's
+"Quit", `MacSource.close` on an "app" key; MACMENU.md §8: a window's card only closes it, quitting is the menu's,
+⌘Q's and the app item's). Sill can't quit an app on its own, and
 its AppInfo has no running flag, so an app with no windows would stay on the Mac unseen — quitting one is
 what this is for. quitApp makes the app the streamed app first (one of its windows, or kind 7 with no
 window), fetches its first top-level menu (the app menu: the Apple menu is left out), presses the enabled
@@ -156,5 +158,5 @@ menu's values, only fields the Mac reported, one change at a time, the Mac's ans
 | Share clipboard, paste right away, send clipboard (`ClipboardDefaultPolicy`, …) | XDesk syncs the clipboard whenever the Mac offers it, without a switch |
 | Reverse scrolling | XDesk's own "Natural scrolling" (all touchpads) |
 | Multi-finger Mac gestures, thumbnail hold time, larger picture, picture in picture, the tour, connection tiles, Aa text scale | Sall's own touch interface; XDesk's input and windows are its own (INPUT.md, DISPLAY.md) |
-| The menu bar UI (`MacMenuAdapter`, `MacMenuRow`, the dialogs) | XDesk uses the menu protocol only for quitting apps (`MacClient.quitApp`); a menu bar UI would build on `MacMenuState` |
+| Sall's menu dialogs themselves (the iPad's bar is its own; XDesk's overlay is MACMENU.md's corner button, push and hotkey) | XDesk's `MacMenuBar` draws the same rows over the external screen, `MacMenuDialog` the same lists on the phone |
 | PairingAuthorization, QrPairingAttempt, OverlayPairing* (cancel and remove-while-pairing guards; pair another Mac while a session runs), the paste-link dialog, InlinePairScanner (scan during a session) | XDesk pairs only from the Mac settings page, one attempt at a time, and a Mac paired by QR or link lands in MacStore exactly as one paired by code |

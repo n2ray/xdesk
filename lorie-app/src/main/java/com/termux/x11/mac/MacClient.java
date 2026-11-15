@@ -149,13 +149,21 @@ public final class MacClient {
     private final java.util.concurrent.atomic.AtomicInteger inputsQueued = new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean launchFailed;
 
-    // The Mac's menus (kinds 24, 25 and 27): the streamed app's menu bar, for quitApp. The reader thread feeds
-    // receiveTop/receiveAnswer, the quit machine asks fetch/press; MacMenuState's methods are synchronized.
+    // The Mac's menus (kinds 24, 25 and 27): the streamed app's menu bar, for quitApp and the menu bar overlay.
+    // The reader thread feeds receiveTop/receiveAnswer, the quit machine and the UI ask fetch/press;
+    // MacMenuState's methods are synchronized.
     private final MacMenuState mirroredMenus = new MacMenuState();
     /** FetchMenu/PressMenuItem tokens, strictly increasing per connection, as kind 17's are (Sall's menuToken). */
-    private long menuToken;
+    private final java.util.concurrent.atomic.AtomicLong menuToken = new java.util.concurrent.atomic.AtomicLong();
     /** This connection asked for the top level (kind 27 without an id): the host then serves fetches and presses. */
     private boolean menuSubscribed;
+    /** Who hears tops and answers for the menu bar UI; all get every one, the quit machine's slot stays its own. */
+    private final java.util.List<MenuListener> menuListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** What the menu bar UI hears (MacMenuBar, the phone's dialog), on the UI thread. */
+    public interface MenuListener {
+        /** The top level came or moved (read it afresh), and the requests the host answered. */
+        void menusChanged(MacMenuState.Top top, java.util.List<MacMenuState.Done> done);
+    }
     /** The app the quit machine is quitting (its stream is switching): the screen says so meanwhile. */
     private volatile String quittingApp;
     /** Sall's Accessibility is missing on the Mac: said once per process (MacMenuState.NOT_TRUSTED). */
@@ -690,7 +698,7 @@ public final class MacClient {
     /**
      * Kind 24 (MacMenu.swift): the top level of the streamed app's menu bar (with `menus`), or the answer to
      * one of this connection's kind 27s or 25s (with `answering`). What the menu state settles goes to the quit
-     * machine (quitAnswer); a future menu bar UI reads the state itself. Reader thread.
+     * machine (quitAnswer) and to the menu bar UI's listeners. Reader thread.
      */
     private void macMenu(JSONObject menu) {
         MacMenuState.Received received;
@@ -708,6 +716,11 @@ public final class MacClient {
                     optBool(menu, "pressed"), optString(menu, "note"));
         }
         for (MacMenuState.Done d : received.done) quitAnswer(d);
+        if (!received.done.isEmpty() || received.topChanged) {
+            final MacMenuState.Top now = mirroredMenus.top();
+            final java.util.List<MacMenuState.Done> done = received.done;
+            for (MenuListener l : menuListeners) ui.post(() -> l.menusChanged(now, done));
+        }
     }
 
     /** Sall's optionalMenu*: a field is read only when it is there and of its kind (HostSettings.swift's rules). */
@@ -1867,13 +1880,7 @@ public final class MacClient {
                 SystemClock.sleep(50);
             }
         }
-        // Only a subscriber is served menus: ask for the top level once per connection. Asked again when the
-        // answer never came (the connection that was asked for died in between): a second subscription is
-        // served the same, so no harm
-        if (!menuSubscribed || mirroredMenus.top().version == null) {
-            menuSubscribed = true;
-            enqueue(SillWire.FETCH_MENU, new JSONObject());
-        }
+        menuSubscribe();
         MacMenuState.Top top = waitTop(bundleId, QUIT_READY_MS);
         if (top == null) {
             finishQuit(listener, QuitListener.FAILED, -1, quitFailed(name,
@@ -1902,7 +1909,7 @@ public final class MacClient {
                     if (refusal == null) refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.OTHER,
                             context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_menus));
                 } else {
-                    long token = ++menuToken;
+                    long token = menuToken.incrementAndGet();
                     MacMenuState.Sent sent = mirroredMenus.fetch(menu.id, menu.title, top.version, token,
                             SystemClock.uptimeMillis());
                     if (sent.refusal != null) {
@@ -1922,7 +1929,7 @@ public final class MacClient {
                                 refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.OTHER,
                                         context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_item));
                             } else {
-                                token = ++menuToken;
+                                token = menuToken.incrementAndGet();
                                 sent = mirroredMenus.press(quit, token);
                                 if (sent.refusal != null) {
                                     refusal = sent.refusal;
@@ -2128,6 +2135,48 @@ public final class MacClient {
         key(HidKeys.forChar('q'), true, COMMAND);
         key(HidKeys.forChar('q'), false, COMMAND);
         key(HidKeys.LEFT_GUI, false, 0);
+    }
+
+    // --- the menu bar UI (MacMenuBar, the phone's dialog): the same state the quit machine drives ---
+
+    public void addMenuListener(MenuListener l) {
+        menuListeners.add(l);
+    }
+
+    public void removeMenuListener(MenuListener l) {
+        menuListeners.remove(l);
+    }
+
+    /** The top level as last heard; version null before the first one. */
+    public MacMenuState.Top menuTop() {
+        return mirroredMenus.top();
+    }
+
+    /** Ask for the top level once per connection (the subscription): the host then serves fetches and presses,
+     *  and pushes each new top level. Asked again when the answer never came: a second subscription is served
+     *  the same, so no harm. */
+    public void menuSubscribe() {
+        if (!menuSubscribed || mirroredMenus.top().version == null) {
+            menuSubscribed = true;
+            enqueue(SillWire.FETCH_MENU, new JSONObject());
+        }
+    }
+
+    /** Ask for one menu's items (kind 27), by the id and the title shown in that version; the answer comes
+     *  through the menu listeners. The refusal when nothing was sent (stale, another version). */
+    public MacMenuState.Sent menuFetch(String id, String title, int version) {
+        long token = menuToken.incrementAndGet();
+        MacMenuState.Sent sent = mirroredMenus.fetch(id, title, version, token, SystemClock.uptimeMillis());
+        if (sent.refusal == null) sendMenu(SillWire.FETCH_MENU, sent.command);
+        return sent;
+    }
+
+    /** Choose the item a menu UI shows as this row (kind 25); the answer comes through the menu listeners. */
+    public MacMenuState.Sent menuPress(MacMenuState.Row row) {
+        long token = menuToken.incrementAndGet();
+        MacMenuState.Sent sent = mirroredMenus.press(row, token);
+        if (sent.refusal == null) sendMenu(SillWire.PRESS_MENU_ITEM, sent.command);
+        return sent;
     }
 
     // --- input (any thread) ---

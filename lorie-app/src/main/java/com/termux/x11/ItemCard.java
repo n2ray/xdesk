@@ -433,6 +433,9 @@ final class ItemCard {
             String macId = devices.deviceOf(key).substring(Devices.MAC.length());
             macMode = MacModeRow.add(c, s, macId, rows, refill);
             s.valueRow(rows, str(R.string.xd_mac_stream), str(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, macId));
+            // The Mac's menus as a list on the phone (MACMENU.md §5), while the Mac is connected
+            if (d.state == Devices.State.CONNECTED)
+                s.valueRow(rows, str(R.string.xd_mac_menu), str(R.string.xd_mac_menu_note), "", () -> MacMenuDialog.show(c, macId));
             s.valueRow(rows, c.getString(R.string.xd_card_device_settings, d.name), str(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
             if (d.state == Devices.State.CONNECTED && !d.busy)
                 s.valueRow(rows, str(R.string.xd_dev_disconnect), null, "", () -> confirmDisconnect(c, d));

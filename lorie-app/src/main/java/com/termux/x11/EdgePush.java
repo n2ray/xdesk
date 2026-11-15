@@ -3,9 +3,10 @@ package com.termux.x11;
 import android.os.SystemClock;
 
 /**
- * When the external Dock or the notification centre is called, the same for every kind of content (DISPLAY.md §7,
- * NOTIFY.md §4.1): the pointer is at the edge of the screen and is pushed further out. Only what goes beyond the edge
- * counts, so each move is given here as it was asked for, not as it was clamped. The push has to last (DWELL_MS) and
+ * When the external Dock, the notification centre or the Mac menu is called, the same for every kind of content
+ * (DISPLAY.md §7, NOTIFY.md §4.1, MACMENU.md §3): the pointer is at the edge of the screen and is pushed further
+ * out. Only what goes beyond the edge counts, so each move is given here as it was asked for, not as it was clamped.
+ * The push has to last (DWELL_MS) and
  * to be far enough (PUSH), without a pause longer than GAP_MS and more sideways than outwards. Resting on the edge
  * does not open anything, nor does a flick that lands there: a taskbar, a tab or a navigation bar at the bottom of
  * the picture is clicked exactly so.
@@ -20,8 +21,9 @@ import android.os.SystemClock;
  * not. Main thread.
  */
 final class EdgePush {
-    /** The edges the rule is told apart by. BOTTOM pushes down (the Dock), TOP up and RIGHT right (the centre). */
-    static final int BOTTOM = 0, TOP = 1, RIGHT = 2;
+    /** The edges the rule is told apart by. BOTTOM pushes down (the Dock), TOP up and RIGHT right (the centre),
+     *  LEFT left (the Mac menu's corner). */
+    static final int BOTTOM = 0, TOP = 1, RIGHT = 2, LEFT = 3;
 
     private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 700, GAP_MS = 250;
     /** In units of pointer movement, about pixels of the content. */
@@ -49,8 +51,8 @@ final class EdgePush {
      */
     boolean pushed(int edge, int dx, int dy, boolean desktop) {
         // The move's part along the edge's outward direction, and its sideways part
-        int along = edge == BOTTOM ? dy : edge == TOP ? -dy : dx;
-        int sideways = edge == RIGHT ? dy : dx;
+        int along = edge == LEFT ? -dx : edge == BOTTOM ? dy : edge == TOP ? -dy : dx;
+        int sideways = edge == RIGHT || edge == LEFT ? dy : dx;
         if (along < 0) {
             forget();
             return false;

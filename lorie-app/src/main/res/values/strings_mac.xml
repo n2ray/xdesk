@@ -65,6 +65,15 @@
     <string name="xd_mac_taken">Another device is showing this Mac now. Tap here to take it back</string>
     <string name="xd_mac_waiting_picture">Waiting for %1$s to send its screen (its display may be asleep). Tap here to ask again</string>
     <string name="xd_mac_window_closed">This window was closed on the Mac</string>
+    <!-- The app's menu bar (MACMENU.md): the ≡ button, the bar overlay, the phone's list -->
+    <string name="xd_mac_menu">Menu</string>
+    <string name="xd_mac_menu_note">The Mac\'s menu bar as a list on the phone</string>
+    <string name="xd_mac_menu_title">Mac menus</string>
+    <string name="xd_mac_menu_back">Back</string>
+    <string name="xd_mac_menu_loading">Loading…</string>
+    <string name="xd_mac_menu_changed">The menus changed. Open the menu again.</string>
+    <string name="xd_mac_menu_no_answer">The Mac did not answer.</string>
+    <string name="xd_mac_menu_no_access">Allow Sill under System Settings › Privacy &amp; Security › Accessibility on the Mac</string>
     <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
     <string name="xd_mac_quitting">Quitting %1$s…</string>
     <string name="xd_mac_quit_save">%1$s has unsaved work. Please answer its dialog on the Mac</string>

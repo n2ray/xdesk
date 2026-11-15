@@ -155,6 +155,8 @@ public class XDeskActivity extends Activity {
     private ExternalDock externalDock;
     /** The notification centre's windows on the external screen (NOTIFY.md): the bell, the banners, the panel. */
     private Notify notify;
+    /** The Mac menu's windows (MACMENU.md): the ≡ button and the bar, over a single Mac window or app. */
+    private MacMenus menus;
     /** What the switchboard (Switchboard: the phone's list, the external Launchpad, the Docks) asks of this window. */
     private final Switchboard.Host boardHost = new Switchboard.Host() {
         @Override public List<String> favourites() { return savedLines(PREF_DOCK); }
@@ -264,6 +266,7 @@ public class XDeskActivity extends Activity {
         @Override public InputSink target() { return client; }
         @Override public ExternalDock dock() { return externalDock; }
         @Override public Notify notifyCenter() { return notify; }
+        @Override public MacMenus menus() { return menus; }
     }, mouseIn, padIn, remoteIn);
 
     private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
@@ -330,6 +333,7 @@ public class XDeskActivity extends Activity {
     private void closeDockForPhone() {
         if (externalDock != null) externalDock.closeForPhone();
         if (notify != null) notify.closeForPhone();
+        if (menus != null) menus.closeForPhone();
     }
 
     /** Whether the app session had the keys and mouse at the last state: there the injector's evdev reader hears Ctrl+Alt+M. */
@@ -975,8 +979,9 @@ public class XDeskActivity extends Activity {
             at = y >= 1f;
         }
         if (dock != null) dock.restDriven(at, x);
-        // The notification centre's corner and bell hear the same placed pointer (NOTIFY.md §4.1)
+        // The notification centre's corner and bell, and the Mac menu's ≡, hear the same placed pointer
         if (notify != null) notify.placedAt(x, y);
+        if (menus != null) menus.placedAt(x, y);
     }
 
     private WirelessFinder autoFinder;
@@ -1343,6 +1348,7 @@ public class XDeskActivity extends Activity {
         notify = Notify.get(this);
         notify.attachActivity(this);
         apps.setCornerEdgeListener(notify);
+        menus = MacMenus.get(this);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
@@ -1468,6 +1474,7 @@ public class XDeskActivity extends Activity {
             notify.setDisplay(null);
             notify.attachActivity(null);
         }
+        if (menus != null) menus.setDisplay(null);
         if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
         ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
@@ -2125,6 +2132,15 @@ public class XDeskActivity extends Activity {
         // only with the notification access granted: without it everything is as before (NOTIFY.md §2)
         Display nd = Settings.canDrawOverlays(this) && NotifyCenter.accessGranted(this) ? externalDisplay() : null;
         if (notify != null) notify.setDisplay(nd != null && !TargetDisplay.isCar(nd) ? nd : null);
+        // The Mac menu (MACMENU.md §2): only over a single Mac window or app — never the Mac's whole desktop,
+        // whose own menu bar is in the picture. Its display follows the centre's (no permission gates of its own)
+        boolean macContent = contentKey != null && contentKey.startsWith(MacSource.PREFIX)
+                && (contentKey.indexOf(":win:") >= 0 || contentKey.indexOf(":app:") >= 0);
+        if (menus != null) {
+            Display md = Settings.canDrawOverlays(this) ? externalDisplay() : null;
+            menus.setDisplay(md != null && !TargetDisplay.isCar(md) ? md : null);
+            menus.update(macContent ? macOnScreen() : null);
+        }
         // Open over something that is no longer the target: it goes, and the pointer is the target's again
         dockPointer.check();
     }
@@ -2999,6 +3015,8 @@ public class XDeskActivity extends Activity {
         if (qualityKey(e)) return true;
         // Ctrl+Alt+N: the notification centre on the external screen (INPUT.md §7, NOTIFY.md §4.1)
         if (notify != null && notify.hotkey(e)) return true;
+        // Ctrl+Alt+Space with a single Mac window or app on the screen: its menu bar (INPUT.md §7, MACMENU.md §3)
+        if (menus != null && menus.hotkey(e)) return true;
         // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display
         // has the focus), so nothing is passed to it from here
         boolean forwarding = client != null && (client == SwitcherOverlay.INPUT || !apps.isActive()) && phoneForwards();
@@ -3015,6 +3033,8 @@ public class XDeskActivity extends Activity {
         // The notification centre's keys while it is open (NOTIFY.md §4): the arrows, Enter, Delete, R, Esc, and
         // text into an open reply field only
         if (notify != null && notify.key(e)) return true;
+        // The Mac menu bar's keys while it is open (MACMENU.md §4): ←→ ↑↓ Enter → Esc
+        if (menus != null && menus.key(e)) return true;
         // Esc closes the Dock opened over this content, and is not the content's then
         if (dockPointer.key(e.getScanCode(), e.getAction() == KeyEvent.ACTION_DOWN)) return true;
         if (mouseSideKey(e)) return true;

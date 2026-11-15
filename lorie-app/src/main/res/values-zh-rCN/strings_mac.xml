@@ -64,6 +64,15 @@
     <string name="xd_mac_taken">另一台设备正在看这台 Mac。点这里要回来</string>
     <string name="xd_mac_waiting_picture">正在等 %1$s 送来画面（它的屏幕可能在睡眠）。点这里再试一次</string>
     <string name="xd_mac_window_closed">这个窗口已在 Mac 上关闭</string>
+    <!-- The app's menu bar (MACMENU.md): the ≡ button, the bar overlay, the phone's list -->
+    <string name="xd_mac_menu">菜单</string>
+    <string name="xd_mac_menu_note">在手机上列出 Mac 的菜单栏</string>
+    <string name="xd_mac_menu_title">Mac 菜单</string>
+    <string name="xd_mac_menu_back">返回</string>
+    <string name="xd_mac_menu_loading">正在加载…</string>
+    <string name="xd_mac_menu_changed">菜单变了，再打开一次</string>
+    <string name="xd_mac_menu_no_answer">Mac 没有回应</string>
+    <string name="xd_mac_menu_no_access">请在 Mac 的系统设置 › 隐私与安全性 › 辅助功能里允许 Sill</string>
     <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
     <string name="xd_mac_quitting">正在退出 %1$s…</string>
     <string name="xd_mac_quit_save">%1$s 有未保存的内容，请在 Mac 上处理</string>

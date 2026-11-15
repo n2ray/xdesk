@@ -13,9 +13,10 @@ import java.util.Objects;
 
 /**
  * One connection's mirrored Mac menus: the streamed app's menu bar, read on the Mac over Accessibility.
- * Sall's rows and sections (what its dialogs draw) are not ported — XDesk has no menu bar UI, only
- * MacClient's quitApp — so a settled request goes to the caller whole. Plain Java, no Android imports:
- * the test in /tmp compiles and runs this class alone (as AutoQuality's does).
+ * Sall's row shaping is ported too ({@link Row}, {@link Content}, topRows, sections): the menu bar overlay
+ * (MacMenuBar) and the phone's list dialog draw these, and MacClient.quitApp uses the state machine below
+ * them. Plain Java, no Android imports: the test in /tmp compiles and runs this class alone (as
+ * AutoQuality's does).
  *
  * The protocol's rules, from MacMenu.swift's header:
  * - A device asks once per connection, with a kind 27 without an id, after its first window list; only
@@ -117,6 +118,74 @@ public final class MacMenuState {
             return Objects.hash(id, title, separator, enabled, mark, key, submenu);
         }
     }
+
+    /** What a row of a menu is (Sall's Kind): an item to press, a submenu to open, or words shown as they are. */
+    public enum Kind { ITEM, SUBMENU, NOTE }
+
+    /** The Mac's mark as shown (Sall's Mark). */
+    public enum Mark { OFF, ON, MIXED }
+
+    /**
+     * One row a menu UI draws (Sall's Row): the bar's menus, or the items of one open menu. `version` is the
+     * version the row's id was shown in: a press or a fetch carries it back.
+     */
+    public static final class Row {
+        public final Kind kind;
+        public final String id, title, key;
+        public final boolean enabled;
+        public final Mark mark;
+        public final Integer version;
+
+        public Row(Kind kind, String id, String title, String key, boolean enabled, Mark mark, Integer version) {
+            this.kind = kind;
+            this.id = id;
+            this.title = title;
+            this.key = key;
+            this.enabled = enabled;
+            this.mark = mark;
+            this.version = version;
+        }
+
+        public static Row note(String title) {
+            return new Row(Kind.NOTE, null, title, null, false, Mark.OFF, null);
+        }
+    }
+
+    /** What a menu shows: rows in sections (separators split them), or one message (Sall's Content). */
+    public static final class Content {
+        /** Words instead of rows (a refusal, "loading"): shown as they are. */
+        public final String message;
+        public final List<List<Row>> sections;
+        /** How many more items the menu has, when the read stopped. */
+        public final int more;
+
+        Content(String message, List<List<Row>> sections, int more) {
+            this.message = message;
+            this.sections = sections;
+            this.more = more;
+        }
+
+        public static Content message(String text) {
+            return new Content(text, Collections.emptyList(), 0);
+        }
+
+        public static Content sections(List<List<Row>> sections, int more) {
+            return new Content(null, sections, more);
+        }
+    }
+
+    /** A note's words split for the row's title and subtitle (Sall's MacMenuRow.noteText): "… (…)…" → the parens below. */
+    public static final class NoteText {
+        public final String title, subtitle;
+
+        public NoteText(String title, String subtitle) {
+            this.title = title;
+            this.subtitle = subtitle;
+        }
+    }
+
+    public static final String NO_ITEMS = "No items";
+    static final int MAX_MENUS = 32;
 
     /** The top level of the streamed app's menu bar, in the Mac's order, the Apple menu left out. */
     public static final class Top {
@@ -362,6 +431,16 @@ public final class MacMenuState {
         return new Sent(new Command(version, item.id, item.title, token), null);
     }
 
+    /** Choose the item a menu UI shows as this row (Sall's press(Row, token)). */
+    public synchronized Sent press(Row row, long token) {
+        if (row == null || row.kind != Kind.ITEM || !row.enabled || row.id == null) return settled(UNAVAILABLE_NOTE);
+        if (version == null) return settled(CHANGED_NOTE);
+        if (stale) return settled(note == null ? DEFAULT_NOT_RESPONDING : note);
+        choices.add(new Choice(token, row.id, row.title));
+        if (choices.size() > MAX_CHOICES) choices.remove(0);
+        return new Sent(new Command(version, row.id, row.title, token), null);
+    }
+
     /** Requests the Mac did not answer in time (Sall's expire): settled, so no late answer finds them. */
     public synchronized List<Done> expire(long now, long timeout) {
         if (timeout < 0) throw new IllegalArgumentException("negative timeout");
@@ -440,5 +519,118 @@ public final class MacMenuState {
         for (Item item : menus)
             if (item != null && isTopId(item.id) && item.title != null && !item.title.isEmpty()) return item;
         return null;
+    }
+
+    // --- the rows a menu UI draws (Sall's topRows, sections, mark, clean; MacMenuRow's noteText) ---
+
+    /** The bar's menus as rows, in the Mac's order (Sall's topRows): top-level ids, a title each, at most MAX_MENUS. */
+    public static List<Row> topRows(List<Item> items, Integer version) {
+        ArrayList<Row> rows = new ArrayList<>();
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (Item item : items) {
+            if (rows.size() == MAX_MENUS) break;
+            if (item == null || !isTopId(item.id) || !ids.add(item.id)) continue;
+            String title = clean(item.title, 100);
+            if (title == null) {
+                ids.remove(item.id);
+                continue;
+            }
+            rows.add(new Row(Kind.SUBMENU, item.id, title, null, !Boolean.FALSE.equals(item.enabled), Mark.OFF, version));
+        }
+        return Collections.unmodifiableList(rows);
+    }
+
+    /**
+     * One menu's rows (Sall's sections): the note first when there is one, separators split sections, a submenu
+     * is a SUBMENU row and a stale menu shows every item disabled. With no rows at all: NO_ITEMS.
+     */
+    public static List<List<Row>> sections(List<Item> items, boolean stale, String note, int more, Integer version) {
+        ArrayList<List<Row>> out = new ArrayList<>();
+        String reason = clean(note, 300);
+        if (reason != null) out.add(Collections.singletonList(Row.note(reason)));
+        ArrayList<Row> section = new ArrayList<>();
+        for (Item item : items) {
+            if (item == null) continue;
+            if (item.separator) {
+                if (!section.isEmpty()) {
+                    out.add(Collections.unmodifiableList(new ArrayList<>(section)));
+                    section.clear();
+                }
+                continue;
+            }
+            String title = clean(item.title, 100);
+            if (title == null) continue;
+            Kind kind = item.submenu ? Kind.SUBMENU : Kind.ITEM;
+            section.add(new Row(kind, item.id, title, kind == Kind.ITEM ? clean(item.key, 16) : null,
+                    item.id != null && !Boolean.FALSE.equals(item.enabled) && !stale, mark(item.mark), version));
+        }
+        if (!section.isEmpty()) out.add(Collections.unmodifiableList(section));
+        if (more > 0) out.add(Collections.singletonList(Row.note(more + " more on the Mac")));
+        if (out.isEmpty()) out.add(Collections.singletonList(Row.note(NO_ITEMS)));
+        return Collections.unmodifiableList(out);
+    }
+
+    /** A content's rows flat for a list (the bar's dropdown, the phone's dialog): the message as one note row,
+     *  sections joined by a null (a divider a view draws). */
+    public static List<Row> flat(Content content) {
+        if (content.message != null) return Collections.singletonList(Row.note(content.message));
+        ArrayList<Row> out = new ArrayList<>();
+        for (List<Row> section : content.sections) {
+            if (!out.isEmpty()) out.add(null);
+            out.addAll(section);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /** The Mac's mark, one character (Sall's mark): "✓", or "-"/"–" as mixed; anything else counts as on. */
+    public static Mark mark(String raw) {
+        String text = clean(raw, 1);
+        return text == null ? Mark.OFF : text.equals("-") || text.equals("–") ? Mark.MIXED : Mark.ON;
+    }
+
+    /**
+     * A title as shown (Sall's clean): whitespace folded to single spaces, control and unassigned characters out,
+     * at most `limit` graphemes. Null when nothing is left.
+     */
+    public static String clean(String input, int limit) {
+        if (input == null || limit <= 0) return null;
+        StringBuilder out = new StringBuilder();
+        boolean space = false;
+        for (int i = 0; i < input.length();) {
+            int cp = input.codePointAt(i);
+            i += Character.charCount(cp);
+            int type = Character.getType(cp);
+            if (cp == 0x85 || Character.isWhitespace(cp) || Character.isSpaceChar(cp)
+                    || type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR) {
+                space = out.length() > 0;
+                continue;
+            }
+            if (type == Character.CONTROL || type == Character.FORMAT || type == Character.SURROGATE
+                    || type == Character.PRIVATE_USE || type == Character.UNASSIGNED) continue;
+            if (space) out.append(' ');
+            space = false;
+            out.appendCodePoint(cp);
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\X").matcher(out);
+        int end = 0;
+        for (int count = 0; count < limit && matcher.find(); count++) end = matcher.end();
+        String value = out.substring(0, end).trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * A note's words for the row (Sall's MacMenuRow.noteText): "… (…)…" — a title whose parenthesised tail is
+     * the subtitle ("Allow Accessibility for Sill on the Mac (System Settings › …)").
+     */
+    public static NoteText noteText(String value) {
+        String text = value == null ? "" : value;
+        boolean period = text.endsWith(").");
+        String body = period ? text.substring(0, text.length() - 1) : text;
+        int open = body.lastIndexOf(" (");
+        if (body.endsWith(")") && open > 0 && open + 2 < body.length() - 1) {
+            return new NoteText(body.substring(0, open) + (period ? "." : ""),
+                    body.substring(open + 2, body.length() - 1));
+        }
+        return new NoteText(text, null);
     }
 }

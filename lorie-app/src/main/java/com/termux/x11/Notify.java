@@ -362,7 +362,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     int cornerEdge(float fx, float fy) {
         if (width <= 0 || height <= 0) return 0;
         int corner = Math.max(1, Math.round(CORNER_DP * density));
-        return NotifyCorner.edge(Math.round(fx * (width - 1)), Math.round(fy * (height - 1)), width, height, corner);
+        return NotifyCorner.edge(Math.round(fx * (width - 1)), Math.round(fy * (height - 1)), width, height, corner, false);
     }
 
     /** The bell, and the hotkey: the panel opens or closes. */
