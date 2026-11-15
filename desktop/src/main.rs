@@ -312,7 +312,7 @@ fn main() -> Result<(), String> {
             bar_labels.clear();
             for (name, action) in if features_actions { &BAR_ACTIONS } else { &BAR } {
                 if let Some(image) = words.label(name, BAR_TEXT * scale) {
-                    bar_labels.push((action, words_texture(&creator, &image)?));
+                    bar_labels.push((*action, words_texture(&creator, &image)?));
                 }
             }
         }
