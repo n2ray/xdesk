@@ -91,6 +91,7 @@ Phone → receiver:
 | 19 | SETTINGS | UTF-8 JSON object, every field optional. Only to a receiver that said FEATURES bit 2 |
 | 16 | CURSOR_SHAPE | Only to a receiver with codecs bit 2. u16 width, u16 height, u16 hot spot x, u16 hot spot y, each 0 to 65535 of the picture's **width**, then the cursor as PNG (at most 1 MiB): draw it over the picture |
 | 17 | CURSOR_POSITION | Only to a receiver with codecs bit 2. u16 x, u16 y (0 to 65535 across and down the picture), u8 shown: where that cursor's hot spot is; 0 hides it |
+| 19 | SETTINGS | UTF-8 JSON object, every field optional: `naturalScroll` bool, `pointerSpeed` and `scrollSpeed` numbers, 1 the default, in the units the phone's own settings use (INPUT.md §12). Sent right after the session starts and again whenever one of them changes; a receiver that never gets it keeps its defaults |
 
 Receiver → phone:
 

@@ -42,6 +42,11 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.termux.x11.app.R;
+import com.termux.x11.mac.AutoQuality;
+import com.termux.x11.mac.HostSettings;
+import com.termux.x11.mac.MacClient;
+import com.termux.x11.mac.MacClients;
+import com.termux.x11.mac.MacStore;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -1318,6 +1323,7 @@ public class XDeskActivity extends Activity {
         Switchboard.get(this).setHost(boardHost);
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
+        updateReceiverSettings();
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
         apps.setBottomEdgeListener(externalDock);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
@@ -2517,6 +2523,20 @@ public class XDeskActivity extends Activity {
         settingsPage(getString(R.string.xd_section_phone), c, null);
     }
 
+    /** INPUT.md §12: the settings go to the receivers as SETTINGS (type 19), in the units the phone's own settings use. */
+    private void updateReceiverSettings() {
+        if (wireless == null) return;
+        try {
+            org.json.JSONObject j = new org.json.JSONObject();
+            j.put("naturalScroll", prefs.getBoolean(PREF_NATURAL_SCROLL, true));
+            j.put("pointerSpeed", (double) prefs.getFloat(PREF_SPEED, 1f));
+            j.put("scrollSpeed", (double) prefs.getFloat(PREF_SCROLL_SPEED, 1f));
+            wireless.setSettings(j.toString());
+        } catch (org.json.JSONException e) {
+            Log.w(TAG, "settings json", e);
+        }
+    }
+
     private void showInputSettings() {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
@@ -2528,16 +2548,19 @@ public class XDeskActivity extends Activity {
             touchpad.setSpeed(v);
             directTouch.setSpeed(v);
             prefs.edit().putFloat(PREF_SPEED, v).apply();
+            updateReceiverSettings();
         });
         s.percentRow(input, getString(R.string.xd_scroll_speed), getString(R.string.xd_scroll_speed_note), Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setScrollSpeed(v);
             prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
+            updateReceiverSettings();
         });
         // INPUT.md §12: one setting for every device
         s.switchRow(input, getString(R.string.xd_natural_scroll), getString(R.string.xd_natural_scroll_note), prefs.getBoolean(PREF_NATURAL_SCROLL, true), on -> {
             prefs.edit().putBoolean(PREF_NATURAL_SCROLL, on).apply();
             touchpad.setNaturalScroll(on);
+            updateReceiverSettings();
         });
         s.switchRow(input, getString(R.string.xd_keys_via_ime), getString(R.string.xd_keys_via_ime_note), prefs.getBoolean(PREF_KEYS_VIA_IME, true), on -> {
             prefs.edit().putBoolean(PREF_KEYS_VIA_IME, on).apply();
@@ -2880,6 +2903,8 @@ public class XDeskActivity extends Activity {
             updateStatus();
             return true;
         }
+        // Ctrl+Alt+Q with a Mac on the external screen: cycle its quick quality mode (INPUT.md §7)
+        if (qualityKey(e)) return true;
         // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display
         // has the focus), so nothing is passed to it from here
         boolean forwarding = client != null && (client == SwitcherOverlay.INPUT || !apps.isActive()) && phoneForwards();
@@ -2954,6 +2979,49 @@ public class XDeskActivity extends Activity {
 
     /** Physical modifiers sent as held, checked against Android's meta state (an input method may keep a release). */
     private final io.github.n2ray.xdesk.input.HeldModifiers heldModifiers = new io.github.n2ray.xdesk.input.HeldModifiers();
+
+    /** The Q of the hotkey went down here: its release is swallowed too, wherever the focus is by then. */
+    private boolean swallowQuality;
+
+    /**
+     * Ctrl+Alt+Q with a Mac on the external screen: cycle its quick quality mode (清晰 → 平衡 → 流畅, INPUT.md §7)
+     * and flash the new one over the picture. Not on a Mac, it is just a key, like any other. Q was not taken by
+     * anything (INPUT.md §5.2: XDesk takes only Ctrl+Alt+M and Ctrl+Alt+Q).
+     */
+    private boolean qualityKey(KeyEvent e) {
+        if (e.getKeyCode() != KeyEvent.KEYCODE_Q) return false;
+        if (e.getAction() == KeyEvent.ACTION_UP && swallowQuality) {
+            swallowQuality = false;
+            return true;
+        }
+        if (e.getAction() != KeyEvent.ACTION_DOWN || e.getRepeatCount() != 0 || !e.isCtrlPressed() || !e.isAltPressed()) return false;
+        MacClient client = macOnScreen();
+        if (client == null) return false;
+        swallowQuality = true;
+        cycleQuality(client);
+        return true;
+    }
+
+    /** The Mac whose content is on the external screen now, or null. */
+    private MacClient macOnScreen() {
+        if (contentKey == null || !contentKey.startsWith(MacSource.PREFIX)) return null;
+        int end = contentKey.indexOf(':', MacSource.PREFIX.length());
+        return MacClients.get(this, contentKey.substring(MacSource.PREFIX.length(), end >= 0 ? end : contentKey.length()));
+    }
+
+    /** One step of the quick quality cycle, with the new mode over the picture. */
+    private void cycleQuality(MacClient client) {
+        HostSettings h = client.settings();
+        if (h == null) h = HostSettings.saved(MacStore.stream(this, client.mac().id).host);
+        if (h == null) return;
+        int at = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
+        int next = at == AutoQuality.SHARP ? AutoQuality.BALANCED : at == AutoQuality.BALANCED ? AutoQuality.SMOOTH : AutoQuality.SHARP;
+        if (MacModeRow.apply(this, client, next)) {
+            String[] names = getResources().getStringArray(R.array.xd_mac_mode_names);
+            client.flash(getString(R.string.xd_mac_mode_flash, names[next]));
+        }
+    }
+
     private final io.github.n2ray.xdesk.input.HeldModifiers.Out releaseModifier = scan -> keysIn.key(scan, false);
 
     /**

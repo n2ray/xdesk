@@ -547,6 +547,8 @@ final class ChooserView extends LinearLayout {
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 row.setMinimumHeight(Style.dp(c, 56));
                 row.setPadding(Style.dp(c, 4), Style.dp(c, 4), 0, Style.dp(c, 4));
+                // A device badge hangs a little past its icon's edge: don't cut it at the row's padding
+                row.setClipToPadding(false);
                 h = new Holder();
                 h.icon = new ImageView(c);
                 LayoutParams ip = new LayoutParams(Style.dp(c, 40), Style.dp(c, 40));
@@ -584,7 +586,7 @@ final class ChooserView extends LinearLayout {
             h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
             if (r.app != null || r.content || r.session) {
                 h.icon.setVisibility(VISIBLE);
-                ExternalLauncher.icon(c, r, h.icon);
+                ExternalLauncher.icon(c, r, h.icon, Style.BACKGROUND, board.ownTab(r.key), c.getResources().getDisplayMetrics().density);
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);

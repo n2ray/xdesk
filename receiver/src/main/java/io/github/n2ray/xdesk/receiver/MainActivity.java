@@ -86,6 +86,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private boolean phoneWantsTouch;
     /** Chosen in the toolbar: true touchpad, false direct touch, null as the phone says. Until the app changes. */
     private Boolean padOverride;
+    /** A Mac is passed through: the cursor is drawn here, and this device's own pointer would be a wrong second one. */
+    private boolean passthrough;
+    /** The last INPUT_MODE from the phone (0 Android apps, 1 desktop, 2 an app that takes touches), -1 until the first. */
+    private int phoneInputMode = -1;
+    /** applyPointerIcon hid this device's pointer. */
+    private boolean pointerHidden;
     private LinearLayout bar, tools;
     private ClipboardManager clipboard;
     private String clipFromPhone;
@@ -520,13 +526,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
                 control.release();
                 hideKeyboard();
             }
-            // The phone draws its pointer in the picture; this device's own would be a second one
-            if (Build.VERSION.SDK_INT >= 24) {
-                PointerIcon none = working ? PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL) : null;
-                root.setPointerIcon(none);
-                view.setPointerIcon(none);
-            }
         }
+        applyPointerIcon();
         code.setVisibility(state == State.PAIRING ? View.VISIBLE : View.GONE);
         footer.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
         switch (state) {
@@ -567,6 +568,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             default:
                 break;
         }
+    }
+
+    /**
+     * This device's pointer is hidden while the picture has the phone's own pointer: Android content (INPUT_MODE 0,
+     * the phone draws its arrow in the picture) and before the first INPUT_MODE says what is showing, as before the
+     * fix. Also while this device draws the cursor itself (a passed-through Mac). Otherwise the system pointer
+     * shows: for X content placed absolutely the phone hides the X cursor, and a tablet's mouse must still show one
+     * (PROTOCOL.md, DISPLAY.md §8).
+     */
+    private void applyPointerIcon() {
+        if (Build.VERSION.SDK_INT < 24) return;
+        boolean hide = controlling() && (passthrough || phoneInputMode < 0 || phoneInputMode == 0 || phoneInputMode == 2);  // 0, 2: Android content, the phone draws its arrow
+        if (hide == pointerHidden) return;
+        pointerHidden = hide;
+        PointerIcon icon = hide ? PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL) : null;
+        root.setPointerIcon(icon);
+        view.setPointerIcon(icon);
     }
 
     private String version() {
@@ -631,6 +649,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         });
     }
 
+    @Override
+    public void passthrough(boolean on) {
+        ui.post(() -> {
+            if (passthrough == on) return;
+            passthrough = on;
+            applyPointerIcon();
+        });
+    }
+
+    @Override
+    public void settings(float pointerSpeed, float scrollSpeed, boolean naturalScroll) {
+        ui.post(() -> {
+            control.setPointerSpeed(pointerSpeed);
+            control.setScrollSpeed(scrollSpeed);
+            control.setNaturalScroll(naturalScroll);
+        });
+    }
+
     // Receiver.Ui, called on network threads
 
     @Override
@@ -641,6 +677,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             features = 0;
             control.setFeatures(0);
             applyFeatures();
+            passthrough = false;
+            // The next session starts hidden until its first INPUT_MODE, as always
+            phoneInputMode = -1;
+            // The next phone may never send SETTINGS: back to the defaults of INPUT.md §12
+            control.resetSettings();
             cursor.setVisibility(View.GONE);
             cursor.setImageDrawable(null);
             fitVideo();
@@ -708,7 +749,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             boolean touch = mode == 2;
             if (touch != phoneWantsTouch) padOverride = null;  // another app, or its mode changed on the phone
             phoneWantsTouch = touch;
+            phoneInputMode = mode;
             applyPadMode();
+            applyPointerIcon();
         });
     }
 

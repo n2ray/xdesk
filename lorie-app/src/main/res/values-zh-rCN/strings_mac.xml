@@ -129,6 +129,20 @@
     <string name="xd_mac_mute_note">只静音这台设备；不改变 Mac 的声音设置。</string>
     <string name="xd_mac_sound_muted_headphones">耳机已断开，这台设备的 Mac 声音已静音</string>
     <string name="xd_mac_stream_about">关于这些设置</string>
+    <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
+    <string name="xd_mac_mode">快速画质</string>
+    <string name="xd_mac_mode_note">清晰、平衡、流畅三档一键切换。改动的是 Mac 的设置，对连接它的所有设备生效；Mac 在外接屏上时，Ctrl+Alt+Q 可循环切换</string>
+    <string-array name="xd_mac_mode_names">
+        <item>清晰</item>
+        <item>平衡</item>
+        <item>流畅</item>
+    </string-array>
+    <string name="xd_mac_mode_flash">画质：%1$s</string>
+    <string name="xd_mac_auto">网络变差时自动降低画质</string>
+    <string name="xd_mac_auto_note">Mac 持续 5 秒报告连接带不动当前画面时，自动降到 Mac 建议的画质或再降一档；链路稳定一段时间后，逐步升回你选的模式。只在 XDesk 连着这台 Mac 时生效</string>
+    <string name="xd_mac_auto_lowered">网络变差，画质已切到%1$s</string>
+    <string name="xd_mac_auto_lowered_generic">网络变差，画质已自动降低</string>
+    <string name="xd_mac_auto_raised">网络已恢复，画质切回%1$s</string>
     <string name="xd_mac_stream_kept">“画面”和“Mac 发送声音”是 Mac 自己的设置：对连接它的所有设备生效，由 Mac 上的 Sill 保存，Mac 的菜单也能改</string>
     <string name="xd_mac_stream_kept_session">“画面”和“Mac 发送声音”是 Mac 自己的设置：对连接它的所有设备生效，到 Mac 上的 Sill 主机程序退出为止</string>
     <string name="xd_mac_on">开</string>

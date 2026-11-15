@@ -156,13 +156,16 @@ public final class MacStore {
         public final boolean sound;
         /** Muted here (Sall's soundMuted): sound still streams, this device says nothing; off by default. */
         public final boolean muted;
+        /** Lower the quality by itself while the Mac's link report stays behind (AutoQuality); on by default. */
+        public final boolean autoQuality;
         /** HostSettings.settingsJson of the last session, "" before the first. */
         public final String host;
 
-        Stream(int fpsCap, boolean sound, boolean muted, String host) {
+        Stream(int fpsCap, boolean sound, boolean muted, boolean autoQuality, String host) {
             this.fpsCap = fpsCap;
             this.sound = sound;
             this.muted = muted;
+            this.autoQuality = autoQuality;
             this.host = host;
         }
     }
@@ -174,28 +177,36 @@ public final class MacStore {
     public static Stream stream(Context c, String id) {
         try {
             JSONObject o = new JSONObject(prefs(c).getString(STREAM + id, "{}"));
-            return new Stream(o.optInt("fpsCap", 0), o.optBoolean(SOUND, true), o.optBoolean("muted", false), o.optString("host", ""));
+            return new Stream(o.optInt("fpsCap", 0), o.optBoolean(SOUND, true), o.optBoolean("muted", false),
+                    o.optBoolean("autoQuality", true), o.optString("host", ""));
         } catch (JSONException e) {
-            return new Stream(0, true, false, "");
+            return new Stream(0, true, false, true, "");
         }
     }
 
     private static void saveStream(Context c, String id, Stream s) {
         try {
             prefs(c).edit().putString(STREAM + id, new JSONObject().put("fpsCap", s.fpsCap).put(SOUND, s.sound)
-                    .put("muted", s.muted).put("host", s.host).toString()).apply();
+                    .put("muted", s.muted).put("autoQuality", s.autoQuality).put("host", s.host).toString()).apply();
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
     }
 
     public static synchronized void setStreamOptions(Context c, String id, int fpsCap, boolean sound, boolean muted) {
-        saveStream(c, id, new Stream(fpsCap, sound, muted, stream(c, id).host));
+        saveStream(c, id, new Stream(fpsCap, sound, muted, stream(c, id).autoQuality, stream(c, id).host));
+    }
+
+    /** The auto quality switch (AutoQuality): this device's own, so it only changes what XDesk does. */
+    public static synchronized void setAutoQuality(Context c, String id, boolean autoQuality) {
+        Stream now = stream(c, id);
+        saveStream(c, id, new Stream(now.fpsCap, now.sound, now.muted, autoQuality, now.host));
     }
 
     /** The Mac's settings as it last sent them; written only when they changed. */
     static synchronized void setHostSettings(Context c, String id, String settingsJson) {
         Stream now = stream(c, id);
-        if (!now.host.equals(settingsJson)) saveStream(c, id, new Stream(now.fpsCap, now.sound, now.muted, settingsJson));
+        if (!now.host.equals(settingsJson))
+            saveStream(c, id, new Stream(now.fpsCap, now.sound, now.muted, now.autoQuality, settingsJson));
     }
 }
