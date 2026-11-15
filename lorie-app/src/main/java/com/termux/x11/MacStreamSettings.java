@@ -2,7 +2,10 @@ package com.termux.x11;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.termux.x11.app.R;
@@ -14,7 +17,8 @@ import com.termux.x11.mac.MacStore;
 /**
  * XDesk settings › Mac › a Mac › Picture and sound: Sill's own settings for that Mac (quality, resolution, frame
  * rate limit, prioritise speed, virtual display, send audio), as Sall's settings panel shows them, and this
- * device's two (the rate it asks for, whether it plays the Mac's sound). Opened with open(context, macId).
+ * device's three (the rate it asks for, whether it plays the Mac's sound, whether it mutes itself). While it is
+ * open, the round trip is kept fresh once a second (Sall's refreshDiagnostics tick). Opened with open(context, macId).
  *
  * The Mac's settings are the Mac's: this page shows what the Mac last said (kind 16) and sends the one field a
  * control changed (kind 17); what the Mac answers is what the page then shows, taken or not. They hold for every
@@ -28,6 +32,23 @@ final class MacStreamSettings implements MacClient.SettingsListener {
     private final LinearLayout content;
     private Dialog page;
     private String drawn;
+    /** The round trip changes with every pong and the Mac says nothing: a tick keeps it and the mute fresh. */
+    private final Handler ticker = new Handler(Looper.getMainLooper());
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            MacClient client = MacClients.get(c, macId);
+            if (client == null) {
+                if (page != null) page.dismiss();
+                return;
+            }
+            // Sall's diagnosticsTick: redraw only what changed, so the page does not rebuild every second
+            if (!snapshot(client).equals(drawn)) fill(client);
+            else refreshRtt(client);
+            ticker.postDelayed(this, 1000);
+        }
+    };
+    private TextView rttValue;
+    private String rttDrawn;
 
     private MacStreamSettings(Context c, String macId) {
         this.c = c;
@@ -49,7 +70,9 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         m.page.setOnDismissListener(d -> {
             MacClient now = MacClients.get(c, macId);
             if (now != null) now.setSettingsListener(null);
+            m.ticker.removeCallbacks(m.tick);
         });
+        m.ticker.postDelayed(m.tick, 1000);
         return m.page;
     }
 
@@ -70,12 +93,29 @@ final class MacStreamSettings implements MacClient.SettingsListener {
     private String snapshot(MacClient client) {
         HostSettings live = client.settings();
         MacStore.Stream own = MacStore.stream(c, macId);
-        return (live != null ? live.snapshot() : "saved " + own.host) + "|" + client.pendingSetting() + "|" + own.fpsCap + "|" + own.sound;
+        // rttSlow: the slow-link advice appears and goes with it, without the Mac saying anything
+        return (live != null ? live.snapshot() : "saved " + own.host) + "|" + client.pendingSetting() + "|" + own.fpsCap
+                + "|" + own.sound + "|" + own.muted + "|" + client.rttSlow();
+    }
+
+    /** Just the round trip's number (Sall's refreshDiagnostics updating its readout alone). */
+    private void refreshRtt(MacClient client) {
+        String value = rttText(client);
+        if (value.equals(rttDrawn) || rttValue == null) return;
+        rttDrawn = value;
+        rttValue.setText(value);
+    }
+
+    private String rttText(MacClient client) {
+        Long rtt = client.rttMedian();
+        return rtt == null ? c.getString(R.string.xd_mac_rtt_none) : c.getString(R.string.xd_mac_rtt_ms, rtt);
     }
 
     private void fill(final MacClient client) {
         drawn = snapshot(client);
         content.removeAllViews();
+        rttValue = null;
+        rttDrawn = null;
         final HostSettings live = client.settings();
         final MacStore.Stream own = MacStore.stream(c, macId);
         final HostSettings h = live != null ? live : HostSettings.saved(own.host);
@@ -90,8 +130,11 @@ final class MacStreamSettings implements MacClient.SettingsListener {
             String running = !live.streaming ? c.getString(R.string.xd_mac_stream_idle)
                     : c.getString(R.string.xd_mac_stream_running, live.width, live.height, live.fps, live.mbps);
             s.infoRow(now, running, live.streaming && live.onVirtualDisplay ? c.getString(R.string.xd_mac_stream_on_virtual) : null, null);
+            // The round trip, as Sall's readout ends with it; the tick keeps this one line fresh
+            rttDrawn = rttText(client);
+            rttValue = s.infoRow(now, c.getString(R.string.xd_mac_rtt), null, rttDrawn);
             if (live.softwareEncoder) s.infoRow(now, c.getString(R.string.xd_mac_software_encoder), null, null);
-            final HostSettings.Advice advice = live.advice();
+            final HostSettings.Advice advice = live.advice(client.rttSlow());
             if (advice.kind == HostSettings.Advice.BEHIND_HOME_RUNS) {
                 s.infoRow(now, c.getString(R.string.xd_mac_link_behind_home), null, null);
             } else if (advice.kind == HostSettings.Advice.BEHIND) {
@@ -102,6 +145,8 @@ final class MacStreamSettings implements MacClient.SettingsListener {
                 String label = c.getString(R.string.xd_mac_link_behind_suggest);
                 if (open) s.valueRow(now, label, c.getString(R.string.xd_mac_link_use, to), "", () -> change(client, HostSettings.BITRATE, advice.bitrate, advice.captureScale));
                 else s.infoRow(now, label, to, null);
+            } else if (advice.kind == HostSettings.Advice.SLOW) {
+                s.infoRow(now, c.getString(R.string.xd_mac_rtt_slow), null, null);
             }
             if (live.thisConnectionAway) s.infoRow(now, c.getString(R.string.xd_mac_away), null, null);
         }
@@ -158,7 +203,7 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         String[] capNames = {c.getString(R.string.xd_mac_cap_screen), c.getString(R.string.xd_mac_fps_value, 60), c.getString(R.string.xd_mac_fps_value, 30)};
         int capAt = own.fpsCap == 60 ? 1 : own.fpsCap == 30 ? 2 : 0;
         s.segmentedRow(device, c.getString(R.string.xd_mac_cap), c.getString(R.string.xd_mac_cap_note), capNames, capAt, which -> {
-            MacStore.setStreamOptions(c, macId, caps[which], MacStore.stream(c, macId).sound);
+            MacStore.setStreamOptions(c, macId, caps[which], MacStore.stream(c, macId).sound, MacStore.stream(c, macId).muted);
             client.streamOptionsChanged();
             drawn = snapshot(client);
         });
@@ -174,10 +219,17 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         }
         if (MacClient.soundSupported()) {
             s.switchRow(sound, c.getString(R.string.xd_mac_play_sound), c.getString(R.string.xd_mac_play_sound_note), own.sound, on -> {
-                MacStore.setStreamOptions(c, macId, MacStore.stream(c, macId).fpsCap, on);
+                MacStore.setStreamOptions(c, macId, MacStore.stream(c, macId).fpsCap, on, MacStore.stream(c, macId).muted);
                 client.streamOptionsChanged();
                 drawn = snapshot(client);
             });
+            if (own.sound) {
+                // Sall's "mute this device": the sound still streams, this device says nothing; no reconnect
+                s.switchRow(sound, c.getString(R.string.xd_mac_mute), c.getString(R.string.xd_mac_mute_note), own.muted, on -> {
+                    client.setSoundMuted(on);
+                    drawn = snapshot(client);
+                });
+            }
         } else {
             s.infoRow(sound, c.getString(R.string.xd_mac_play_sound), c.getString(R.string.xd_mac_play_sound_unsupported), c.getString(R.string.xd_mac_off));
         }

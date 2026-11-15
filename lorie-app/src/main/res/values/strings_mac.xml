@@ -57,6 +57,10 @@
     <string name="xd_mac_stream_idle">Connected. Nothing is streaming</string>
     <string name="xd_mac_stream_running">Streaming %1$d×%2$d at %3$d fps, %4$d Mbps</string>
     <string name="xd_mac_stream_on_virtual">From Sill\'s virtual display</string>
+    <string name="xd_mac_rtt">Round trip</string>
+    <string name="xd_mac_rtt_ms">%1$d ms</string>
+    <string name="xd_mac_rtt_none">–</string>
+    <string name="xd_mac_rtt_slow">The round trip time stays high, so the picture may be slow. Try a lower quality or resolution</string>
     <string name="xd_mac_software_encoder">The Mac\'s hardware encoder is busy or not answering. It encodes in software for now, so quality or frame rate may be limited</string>
     <string name="xd_mac_link_behind">The Mac reports that the connection cannot carry this quality. Try a lower quality or resolution</string>
     <string name="xd_mac_link_behind_home">The connection cannot carry this quality. The Mac uses its at-home quality because a device at home is connected</string>
@@ -100,6 +104,9 @@
     <string name="xd_mac_play_sound">Play the Mac\'s sound here (experimental)</string>
     <string name="xd_mac_play_sound_note">Goes to the output chosen in XDesk\'s sound setting. Needs “Mac sends sound” on; changing this reconnects to the Mac</string>
     <string name="xd_mac_play_sound_unsupported">This phone has no AAC‑ELD decoder</string>
+    <string name="xd_mac_mute">Mute this device</string>
+    <string name="xd_mac_mute_note">Only mutes this device; it does not change the Mac\'s sound setting</string>
+    <string name="xd_mac_sound_muted_headphones">Headphones disconnected, the Mac\'s sound is muted on this device</string>
     <string name="xd_mac_stream_about">About these settings</string>
     <string name="xd_mac_stream_kept">Picture and “Mac sends sound” are the Mac\'s own settings: they hold for every device connected to it, Sill on the Mac keeps them, and its menu changes them too</string>
     <string name="xd_mac_stream_kept_session">Picture and “Mac sends sound” are the Mac\'s own settings: they hold for every device connected to it, until Sill\'s host on the Mac quits</string>

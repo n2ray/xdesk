@@ -4,7 +4,7 @@ XDesk shows a Mac through [Sill](https://github.com/Saffsanity/sill) on the Mac.
 Sall, the Android client in the owner's fork (github.com/n2ray/sall, `AndroidClient/`), which follows upstream
 Sill. This file says which Sall commit each part follows and how to see what changed since.
 
-**Last compared: Sall `3d17c0e` (2026-11-13, "Recover from HEVC decoder failures").**
+**Last compared: Sall `3d17c0e` (2026-11-13, "Recover from HEVC decoder failures"); the round trip and the audio mute follow the checkout's HEAD `ff5d1f0d` (2026-11-13, "Guard oversized HEVC streams on Android").**
 
 ## What follows what
 
@@ -13,6 +13,9 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 | `mac/MacVideo.java` | `VideoDecoderPolicy.java` (software HEVC decoders after the platform's fails, as of 3d17c0e), `Hevc.java` |
 | `mac/SillWire.java` | `AndroidClient/…/StreamWire.java`, `Sources/StreamProtocol/StreamMessage.swift` (kind numbers) |
 | `mac/HostSettings.java` | `Sources/StreamProtocol/HostSettings.swift` (StreamSettings, RunningStream, AwayQuality, LinkReport, HostSettingsState, HostSettingsChange, SettingsChoices, QualityPreset); `HostSettingsOptions.java`; `ConnectionDiagnostics.java` (`advice`, `accepted`) |
+| `mac/Rtt.java` | `ConnectionDiagnostics.Rtt` (the samples, the per-second medians, `slow`), fed from `MacClient`'s `PONG` as `MainActivity` case 11 feeds it |
+| `MacStreamSettings.java`'s round trip row and slow-link advice (`HostSettings.advice(boolean slow)`) | `MainActivity.refreshDiagnostics` (the readout, the 1 s tick), `ConnectionDiagnostics.advice`'s `olderHost && remote && slow` case. XDesk has no route label (`ConnectionRouteLabel` is not ported), so any address counts as remote: the advice also shows on a slow local link, where it is just as true |
+| `mac/AudioMute.java`; `MacStreamSettings.java`'s "mute this device" switch; `MacAudio.setMuted` | `LocalAudioControl.java`, `AudioMutePolicy.java` (the switch, `ACTION_AUDIO_BECOMING_NOISY`, the "mute only if sound played" rule); `MainActivity`'s `soundMuted` preference (XDesk keeps it per Mac in `MacStore.Stream.muted`, beside `sound`), `muteIndex` row, `case 43`'s `localAudio.received` |
 | `mac/MacClient.java`, section "Sill's settings": `settingsState`, `changeSetting`, `settingsCleared` | `MainActivity.java`: `case 16`, `changeHostSetting`, the reset on disconnect. Field and method names kept (`pendingSettingsToken`, `pendingSettingsField`, …) |
 | `MacStreamSettings.java` (the page) | `MainActivity.settings()`: `refreshInlineHostSettings`, `addHostChoice`, `addHostSegments`, `addHostToggle`, `showQualityMenu`, `refreshDiagnostics`, `applyDiagnosticsAdvice` |
 | `mac/AacEldConfig.java` | `AacEldConfig.java`, unchanged but for the package and records written as classes (XDesk builds as Java 9) |
@@ -30,6 +33,8 @@ cd sall && git fetch && git diff 3d17c0e..origin/main --stat -- \
 # the settings panel lives in one big file: look at just its functions
 git log -p 3d17c0e..origin/main -L '/private void changeHostSetting(String field, Object value, Double/,+16:AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java'
 git diff 3d17c0e..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java | grep -n 'hostSettings\|addHost\|QUALITY_'
+# the round trip and the audio mute follow the checkout's HEAD ff5d1f0d instead
+git diff ff5d1f0d..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/{ConnectionDiagnostics,LocalAudioControl,AudioMutePolicy}.java
 ```
 
 A new setting on the Mac shows up as a new optional field of `StreamSettings` and `HostSettingsChange`
@@ -52,7 +57,8 @@ shows as "Custom — N Mbps". After comparing, update the commit at the top of t
 - The frame rate limit is a ceiling for all devices. What one device gets is the rate its viewport (kind 9) asks
   for: `min(limit, max(24, highest rate asked by a connected device))`. XDesk's "Frame rate asked for" is that.
 - Link advice ("cannot carry High … suggesting Balanced" in Sill.log) reaches the device as `link` in kind 16
-  while the link is behind; the page shows it with a row that applies the suggestion.
+  while the link is behind; the page shows it with a row that applies the suggestion. Round trips that stay high
+  on a host from before the away quality get a plain advice row instead (`HostSettings.advice(boolean slow)`).
 - Direct Wireless (`directWireless`) is parsed and not shown: it adds AWDL to the Mac's listener for Apple
   devices, and XDesk reaches a Mac by the address typed when pairing.
 
@@ -66,14 +72,17 @@ Linux desktop: 40 ms before the track starts, a 100 ms track, and a backlog over
 output of XDesk's sound setting (`AudioRoute`, through `MacClient.audioDevice`). Two switches, both off at first as
 in Sall: the Mac's "Send Audio" (`sendAudio`, for every device) and this device's "Play the Mac's sound here"
 (`MacStore.Stream.sound`: the hello lists `aac-eld`, so it takes a new connection). Packets are played only while a
-screen shows the Mac. If Sall's lip sync is ever wanted, port those classes behind `MacAudio`'s `receive`.
+screen shows the Mac. This device can also mute itself ("Mute this device", `MacStore.Stream.muted`, off at first,
+shown only while it plays the sound): the packets still come and `MacAudio` keeps its decoder in step but plays
+nothing, so unmuting is immediate and no new connection; when the wired or Bluetooth headphones the sound goes to
+are pulled while it plays, Android's `ACTION_AUDIO_BECOMING_NOISY` mutes it the same way (`AudioMute`), with a
+toast, until the switch is turned off. If Sall's lip sync is ever wanted, port those classes behind `MacAudio`'s
+`receive`.
 
 ## In Sall and not in XDesk
 
 | Sall | XDesk |
 |---|---|
-| Round trip time in the settings (`ConnectionDiagnostics.Rtt`) and its "slow link" advice for older hosts | not ported: the pong's time is not kept |
-| Mute this device, mute when headphones are pulled (`LocalAudioControl`, `AudioMutePolicy`) | the "Play the Mac's sound here" switch; no headphone rule |
 | Share clipboard, paste right away, send clipboard (`ClipboardDefaultPolicy`, …) | XDesk syncs the clipboard whenever the Mac offers it, without a switch |
 | Reverse scrolling | XDesk's own "Natural scrolling" (all touchpads) |
 | Multi-finger Mac gestures, thumbnail hold time, larger picture, picture in picture, the tour, connection tiles, Aa text scale | Sall's own touch interface; XDesk's input and windows are its own (INPUT.md, DISPLAY.md) |
