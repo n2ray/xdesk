@@ -4,6 +4,9 @@ import android.content.Context;
 import android.util.DisplayMetrics;
 import android.view.Display;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * How big things are on a screen, DISPLAY.md §4.1. Two numbers, and one ratio:
  * <ul>
@@ -15,7 +18,7 @@ import android.view.Display;
  * From them: X DPI = 96·b·u·R/N, Android density = 160·b·u·R/N, and XFCE's panel, icons and cursor in the same ratio.
  * Pure arithmetic apart from reading a Display; nothing here runs per frame.
  */
-final class Sizing {
+public final class Sizing {
     static final int KIND_UNSET = 0, MONITOR = 1, TV = 2, PROJECTOR = 3, HANDHELD = 4;
     /** u, index 1 (medium) by default. */
     static final float[] SIZES = {0.85f, 1f, 1.15f, 1.3f};
@@ -95,6 +98,69 @@ final class Sizing {
         }
         if (d.getDisplayId() == WirelessDisplay.displayId()) return WirelessDisplay.get(c).screenB(p.kind);
         return wiredB(d, p.kind);
+    }
+
+    /**
+     * The shell's and the cursor's own factor on one screen (§4.1: b·u): what dp and sp count at, independent of the
+     * Android density override in force on the display and of the system's font scale. R/N is not in it: the shell
+     * does not follow the content's rendered pixels.
+     */
+    public static final class Shell {
+        /** Pixels per dp: b·u. */
+        public final float density;
+        /** Pixels per sp: the same b·u, with no font scale (§4.1 sizes the shell by b·u alone). */
+        public final float text;
+
+        Shell(float f) {
+            density = f;
+            text = f;
+        }
+
+        public int dp(float v) {
+            return Math.round(v * density);
+        }
+
+        public int text(float v) {
+            return Math.round(v * text);
+        }
+    }
+
+    private static final class Cached {
+        final int generation;
+        final long stamp;
+        final Shell shell;
+
+        Cached(int generation, long stamp, Shell shell) {
+            this.generation = generation;
+            this.stamp = stamp;
+            this.shell = shell;
+        }
+    }
+
+    /** Per display that had a shell recently. Main thread. */
+    private static final Map<Integer, Cached> shells = new HashMap<>();
+
+    /**
+     * The shell's and cursor's factor on display d (b·u from its profile), cached per display. Recomputed when a
+     * screen's profile changes (kind or u: ScreenProfiles.generation) or what the wireless screen's b comes from
+     * changes (WirelessDisplay.shellStamp). What it deliberately does not follow: the density override Android apps
+     * put on the display, and the font scale. Main thread.
+     */
+    public static Shell shell(Context c, Display d) {
+        if (d == null) return new Shell(1f);
+        ScreenProfiles profiles = ScreenProfiles.get(c);
+        int generation = profiles.generation();
+        long stamp = WirelessDisplay.get(c).shellStamp();
+        Cached hit = shells.get(d.getDisplayId());
+        if (hit != null && hit.generation == generation && hit.stamp == stamp) return hit.shell;
+        ScreenProfiles.Profile p = profiles.of(c, d);
+        float f = b(c, d, p) * u(p.size);
+        if (!(f > 0f)) f = 1f;  // a factor of 0 or NaN would draw nothing
+        // Display ids of virtual displays never repeat, but don't grow without bound either
+        if (shells.size() > 8) shells.clear();
+        Cached fresh = new Cached(generation, stamp, new Shell(f));
+        shells.put(d.getDisplayId(), fresh);
+        return fresh.shell;
     }
 
     private static int clamp(int v, int min, int max) {

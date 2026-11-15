@@ -586,7 +586,7 @@ final class ChooserView extends LinearLayout {
             h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
             if (r.app != null || r.content || r.session) {
                 h.icon.setVisibility(VISIBLE);
-                ExternalLauncher.icon(c, r, h.icon, Style.BACKGROUND, board.ownTab(r.key));
+                ExternalLauncher.icon(c, r, h.icon, Style.BACKGROUND, board.ownTab(r.key), c.getResources().getDisplayMetrics().density);
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);

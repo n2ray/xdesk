@@ -234,7 +234,7 @@ final class ItemCard {
     private View icon() {
         ImageView view = new ImageView(c);
         Switchboard.Item it = Switchboard.get(c).find(key);
-        if (it != null) ExternalLauncher.icon(c, it, view, Style.BACKGROUND, false);
+        if (it != null) ExternalLauncher.icon(c, it, view, Style.BACKGROUND, false, c.getResources().getDisplayMetrics().density);
         else view.setImageDrawable(Style.letterIcon(c, "?"));  // gone: the card is closing
         return view;
     }

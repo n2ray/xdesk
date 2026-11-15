@@ -262,6 +262,8 @@ Windows（以后）┘
   失败就退回串真实窗口，右键菜单等弹出窗口就不在画面里了。所以 viewport 的长边限在 1160 点，窗口再大靠 scale（窗口 = viewport ÷ scale，0.5–1）。
   scale 只在窗口在虚拟显示器上（Sill 的 kind 16 `stream.onVirtualDisplay`）或用户开了"适配屏幕"时发；其他时候不发，不动真实窗口。
 
+外壳和光标的 b·u 由 `Sizing.shell(Context, Display)` 给出（按屏缓存，屏幕的 kind/u 变了重算）：切换器（Launchpad）、Dock、仪表盘、Dock 自己的箭头、外屏光标都用它，不看显示器上下文的 Android 密度，也不跟 Android 应用的密度覆盖走。
+
 ppi 的来源：
 - 有线外屏用 EDID 的物理尺寸，算出来不在 40–300 之间就丢掉，改用 b = 1.1。
 - 平板用它自己的系统密度；网页和电脑用设备像素比；车机用 AA 给的 DPI。

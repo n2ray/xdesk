@@ -38,10 +38,13 @@ final class ExternalLauncher {
      * The icon of an item in a view of its own (the Launchpad's tiles, the Docks). {@code surface} is the colour of
      * what the icon sits on: the badge's ring is drawn in it. {@code ownDevice} true where the view is the item's own
      * device's tab (Switchboard.ownTab): there every item is already that device's, the badge would say nothing.
+     * {@code density} is the surface's pixels per dp: the phone's own on the phone, the shell's factor (Sizing.shell,
+     * §4.1) on the external screen, so the letter tile's corners and the badge's ring follow b·u and not the density
+     * override Android apps set there.
      */
-    static View icon(Context c, Switchboard.Item it, int surface, boolean ownDevice) {
+    static View icon(Context c, Switchboard.Item it, int surface, boolean ownDevice, float density) {
         ImageView icon = new ImageView(c);
-        icon(c, it, icon, surface, ownDevice);
+        icon(c, it, icon, surface, ownDevice, density);
         return icon;
     }
 
@@ -49,11 +52,11 @@ final class ExternalLauncher {
      * Draws an item's icon into {@code into}: its app's picture, its content's picture, or the one letter tile every
      * view uses. A whole desktop gets the same glyph here, in the phone's list and in both Docks.
      */
-    static void icon(Context c, Switchboard.Item it, ImageView into, int surface, boolean ownDevice) {
+    static void icon(Context c, Switchboard.Item it, ImageView into, int surface, boolean ownDevice, float density) {
         into.setTag(null);
         into.getOverlay().clear();
         if (SWITCHER.equals(it.key)) {
-            into.setImageDrawable(Style.letterIcon(c, "⊞"));
+            into.setImageDrawable(Style.letterIcon(c, "⊞", density));
             return;
         }
         if (it.app != null) {
@@ -61,13 +64,13 @@ final class ExternalLauncher {
         } else if (it.bitmap != null) {
             into.setImageBitmap(it.bitmap);
         } else {
-            into.setImageDrawable(Style.letterIcon(c, it.desktop ? "▣" : it.label));
+            into.setImageDrawable(Style.letterIcon(c, it.desktop ? "▣" : it.label, density));
         }
         if (!ownDevice) {
             Devices d = Devices.get(c);
             String id = d.deviceOf(it.key);
             Devices.Device dev = d.find(id);
-            if (dev != null && dev.external()) into.getOverlay().add(badge(c, into, id, dev, surface));
+            if (dev != null && dev.external()) into.getOverlay().add(badge(c, into, id, dev, surface, density));
         }
     }
 
@@ -81,7 +84,7 @@ final class ExternalLauncher {
     }
 
     private static Drawable badge(final Context c, final ImageView into, final String deviceId, final Devices.Device d,
-                                  final int surface) {
+                                  final int surface, final float density) {
         final int fill = fill(deviceId);
         return new Drawable() {
             private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -99,7 +102,8 @@ final class ExternalLauncher {
                 float cx = s * BADGE_IN, cy = size - s * BADGE_IN;
                 paint.setStyle(Paint.Style.FILL);
                 canvas.drawCircle(cx, cy, s / 2f, paint);
-                float ringW = Math.max(Style.dp(c, 1.5f), s * RING);
+                // The thinnest ring from the surface's factor, as the letter tile's corners use it
+                float ringW = Math.max(Math.round(1.5f * density), s * RING);
                 ring.setStrokeWidth(ringW);
                 canvas.drawCircle(cx, cy, (s - ringW) / 2f, ring);
                 glyph(canvas, cx, cy, s, d, c, text);

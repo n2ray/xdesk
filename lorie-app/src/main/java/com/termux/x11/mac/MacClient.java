@@ -125,6 +125,7 @@ public final class MacClient {
     private volatile View view;
     private final MacVideo video;
     private volatile int surfaceW, surfaceH;
+    /** The screen's b·u (§4.1, Sizing.shell) from the last setSurface: pixels per Mac point before R/N and the floors. */
     private volatile float density = 1;
     /** Whether the streamed window is (or the next one will be) on Sill's virtual display; null before Sill says. */
     private volatile Boolean staging;
@@ -227,14 +228,16 @@ public final class MacClient {
     public float pointerY() { return pointerY; }
 
     /**
-     * Screen pixels per Mac point: how big the Mac window is asked to be on this screen (sendViewport) and how big
-     * its cursor is drawn. A dp, as Sall does on a phone, but at least POINT_MIN_PX on a big screen: XDesk sets an
-     * external screen's density from its physical size, near 1 on a desk monitor, and a Mac window of 2560×1440
-     * points there would need a virtual display Sill can't make (Sill.log 2026-11-14: "not at 4096×4096 @2×") and
-     * a picture of four times the screen's pixels. 1.5 is a MacBook Air's own look (1707×960 on a 2560 screen).
-     * And never so small that the window's longer side passes WINDOW_MAX.
+     * Screen pixels per Mac point, DISPLAY.md §4.1: max(b·u·R/N, 1.5). How big the Mac window is asked to be on this
+     * screen (sendViewport) and how big its cursor is drawn. {@code density} is the shell's b·u from MacActivity
+     * (Sizing.shell), near 1 on a desk monitor, never the display's Android density: an override set for apps must
+     * not resize the Mac. At least POINT_MIN_PX: at b·u = 1 a Mac window of 2560×1440
+     * points would need a virtual display Sill can't make (Sill.log 2026-11-14: "not at 4096×4096 @2×") and a picture
+     * of four times the screen's pixels; 1.5 is a MacBook Air's own look (1707×960 on a 2560 screen). And never so
+     * small that the window's longer side passes WINDOW_MAX.
      */
     public float pointScale() {
+        // R/N stays 1 here: the window's own size decides how its picture is drawn, so drawn size must not feed back
         float k = Math.max(density, POINT_MIN_PX);
         int longest = Math.max(surfaceW, surfaceH);
         return longest > 0 ? Math.max(k, longest / WINDOW_MAX) : k;

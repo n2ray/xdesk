@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -271,8 +272,11 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         if (arrow != null) arrow.hide();
     }
 
+    /** Pixels per dp on the display: the shell's factor (Sizing.shell, §4.1), not the display's density override. */
+    private float density = 1f;
+
     private int dp(float v) {
-        return Style.dp(dc, v);
+        return Math.round(v * density);
     }
 
     /** Null while there are no Android apps on an external display. */
@@ -284,6 +288,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         display = d;
         if (d == null) return;
         dc = context.createDisplayContext(d);
+        density = Sizing.shell(context, d).density;
         windows = dc.getSystemService(WindowManager.class);
         strip = new View(dc);
         strip.setOnHoverListener((v, e) -> {
@@ -404,6 +409,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             setClipToPadding(false);
             setPadding(dp(16), dp(4), dp(16), dp(ROOM_BELOW_DP));
             name = Style.label(dc, "", Style.TEXT, 13);
+            // The shell's text factor (b·u, no font scale): sp from the display context would follow the density override
+            name.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
             name.setMaxWidth(dp(220));
@@ -472,7 +479,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.setFocusable(false);
             box.setClipChildren(false);
             box.setClipToPadding(false);
-            final View icon = ExternalLauncher.icon(dc, it, PANEL_OPAQUE, false);
+            final View icon = ExternalLauncher.icon(dc, it, PANEL_OPAQUE, false, density);
             box.setTag(icon);
             box.addView(icon, new LayoutParams(dp(ICON_DP), dp(ICON_DP)));
             icon.setPivotX(dp(ICON_DP) / 2f);

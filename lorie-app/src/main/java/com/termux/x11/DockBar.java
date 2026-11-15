@@ -106,7 +106,7 @@ final class DockBar extends LinearLayout {
         box.setContentDescription(it.title);
         int size = dp(36);
         ImageView icon = new ImageView(c);
-        ExternalLauncher.icon(c, it, icon, Style.BACKGROUND, false);
+        ExternalLauncher.icon(c, it, icon, Style.BACKGROUND, false, c.getResources().getDisplayMetrics().density);
         box.addView(icon, new LayoutParams(size, size));
         LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);

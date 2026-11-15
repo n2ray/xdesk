@@ -8,7 +8,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Display;
@@ -34,8 +33,9 @@ import java.util.List;
  * the handle open it on the tab last used; three fingers up ("overview") on 正在运行. With nothing else on the screen
  * it is the screen's home (showHome).
  *
- * Sizes come from the display's own density (its display context), so a 1280×720 TV and a 2560×1600 monitor both get a
- * grid that fits: icon and cell sizes in dp, capped by the screen, and every row is given its exact width.
+ * Sizes come from Sizing.shell (§4.1: b·u dp), not the display context's Android density, so whatever density
+ * override the Android apps on the screen set, the grid stays the same: icon and cell sizes in dp, capped by the
+ * screen, and every row is given its exact width.
  *
  * A plain overlay window like ExternalCover, not focusable: nothing is composed into the content and it only exists
  * while open. The phone's touchpad and keyboard reach it through INPUT (its own pointer; typing filters). Only the
@@ -189,7 +189,7 @@ final class SwitcherOverlay {
         final Switchboard board;
         final float density;
         final int width, height;
-        /** Pixel sizes worked out once per show from the display's dp. */
+        /** Pixel sizes worked out once per show from the shell's dp (b·u). */
         final int icon, cellW, cellH, columns, rows, label, small, gap;
         final FrameLayout root;
         final LinearLayout column, tabRow, deviceBar, grid, bottom;
@@ -235,8 +235,8 @@ final class SwitcherOverlay {
             display.getRealSize(size);
             width = size.x;
             height = size.y;
-            DisplayMetrics dm = dc.getResources().getDisplayMetrics();
-            density = dm.density > 0.5f ? dm.density : 1f;
+            // §4.1: the shell's own factor (b·u), never the density override an Android app put on the display
+            density = Sizing.shell(c, display).density;
             float wDp = width / density, hDp = height / density;
             // Big icons: about a twelfth of the shorter side, 52–96 dp (Launchpad's are ~ 80 dp on a laptop)
             float iconDp = clamp(Math.min(wDp, hDp) * 0.085f, 52, 96);
@@ -522,7 +522,7 @@ final class SwitcherOverlay {
             box.setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
             // The badge's ring in the grid's surface colour; the scrim is the same colour, only translucent
-            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(it.key)),
+            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(it.key), density),
                 new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
             name.setSingleLine(true);
