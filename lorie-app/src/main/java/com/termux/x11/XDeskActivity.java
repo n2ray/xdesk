@@ -889,9 +889,15 @@ public class XDeskActivity extends Activity {
             return apps.isActive() && client == apps.input();
         }
         @Override public void androidButton(int button) {
-            // 1 返回、2 主页是语义动作（INPUT.md §3.4），按目标去做
+            // 1 返回、2 主页是语义动作（INPUT.md §3.4），按目标去做；4 打开外接屏上的启动台（Dock 的"全部"），
+            // 5 是切应用的一步（和手机三指横滑一次一样，PROTOCOL.md ANDROID）
             if (button == 1 || button == 2) remoteIn.action(button, 0);
             else if (button == 3) wireless.sendApps(appLines());
+            else if (button == 4) showSwitcher(false);
+            else if (button == 5) {
+                remoteIn.action(io.github.n2ray.xdesk.input.Input.SWITCH_APP, 1);
+                remoteIn.action(io.github.n2ray.xdesk.input.Input.SWITCH_APP, 0);
+            }
         }
         @Override public void chooseApp(String key) {
             chooseKey(key);
@@ -914,10 +920,20 @@ public class XDeskActivity extends Activity {
             if (receiverOverDrawn() && dockPointer.takesScroll()) return;
             remoteIn.scroll(dy, dx);
         }
-        @Override public void key(int scan, boolean down) { remoteIn.key(scan, down); }
+        @Override public void key(int scan, boolean down) {
+            // The receiver said what its keyboard is (KEYBOARD): tell the Router, which translates per target
+            int kind = wireless.keyboardKind();
+            if (kind != remoteKeyboard) {
+                remoteKeyboard = kind;
+                remoteIn.setMacKeyboard(kind == WirelessDisplay.KEYBOARD_MAC);
+            }
+            remoteIn.key(scan, down);
+        }
         @Override public void tapKey(int scan) { remoteIn.tapKey(scan); }
         @Override public void text(String s) { remoteIn.text(s); }
     };
+    /** What the receiver's keyboard is (WirelessDisplay KEYBOARD) as the Router last heard it. */
+    private int remoteKeyboard;
 
     /** The receiver's pointer over X or a Mac: targets that draw the pointer themselves, where DockPointer works. */
     private boolean receiverOverDrawn() {

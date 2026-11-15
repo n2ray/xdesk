@@ -35,6 +35,16 @@ final class MacInput implements InputSink {
     private boolean altHeld, shiftHeld, commandForAlt, tabStepped;
     /** INPUT.md §12 "modifier translation", for every Mac: off sends the keys as they are on the keyboard. */
     static volatile boolean translateModifiers = true;
+    /**
+     * The sending keyboard is a Mac keyboard (a receiver said KEYBOARD kind 1): its Command already arrives as Meta,
+     * so this Mac gets the keys untranslated (INPUT.md §5.5 "Mac keyboard → Mac"). Per wireless session.
+     */
+    static volatile boolean sourceMacKeyboard;
+
+    /** What kind of keyboard sends to this session's Mac targets, said by the receiver (WirelessDisplay KEYBOARD). */
+    static void setSourceMacKeyboard(boolean mac) {
+        sourceMacKeyboard = mac;
+    }
 
     MacInput(MacClient client, String prefix, Switcher switcher) {
         this.client = client;
@@ -168,7 +178,7 @@ final class MacInput implements InputSink {
         if (scan == SCAN_SHIFT || scan == SCAN_RIGHT_SHIFT) shiftHeld = isDown;
         int usage = HidKeys.fromLinux(scan);
         if (usage == 0) return;
-        if (translateModifiers && !client.mac().macKeyboard) usage = HidKeys.pcToMac(usage);
+        if (translateModifiers && !client.mac().macKeyboard && !sourceMacKeyboard) usage = HidKeys.pcToMac(usage);
 
         // Alt+Tab is "switch app" (INPUT.md §5.5, §3.4)
         if (scan == SCAN_TAB && altHeld) {

@@ -25,6 +25,8 @@
     <string name="bar_direct">像平板</string>
     <string name="bar_back">返回</string>
     <string name="bar_home">主页</string>
+    <string name="bar_overview">总览</string>
+    <string name="bar_switcher">切换器</string>
     <string name="bar_disconnect">断开</string>
     <string name="file_saved">已保存到 %1$s</string>
 </resources>

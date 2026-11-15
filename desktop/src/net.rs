@@ -7,7 +7,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -27,11 +27,20 @@ const ADDRESSES: u8 = 11;
 const CLIPBOARD: u8 = 12;
 const APPS: u8 = 13;
 const INPUT_MODE: u8 = 14;
+const FEATURES: u8 = 18;
 const IN_ANDROID: u8 = 27;
 const IN_CHOOSE: u8 = 28;
 const FILE_START: u8 = 29;
 const FILE_DATA: u8 = 30;
 const FILE_END: u8 = 31;
+const KEYBOARD: u8 = 32;
+/// FEATURES bits: 0 the phone handles ANDROID 4 and 5, 1 a Mac keyboard (KEYBOARD), 2 SETTINGS.
+pub const FEATURE_ACTIONS: u32 = 1;
+pub const FEATURE_RAW_COMMAND: u32 = 2;
+/// What the phone said in FEATURES, 0 until it does (an old phone never sends it).
+static FEATURES_BITS: AtomicU32 = AtomicU32::new(0);
+/// KEYBOARD (32) kind 1 goes out once per connection, after FEATURES bit 1 arrives.
+static KEYBOARD_SENT: AtomicBool = AtomicBool::new(false);
 /// A file goes in pieces of this size, so that the mouse never waits long behind one.
 const FILE_CHUNK: usize = 64 * 1024;
 const FILE_MAX_WAITING: usize = 16;
@@ -108,6 +117,16 @@ pub fn out(o: Out) {
     if let Some(t) = OUT.get() {
         let _ = t.send(o);
     }
+}
+
+/// FEATURES bit 0: the phone handles ANDROID 4 (the switchboard) and 5 (a step of its app switcher).
+pub fn features_actions() -> bool {
+    FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_ACTIONS != 0
+}
+
+/// FEATURES bit 1: the phone handles a Mac keyboard, whose Command goes as Meta (KEY_LEFTMETA/RIGHTMETA).
+pub fn raw_command() -> bool {
+    FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_RAW_COMMAND != 0
 }
 
 pub fn notice() -> Notice {
@@ -347,6 +366,9 @@ impl Stream {
             CLIPBOARD => crate::clip::set(&String::from_utf8_lossy(p)),
             TIME => crate::stats::time_reply(p),
             INPUT_MODE if p.len() == 1 => crate::tap::DESKTOP.store(p[0] != 0, Ordering::Relaxed),
+            FEATURES if p.len() >= 4 => {
+                FEATURES_BITS.store(u32::from_be_bytes([p[0], p[1], p[2], p[3]]), Ordering::Relaxed);
+            }
             FILE_START => self.file_start(&String::from_utf8_lossy(p)),
             FILE_DATA => self.file_data(p),
             FILE_END => self.file_end(),
@@ -473,6 +495,8 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
     let usb = s.peer_addr().map(|a| a.ip().is_loopback()).unwrap_or(false);
     VIA_USB.store(usb, Ordering::Relaxed);
     FILES_WAITING.store(0, Ordering::Relaxed);
+    FEATURES_BITS.store(0, Ordering::Relaxed);
+    KEYBOARD_SENT.store(false, Ordering::Relaxed);
     crate::stats::reset();
     STREAMING.store(true, Ordering::Relaxed);
     KEEP_PICTURE.store(true, Ordering::Relaxed);
@@ -526,6 +550,12 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
             if sinks.keyframe.swap(false, Ordering::Relaxed) && last_key_request.elapsed() > Duration::from_secs(1) {
                 last_key_request = Instant::now();
                 writer.write_all(&framed(KEY_FRAME, &[]))?;
+            }
+            // This keyboard is a Mac keyboard: said once, after FEATURES bit 1 arrived, so the phone translates
+            // Command (now Meta) per target
+            if raw_command() && !KEYBOARD_SENT.swap(true, Ordering::Relaxed) {
+                writer.write_all(&framed(KEYBOARD, &[1]))?;
+                last_out = Instant::now();
             }
             if crate::stats::PANEL.load(Ordering::Relaxed) && last_time.elapsed() > Duration::from_secs(1) {
                 last_time = Instant::now();

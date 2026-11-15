@@ -27,6 +27,10 @@ final class Control {
     static final int MOVE = 20, BUTTON = 21, SCROLL = 22, KEY = 23, TEXT = 24, POSITION = 25, ANDROID = 27;
     static final int LEFT = 1, RIGHT = 3;
     static final int ANDROID_BACK = 1, ANDROID_HOME = 2;
+    /** The phone's switchboard and its app switcher, only for a phone that said FEATURES bit 0 (PROTOCOL.md). */
+    static final int ANDROID_OVERVIEW = 4, ANDROID_SWITCHER = 5;
+    /** FEATURES bit 0: the phone handles ANDROID 4 and 5. */
+    private static final int FEATURE_ACTIONS = 1;
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103, SCAN_LEFT = 105,
             SCAN_RIGHT = 106, SCAN_DOWN = 108, SCAN_DELETE = 111;
     private static final int MAX_TEXT = 4096;
@@ -34,6 +38,8 @@ final class Control {
     private final Receiver r;
     private final View picture;
     private final Handler ui;
+    /** What the phone said in FEATURES: it handles Overview and Switcher only with bit 0 set. */
+    private int features;
     // Gestures: input-core's engines, the same as on the phone (INPUT.md §9)
     private final Tuning tuning = new Tuning();
     private final Touches touches = new Touches();
@@ -57,9 +63,13 @@ final class Control {
             if ((dx != 0 || dy != 0) && wheelSteps.add(dx, dy)) Control.this.scroll(wheelSteps.y(), wheelSteps.x());
         }
         @Override public void action(int action, int arg) {
-            // The phone does Back and Home for whatever is on the picture; the rest waits for protocol v3
+            // The phone does Back and Home for whatever is on the picture. Three and four fingers up open the phone's
+            // switchboard (the handle's Overview), and the three-finger switch steps its app switcher (the handle's
+            // Switcher): ANDROID 4 and 5, for a phone with FEATURES bit 0
             if (action == Input.BACK) android(ANDROID_BACK);
             else if (action == Input.HOME) android(ANDROID_HOME);
+            else if (action == Input.OVERVIEW || action == Input.SWITCHER) android(ANDROID_OVERVIEW);
+            else if (action == Input.SWITCH_APP && arg != 0) android(ANDROID_SWITCHER);
         }
         @Override public void feedback(int kind) {
             if (kind != Input.FEEDBACK_CLICK) picture.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
@@ -278,6 +288,13 @@ final class Control {
     }
 
     void android(int which) {
+        // Overview and Switcher only to a phone that said it handles them (FEATURES bit 0)
+        if (which >= ANDROID_OVERVIEW && (features & FEATURE_ACTIONS) == 0) return;
         r.send(ANDROID, new byte[] { (byte) which });
+    }
+
+    /** What the phone said in FEATURES (Session): bit 0 it handles ANDROID 4 and 5. */
+    void setFeatures(int bits) {
+        features = bits;
     }
 }

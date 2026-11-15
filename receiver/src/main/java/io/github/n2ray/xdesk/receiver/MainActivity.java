@@ -79,6 +79,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private Control control;
     private ImeView ime;
     private TextView modeTool;
+    private TextView overviewTool, switcherTool;
+    /** What the phone said in FEATURES: bit 0 it handles the Overview and Switcher buttons (ANDROID 4 and 5). */
+    private int features;
     /** From the phone: the Android app in front takes touches. */
     private boolean phoneWantsTouch;
     /** Chosen in the toolbar: true touchpad, false direct touch, null as the phone says. Until the app changes. */
@@ -231,10 +234,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         tools.addView(modeTool);
         tools.addView(tool(R.string.bar_back, v -> control.android(Control.ANDROID_BACK)));
         tools.addView(tool(R.string.bar_home, v -> control.android(Control.ANDROID_HOME)));
+        // Only for a phone that said FEATURES bit 0: the switchboard and one step of its app switcher
+        overviewTool = tool(R.string.bar_overview, v -> control.android(Control.ANDROID_OVERVIEW));
+        tools.addView(overviewTool);
+        switcherTool = tool(R.string.bar_switcher, v -> control.android(Control.ANDROID_SWITCHER));
+        tools.addView(switcherTool);
         tools.addView(tool(R.string.bar_disconnect, v -> {
             openBar(false);
             receiver.disconnect();
         }));
+        applyFeatures();
         tools.setVisibility(View.GONE);
         b.addView(tools);
         FrameLayout handle = new FrameLayout(this);
@@ -629,6 +638,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         ui.post(() -> {
             state = State.IDLE;
             videoWidth = videoHeight = 0;
+            features = 0;
+            control.setFeatures(0);
+            applyFeatures();
             cursor.setVisibility(View.GONE);
             cursor.setImageDrawable(null);
             fitVideo();
@@ -700,12 +712,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         });
     }
 
+    @Override
+    public void features(int bits) {
+        ui.post(() -> {
+            features = bits;
+            control.setFeatures(bits);
+            applyFeatures();
+        });
+    }
+
     private void applyPadMode() {
         boolean pad = padOverride != null ? padOverride : !phoneWantsTouch;
         // 像平板 on the phone: direct touch passes a finger; otherwise direct touch is the mouse-only kind (INPUT.md §3.2)
         control.setFingers(phoneWantsTouch);
         control.setTouchpad(pad);
         modeTool.setText(pad ? R.string.bar_direct : R.string.bar_touchpad);
+    }
+
+    /** Overview and Switcher in the handle only for a phone that said FEATURES bit 0. */
+    private void applyFeatures() {
+        int show = (features & 1) != 0 ? View.VISIBLE : View.GONE;
+        if (overviewTool != null) overviewTool.setVisibility(show);
+        if (switcherTool != null) switcherTool.setVisibility(show);
     }
 
     @Override
