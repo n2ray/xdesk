@@ -210,7 +210,7 @@ final class ItemCard {
             // The device's rows say its state (Disconnect only while connected); an app's settings stay as built
             if (app == null) {
                 below.removeAllViews();
-                deviceRows(below);
+                deviceRows(below, again);
             }
         };
         again.run();
@@ -220,6 +220,10 @@ final class ItemCard {
         final Dialog mine = card;
         card.setOnDismissListener(d -> {
             devices.removeListener(again);
+            if (macMode != null) {
+                macMode.detach();
+                macMode = null;
+            }
             if (shown == mine) shown = null;
         });
     }
@@ -375,17 +379,27 @@ final class ItemCard {
         }
     }
 
+    /** The quick quality row of a Mac item's card, re-added while the card follows the Mac's settings. */
+    private MacModeRow macMode;
+
     /**
      * Everything of a Linux environment or a Mac: its settings are the device's, so this is the way there. A Linux
-     * device's page has Stop and its desktops; a Mac's settings its keyboard and fit, and a connected Mac can be
-     * disconnected here.
+     * device's page has Stop and its desktops; a Mac's the quick quality modes, the whole picture page, its
+     * keyboard and fit, and a connected Mac can be disconnected here (SALL-SYNC.md "XDesk's own additions").
      */
-    private void deviceRows(LinearLayout into) {
+    private void deviceRows(LinearLayout into, final Runnable refill) {
         if (isMac()) {
             final Devices.Device d = device();
             if (d == null) return;  // removed while the card is open
+            if (macMode != null) {
+                macMode.detach();
+                macMode = null;
+            }
             s.groupLabel(into, d.name);
             LinearLayout rows = s.card(into);
+            String macId = devices.deviceOf(key).substring(Devices.MAC.length());
+            macMode = MacModeRow.add(c, s, macId, rows, refill);
+            s.valueRow(rows, str(R.string.xd_mac_stream), str(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, macId));
             s.valueRow(rows, c.getString(R.string.xd_card_device_settings, d.name), str(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
             if (d.state == Devices.State.CONNECTED && !d.busy)
                 s.valueRow(rows, str(R.string.xd_dev_disconnect), null, "", () -> confirmDisconnect(c, d));

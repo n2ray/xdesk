@@ -85,6 +85,34 @@ are pulled while it plays, Android's `ACTION_AUDIO_BECOMING_NOISY` mutes it the 
 toast, until the switch is turned off. If Sall's lip sync is ever wanted, port those classes behind `MacAudio`'s
 `receive`.
 
+## XDesk's own additions on top of Sall
+
+Three things Sall does not have, all built on the same kind 16/17 rules as the settings page (only the Mac
+menu's values, only fields the Mac reported, one change at a time, the Mac's answer is what counts):
+
+- **Quick quality modes** (`mac/AutoQuality.java`, `MacModeRow`): Sharp / Balanced / Smooth, one control.
+  Sharp is the High preset (`QUALITY_RATES[3]`, 25 Mbps; Extreme is more than Wi-Fi or Tailscale links carry) at Retina
+  (captureScale 2) with prioritizeSpeed off; Balanced the middle preset (Balanced, `QUALITY_RATES[2]`, 15 Mbps)
+  at Retina with speed off; Smooth the lowest (Low, `QUALITY_RATES[0]`, 4 Mbps — what Sill suggests most often
+  for a weak link) at the standard resolution (1) with speed on. The control shows which mode the Mac's settings
+  match, or Custom when they match none; picking one sends only the fields that differ, each as its own change,
+  the next waiting for the Mac's answer (`MacClient.changeAll`). The row sits at the top of MacStreamSettings,
+  at the top of a Mac's device page (DeviceSettings) and in a Mac item's card (ItemCard), with a note that the
+  settings are the Mac's, so they hold for every connected device; Ctrl+Alt+Q cycles the modes while a Mac is on
+  the external screen, flashing the new mode over the picture. A mode needs all three fields, so a host that
+  never reported one shows no row.
+- **Auto quality** (the machine in `AutoQuality.java`, driven by `MacClient.autoWatch`): a switch per Mac in
+  MacStreamSettings ("Lower quality automatically on a weak link", `MacStore.Stream.autoQuality`, on by
+  default). While the Mac's link report stays behind (BEHIND_SUGGESTION or BEHIND) for 5 s continuously, XDesk
+  applies the Mac's suggestion, or steps one mode down when there is none (or it already matches), and remembers
+  the user's mode; a short notice shows over the picture. After the link has kept up for 2 min it steps back up
+  one mode, never above the user's mode, with a notice; a raise that goes behind again within 2 min doubles the
+  wait before the next raise (up to 16 min), a raise that held for 2 min resets it. A manual pick (the mode row,
+  Ctrl+Alt+Q, or any of the page's picture controls) cancels anything pending and becomes the user's mode;
+  changes made elsewhere (the Mac's menu, another device) are followed, not fought. Custom settings are never
+  raised back to: XDesk cannot legally send a bitrate the Mac's menu does not offer. The machine is plain Java
+  and its test runs in /tmp without Android.
+
 ## In Sall and not in XDesk
 
 | Sall | XDesk |
