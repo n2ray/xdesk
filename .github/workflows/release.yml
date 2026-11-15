@@ -77,7 +77,10 @@ jobs:
       run: |
         # Full releases by default; a tag with a suffix such as v0.3.0-rc1 is a pre-release
         case "$TAG" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
-        gh release create "$TAG" $PRE --title "XDesk $TAG" --generate-notes \
+        # Hand-written notes when the repository has them (release-notes/0.6.0-beta.1.md for v0.6.0-beta.1)
+        NOTES=release-notes/${TAG#v}.md
+        if [ -f "$NOTES" ]; then NOTE_ARGS=(--notes-file "$NOTES"); else NOTE_ARGS=(--generate-notes); fi
+        gh release create "$TAG" $PRE --title "XDesk $TAG" "${NOTE_ARGS[@]}" \
           out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/SHA256SUMS
 
   mac:
