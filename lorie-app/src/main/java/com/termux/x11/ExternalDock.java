@@ -206,6 +206,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             arrow.attach(display);
         }
         arrow.moveTo(Math.round(px), Math.round(py));
+        arrow.raise();  // the panel was added after an arrow kept from an earlier opening: the arrow over it
         return true;
     }
 
