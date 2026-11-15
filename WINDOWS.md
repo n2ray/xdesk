@@ -1,6 +1,6 @@
 # Windows 设备（WINDOWS.md）
 
-状态：草稿 v0.1（2026-11-15），还没有写代码。优先级：0.6.0 之后的第二项（通知之后）。
+状态：草稿 v0.1（2026-11-15），还没有写代码。公开讨论在 issue #8（https://github.com/n2ray/xdesk/issues/8）。优先级：0.6.0 之后的第二项（通知之后）。
 相关：DEVICES.md §8「以后」里的 Windows 一行（`win:<id>`、「添加设备」里现在是「即将支持」），INPUT.md §5.5、DISPLAY.md §3.0。
 
 ## 1. 目标
