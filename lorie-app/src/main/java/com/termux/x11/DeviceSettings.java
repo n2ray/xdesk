@@ -87,6 +87,8 @@ final class DeviceSettings {
             LinearLayout known = s.section(content, c.getString(R.string.xd_dev_external));
             for (final Devices.Device d : devices.external())
                 s.valueRow(known, d.name, stateText(d), typeName(d.type), () -> device(d.id));
+            // A first start has none: say so rather than show an empty card
+            if (devices.external().isEmpty()) s.infoRow(known, c.getString(R.string.xd_dev_none), c.getString(R.string.xd_dev_none_note), null);
             LinearLayout add = s.section(content, c.getString(R.string.xd_dev_add_note));
             s.valueRow(add, c.getString(R.string.xd_dev_add), null, "", this::pickType);
         });
@@ -261,7 +263,9 @@ final class DeviceSettings {
     private void linuxSetUp() {
         live(c.getString(R.string.xd_dev_type_linux), content -> {
             LinearLayout found = s.section(content, c.getString(R.string.xd_dev_linux_found));
-            for (final Devices.Env e : devices.environments()) {
+            // Every environment lives in Termux: without it there is nothing to add yet, only the steps below
+            if (!termuxInstalled()) s.infoRow(found, c.getString(R.string.xd_dev_linux_none), c.getString(R.string.xd_dev_linux_none_note), null);
+            else for (final Devices.Env e : devices.environments()) {
                 final boolean added = devices.isLinuxAdded(e.name);
                 s.valueRow(found, envName(e), envNote(e), c.getString(added ? R.string.xd_dev_env_added : R.string.xd_dev_env_add), () -> {
                     devices.setLinuxAdded(e.name, !added);
