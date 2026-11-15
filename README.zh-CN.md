@@ -337,6 +337,8 @@ XDesk 依赖上游的 manifest、`com.termux.x11` 下的类名和 `LorieView` �
 
 我是 [n2ray](https://github.com/n2ray)，XDesk 是我和 AI Claude 一起做的。我决定做什么，并在真实的手机、显示器、投影、车机和 Mac 上测试。大部分代码和文档是 Claude 写的，这份 README 也是。
 
+如果 XDesk 对你有用，可以在 [Ko-fi](https://ko-fi.com/n2ray) 请我喝杯咖啡。
+
 ## 许可证
 
 GPL-3.0，和 Termux:X11 相同。X 服务器和渲染的功劳都属于 [Termux:X11 的作者们](https://github.com/termux/termux-x11)。

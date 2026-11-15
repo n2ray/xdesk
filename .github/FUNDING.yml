@@ -1,5 +1,7 @@
-# These are supported funding model platforms
+# XDesk
+ko_fi: n2ray
 
-github: twaik # Replace with up to 4 GitHub Sponsors-enabled usernames e.g., [user1, user2]
-open_collective: termux # Replace with a single Open Collective username
+# Termux:X11, which the Linux desktop is based on
+github: twaik
+open_collective: termux
 custom: https://termux.dev/donate
