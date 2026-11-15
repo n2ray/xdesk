@@ -70,7 +70,8 @@ cat <<DONE
 Done. Next:
  1. Install the app: $APK
     Open it from a file manager, or if that fails: adb install -r xdesk.apk
- 2. Plug in a display, open the XDesk app and choose a desktop.
+ 2. Open XDesk and tap "Add Termux as a device" (allow it to run commands in Termux).
+ 3. Plug in a display and choose a desktop or a program.
 
 No desktop yet? For example: pkg install xfce4 xfce4-terminal && xdesk setup
 DONE

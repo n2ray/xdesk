@@ -93,6 +93,8 @@
     <string name="xd_dev_env_desktop_only">只有桌面</string>
     <string name="xd_dev_env_added">已添加 · 点按移除</string>
     <string name="xd_dev_env_add">添加</string>
+    <string name="xd_dev_termux_suggest">把 Termux 添加为设备</string>
+    <string name="xd_dev_termux_suggest_note">这台手机装了 Termux。在里面装了 xdesk？点这里添加它的桌面和程序（XDesk 会请求在 Termux 里运行命令的权限）。不需要的话，之后在它的设备页里移除即可。</string>
     <string name="xd_stop_x_title">停止 Linux？</string>
     <string name="xd_stop_x_message">X 服务器会结束，所有环境里的 Linux 程序都会关闭，未保存的内容会丢失。</string>
     <plurals name="xd_stop_x_windows">

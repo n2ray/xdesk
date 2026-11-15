@@ -331,6 +331,15 @@ final class Devices {
         return !reportedEnvs.isEmpty() || !sessions.isEmpty() || xRunning || runningSession != null;
     }
 
+    /**
+     * Termux is on the phone but was never added or removed: likely someone who just ran the install script, whose
+     * XDesk cannot ask Termux anything before it has the permission. The favourites offer to add it; once tapped or
+     * removed it is the user's choice and the offer goes.
+     */
+    boolean termuxSuggested() {
+        return !prefs.contains(PREF_TERMUX) && !termuxAdded() && termuxInstalled();
+    }
+
     /** Whether Linux devices are shown at all: Termux is installed and added. Keys of Linux items are gone otherwise. */
     boolean linuxShown() {
         return termuxAdded() && termuxInstalled();

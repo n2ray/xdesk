@@ -386,6 +386,11 @@ final class Switchboard {
                 if (i != null) out.add(across(i, null));
             }
         } else if (TAB_FAVOURITES.equals(id)) {
+            if (devices.termuxSuggested())
+                out.add(note(str(R.string.xd_dev_termux_suggest), str(R.string.xd_dev_termux_suggest_note), () -> {
+                    devices.setLinuxAdded(Devices.TERMUX, true);
+                    if (host != null) host.termuxHint();   // the permission, then what Termux has
+                }));
             favouriteRows(out);
         } else {
             Devices.Device d = devices.find(id);
