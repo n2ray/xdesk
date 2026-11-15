@@ -234,10 +234,10 @@ public class InjectorService extends IInjector.Stub {
                         if (l != null) l.onFingers(x, y);
                     } catch (RemoteException ignored) { }
                 }
-                @Override public void onEdgePush(int dx, int dy, boolean held) {
+                @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) {
                     IInjectorListener l = listener;
                     try {
-                        if (l != null) l.onEdgePush(dx, dy, held);
+                        if (l != null) l.onEdgePush(edge, dx, dy, held, x, y, left);
                     } catch (RemoteException ignored) { }
                 }
             });
@@ -675,6 +675,12 @@ public class InjectorService extends IInjector.Stub {
         String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
         if (r[0] != null) return null;
         return WindowDump.findPresentation(r[1], displayId);
+    }
+
+    /** Where a notification's activity landed (NOTIFY.md §5): the package in front on the display, best effort. */
+    @Override public String topPackage(int displayId) {
+        // ownPackage comes with configure/attach; before that there is nothing to look for XDesk among
+        return ownPackage != null ? TaskMover.topPackage(displayId, ownPackage) : null;
     }
 
     /** Returns {error or null, output}. */

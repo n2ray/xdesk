@@ -10,7 +10,9 @@ import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.SpannableStringBuilder;
 import android.text.format.DateFormat;
+import android.text.style.ForegroundColorSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.FrameLayout;
@@ -154,13 +156,20 @@ final class DashboardView extends FrameLayout {
 
     private void updateStatus() {
         Context c = getContext();
-        StringBuilder s = new StringBuilder();
+        SpannableStringBuilder s = new SpannableStringBuilder();
         Intent battery = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (battery != null) {
             int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
             int state = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-            if (level >= 0 && scale > 0) s.append(c.getString(R.string.xd_dash_battery, level * 100 / scale));
-            if (state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL) s.append(' ').append(c.getString(R.string.xd_dash_charging));
+            boolean charging = state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL;
+            if (level >= 0 && scale > 0) {
+                // NOTIFY.md: on the car the low-battery warning lives here — the battery turns amber at 15%
+                int at = s.length();
+                s.append(c.getString(R.string.xd_dash_battery, level * 100 / scale));
+                if (!charging && level * 100 / scale <= 15)
+                    s.setSpan(new ForegroundColorSpan(Style.WARN), at, s.length(), SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            if (charging) s.append(' ').append(c.getString(R.string.xd_dash_charging));
             s.append("   ·   ");
         }
         s.append(c.getString(R.string.xd_dash_sound, AudioRoute.get(c).shortLabel()));
