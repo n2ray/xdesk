@@ -132,7 +132,7 @@ xdesk list              # 列出会话，* 是默认
 xdesk use 名字           # 选默认会话
 xdesk start [名字]       # 启动会话
 xdesk switch 名字        # 结束当前会话并启动另一个，窗口不断
-xdesk add 名字 '命令'    # 添加自己的会话
+xdesk add 名字 '命令' [--root 目录] [--launch '前缀']   # 添加自己的会话
 xdesk rm 名字            # 删除会话
 xdesk status            # 查看运行状态
 xdesk stop              # 全部结束
@@ -146,7 +146,7 @@ xdesk ime layout 名字    # X 这边的键盘布局，如 de-nodeadkeys；auto 
 
 一个会话就是一条命令，保存在 `~/.config/xdesk/sessions/名字.sh`。这些文件可以随便改，`xdesk setup` 不会覆盖。
 
-proot-distro 会话里的程序在它的系统里查找并运行。chroot 会话需要在 `名字.sh` 旁边放 `名字.root`（一行：根目录的路径，Termux 可读）和 `名字.launch`（一个脚本，在那个系统里运行传入的命令，并把 `DISPLAY` 等变量继续传下去）。
+proot-distro 会话里的程序在它的系统里查找并运行。chroot 会话用 `xdesk add 名字 '命令' --root 目录 --launch '前缀'` 在 `名字.sh` 旁边写 `名字.root`（一行：根目录的路径；Termux 读不到时会警告——比如 `/data/local` 下面要 root——但照样写）和 `名字.launch`（一个脚本，在那个系统里运行传入的命令：`--launch` 给的是命令前缀，普通 chroot 就是 `chroot 目录`，`DISPLAY` 等变量继续传下去）。
 
 | 环境 | 怎么连接 |
 |---|---|
