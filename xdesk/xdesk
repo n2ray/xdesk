@@ -311,8 +311,10 @@ termux_env() {  # export lines for programs on the display in Termux
     # Menus follow the phone's language. LC_ALL is left alone, Termux sets it for the terminal
     lang=$(getprop persist.sys.locale 2>/dev/null | tr - _)
     [ -n "$lang" ] && echo "export LANGUAGE=$lang"
-    # zink + Turnip on Adreno. Other GPUs: edit this file
-    ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1 && echo "export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0"
+    # With a Vulkan driver (Turnip on Adreno) Mesa runs OpenGL through zink by itself, and falls back to
+    # software rendering when the driver finds no usable GPU. Forcing zink would break OpenGL there.
+    # Broken graphics on some GPU: add export LIBGL_ALWAYS_SOFTWARE=1 to the session file
+    ls "$PREFIX"/share/vulkan/icd.d/*.json >/dev/null 2>&1 && echo "export ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0"
     return 0
 }
 
