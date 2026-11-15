@@ -248,9 +248,12 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
             for (Display.Mode m : d.getSupportedModes()) max = Math.max(max, m.getRefreshRate());
             if (max > 0) fps = Math.min(120, Math.round(max));
         }
-        // The viewport is the whole screen in dp, not the letterboxed picture
+        // The viewport is the whole screen in dp, not the letterboxed picture. The factor is the shell's b·u (§4.1,
+        // Sizing.shell), not the display's Android density: an override set for apps must not resize the Mac window
+        // or its cursor. A wireless display's profile gives it b·u as well.
+        float density = d != null ? Sizing.shell(this, d).density : 1f;
         client.setSurface(this, picture.getHolder().getSurface(), root.getWidth(), root.getHeight(),
-                getResources().getDisplayMetrics().density, fps, d != null ? d.getDisplayId() : Display.INVALID_DISPLAY);
+                density, fps, d != null ? d.getDisplayId() : Display.INVALID_DISPLAY);
     }
 
     /** Aspect fit: the SurfaceView itself is the picture's rectangle, so the hardware scales it once. */
