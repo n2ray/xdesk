@@ -21,7 +21,7 @@
 1. **接收端的双光标和无光标**（真 bug，先做）：手机告诉接收端「画面里有没有光标」（细分 INPUT_MODE 或新消息）；平板看 Mac H.264 / 启动台 / Dock 时藏本机指针；平板实体鼠标 + 安卓内容时手机继续画箭头（区分「接收端实体鼠标」和「浏览器指针」）；Mac 接收端按同样规则藏本机指针。
    **已完成（2026-11-15）**：机制是 INPUT_MODE 加值 3 =「桌面内容，画面里有光标」（Mac H.264、启动台、Dock 驱动、X 相对移动），1 =「桌面内容，画面里没有」（X 绝对放置藏了 X 光标）；0/2 不变。手机 FEATURES 加 bit 3 宣告会发 3，旧接收器照旧。接收端（安卓接收器、Mac 接收器、网页）都在「画面里有光标」时藏本机指针、没有时显示，Mac 接收器在自己的栏和列表上不藏。安卓接收器（codecs bit 6+7）绝对放置安卓内容时手机不再藏自己的箭头，改为把箭头移到放置点（浏览器/电脑仍藏箭头、用自己的指针）。见 receiver/PROTOCOL.md FEATURES bit 3 和 INPUT_MODE。
 2. **共用光标模型**：把 `CursorOverlay` 的箭头抽成「位图 + 热点 + 样式」的公共模型；Mac 锁屏 / 空光标箭头换成它（含触控样式）；启动台、Dock 用触控样式时也跟着变（和车机触摸一起设计，CAR.md）。
-3. **X 对齐**（已落地，2026-11-15）：xdesk 设黑色光标主题（Adwaita），主题大小按 24 dp·b·u 折算（24·DPI/96 = 24 dp·b·u·R/N 个 X 像素，R/N 渲染后屏上是 24 dp·b·u）。主题经三处送出：X 资源库（root 窗口的 `Xcursor.theme`/`Xcursor.size`，xrdb 合并，xdesk 只动这两行、用户自己的 `Xcursor.theme` 行保留）、xdesk 起的会话的环境（`XCURSOR_THEME`/`XCURSOR_SIZE`，termux_env 和 NAME+apps 的脚本）、XFCE 的 xsettings `Gtk/CursorThemeName`（在 `Gtk/CursorThemeSize` 旁边，只在当前值是空或 `default` 时才设，不盖用户自己选的）。
+3. **X 对齐**（已落地，2026-11-15）：xdesk 设黑色光标主题（Adwaita），主题大小按 24 dp·b·u 折算（24·DPI/96 = 24 dp·b·u·R/N 个 X 像素，R/N 渲染后屏上是 24 dp·b·u）。主题只送给 xdesk 自己起的 X 和会话（用户 2026-11-15 定：自己另起的 XFCE 桌面不受影响）：X 资源库（`$RUN/cursor.Xresources`，xrdb 合并进 xdesk 这台 X 的 root 窗口，随 X 消失，不写 `~/.Xresources`）和 xdesk 起的会话的环境（`XCURSOR_THEME`/`XCURSOR_SIZE`，termux_env 和 NAME+apps 的脚本）。不写 XFCE 的 xsettings `Gtk/CursorThemeName`（xfconf 和用户自己的桌面共用）。
 4. **接收端本地画形状**：手机侧取 X 的形状（XFixes 或 lorie 已有的 `CursorPtr` 共享内存）发 16/17；安卓接收器、Mac 接收端（Rust）、网页都画位图；加缓存 id，形状频繁变化时不重复发。
 5. **第二期**：多格舞台统一一个渲染器（DISPLAY.md §8），lorie 自画关掉。
 

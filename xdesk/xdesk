@@ -148,9 +148,9 @@ x_layout() {
 # CURSOR.md §2.4, §2.5: XDesk's own cursor is a black arrow with a white edge, 24 dp·b·u. X gets the same
 # from the "Adwaita" theme of the Termux package adwaita-icon-theme: a black arrow with a white edge. Its
 # size is 24·DPI/96 -- the X DPI is 96·b·u·R/N (DISPLAY.md §4.1), so 24 dp·b·u is 24·DPI/96 X pixels, which
-# the screen's R/N rendering turns back into 24 dp·b·u. Delivered three ways: the Xcursor.theme/Xcursor.size
-# resources in the X server's database (every X program reads them), XCURSOR_THEME/XCURSOR_SIZE for the
-# sessions xdesk starts, and Gtk/CursorThemeName in scale_commands next to Gtk/CursorThemeSize.
+# the screen's R/N rendering turns back into 24 dp·b·u. Delivered two ways, both only to
+# xdesk's own X server and sessions: the Xcursor.theme/Xcursor.size resources merged into its X database, and
+# XCURSOR_THEME/XCURSOR_SIZE for the sessions it starts. ~/.Xresources and xfconf (shared with a desktop started another way) are left alone.
 CURSOR_THEME=Adwaita
 cursor_installed() { [ -d "$PREFIX/share/icons/$CURSOR_THEME/cursors" ]; }
 cursor_missing_msg() {
@@ -165,26 +165,16 @@ cursor_size() {  # dpi, or nothing
     awk -v d="$d" 'BEGIN { printf "%d", int(24 * d / 96 + 0.5) }'
 }
 
-# The two cursor lines of $HOME/.Xresources; everything else in the file and a Xcursor.theme of the user's
-# own are left alone. Prints the file; nothing without an installed theme
+# The cursor resources for xdesk's own X server only (owner, 2026-11-15): written to $RUN, never to $HOME/.Xresources,
+# so a desktop started some other way (startx.sh, official Termux:X11) keeps its own cursor. Gone with X.
 cursor_resources() {  # dpi, or nothing
-    local f=$HOME/.Xresources size
+    local f=$RUN/cursor.Xresources
     cursor_installed || return 1
-    size=$(cursor_size "${1:-}")
-    if grep -q '^[[:space:]]*Xcursor\.theme:' "$f" 2>/dev/null; then
-        log "Cursor theme: kept Xcursor.theme from $f"
-    else
-        printf 'Xcursor.theme: %s\n' "$CURSOR_THEME" >>"$f"
-    fi
-    if grep -q '^[[:space:]]*Xcursor\.size:' "$f" 2>/dev/null; then
-        sed -i 's/^\([[:space:]]*Xcursor\.size:\).*/\1 '"$size"'/' "$f"
-    else
-        printf 'Xcursor.size: %s\n' "$size" >>"$f"
-    fi
+    printf 'Xcursor.theme: %s\nXcursor.size: %s\n' "$CURSOR_THEME" "$(cursor_size "${1:-}")" >"$f" || return 1
     echo "$f"
 }
 
-# The resources into the X server's database (on the root window): new programs read them from there, ones
+# The resources into this X server's database (on the root window): new programs read them from there, ones
 # already running keep what they loaded. Without xrdb the session environment still sets them
 cursor_apply() {  # dpi, or nothing
     local f
@@ -1379,18 +1369,12 @@ launch_app() {
 # the X server once the desktop is connected and whenever the screen's size factors change, before the session may be
 # up: a job in the background waits for it, and a newer request replaces an older one.
 scale_commands() {  # dpi
-    local dpi panel picon cursor dicon theme=""
+    local dpi panel picon cursor dicon
     read -r dpi panel picon cursor dicon < <(awk -v d="$1" 'BEGIN { s = d / 96;
         printf "%d %d %d %d %d\n", d, int(28 * s + 0.5), int(16 * s + 0.5), int(24 * s + 0.5), int(48 * s + 0.5) }')
-    # CURSOR.md §2.4: the cursor theme next to its size. Never over a theme the user chose: only when
-    # xsettings has none (or "default", GTK's own fallback) does xdesk name one
-    if cursor_installed; then
-        theme="v=\$(xfconf-query -c xsettings -p /Gtk/CursorThemeName 2>/dev/null) || :; if [ -z \"\$v\" ] || [ \"\$v\" = default ]; then xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s $CURSOR_THEME; fi"
-    fi
     printf '%s; ' \
         "xfconf-query -c xsettings -p /Xft/DPI -n -t int -s $dpi" \
         "xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s $cursor" \
-        "$theme" \
         "xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t uint -s $panel" \
         "xfconf-query -c xfce4-panel -p /panels/panel-1/icon-size -n -t uint -s $picon" \
         "xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s $dicon"
