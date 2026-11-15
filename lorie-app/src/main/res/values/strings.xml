@@ -264,6 +264,9 @@
     <string name="xd_status_no_devices">%1$s: no mouse or keyboard plugged in. Plug one in to take over</string>
     <string name="xd_status_input_display">%1$s · Mouse &amp; keyboard on the display</string>
     <string name="xd_status_input_phone">%1$s · Mouse &amp; keyboard on the phone</string>
+    <string name="xd_status_game">%1$s · Game passthrough: mouse &amp; keyboard go straight to the app. Ctrl+Alt+G or a touch here ends it</string>
+    <string name="xd_game_on">Game passthrough on: Ctrl+Alt+G or a touch on the phone ends it</string>
+    <string name="xd_game_off">Game passthrough off</string>
     <string name="xd_status_input_computer">%1$s · Mouse &amp; keyboard on %2$s</string>
     <string name="xd_status_reconnecting">Reconnecting to %1$s</string>
     <string name="xd_status_desktop_car">On the car: %1$s</string>

@@ -12,8 +12,10 @@ final class AppInputProfile {
      */
     private static final float RUSTDESK_TOOLBAR_FRACTION = 68f / 1508f;
 
-    private static final AppInputProfile NORMAL = new AppInputProfile(false, false, false, 0f);
-    private static final AppInputProfile RUSTDESK = new AppInputProfile(true, true, true, RUSTDESK_TOOLBAR_FRACTION);
+    private static final AppInputProfile NORMAL = new AppInputProfile(false, false, false, 0f, false);
+    private static final AppInputProfile RUSTDESK = new AppInputProfile(true, true, true, RUSTDESK_TOOLBAR_FRACTION, false);
+    /** Cloud gaming and game streaming (GAMING.md): the real keyboard and mouse, not injected ones. */
+    private static final AppInputProfile GAME = new AppInputProfile(false, false, false, 0f, true);
 
     /** Send button changes as hovers with buttonState, see InputInjector.hoverButton. */
     final boolean hoverButtons;
@@ -28,8 +30,12 @@ final class AppInputProfile {
     final boolean keepScreenOnMeansRemoteCursor;
     /** With keepScreenOnMeansRemoteCursor: the bottom part of the display that is the app's own UI. */
     final float toolbarFraction;
+    /** Goes into game passthrough by itself on the external screen (GAMING.md §3): the app wants the real input. */
+    final boolean gamePassthrough;
 
-    private AppInputProfile(boolean hoverButtons, boolean clearModifiers, boolean keepScreenOnMeansRemoteCursor, float toolbarFraction) {
+    private AppInputProfile(boolean hoverButtons, boolean clearModifiers, boolean keepScreenOnMeansRemoteCursor, float toolbarFraction,
+                            boolean gamePassthrough) {
+        this.gamePassthrough = gamePassthrough;
         this.hoverButtons = hoverButtons;
         this.clearModifiers = clearModifiers;
         this.keepScreenOnMeansRemoteCursor = keepScreenOnMeansRemoteCursor;
@@ -38,6 +44,7 @@ final class AppInputProfile {
 
     static AppInputProfile forPackage(String pkg) {
         if ("com.carriez.flutter_hbb".equals(pkg)) return RUSTDESK;
+        if ("com.nvidia.geforcenow".equals(pkg) || "com.valvesoftware.steamlink".equals(pkg) || "com.limelight".equals(pkg)) return GAME;
         return NORMAL;
     }
 }

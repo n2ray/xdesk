@@ -24,6 +24,11 @@ final class EvdevReader extends Thread {
         void onKey(int code, int value);
         /** A key went down on a keyboard, which Android delivers by itself to the display with the focus. */
         void onKeyboardUsed();
+        /**
+         * Ctrl+Alt+G (GAMING.md): game passthrough on or off. Heard while nothing is grabbed too, since keyboards are
+         * never grabbed; in passthrough Ctrl+Alt+M comes here as well, as a way out.
+         */
+        void onGameKey();
     }
 
     private static final String TAG = "XDeskInjector";
@@ -31,7 +36,7 @@ final class EvdevReader extends Thread {
     private static final long RESCAN_MS = 2000;
     private static final int POLL_MS = 200, MAX_DEVICES = 32, BUFFER_EVENTS = 256;
     private static final int REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8, SYN_REPORT = 0, SYN_DROPPED = 3;
-    private static final int KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_M = 50;
+    private static final int KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_M = 50, KEY_G = 34;
     private static final int FIRST_BUTTON = 256;
 
     private final Sink sink;
@@ -49,8 +54,10 @@ final class EvdevReader extends Thread {
     private volatile boolean running = true;
     /** False while a Termux desktop is on the display: it reads the same mouse and keyboard through Android. */
     private volatile boolean hotkeyEnabled = true;
+    /** Game passthrough (GAMING.md): nothing grabbed, the keys and the mouse are the app's; Ctrl+Alt+M leaves it too. */
+    private volatile boolean gameMode;
     private long lastScan;
-    private boolean leftCtrl, rightCtrl, leftAlt, rightAlt, swallowM, waitingForModifiers;
+    private boolean leftCtrl, rightCtrl, leftAlt, rightAlt, swallowM, swallowG, waitingForModifiers;
     private int dx, dy, wheel, hwheel;
 
     EvdevReader(Sink sink) {
@@ -61,6 +68,10 @@ final class EvdevReader extends Thread {
 
     void setHotkeyEnabled(boolean on) {
         hotkeyEnabled = on;
+    }
+
+    void setGameMode(boolean on) {
+        gameMode = on;
     }
 
     boolean isGrabbed() {
@@ -134,7 +145,7 @@ final class EvdevReader extends Thread {
         dropping.remove(fd);
         Log.i(TAG, "device gone: " + found);
         // Its keys will never report going up
-        leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = false;
+        leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = swallowG = false;
         if (waitingForModifiers) {
             waitingForModifiers = false;
             sink.onModifiersUp();
@@ -243,7 +254,7 @@ final class EvdevReader extends Thread {
         Log.w(TAG, "events lost on a device, releasing all keys and buttons");
         dropping.add(fd);
         dx = dy = wheel = hwheel = 0;
-        leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = false;
+        leftCtrl = rightCtrl = leftAlt = rightAlt = swallowM = swallowG = false;
         if (waitingForModifiers) {
             waitingForModifiers = false;
             sink.onModifiersUp();
@@ -265,6 +276,18 @@ final class EvdevReader extends Thread {
         // Ctrl+Alt+M switches. While taking input nothing of it reaches the app. While giving input back, Ctrl and
         // Alt already went out before M showed what they were for: releaseAll lifts them, and the next take clears
         // what the app cached.
+        // Ctrl+Alt+G: game passthrough (GAMING.md). In passthrough Ctrl+Alt+M leaves it as well, instead of grabbing
+        // on its own. The game hears these keys too (keyboards are not grabbed): harmless
+        if (hotkeyEnabled && (code == KEY_G || gameMode && code == KEY_M) && value == 1 && ctrl() && alt()) {
+            if (code == KEY_G) swallowG = true;
+            else swallowM = true;
+            sink.onGameKey();
+            return;
+        }
+        if (code == KEY_G && swallowG) {
+            if (!down) swallowG = false;
+            return;
+        }
         if (hotkeyEnabled && code == KEY_M && value == 1 && ctrl() && alt()) {
             swallowM = true;
             setGrabbed(!grabbed);

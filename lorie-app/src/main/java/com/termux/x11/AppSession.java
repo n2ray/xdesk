@@ -176,9 +176,22 @@ final class AppSession {
                 if (corner != null && !left && cornerEdgeAt(x, y) != 0) corner.pushed(edge, dx, dy, held);
             });
         }
+        @Override public void onGameMode(final boolean on) {
+            ui.post(() -> {
+                gameMode = on;
+                // The app draws its own (or none): XDesk's cursor goes, it comes back with the next move after
+                if (on) cursor.hide();
+                if (listener != null) listener.onAppStateChanged();
+            });
+        }
         @Override public void onForwarding(final boolean on, final int devices) {
             ui.post(() -> {
                 forwarding = on;
+                // GAMING.md §3: an app whose profile says so goes into game passthrough by itself, once per app
+                if (on && !gameAutoTried && !onCar && app != null && AppInputProfile.forPackage(app.packageName).gamePassthrough) {
+                    gameAutoTried = true;
+                    setGameMode(true);
+                }
                 deviceCount = devices;
                 // Input went back to the phone. The phone's touchpad brings the cursor back when it is used.
                 if (!on) cursor.hide();
@@ -417,6 +430,20 @@ final class AppSession {
     /** 上一个注入服务还在结束。 */
     boolean isStopping() { return stopping; }
     boolean isForwarding() { return forwarding; }
+    /** Game passthrough (GAMING.md): the app has the real keyboard and mouse, XDesk only hears Ctrl+Alt+G. */
+    boolean isGameMode() { return gameMode && active; }
+
+    /** Game passthrough on or off; on only works while the keys and mouse are on the external screen. */
+    void setGameMode(boolean on) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.setGameMode(on);
+        } catch (RemoteException ignored) { }
+    }
+
+    private volatile boolean gameMode;
+    /** The automatic game passthrough of this app was done (or left by the user): not again until another app. */
+    private boolean gameAutoTried;
     boolean hasInjector() { return injector != null; }
     boolean hasDisplay() { return display != null; }
     int deviceCount() { return deviceCount; }
@@ -585,6 +612,7 @@ final class AppSession {
         mouseSpeed = speed;
         alwaysShowCursor = alwaysShow;
         cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
+        gameAutoTried = false;
         cursorPolicy.setAlwaysShow(alwaysShow);
         if (display != null) attachOverlays(display);
         updateCursor();
@@ -983,6 +1011,7 @@ final class AppSession {
                 if (!active) return;
                 app = a;
                 cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
+                gameAutoTried = false;
                 updateCursor();
                 context.startForegroundService(new Intent(context, DesktopService.class)
                     .putExtra(DesktopService.EXTRA_TITLE, text(R.string.xd_app_running_title, a.label)));

@@ -89,6 +89,8 @@ interface IInjector {
     oneway void setWebKeyboard(String layout) = 38;
     /** What is in front on this display: a package, empty when not a normal app, null when unreadable. Best effort. */
     String topPackage(int displayId) = 43;
+    /** Game passthrough (GAMING.md): nothing grabbed, the external display focused, Ctrl+Alt+G heard; off grabs again. Only from "keys on the external screen". */
+    oneway void setGameMode(boolean on) = 44;
     /** The phone's whole sound output as 48 kHz stereo 16-bit PCM, for the wireless display; nothing plays on the phone meanwhile. Close the stream to stop. Throws with the reason. */
     ParcelFileDescriptor captureOutput() = 36;
 }

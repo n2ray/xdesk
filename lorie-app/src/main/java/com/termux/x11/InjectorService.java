@@ -54,6 +54,8 @@ public class InjectorService extends IInjector.Stub {
     /** The phone was touched since the external display last had focus. */
     private volatile boolean focusStale;
     private volatile boolean hotkeyAllowed = true;
+    /** Game passthrough (GAMING.md): the keys and mouse are the app's own, nothing grabbed, the external display focused. */
+    private volatile boolean gameMode;
     /** Counts key presses, so a timer from an earlier press of the same key stops. */
     private int repeatPress;
     private final AudioRouter audio = new AudioRouter();
@@ -192,6 +194,9 @@ public class InjectorService extends IInjector.Stub {
                 injector.key(code, value);
                 if (value == 1) startRepeat(code);
             });
+        }
+        @Override public void onGameKey() {
+            game(!gameMode, true);
         }
         @Override public void onKeyboardUsed() {
             post(() -> {
@@ -337,6 +342,8 @@ public class InjectorService extends IInjector.Stub {
         enabled = true;
         inSession = false;
         packageName = pkg;
+        // Another app or a new session: game passthrough was the old app's
+        if (gameMode) game(false, false);
         this.displayId = displayId;
         post(() -> {
             injector.setProfile(AppInputProfile.forPackage(pkg));
@@ -472,8 +479,46 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    /**
+     * Game passthrough on or off (GAMING.md). On: only from "keys on the external screen" (grabbed); the mouse is let go
+     * and the external display gets the focus, so Android gives the real keyboard and mouse to the app there. Off: grabbed
+     * again when {@code regrab}, else left as it is (setForwarding decides). Any thread.
+     */
+    private void game(boolean on, boolean regrab) {
+        EvdevReader r;
+        synchronized (this) {
+            r = reader;
+            if (r == null || sessionOver || on == gameMode || on && !r.isGrabbed()) return;
+            gameMode = on;
+        }
+        r.setGameMode(on);
+        if (on) {
+            r.setGrabbed(false);
+            post(() -> {
+                injector.focus(injector.displayId());
+                focusStale = false;
+            });
+        } else if (regrab) {
+            r.setGrabbed(true);
+        }
+        Log.i(TAG, "game passthrough " + (on ? "on" : "off"));
+        // After the forwarding change it caused, which is posted too
+        post(() -> {
+            IInjectorListener l = listener;
+            try {
+                if (l != null) l.onGameMode(on);
+            } catch (RemoteException ignored) { }
+        });
+    }
+
+    @Override public void setGameMode(boolean on) {
+        game(on, true);
+    }
+
     @Override public void setForwarding(boolean on) {
         if (sessionOver) return;
+        // The phone's own switch (Ctrl+Alt+M on the phone, a button) leaves game passthrough and decides by itself
+        game(false, false);
         EvdevReader r;
         synchronized (this) {
             r = reader;
@@ -486,6 +531,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void phoneTouched() {
+        if (gameMode) {
+            // GAMING.md: touching the phone leaves game passthrough; the keys and mouse are XDesk's again, and the
+            // next key brings the focus back to the external display, as after any touch on the phone
+            game(false, true);
+            post(() -> focusStale = true);
+            return;
+        }
         focusStale = true;
         // Touching the phone moves focus away. The phone's own mouse buttons press after this, so they still work
         post(injector::cancelTouch);

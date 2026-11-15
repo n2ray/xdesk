@@ -338,6 +338,8 @@ public class XDeskActivity extends Activity {
 
     /** Whether the app session had the keys and mouse at the last state: there the injector's evdev reader hears Ctrl+Alt+M. */
     private boolean appForwarded;
+    /** Game passthrough at the last app state (GAMING.md), to say its coming and going once. */
+    private boolean appGame;
 
     /** 应用切换（三指横滑，按住不放）：Dock 里的前一个、后一个，抬起手指时才换过去。 */
     private final ArrayList<String> switchKeys = new ArrayList<String>();
@@ -671,6 +673,10 @@ public class XDeskActivity extends Activity {
             // The injector hears Ctrl+Alt+M in an app session and gives the keys and mouse back itself: the Dock goes
             // with them. A Dock opened by the phone's touchpad while they are already the phone's is not one of these.
             boolean forwarding = apps.isForwarding();
+            // Game passthrough came or went (GAMING.md): said once on the phone, where the way back is a touch
+            boolean game = apps.isGameMode();
+            if (game != appGame) Toast.makeText(XDeskActivity.this, game ? R.string.xd_game_on : R.string.xd_game_off, Toast.LENGTH_SHORT).show();
+            appGame = game;
             if (appForwarded && !forwarding) closeDockForPhone();
             appForwarded = forwarding;
             updateStatus();
@@ -2248,6 +2254,9 @@ public class XDeskActivity extends Activity {
             setStatus(Style.WARN, getString(R.string.xd_status_display_gone_app, apps.label()));
         } else if (wireless.reconnecting()) {
             setStatus(Style.WARN, getString(R.string.xd_status_reconnecting, wireless.inputSource()));
+        } else if (apps.isGameMode()) {
+            // GAMING.md: the app has the real keyboard and mouse; how to come back
+            setStatus(Style.OK, getString(R.string.xd_status_game, apps.label()));
         } else if (apps.isForwarding() && wireless.inputSource() != null) {
             setStatus(Style.OK, getString(R.string.xd_status_input_computer, apps.label(), wireless.inputSource()));
         } else if (apps.isForwarding() && apps.deviceCount() == 0) {

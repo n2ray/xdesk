@@ -322,6 +322,7 @@ public final class SplitStageActivity extends Activity {
         @Override public void onTopApp(String packageName) { }
         @Override public void onFingers(float[] x, float[] y) { }
         @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) { }
+        @Override public void onGameMode(boolean on) { }  // the stage never asks for game passthrough
     };
 
     private final IBinder.DeathRecipient injectorDead = () -> ui.post(this::injectorLost);

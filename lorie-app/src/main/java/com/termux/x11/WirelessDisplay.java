@@ -1752,6 +1752,7 @@ final class WirelessDisplay {
         @Override public void onTopApp(String packageName) { }
         @Override public void onFingers(float[] x, float[] y) { }
         @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) { } // empty on purpose: this injector never moves a pointer, only the app session's does
+        @Override public void onGameMode(boolean on) { }  // game passthrough belongs to the app session
     };
 
     private static void closeQuietly(java.io.Closeable c) {

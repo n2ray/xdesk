@@ -24,4 +24,6 @@ oneway interface IInjectorListener {
      * an outward move for TOP. held: a button or a finger is down.
      */
     void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) = 8;
+    /** Game passthrough went on or off (GAMING.md): by Ctrl+Alt+G, by setGameMode, or left by a touch on the phone. */
+    void onGameMode(boolean on) = 9;
 }
