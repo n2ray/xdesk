@@ -3369,6 +3369,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public AppSession apps() { return apps; }
         @Override public void appInputChanged() { updateStatus(); }
+        @Override public void launchpad() { if (!SwitcherOverlay.isShown()) showSwitcher(false); }
     };
 
     // --- 外接屏上的切换器（DISPLAY.md §6） ---

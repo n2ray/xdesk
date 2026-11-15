@@ -427,6 +427,7 @@
     <string name="xd_card_mode_note">Like a tablet: the app gets fingers, for apps, games or web pages that only respond to touch. Like a computer: a mouse</string>
     <string name="xd_card_open">Open</string>
     <string name="xd_card_switch_to">Switch to</string>
+    <string name="xd_card_launchpad">Open the Launchpad</string>
     <string name="xd_card_device_settings">%1$s settings</string>
     <string name="xd_card_on_phone">Its settings are on the phone</string>
     <string name="xd_card_close_title">Close %1$s?</string>

@@ -46,6 +46,8 @@ final class ItemCard {
         AppSession apps();
         /** An Android app's input mode was changed here. */
         void appInputChanged();
+        /** The switchboard's home over what is on the display, as the Dock's "All" opens it. The card has closed. */
+        void launchpad();
     }
 
     private static Dialog shown;
@@ -303,6 +305,12 @@ final class ItemCard {
                 action(running() ? R.string.xd_card_switch_to : R.string.xd_card_open, Style.ACCENT, Style.TEXT, () -> {
                     card.dismiss();
                     host.open(key);
+                });
+            } else {
+                // On the display already: the way back to everything else, without ending it
+                action(R.string.xd_card_launchpad, Style.ACCENT, Style.TEXT, () -> {
+                    card.dismiss();
+                    host.launchpad();
                 });
             }
             addClose(e);
