@@ -28,6 +28,7 @@ const CLIPBOARD: u8 = 12;
 const APPS: u8 = 13;
 const INPUT_MODE: u8 = 14;
 const FEATURES: u8 = 18;
+const SETTINGS: u8 = 19;
 const IN_ANDROID: u8 = 27;
 const IN_CHOOSE: u8 = 28;
 const FILE_START: u8 = 29;
@@ -100,6 +101,8 @@ static LAYOUT: Mutex<String> = Mutex::new(String::new());
 static WANTED: Mutex<(u32, u32)> = Mutex::new((1280, 720));
 static CURRENT: Mutex<Option<TcpStream>> = Mutex::new(None);
 pub static STREAMING: AtomicBool = AtomicBool::new(false);
+/// The phone's natural scrolling (SETTINGS, INPUT.md §12): true is the direction macOS sends its wheel in.
+pub static NATURAL_SCROLL: AtomicBool = AtomicBool::new(true);
 /// False once there is no point showing the last picture any more.
 pub static KEEP_PICTURE: AtomicBool = AtomicBool::new(false);
 /// Which connection is the current one: the newest to finish its handshake.
@@ -209,6 +212,20 @@ fn framed(kind: u8, payload: &[u8]) -> Vec<u8> {
     b.extend_from_slice(&(payload.len() as u32).to_be_bytes());
     b.extend_from_slice(payload);
     b
+}
+
+/// A boolean field of the SETTINGS JSON, if it has one. The phone is the only sender: no full JSON parsing.
+fn json_bool(json: &str, name: &str) -> Option<bool> {
+    let key = format!("\"{name}\"");
+    let at = json.find(&key)?;
+    let value = json[at + key.len()..].trim_start().strip_prefix(':')?.trim_start();
+    if value.starts_with("true") {
+        Some(true)
+    } else if value.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn encoded(o: &Out) -> Vec<u8> {
@@ -369,6 +386,13 @@ impl Stream {
             FEATURES if p.len() >= 4 => {
                 FEATURES_BITS.store(u32::from_be_bytes([p[0], p[1], p[2], p[3]]), Ordering::Relaxed);
             }
+            SETTINGS => {
+                // {"naturalScroll":true,...}: the phone's input settings, every field optional (INPUT.md §12).
+                // A mouse receiver has no speeds of its own: only the wheel direction applies here
+                if let Some(natural) = json_bool(&String::from_utf8_lossy(p), "naturalScroll") {
+                    NATURAL_SCROLL.store(natural, Ordering::Relaxed);
+                }
+            }
             FILE_START => self.file_start(&String::from_utf8_lossy(p)),
             FILE_DATA => self.file_data(p),
             FILE_END => self.file_end(),
@@ -500,6 +524,8 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
     crate::stats::reset();
     STREAMING.store(true, Ordering::Relaxed);
     KEEP_PICTURE.store(true, Ordering::Relaxed);
+    // A phone that never sends SETTINGS gets the defaults, not the last phone's
+    NATURAL_SCROLL.store(true, Ordering::Relaxed);
     say(if usb { "已通过 USB 连接" } else { "已通过 Wi-Fi 连接" }, "");
     while rx.try_recv().is_ok() {}
     crate::clip::baseline();

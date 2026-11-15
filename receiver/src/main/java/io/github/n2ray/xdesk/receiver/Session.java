@@ -33,6 +33,10 @@ final class Session extends Thread implements Video.Listener {
             FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
     /** A Mac picture passed through the phone as the Mac sent it: its cursor, which is not in the picture (PROTOCOL.md) */
     static final int CURSOR_SHAPE = 16, CURSOR_POSITION = 17, MAX_CURSOR = 1 << 20;
+    /** SETTINGS (type 19): the phone's input settings as UTF-8 JSON, every field optional (INPUT.md §12). */
+    static final int SETTINGS = 19;
+    /** The passthrough codec: a VIDEO_FORMAT with it means the cursor is drawn here, not in the picture. */
+    static final int CODEC_H265 = 0x68323635;
     /** Codecs bit 2, with bit 1: VIDEO_FORMAT may switch to H.265 and back during a stream, and the cursor messages are drawn */
     private static final int PASSTHROUGH = 0x04;
     /** Codecs bit 7: this receiver sends input as the web display does, and takes the clipboard and files. Bit 6 with
@@ -240,7 +244,12 @@ final class Session extends Thread implements Video.Listener {
                         int w = in.readUnsignedShort(), h = in.readUnsignedShort();
                         skip(len - 8);
                         Log.i(MainActivity.TAG, "video " + Integer.toHexString(codec) + " " + w + "x" + h);
-                        if (r.isActive(this)) r.ui.videoSize(w, h);
+                        if (r.isActive(this)) {
+                            r.ui.videoSize(w, h);
+                            // Only a passed-through Mac has its cursor drawn here; the phone hides the X cursor
+                            // for absolute placement, so back on H.264 the local pointer must show again
+                            r.ui.passthrough(codec == CODEC_H265);
+                        }
                         video.format(codec, w, h);
                         lastKeyRequest = -KEY_FRAME_EVERY_MS;
                         break;
@@ -296,6 +305,26 @@ final class Session extends Thread implements Video.Listener {
                         float cx = in.readUnsignedShort() / 65535f, cy = in.readUnsignedShort() / 65535f;
                         boolean shown = in.readUnsignedByte() != 0;
                         if (r.isActive(this)) r.ui.cursorPosition(cx, cy, shown);
+                        break;
+                    }
+                    case SETTINGS: {
+                        // INPUT.md §12: the phone's settings, every field optional. The JSON is tiny
+                        if (len > MAX_STRING) {
+                            skip(len);
+                            break;
+                        }
+                        byte[] b = new byte[len];
+                        in.readFully(b);
+                        if (control && r.isActive(this)) {
+                            try {
+                                org.json.JSONObject j = new org.json.JSONObject(new String(b, StandardCharsets.UTF_8));
+                                float pointer = (float) j.optDouble("pointerSpeed", 1);
+                                float scroll = (float) j.optDouble("scrollSpeed", 1);
+                                r.ui.settings(pointer, scroll, j.optBoolean("naturalScroll", true));
+                            } catch (org.json.JSONException e) {
+                                Log.i(MainActivity.TAG, "settings: " + e);
+                            }
+                        }
                         break;
                     }
                     case IME_AREA: {

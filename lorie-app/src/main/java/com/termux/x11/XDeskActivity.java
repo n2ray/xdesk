@@ -1323,6 +1323,7 @@ public class XDeskActivity extends Activity {
         Switchboard.get(this).setHost(boardHost);
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
+        updateReceiverSettings();
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
         apps.setBottomEdgeListener(externalDock);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
@@ -2522,6 +2523,20 @@ public class XDeskActivity extends Activity {
         settingsPage(getString(R.string.xd_section_phone), c, null);
     }
 
+    /** INPUT.md §12: the settings go to the receivers as SETTINGS (type 19), in the units the phone's own settings use. */
+    private void updateReceiverSettings() {
+        if (wireless == null) return;
+        try {
+            org.json.JSONObject j = new org.json.JSONObject();
+            j.put("naturalScroll", prefs.getBoolean(PREF_NATURAL_SCROLL, true));
+            j.put("pointerSpeed", (double) prefs.getFloat(PREF_SPEED, 1f));
+            j.put("scrollSpeed", (double) prefs.getFloat(PREF_SCROLL_SPEED, 1f));
+            wireless.setSettings(j.toString());
+        } catch (org.json.JSONException e) {
+            Log.w(TAG, "settings json", e);
+        }
+    }
+
     private void showInputSettings() {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
@@ -2533,16 +2548,19 @@ public class XDeskActivity extends Activity {
             touchpad.setSpeed(v);
             directTouch.setSpeed(v);
             prefs.edit().putFloat(PREF_SPEED, v).apply();
+            updateReceiverSettings();
         });
         s.percentRow(input, getString(R.string.xd_scroll_speed), getString(R.string.xd_scroll_speed_note), Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setScrollSpeed(v);
             prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
+            updateReceiverSettings();
         });
         // INPUT.md §12: one setting for every device
         s.switchRow(input, getString(R.string.xd_natural_scroll), getString(R.string.xd_natural_scroll_note), prefs.getBoolean(PREF_NATURAL_SCROLL, true), on -> {
             prefs.edit().putBoolean(PREF_NATURAL_SCROLL, on).apply();
             touchpad.setNaturalScroll(on);
+            updateReceiverSettings();
         });
         s.switchRow(input, getString(R.string.xd_keys_via_ime), getString(R.string.xd_keys_via_ime_note), prefs.getBoolean(PREF_KEYS_VIA_IME, true), on -> {
             prefs.edit().putBoolean(PREF_KEYS_VIA_IME, on).apply();
