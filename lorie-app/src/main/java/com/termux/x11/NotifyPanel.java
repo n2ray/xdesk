@@ -146,21 +146,27 @@ final class NotifyPanel {
             return false;
         });
 
-        // The header: the clock and the battery first, the DND switch and clear all under it
-        time = label(Style.TEXT, 30, true);
+        // The header, one line (owner, 2026-11-15): the time and the date on the left, the battery on the right; the DND
+        // switch and clear all under it
+        LinearLayout header = new LinearLayout(dc);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        time = label(Style.TEXT, 24, true);
         time.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(time, new LinearLayout.LayoutParams(-1, -2));
+        header.addView(time, new LinearLayout.LayoutParams(-2, -2));
         date = label(Style.TEXT_DIM, 13, true);
-        root.addView(date, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout battery = new LinearLayout(dc);
-        battery.setGravity(Gravity.CENTER_VERTICAL);
-        battery.setPadding(0, dp(10), 0, dp(4));
+        date.setSingleLine(true);
+        date.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams dateAt = new LinearLayout.LayoutParams(0, -2, 1);
+        dateAt.leftMargin = dp(10);
+        header.addView(date, dateAt);
         batteryView = new BatteryView(dc, density);
-        battery.addView(batteryView, new LinearLayout.LayoutParams(dp(26), dp(14)));
-        batteryText = label(Style.TEXT, 14, true);
-        batteryText.setPadding(dp(8), 0, 0, 0);
-        battery.addView(batteryText);
-        root.addView(battery, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams batteryAt = new LinearLayout.LayoutParams(dp(24), dp(12));
+        batteryAt.leftMargin = dp(10);
+        header.addView(batteryView, batteryAt);
+        batteryText = label(Style.TEXT, 13, true);
+        batteryText.setPadding(dp(6), 0, 0, 0);
+        header.addView(batteryText, new LinearLayout.LayoutParams(-2, -2));
+        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout tools = new LinearLayout(dc);
         tools.setGravity(Gravity.CENTER_VERTICAL);
@@ -330,7 +336,7 @@ final class NotifyPanel {
         dnd.setText(dndLabel(on));
         dnd.setAlpha(on ? 1f : 0.75f);
         if (level >= 0) {
-            batteryText.setText((center.batteryCharging() ? "⚡" : "") + level + "%");
+            batteryText.setText(level + "%");  // charging is the icon's bolt, not a second one in the text
             batteryView.setVisibility(View.VISIBLE);
             batteryText.setVisibility(View.VISIBLE);
             ((BatteryView) batteryView).setLevel(level, center.batteryCharging());
@@ -694,18 +700,28 @@ final class NotifyPanel {
         }
 
         @Override protected void onDraw(Canvas c) {
+            // A phone's battery (owner, 2026-11-15: the old one was a flat strip in the middle of its box): the body the
+            // view's full height, a round nub on the right, the level as a fill inside; red when low and not charging
             float w = getWidth(), h = getHeight();
-            float nub = w * 0.06f;
-            box.set(nub, h * 0.22f, w - nub * 2, h * 0.78f);
-            c.drawRoundRect(box, h * 0.18f, h * 0.18f, body);
-            c.drawRoundRect(new RectF(w - nub * 1.6f, h * 0.38f, w - nub * 0.6f, h * 0.62f), h * 0.08f, h * 0.08f, body);
-            float inset = h * 0.06f + Math.max(1f, density);
+            float stroke = Math.max(1f, density);
+            float nubW = Math.max(stroke * 1.5f, w * 0.08f), gap = stroke * 0.5f;
+            box.set(stroke / 2f, stroke / 2f, w - nubW - gap - stroke / 2f, h - stroke / 2f);
+            float r = h * 0.3f;
+            c.drawRoundRect(box, r, r, body);
+            body.setStyle(Paint.Style.FILL);
+            c.drawRoundRect(new RectF(w - nubW, h * 0.33f, w, h * 0.67f), nubW * 0.5f, nubW * 0.5f, body);
+            body.setStyle(Paint.Style.STROKE);
+            float inset = stroke + Math.max(1f, density);
             float full = box.width() - inset * 2;
-            c.drawRoundRect(new RectF(box.left + inset, box.top + inset, box.left + inset + full * level / 100f,
-                box.bottom - inset), h * 0.1f, h * 0.1f, fill);
+            fill.setColor(level <= 15 && !charging ? Style.DANGER : Style.TEXT);
+            if (level > 0) {
+                c.drawRoundRect(new RectF(box.left + inset, box.top + inset,
+                    box.left + inset + Math.max(stroke, full * Math.min(100, level) / 100f), box.bottom - inset),
+                    r * 0.6f, r * 0.6f, fill);
+            }
             if (charging) {
                 // A bolt: the two halves of a lightning strike
-                float cx = w / 2, cy = h / 2, s = h * 0.3f;
+                float cx = box.centerX(), cy = h / 2, s = h * 0.36f;
                 android.graphics.Path p = new android.graphics.Path();
                 p.moveTo(cx + s * 0.15f, cy - s);
                 p.lineTo(cx - s * 0.55f, cy + s * 0.15f);
