@@ -113,5 +113,7 @@ dependencies {
     implementation "dev.rikka.shizuku:provider:13.1.5"
     // The same without Shizuku: pairs with the device's own adbd. Only the hidden Conscrypt call of the pairing needs the bypass
     implementation "com.github.MuntashirAkon:libadb-android:3.1.1"
+    // 扫 Mac 上 Sill 的配对二维码（MacSettings 的"扫描二维码"），Sall 用的同一个
+    implementation "com.journeyapps:zxing-android-embedded:4.3.0"
     implementation "org.lsposed.hiddenapibypass:hiddenapibypass:6.1"
 }

@@ -1267,6 +1267,24 @@ public class XDeskActivity extends Activity {
         inputs.registerInputDeviceListener(deviceListener, ui);
         tryStart();
         ensureDashboard();
+        // A recreation replays the old intent; its link was already offered once
+        if (b == null) handlePairingLink(getIntent());
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handlePairingLink(intent);
+        setIntent(intent);
+    }
+
+    /** A tapped sill://pair link (a camera app read its QR code): confirm the Mac and pair, on the phone. */
+    private void handlePairingLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return;
+        // Relaunched from Recents: the task's base intent is replayed, never pair the same link twice
+        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return;
+        String raw = intent.getData().toString();
+        intent.setData(null);   // one shot: never pair again on the next onNewIntent
+        MacSettings.fromLink(this, raw);
     }
 
     @Override protected void onResume() {

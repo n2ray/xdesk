@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 自己打开无线调试之前，看有没有 Wi-Fi -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只在扫描时向系统要 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 外接屏上的光标（只有运行安卓应用时用） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- libadb 没写 targetSdk，manifest 合并时会替它补上这些。XDesk 用不着 -->
@@ -44,6 +47,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 点开 Sill 的配对链接（相机应用读出二维码后也会给这个链接），在手机上确认后配对。
+                 装了两个客户端（XDesk 和 Sall）时系统会问用哪个 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sill" android:host="pair" />
+            </intent-filter>
         </activity>
         <!-- stopWithTask 必须是 false，否则划掉任务时收不到 onTaskRemoved -->
         <activity android:name="com.termux.x11.ShareToComputerActivity" android:exported="true" android:label="@string/xd_share_label"
@@ -76,6 +87,11 @@
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
             android:exported="false" />
+        <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只由 XDesk 自己打开，不进最近任务 -->
+        <activity android:name="com.termux.x11.mac.PairScannerActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- Android Auto 停车时的入口（手机 Android 15 以上）。Android Auto 目前只开放游戏这一类，所以 application 标了 game -->
         <activity
             android:name="com.termux.x11.CarActivity"
