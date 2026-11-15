@@ -28,12 +28,15 @@ import java.util.Random;
  * over other apps, when the hint says so. It has nothing to open things with: that is the switchboard's. Call start
  * while it is on screen and stop when it is not.
  *
- * All sizes are parts of the window's size, not dp, so density changes and different displays need no special handling.
- * Add further content to column in the constructor.
+ * All sizes are dp from the screen's shell factor (Sizing.shell, §4.1: b·u), so the display's Android density and
+ * the system's font scale do not size it. The dp values are the old parts of the window's size on a 1080 screen at
+ * b·u = 1. Add further content to column in the constructor.
  */
 final class DashboardView extends FrameLayout {
-    /** Text sizes as parts of the window's shorter side. */
-    private static final float CLOCK = 0.2f, DATE = 0.05f, HINT = 0.034f, STATUS = 0.028f;
+    /** Text sizes in dp. */
+    private static final float CLOCK = 216, DATE = 54, HINT = 36, STATUS = 30;
+    /** Space above the hint and the status lines, dp. */
+    private static final float HINT_PAD = 65, STATUS_PAD = 43;
     /** Burn-in: the content moves this far (part of the shorter side) every SHIFT_MS, and dims after DIM_AFTER_MS. */
     private static final float SHIFT_RANGE = 0.04f, DIM_ALPHA = 0.35f;
     private static final long SHIFT_MS = 60000, DIM_AFTER_MS = 300000, STATUS_MS = 2000;
@@ -44,6 +47,7 @@ final class DashboardView extends FrameLayout {
     private long brightSince;
     private String lastInput;
     private int sizedW = -1, sizedH = -1;
+    private float sizedDensity;
     private final boolean showInput;
     private boolean started;
 
@@ -99,16 +103,20 @@ final class DashboardView extends FrameLayout {
     // something else asks for a layout
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int w = MeasureSpec.getSize(widthSpec), h = MeasureSpec.getSize(heightSpec);
-        if (w != sizedW || h != sizedH) {
+        // §4.1: the shell's factor (b·u), the same the Launchpad and the Dock use; the cache makes this cheap, and
+        // checking it here sizes the dashboard again when the screen's kind or u changes while it shows
+        float density = Sizing.shell(getContext(), getContext().getDisplay()).density;
+        if (w != sizedW || h != sizedH || density != sizedDensity) {
             sizedW = w;
             sizedH = h;
-            float side = Math.min(w, h);
-            clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * CLOCK);
-            date.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * DATE);
-            hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * HINT);
-            status.setTextSize(TypedValue.COMPLEX_UNIT_PX, side * STATUS);
-            hint.setPadding(0, Math.round(side * 0.06f), 0, 0);
-            status.setPadding(0, Math.round(side * 0.04f), 0, 0);
+            sizedDensity = density;
+            // Pixels from the shell's factor: px text sizes, so neither the density override nor the font scale gets in
+            clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(CLOCK * density));
+            date.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(DATE * density));
+            hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(HINT * density));
+            status.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(STATUS * density));
+            hint.setPadding(0, Math.round(HINT_PAD * density), 0, 0);
+            status.setPadding(0, Math.round(STATUS_PAD * density), 0, 0);
         }
         super.onMeasure(widthSpec, heightSpec);
     }

@@ -1470,6 +1470,11 @@ final class WirelessDisplay {
         return screenB(kind, streamWidth);
     }
 
+    /** For Sizing's shell cache: changes when what screenB depends on changes (the receiver's density, the stream's width). */
+    long shellStamp() {
+        return ((long) receiverDensity << 32) ^ (streamWidth & 0xffffffffL);
+    }
+
     private float screenB(int kind, int width) {
         int d = receiverDensity;
         // Unknown: as XDesk 0.5 did, an external monitor of that width (2560 wide is about 213 dpi, 1920 is 160)

@@ -7,7 +7,6 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Choreographer;
 import android.view.Display;
@@ -22,11 +21,11 @@ import android.view.WindowManager;
 final class CursorOverlay {
     private static final String TAG = "XDesk";
     /**
-     * Cursor size as a part of the display's height in pixels: 32 pixels on a 1508 high display. Not in dp: it should not
-     * shrink when the interface size setting makes everything else smaller, and it should depend on nothing that a
-     * density change can disturb. A cursor about 85 pixels high was seen after a density change.
+     * Cursor size in dp, §4.1 (the shell and the cursor are b·u dp): the shell's factor (Sizing.shell) turns it into
+     * pixels, so a density override on the display does not change it. A cursor about 85 pixels high was seen when it
+     * followed a density change.
      */
-    private static final float SIZE_OF_HEIGHT = 32f / 1508f;
+    private static final float SIZE_DP = 24;
     private static final int MIN_SIZE = 16;
     /** The faint cursor, next to a remote machine's own cursor: this part of the cursor's size wide, this opaque (0 to 1). */
     private static final float FAINT_DOT_OF_SIZE = 0.25f, FAINT_OPACITY = 0.25f;
@@ -47,7 +46,8 @@ final class CursorOverlay {
     private ArrowView view;
     private WindowManager.LayoutParams params;
     private boolean shown, framePending, moved, faint, touchStyle;
-    private int x, y, margin, attachedWidth, attachedHeight, attachedDensity;
+    private int x, y, margin, attachedWidth, attachedHeight;
+    private float attachedFactor;
 
     CursorOverlay(Context c) {
         context = c;
@@ -68,17 +68,11 @@ final class CursorOverlay {
         params.y = touchStyle ? y - margin : y + HOTSPOT_OFFSET_Y;
     }
 
-    private static int densityOf(Display display) {
-        DisplayMetrics m = new DisplayMetrics();
-        display.getRealMetrics(m);
-        return m.densityDpi;
-    }
-
-    /** Build it again from a fresh context if the display's size or density changed. It stays where it was. */
+    /** Build it again from a fresh context if the display's size or the shell's factor changed. It stays where it was. */
     void displayChanged(Display display) {
         Point real = new Point();
         display.getRealSize(real);
-        if (view == null || (real.x == attachedWidth && real.y == attachedHeight && densityOf(display) == attachedDensity)) return;
+        if (view == null || (real.x == attachedWidth && real.y == attachedHeight && Sizing.shell(context, display).density == attachedFactor)) return;
         boolean wasShown = shown;
         int atX = x, atY = y;
         attach(display);
@@ -94,11 +88,11 @@ final class CursorOverlay {
         display.getRealSize(real);
         attachedWidth = real.x;
         attachedHeight = real.y;
-        attachedDensity = densityOf(display);
-        int size = Math.max(MIN_SIZE, Math.round(real.y * SIZE_OF_HEIGHT));
+        attachedFactor = Sizing.shell(context, display).density;
+        int size = Math.max(MIN_SIZE, Math.round(SIZE_DP * attachedFactor));
         margin = Math.round(size * MARGIN_OF_SIZE);
         int window = size + 2 * margin;
-        Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " at " + attachedDensity + " dpi");
+        Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " shell " + attachedFactor);
         view = new ArrowView(dc, size, margin);
         view.setFaint(faint);
         view.setTouchStyle(touchStyle);

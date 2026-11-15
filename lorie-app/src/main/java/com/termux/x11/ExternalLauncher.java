@@ -15,10 +15,18 @@ final class ExternalLauncher {
 
     private ExternalLauncher() { }
 
-    /** The icon of an item in a view of its own (the Launchpad's tiles, the Docks). */
+    /** The icon of an item in a view of its own (the phone's list, its dock). */
     static View icon(Context c, Switchboard.Item it) {
+        return icon(c, it, c.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * The same on the external screen: the shell's factor (Sizing.shell) is passed in, so the letter tile's corners
+     * follow b·u and not the density override the Android apps on the display set.
+     */
+    static View icon(Context c, Switchboard.Item it, float density) {
         ImageView icon = new ImageView(c);
-        icon(c, it, icon);
+        icon(c, it, icon, density);
         return icon;
     }
 
@@ -27,9 +35,13 @@ final class ExternalLauncher {
      * view uses. A whole desktop gets the same glyph here, in the phone's list and in both Docks.
      */
     static void icon(Context c, Switchboard.Item it, ImageView into) {
+        icon(c, it, into, c.getResources().getDisplayMetrics().density);
+    }
+
+    private static void icon(Context c, Switchboard.Item it, ImageView into, float density) {
         into.setTag(null);
         if (SWITCHER.equals(it.key)) {
-            into.setImageDrawable(Style.letterIcon(c, "⊞"));
+            into.setImageDrawable(Style.letterIcon(c, "⊞", density));
             return;
         }
         if (it.app != null) {
@@ -40,6 +52,6 @@ final class ExternalLauncher {
             into.setImageBitmap(it.bitmap);
             return;
         }
-        into.setImageDrawable(Style.letterIcon(c, it.desktop ? "▣" : it.label));
+        into.setImageDrawable(Style.letterIcon(c, it.desktop ? "▣" : it.label, density));
     }
 }

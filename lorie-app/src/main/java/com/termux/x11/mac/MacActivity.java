@@ -17,6 +17,8 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.termux.x11.Sizing;
+
 /**
  * A Mac window or the Mac desktop on a screen (DISPLAY.md §3.0): Sill's HEVC decoded by the hardware straight
  * into this SurfaceView, letterboxed to the picture's aspect, nothing composed on the way. The Mac's cursor is a
@@ -136,9 +138,11 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         root.addView(cursor, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START));
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
-        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        // §4.1: this notice is part of the shell (Sizing.shell): b·u in px, no density override, no font scale
+        Sizing.Shell shell = Sizing.shell(this, getDisplay());
+        status.setTextSize(TypedValue.COMPLEX_UNIT_PX, shell.text(18));
         status.setGravity(Gravity.CENTER);
-        int pad = Math.round(16 * getResources().getDisplayMetrics().density);
+        int pad = shell.dp(16);
         status.setPadding(pad * 2, pad, pad * 2, pad);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xcc202124);
