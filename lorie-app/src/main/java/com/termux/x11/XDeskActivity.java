@@ -293,7 +293,7 @@ public class XDeskActivity extends Activity {
         // The X desktop, its Linux windows and a Mac: the phone's own window passes keys and mouse on (INPUT.md §5.1,
         // the keys through the phone's input method). With that switched off, the X desktop's old takeover (focus
         // and the input method on the external display's desktop window) is the way, as in 0.5.1
-        @Override public boolean active() { return !apps.isActive() && (session.isActive() || contentKey != null); }
+        @Override public boolean active() { return !apps.isActive() && (session.isActive() || contentKey != null || SplitStageActivity.isActive()); }
         @Override public boolean forwarded() { return oldTakeover() ? desktopTaken : phoneKeys; }
         @Override public void forward(boolean on) {
             if (!on) closeDockForPhone();
@@ -1329,6 +1329,8 @@ public class XDeskActivity extends Activity {
         appForwarded = apps.isForwarding();  // the session may outlive this window
         catalog = AppCatalog.get(this);
         Switchboard.get(this).setHost(boardHost);
+        // The split-stage prototype's comings and goings (DISPLAY.md §15): input and the home follow them
+        SplitStageActivity.observe(() -> ui.post(this::splitStageChanged));
         audioRoute = AudioRoute.get(this);
         wireless = WirelessDisplay.get(this);
         updateReceiverSettings();
@@ -1472,6 +1474,7 @@ public class XDeskActivity extends Activity {
             if (d != null) apps.setImeOnDisplay(d.getDisplayId(), false);
         }
         displays.unregisterDisplayListener(displayListener);
+        SplitStageActivity.observe(null);  // the stage, if it outlives this window, gets along without it
         CarActivity.setListener(null);
         inputs.unregisterInputDeviceListener(deviceListener);
         ui.removeCallbacksAndMessages(null);
@@ -2162,7 +2165,7 @@ public class XDeskActivity extends Activity {
         if (desktopTaken && app) takeDesktopWhenBack = true;
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
         updatePhoneFocus();
-        forwardBtn.setVisibility(app || session.isActive() || contentKey != null ? View.VISIBLE : View.GONE);
+        forwardBtn.setVisibility(app || session.isActive() || contentKey != null || SplitStageActivity.isActive() ? View.VISIBLE : View.GONE);
         showOwnership();
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
@@ -2245,6 +2248,12 @@ public class XDeskActivity extends Activity {
         applyModeToTopBar();
         if (apps.isActive()) {
             updateAppStatus();
+            return;
+        }
+        // The split-stage prototype has the screen (DISPLAY.md §15): the phone's input goes to its own injector session
+        if (SplitStageActivity.isActive()) {
+            if (client != SplitStageActivity.input) setTarget(SplitStageActivity.input);
+            setStatus(Style.OK, getString(R.string.xd_split_running));
             return;
         }
         if (contentKey != null && !desktopTaken && (session.isConnected() || !contentKey.startsWith(LinuxSource.PREFIX))) {
@@ -2508,6 +2517,8 @@ public class XDeskActivity extends Activity {
         s.valueRow(more, getString(R.string.xd_x11_settings), getString(R.string.xd_x11_settings_note), "",
             this::showX11Settings);
         s.valueRow(more, getString(R.string.xd_section_about), null, versionName(), this::showAboutSettings);
+        LinearLayout experiments = s.section(c, getString(R.string.xd_section_experiments));
+        s.valueRow(experiments, getString(R.string.xd_split_row), getString(R.string.xd_split_row_note), "", this::showSplitSettings);
 
         if (session.isActive()) {
             s.dangerRow(c, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
@@ -2553,6 +2564,96 @@ public class XDeskActivity extends Activity {
                 });
         }
         settingsPage(getString(R.string.xd_section_phone), c, null);
+    }
+
+    // --- 实验：分屏原型（DISPLAY.md §15） ---
+
+    private void showSplitSettings() {
+        final SettingsUi s = ui();
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout pick = s.card(c);
+        // Default to the favourites' first two Android apps, so nothing has to be picked for a quick try
+        final AppCatalog.App[] chosen = new AppCatalog.App[2];
+        java.util.List<AppCatalog.App> favourites = favouriteApps();
+        if (favourites.size() > 0) chosen[0] = favourites.get(0);
+        if (favourites.size() > 1) chosen[1] = favourites.get(1);
+        java.util.List<AppCatalog.App> all = catalog.apps();
+        if (chosen[0] == null && !all.isEmpty()) chosen[0] = all.get(0);
+        if (chosen[1] == null && all.size() > 1) chosen[1] = all.get(1);
+        final TextView[] shown = new TextView[2];
+        for (int i = 0; i < 2; i++) {
+            final int side = i;
+            shown[i] = s.valueRow(pick, getString(side == 0 ? R.string.xd_split_left : R.string.xd_split_right),
+                getString(R.string.xd_split_side_note), chosen[side] != null ? chosen[side].label : "", () -> pickSplitApp(s, side, chosen, shown));
+        }
+        pageNote(c, R.string.xd_split_page_note);
+        LinearLayout go = s.card(c);
+        s.valueRow(go, getString(R.string.xd_split_start), getString(R.string.xd_split_start_note), "", () -> startSplit(chosen[0], chosen[1]));
+        settingsPage(getString(R.string.xd_split_row), c, null);
+    }
+
+    private void pickSplitApp(SettingsUi s, final int side, final AppCatalog.App[] chosen, final TextView[] shown) {
+        java.util.List<AppCatalog.App> apps = catalog.apps();
+        if (apps.isEmpty()) return;
+        String[] names = new String[apps.size()];
+        int checked = -1;
+        for (int i = 0; i < apps.size(); i++) {
+            names[i] = apps.get(i).label;
+            if (chosen[side] != null && apps.get(i).component().equals(chosen[side].component())) checked = i;
+        }
+        s.choice(getString(side == 0 ? R.string.xd_split_left : R.string.xd_split_right), null, names, checked, which -> {
+            chosen[side] = apps.get(which);
+            shown[side].setText(chosen[side].label);
+        });
+    }
+
+    private void startSplit(AppCatalog.App left, AppCatalog.App right) {
+        if (left == null || right == null) {
+            Toast.makeText(this, R.string.xd_split_two_apps, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // One Android app cannot be in two cells (DISPLAY.md §2.5)
+        if (left.component().equals(right.component())) {
+            Toast.makeText(this, R.string.xd_split_two_apps, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Display d = externalDisplay();
+        if (d == null) {
+            needDisplayNotice();
+            return;
+        }
+        if (!apps.injectorReady()) {
+            Toast.makeText(this, R.string.xd_split_need_injector, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (SplitStageActivity.isActive()) {
+            Toast.makeText(this, R.string.xd_split_running, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeSettings();
+        try {
+            Intent i = new Intent(this, SplitStageActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra(SplitStageActivity.EXTRA_APPS, new String[]{left.component(), right.component()});
+            i.putExtra(SplitStageActivity.EXTRA_LABELS, new String[]{left.label, right.label});
+            ActivityOptions o = ActivityOptions.makeBasic();
+            o.setLaunchDisplayId(d.getDisplayId());
+            startActivity(i, o.toBundle());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "cannot start the split stage", e);
+        }
+    }
+
+    /** The favourites' Android apps in order ("a:" keys), the split prototype's default pair. */
+    private java.util.List<AppCatalog.App> favouriteApps() {
+        java.util.List<AppCatalog.App> out = new java.util.ArrayList<>();
+        for (String k : savedLines(PREF_DOCK)) {
+            if (!ChooserView.isAppKey(k)) continue;
+            AppCatalog.App a = catalog.find(ChooserView.componentOf(k));
+            if (a != null) out.add(a);
+        }
+        return out;
     }
 
     /** INPUT.md §12: the settings go to the receivers as SETTINGS (type 19), in the units the phone's own settings use. */
@@ -2873,6 +2974,31 @@ public class XDeskActivity extends Activity {
         applyCapture(home);
     }
 
+    /** What had the input when the split-stage prototype took it over (a Mac content, the X desktop): it gets it back. */
+    private InputSink beforeSplit;
+
+    /** The split-stage prototype (DISPLAY.md §15) opened or closed: give it the input, or give the input back. */
+    private void splitStageChanged() {
+        if (SplitStageActivity.isActive()) {
+            // The Launchpad's home comes back by itself after the stage; a content's sink would not
+            if (client != SplitStageActivity.input && client != SwitcherOverlay.INPUT && beforeSplit == null) beforeSplit = client;
+            updateStatus();
+            updateCapture();
+            return;
+        }
+        if (client == SplitStageActivity.input || beforeSwitcher == SplitStageActivity.input) {
+            if (client == SplitStageActivity.input) client = beforeSplit;
+            if (beforeSwitcher == SplitStageActivity.input) beforeSwitcher = beforeSplit;
+            beforeSplit = null;
+            // Whatever the stage held (a key, a button) must not stay down on it or keep its device bound there
+            keysIn.cancel();
+            mouseIn.cancel();
+            heldModifiers.clear();
+        }
+        updateStatus();
+        updateCapture();
+    }
+
     /** The mouse captured or let go as things are now. @param home the external screen's home has the input */
     private void applyCapture(boolean home) {
         syncKeyMode();
@@ -2886,7 +3012,9 @@ public class XDeskActivity extends Activity {
             // A content still opening (a Mac connecting) counts: the mouse stays off the phone until it is there
             // The home without a mouse is worked by the phone's touchpad: nothing to capture, and nothing is
             boolean want = home && hasExternalMouse() || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
-                && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse();
+                && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse()
+                // The split-stage prototype (DISPLAY.md §15) takes the captured mouse like X and Mac content
+                || SplitStageActivity.isActive() && !apps.isActive() && !desktopTaken && phoneForwards() && external && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
             // asked for then is dropped (the keys still went on, the mouse did not). Not while the user types there.
             if (want && !keyView.isFocused() && !phoneTyping()) keyView.requestFocus();
@@ -2910,7 +3038,7 @@ public class XDeskActivity extends Activity {
         // still said "+apps" after 整个桌面 was chosen, and the home then covered the whole desktop
         boolean idleX = session.isActive() && desktopName != null && desktopName.endsWith(Devices.APPS_ONLY);
         boolean want = d != null && !TargetDisplay.isCar(d) && !apps.isActive() && (!session.isActive() || idleX) && contentKey == null
-            && pendingContent == null && !desktopTaken && phoneForwards();
+            && pendingContent == null && !desktopTaken && phoneForwards() && !SplitStageActivity.isActive();
         if (!want) {
             if (SwitcherOverlay.isHome()) SwitcherOverlay.hide(switcherHost);
             return false;
@@ -4092,7 +4220,7 @@ public class XDeskActivity extends Activity {
     /** XDesk 开着又有外接屏时，它就在最底下。外接屏上已有应用或桌面时不放，否则它会盖住它们。车机上 CarActivity 就是仪表盘。 */
     private void ensureDashboard() {
         Display d = externalDisplay();
-        if (d == null || TargetDisplay.isCar(d) || apps.hasAppOnDisplay() || session.isActive()) return;
+        if (d == null || TargetDisplay.isCar(d) || SplitStageActivity.isActive() || apps.hasAppOnDisplay() || session.isActive()) return;
         if (dashboardTried == d.getDisplayId()) return;
         startDashboard(d);
     }

@@ -12,4 +12,6 @@ interface IShellServer {
     void exit() = 3;
     /** Ends any earlier wireless session and returns an injector for a new one, next to the app session: see WirelessDisplay. */
     IInjector newWirelessSession() = 4;
+    /** Ends any earlier split-stage session and returns an injector for a new one: see SplitStageActivity (DISPLAY.md §15). */
+    IInjector newSplitSession() = 5;
 }

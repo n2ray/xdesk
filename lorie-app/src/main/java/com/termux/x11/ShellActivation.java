@@ -229,6 +229,23 @@ final class ShellActivation {
         open(c, true);
     }
 
+    /**
+     * The split-stage prototype's session (SplitStageActivity), next to the app and wireless ones. Like the wireless
+     * session it does not take sessionUser: its end and the server's death are its owner's business.
+     */
+    void openSplitSession(final ServiceConnection c) {
+        final IShellServer s = server;
+        if (s == null) return;
+        new Thread(() -> {
+            try {
+                final IBinder injector = s.newSplitSession().asBinder();
+                ui.post(() -> c.onServiceConnected(null, injector));
+            } catch (RemoteException | RuntimeException e) {
+                Log.w(TAG, "split session", e);
+            }
+        }, "xdesk-shell-split").start();
+    }
+
     private void open(final ServiceConnection c, final boolean wireless) {
         final IShellServer s = server;
         if (s == null) return;

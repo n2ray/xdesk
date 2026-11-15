@@ -50,6 +50,8 @@ public final class ShellServer extends IShellServer.Stub {
     private InjectorService session;
     /** The wireless display's own session, which must survive app sessions starting and ending. */
     private InjectorService wirelessSession;
+    /** The split-stage prototype's session (SplitStageActivity), see DISPLAY.md §15. */
+    private InjectorService splitSession;
     private long lastSent;
 
     /** Arguments: XDesk's uid and its install version. They come from XDesk over its own adb connection. */
@@ -113,11 +115,18 @@ public final class ShellServer extends IShellServer.Stub {
         return wirelessSession;
     }
 
+    @Override public synchronized IInjector newSplitSession() {
+        if (splitSession != null) splitSession.shutdown();
+        splitSession = new InjectorService(appUid);
+        return splitSession;
+    }
+
     /** Gives back what the session holds first: the sound route and the density outlive this process. */
     @Override public void exit() {
         synchronized (this) {
             if (session != null) session.shutdown();
             if (wirelessSession != null) wirelessSession.shutdown();
+            if (splitSession != null) splitSession.shutdown();
         }
         System.exit(0);
     }
