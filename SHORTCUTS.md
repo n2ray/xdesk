@@ -15,8 +15,9 @@ XDesk 只占 **Ctrl+Alt+字母** 这一组，其余按键原样交给外屏上�
 | Ctrl+Alt+N | 打开 / 关上通知中心 | 外屏上任何内容 | ✅ | NOTIFY.md §4.1，`Notify.hotkey` |
 | Ctrl+Alt+Space | 打开 Mac 应用的菜单 | 外屏上是单个 Mac 窗口或应用时 | ✅ | MACMENU.md §3，`MacMenus.hotkey` |
 | Ctrl+Alt+S（暂定） | 打开文件中转架 | 外屏上任何内容 | 📝 | SHELF.md §3 |
+| Ctrl+Alt+G | 游戏直通：键鼠不经 XDesk，直接交给外屏上的安卓应用（指针捕获），再按一次退出 | 外屏上是安卓应用时 | 📝 | GAMING.md §3 |
 
-已经用掉的 Ctrl+Alt 字母：M、Q、N、Space；暂定 S。新的先查这里。
+已经用掉的 Ctrl+Alt 字母：M、Q、N、Space；暂定 S、G。新的先查这里。
 
 ## 2. 实体键盘：XDesk 自己的界面上
 
