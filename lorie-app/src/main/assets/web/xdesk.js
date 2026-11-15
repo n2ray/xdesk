@@ -32,7 +32,7 @@ const T = zh ? {
 
 // ---------------------------------------------------------------- protocol
 const VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6, SIZE = 7, KEY_FRAME = 8, TIME = 9, POINTER = 10;
-const FEATURES = 18, SETTINGS = 19;
+const INPUT_MODE = 14, FEATURES = 18, SETTINGS = 19;
 const IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_ANDROID = 27;
 // FEATURES bits: 0 the phone handles ANDROID 4 (the switchboard); 1 a Mac keyboard; 2 SETTINGS
 const FEATURE_ACTIONS = 1;
@@ -176,6 +176,7 @@ function onStatus(m) {
       }
       streamW = m.w; streamH = m.h;
       stage.classList.remove('phone-pointer');
+      stage.classList.remove('picture-cursor');
       retryDelay = 1500;
       gotPicture = false;
       startSession();
@@ -350,6 +351,8 @@ function onMessage(v) {
     case PING: break;
     case TIME: if (len >= 16) onTime(v); break;
     case POINTER: stage.classList.toggle('phone-pointer', len >= 1 && p[0] === 1); break;
+    // INPUT_MODE 3 (FEATURES bit 3): the picture contains the desktop's cursor; this pointer would double it
+    case INPUT_MODE: stage.classList.toggle('picture-cursor', len >= 1 && p[0] === 3); break;
     case FEATURES:
       if (len >= 4) { features = v.getUint32(5); applyFeatures(); }
       break;

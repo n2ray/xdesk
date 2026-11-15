@@ -121,6 +121,11 @@ final class AppSession {
     /** A browser's pointer is on top, so the display's cursor stays hidden. Main thread. */
     private volatile boolean webPointer;
     /**
+     * The remote pointer belongs to an Android receiver (WirelessDisplay.receiverHidesPointer): it hides its own
+     * pointer when the picture has a cursor, so our arrow stays and follows its absolute placements.
+     */
+    private volatile boolean remoteHidesPointer;
+    /**
      * Android Auto encodes about 30 frames a second. At 60 the apps' display keeps feeding it more, unevenly: the picture
      * stuttered as soon as a finger moved, and the encoder fell to about 10 (measured with a browser playing video).
      */
@@ -253,14 +258,27 @@ final class AppSession {
         @Override public void moveToFraction(float x, float y) {
             // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice
             pointerAtHeight(y * cursorPolicy.height(), false);
+            final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
             BottomEdgeListener l = bottomEdge;
             if (l != null && l.wantsPlace()) {
-                final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
                 ui.post(() -> pointerPlaced(px, py));
             }
-            // May be on the network thread, and the overlay is a window
-            if (!webPointer) ui.post(cursor::hide);
-            webPointer = true;
+            if (remoteHidesPointer) {
+                // The receiver hides its own pointer for Android content (INPUT_MODE 0): our arrow is the only
+                // cursor there, so it moves to the placed point instead of hiding, as for a relative move
+                webPointer = false;
+                ui.post(() -> {
+                    if (!active) return;
+                    cursorPolicy.moved(py);
+                    cursor.moveTo(px, py);
+                    updateCursor();
+                    scheduleCursorHide();
+                });
+            } else {
+                // May be on the network thread, and the overlay is a window
+                if (!webPointer) ui.post(cursor::hide);
+                webPointer = true;
+            }
             IInjector i = injector;
             try {
                 if (i != null) i.moveToFraction(x, y);
@@ -395,6 +413,10 @@ final class AppSession {
     AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
     void raiseCursor() { cursor.raise(); }
+    /** The wireless receiver hides its own pointer when the picture has a cursor: our arrow follows its placements. */
+    void setRemoteHidesPointer(boolean on) {
+        remoteHidesPointer = on;
+    }
 
     interface BottomEdgeListener {
         /**

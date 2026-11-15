@@ -35,11 +35,15 @@ const FILE_START: u8 = 29;
 const FILE_DATA: u8 = 30;
 const FILE_END: u8 = 31;
 const KEYBOARD: u8 = 32;
-/// FEATURES bits: 0 the phone handles ANDROID 4 and 5, 1 a Mac keyboard (KEYBOARD), 2 SETTINGS.
+/// FEATURES bits: 0 the phone handles ANDROID 4 and 5, 1 a Mac keyboard (KEYBOARD), 2 SETTINGS, 3 the phone says
+/// whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide its own pointer then.
 pub const FEATURE_ACTIONS: u32 = 1;
 pub const FEATURE_RAW_COMMAND: u32 = 2;
+pub const FEATURE_PICTURE_CURSOR: u32 = 8;
 /// What the phone said in FEATURES, 0 until it does (an old phone never sends it).
 static FEATURES_BITS: AtomicU32 = AtomicU32::new(0);
+/// INPUT_MODE 3: the desktop's cursor is in the picture; this computer's own pointer must not double it.
+static PICTURE_CURSOR: AtomicBool = AtomicBool::new(false);
 /// KEYBOARD (32) kind 1 goes out once per connection, after FEATURES bit 1 arrives.
 static KEYBOARD_SENT: AtomicBool = AtomicBool::new(false);
 /// A file goes in pieces of this size, so that the mouse never waits long behind one.
@@ -130,6 +134,12 @@ pub fn features_actions() -> bool {
 /// FEATURES bit 1: the phone handles a Mac keyboard, whose Command goes as Meta (KEY_LEFTMETA/RIGHTMETA).
 pub fn raw_command() -> bool {
     FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_RAW_COMMAND != 0
+}
+
+/// The picture contains the desktop's cursor (INPUT_MODE 3, from a phone that said FEATURES bit 3): hide this
+/// computer's own pointer over it.
+pub fn picture_cursor() -> bool {
+    PICTURE_CURSOR.load(Ordering::Relaxed) && FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_PICTURE_CURSOR != 0
 }
 
 pub fn notice() -> Notice {
@@ -382,7 +392,11 @@ impl Stream {
             BYE => return false,
             CLIPBOARD => crate::clip::set(&String::from_utf8_lossy(p)),
             TIME => crate::stats::time_reply(p),
-            INPUT_MODE if p.len() == 1 => crate::tap::DESKTOP.store(p[0] != 0, Ordering::Relaxed),
+            INPUT_MODE if p.len() == 1 => {
+                crate::tap::DESKTOP.store(p[0] != 0, Ordering::Relaxed);
+                // 3 (FEATURES bit 3): the desktop's cursor is in the picture; 0, 1 and 2 mean it is not
+                PICTURE_CURSOR.store(p[0] == 3, Ordering::Relaxed);
+            }
             FEATURES if p.len() >= 4 => {
                 FEATURES_BITS.store(u32::from_be_bytes([p[0], p[1], p[2], p[3]]), Ordering::Relaxed);
             }
@@ -520,6 +534,7 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
     VIA_USB.store(usb, Ordering::Relaxed);
     FILES_WAITING.store(0, Ordering::Relaxed);
     FEATURES_BITS.store(0, Ordering::Relaxed);
+    PICTURE_CURSOR.store(false, Ordering::Relaxed);
     KEYBOARD_SENT.store(false, Ordering::Relaxed);
     crate::stats::reset();
     STREAMING.store(true, Ordering::Relaxed);

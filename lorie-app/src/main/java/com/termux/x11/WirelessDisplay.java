@@ -75,8 +75,11 @@ final class WirelessDisplay {
     /** FEATURES (18): what this phone understands, sent right after the session starts. SETTINGS (19) is its JSON
      *  sibling, sent after it and on every change. */
     private static final int FEATURES = 18, SETTINGS = 19;
-    /** FEATURES bits: 0 the ANDROID (27) actions 4 and 5; 1 a Mac keyboard, KEYBOARD (32); 2 SETTINGS (19). */
-    private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4;
+    /** FEATURES bits: 0 the ANDROID (27) actions 4 and 5; 1 a Mac keyboard, KEYBOARD (32); 2 SETTINGS (19);
+     *  3 this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide
+     *  its own pointer when it does. */
+    private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4,
+            FEATURE_PICTURE_CURSOR = 8;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -470,6 +473,9 @@ final class WirelessDisplay {
         receiverId = null;
         receiverDensity = density;
         keyboardKind = 0;
+        // These are of the receiver protocol (the handshake sets them): a browser is neither
+        inputReceiver = false;
+        computer = false;
         endReason = null;
         address = null;
         receiverName = name;
@@ -527,6 +533,10 @@ final class WirelessDisplay {
         }
         webButtons.clear();
         webKeys.clear();
+        if (pointerToo) {
+            // The pointer is gone: the X cursor comes back into the picture (DesktopInput.pointerGone)
+            absolutePlacement = false;
+        }
     }
 
     /** Browser → phone input, inside the same framing; only a browser sends these. */
@@ -539,12 +549,22 @@ final class WirelessDisplay {
             case IN_MOVE:
                 if (b.length < 4) return;
                 final int dx = p.getShort(), dy = p.getShort();
+                // Relative moves drive the X cursor in the picture (INPUT_MODE 3)
+                if (absolutePlacement) {
+                    absolutePlacement = false;
+                    sendInputMode();
+                }
                 r = () -> sink.move(dx, dy);
                 break;
             case IN_ABS:
                 if (b.length < 4) return;
                 phonePointer = false;
                 final float fx = (p.getShort() & 0xffff) / 65535f, fy = (p.getShort() & 0xffff) / 65535f;
+                // An absolute placement hides the X cursor (INPUT_MODE 1)
+                if (!absolutePlacement) {
+                    absolutePlacement = true;
+                    sendInputMode();
+                }
                 r = () -> sink.moveToFraction(fx, fy);
                 break;
             case IN_BUTTON:
@@ -931,6 +951,8 @@ final class WirelessDisplay {
     /** Under writeLock, on a new connection: the stream starts over from a key frame. */
     private void restartStream() throws IOException {
         sentInputMode = -1;
+        // The X cursor is back in the picture until this connection places its pointer
+        absolutePlacement = false;
         ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
         writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
         sendFeatures();
@@ -941,17 +963,20 @@ final class WirelessDisplay {
         }
         // The receiver on this connection may be a fresh one (a browser that reloaded): its settings start over too
         sendSettings();
+        // Its pointer must follow the picture from the first frame, not half a second later (sentInputMode was -1)
+        sendInputMode();
         lastSyncRequest = 0;
         keyFrameWanted = true;
     }
 
     /**
      * FEATURES (18), right after the session starts and again with every new connection: what this phone understands.
-     * bit 0 the ANDROID actions 4 and 5, bit 1 a Mac keyboard (KEYBOARD) whose Command comes as Meta. bit 2 (SETTINGS)
-     * is defined but not set: that belongs to a later change.
+     * bit 0 the ANDROID actions 4 and 5, bit 1 a Mac keyboard (KEYBOARD) whose Command comes as Meta, bit 2 SETTINGS,
+     * bit 3 the picture-cursor signal (INPUT_MODE 3), so a receiver hides its own pointer when the picture has one.
      */
     private void sendFeatures() throws IOException {
-        ByteBuffer b = ByteBuffer.allocate(4).putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS);
+        ByteBuffer b = ByteBuffer.allocate(4)
+                .putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS | FEATURE_PICTURE_CURSOR);
         writeMessage(FEATURES, b.array(), 0, 4);
     }
 
@@ -1061,9 +1086,29 @@ final class WirelessDisplay {
         if (on) showComputerClipboard();
     }
 
+    /** The desktop content's cursor is in the picture (a Mac, the switchboard, the driven Dock). Set by XDeskActivity. */
+    private volatile boolean desktopCursor;
+
+    void setDesktopCursor(boolean on) {
+        desktopCursor = on;
+    }
+
+    /** The last pointer message placed the pointer absolutely: over X the X cursor is hidden then (DesktopInput). */
+    private volatile boolean absolutePlacement;
+
+    /** An Android receiver (codecs bits 7 and 6): it hides its own pointer when the picture has a cursor, so the
+     *  phone keeps drawing its arrow for its absolute placements (AppSession.remoteHidesPointer). */
+    boolean receiverHidesPointer() {
+        return inputReceiver && !computer;
+    }
+
     private void sendInputMode() {
-        // A computer knows 0 and 1, and takes anything else as the desktop
-        int mode = desktopShown ? 1 : touchMode && !computer ? 2 : 0;
+        // INPUT_MODE 3, for a receiver with FEATURES bit 3: the desktop's cursor is in the picture (X driven by
+        // relative moves, a Mac re-encoded, the switchboard, the Dock), hide this device's own pointer. 1: the
+        // desktop's cursor is hidden (X placed absolutely), show it. A computer knows 0 and 1 and takes anything
+        // else as the desktop.
+        int mode = !desktopShown ? touchMode && !computer ? 2 : 0
+                : desktopCursor || !absolutePlacement ? 3 : 1;
         if (mode == sentInputMode || webLost) return;
         try {
             writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);
@@ -1085,12 +1130,13 @@ final class WirelessDisplay {
     }
 
     private void startClipboardSync() {
-        if (!inputReceiver) return;
         new Thread(() -> {
             boolean first = true;
-            while (running && inputReceiver) {
+            while (running) {
                 SystemClock.sleep(CLIPBOARD_POLL_MS);
+                // INPUT_MODE changes with the content and the pointer: to an input receiver and a browser alike
                 sendInputMode();
+                if (!inputReceiver) continue;
                 IInjector i = injector;
                 if (i == null || webLost || !clipboardSyncOn()) continue;
                 try {
