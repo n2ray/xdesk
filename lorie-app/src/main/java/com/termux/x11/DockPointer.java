@@ -5,11 +5,11 @@ import io.github.n2ray.xdesk.input.Caps;
 /**
  * The Dock over a content that has the mouse to itself (ExternalDock): over an X desktop, a Linux window or a Mac the
  * phone's mouse is captured and sent on as moves, the content draws its own pointer, and Android has no pointer on the
- * external display for the Dock's edge to notice. The phone's mouse and touchpad pass through here on their way to the
- * Router, so this knows when the content's pointer is pushed against the bottom of the screen, opens the Dock, and
- * gives it the pointer while it is open. `client` is not swapped as it is for the Launchpad: the keyboard, the text
- * bridge and everything else stay with the content, only moves, buttons and the wheel of these two devices turn to the
- * Dock. Only Esc is taken from the keyboard, to close it.
+ * external display for the Dock's edge to notice. The phone's mouse and touchpad, and a receiver's pointer over X or a
+ * Mac, pass through here on their way to the Router, so this knows when the content's pointer is pushed against the
+ * bottom of the screen, opens the Dock, and gives it the pointer while it is open. `client` is not swapped as it is
+ * for the Launchpad: the keyboard, the text bridge and everything else stay with the content, only moves, buttons and
+ * the wheel of these devices turn to the Dock. Only Esc is taken from the keyboard, to close it.
  *
  * When it opens. The content's pointer is at the bottom (InputSink.pointerPlace, read before each move is sent on, so
  * what counts is only what goes beyond the edge) and is pushed further down: the rule is EdgePush, the same one an
@@ -39,7 +39,7 @@ final class DockPointer {
     private final EdgePush rule = new EdgePush();
     private boolean escTaken;
 
-    /** @param devices the phone's devices that move the pointer: none of them may hold a button when the Dock opens */
+    /** @param devices the devices that move the pointer (the phone's mouse and touchpad, the receiver): none of them may hold a button when the Dock opens */
     DockPointer(Host host, Router.Device... devices) {
         this.host = host;
         this.devices = devices;

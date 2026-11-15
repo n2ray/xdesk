@@ -32,13 +32,14 @@ import com.termux.x11.app.R;
  *
  * Over an X desktop or a Mac there is no Android pointer on this display at all (the phone's mouse is captured and
  * sent on, the content draws its pointer). There the dock is "driven": DockPointer opens it (openDriven) by the same
- * rule, and moves and clicks a pointer the dock draws itself, until that pointer leaves upwards, something is opened,
- * or closeDriven.
+ * rule, a receiver's placed pointer resting at the edge opens it (restDriven), and moves and clicks a pointer the
+ * dock draws itself, until that pointer leaves upwards, something is opened, or closeDriven.
  *
  * The one case left where resting at the edge opens it: a pointer XDesk does not move. That is a mouse the phone
  * handles itself over an Android app (the keys and mouse are "on the phone": only its hover over a strip a few pixels
  * high is heard, never how far it was pushed), and a pointer placed from a receiver or a browser (it stops at the
- * edge of its own picture). Nothing beyond the edge can be known there.
+ * edge of its own picture). Nothing beyond the edge can be known there. Over X and a Mac that rest opens the dock
+ * driven (restDriven), its own arrow under the content's pointer; over an Android app it opens by atBottom's dwell.
  */
 final class ExternalDock implements AppSession.BottomEdgeListener {
     private static final String TAG = "XDesk";
@@ -76,6 +77,11 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     private final EdgePush rule = new EdgePush();
     private final Runnable close = this::close;
     private final Runnable openFromEdge = this::openFromEdge;
+    /** Where the receiver's pointer rests across the screen, for the dock's arrow when its rest opens the dock. */
+    private float restX;
+    private final Runnable openDrivenFromRest = () -> {
+        if (panel == null && windows != null) openDriven(restX);
+    };
 
     interface ImeProbe {
         /** Where the input method begins on this display, -1 while it is not showing. May take a while. */
@@ -215,6 +221,42 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     /** No-op unless driven: over Android apps the dock closes by where Android's pointer is. */
     void closeDriven() {
         if (driven()) close();
+    }
+
+    /**
+     * The receiver's placed pointer rests on the bottom edge over X or a Mac: after the same dwell as atBottom's
+     * rest over an Android app (EDGE_DWELL_MS), the dock opens with its own pointer under the content's (openDriven).
+     * @param x the pointer's place across the screen, 0 to 1: the dock's arrow starts under it
+     */
+    void restDriven(boolean at, float x) {
+        atEdge = at;
+        if (windows == null) return;
+        if (at) {
+            restX = x;
+            ui.removeCallbacks(close);
+            if (panel == null) later(openDrivenFromRest, EDGE_DWELL_MS);
+        } else {
+            ui.removeCallbacks(openDrivenFromRest);
+            if (panel != null) later(close, LEAVE_MS);
+        }
+    }
+
+    /**
+     * A receiver placed its pointer here (0 to 1 of the screen) while the dock has the pointer: the dock's arrow
+     * follows it, and up out of the dock closes it, as the relative moves do (moveBy). The content's pointer is not
+     * moved (DISPLAY.md §7: it stays where it was).
+     */
+    void placeDriven(float x, float y) {
+        Panel p = panel;
+        if (!driven() || p == null) return;
+        px = Math.max(0f, Math.min(width - 1, x * (width - 1)));
+        py = Math.max(0f, Math.min(height - 1, y * (height - 1)));
+        if (p.above(Math.round(py))) {
+            close();
+            return;
+        }
+        arrow.moveTo(Math.round(px), Math.round(py));
+        p.point(Math.round(px), Math.round(py));
     }
 
     /** The keys and mouse went to the phone (Ctrl+Alt+M, its button): nothing moves the Dock any more, so it goes. */

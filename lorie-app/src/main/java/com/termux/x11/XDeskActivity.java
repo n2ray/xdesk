@@ -248,13 +248,14 @@ public class XDeskActivity extends Activity {
     private final Router.Device padIn = router.device(Router.PHONE_PAD), keysIn = router.device(Router.PHONE_KEYS),
         mouseIn = router.device(Router.PHONE_MOUSE), remoteIn = router.device(Router.REMOTE);
     /**
-     * The phone's mouse and touchpad pass through this on their way to the Router: over X or a Mac it opens the
-     * external Dock when the content's pointer is pushed against the bottom, and the Dock has the pointer while open.
+     * The phone's mouse and touchpad, and a receiver's pointer over X or a Mac, pass through this on their way to the
+     * Router: over X or a Mac it opens the external Dock when the content's pointer is pushed against the bottom, and
+     * the Dock has the pointer while open.
      */
     private final DockPointer dockPointer = new DockPointer(new DockPointer.Host() {
         @Override public InputSink target() { return client; }
         @Override public ExternalDock dock() { return externalDock; }
-    }, mouseIn, padIn);
+    }, mouseIn, padIn, remoteIn);
 
     private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
         @Override public void move(int dx, int dy) {
@@ -848,10 +849,34 @@ public class XDeskActivity extends Activity {
 
     // --- 网页显示 ---
 
-    /** The browser's mouse and keyboard, as the phone's touchpad and keyboard would. */
+    /**
+     * The browser's and the receivers' mouse and keyboard, as the phone's touchpad and keyboard would. Over X and a
+     * Mac (targets that draw the pointer themselves) the pointer passes through DockPointer: its push against the
+     * bottom opens the Dock (EdgePush), and the Dock has it while open. Over an Android app the app session's
+     * injector hears the pointer itself; its moves and buttons go straight to the Router.
+     */
     private final InputSink webInput = new InputSink() {
-        @Override public void move(int dx, int dy) { remoteIn.move(dx, dy); }
-        @Override public void moveToFraction(float x, float y) { remoteIn.moveToFraction(x, y); }
+        @Override public void move(int dx, int dy) {
+            if (receiverOverDrawn()) dockPointer.move(remoteIn, dx, dy);
+            else remoteIn.move(dx, dy);
+        }
+        @Override public void moveToFraction(float x, float y) {
+            if (!receiverOverDrawn()) {
+                remoteIn.moveToFraction(x, y);
+                return;
+            }
+            ExternalDock dock = externalDock;
+            if (dock != null && dock.driven()) {
+                // The Dock has the receiver's pointer: it moves the dock's arrow (the content's pointer stays
+                // where it was, DISPLAY.md §7), and the receiver's clicks are the dock's
+                dock.placeDriven(x, y);
+                return;
+            }
+            remoteIn.moveToFraction(x, y);
+            // A placed pointer stops at the edge of its picture: resting on the bottom row is all there is to
+            // open the Dock by over X and a Mac (DISPLAY.md §7); over an app the session hears it itself
+            receiverRest(x, y);
+        }
         @Override public void pointerGone() {
             // Whichever it was on, the client may have changed since
             session.input().pointerGone();
@@ -875,13 +900,49 @@ public class XDeskActivity extends Activity {
             apps.setBrowserLayout(layout);
             updateStatus();
         }
-        @Override public void button(int b, boolean down) { remoteIn.button(b, down); }
-        @Override public void click(int b) { remoteIn.click(b); }
-        @Override public void scroll(int dy, int dx) { remoteIn.scroll(dy, dx); }
+        @Override public void button(int b, boolean down) {
+            // While the Dock is open the receiver's buttons are its, pressed on the Dock, up on the Dock
+            if (receiverOverDrawn()) dockPointer.button(remoteIn, b, down);
+            else remoteIn.button(b, down);
+        }
+        @Override public void click(int b) {
+            if (receiverOverDrawn()) dockPointer.click(remoteIn, b);
+            else remoteIn.click(b);
+        }
+        @Override public void scroll(int dy, int dx) {
+            // While the Dock has the receiver's pointer its wheel is not the content's, as for the phone's mouse
+            if (receiverOverDrawn() && dockPointer.takesScroll()) return;
+            remoteIn.scroll(dy, dx);
+        }
         @Override public void key(int scan, boolean down) { remoteIn.key(scan, down); }
         @Override public void tapKey(int scan) { remoteIn.tapKey(scan); }
         @Override public void text(String s) { remoteIn.text(s); }
     };
+
+    /** The receiver's pointer over X or a Mac: targets that draw the pointer themselves, where DockPointer works. */
+    private boolean receiverOverDrawn() {
+        InputSink c = client;
+        return c instanceof DesktopInput || c instanceof WindowScopedInput || c instanceof MacInput;
+    }
+
+    private final float[] remotePlace = new float[2];
+
+    /** Feeds the dock what a placed receiver pointer resting at the bottom means over X and a Mac (DISPLAY.md §7). */
+    private void receiverRest(float x, float y) {
+        ExternalDock dock = externalDock;
+        if (dock == null) return;
+        InputSink c = client;
+        boolean at;
+        if (c instanceof MacInput && c.pointerPlace(remotePlace)) {
+            // The Mac picture is letterboxed on the screen: where the Mac's pointer stopped (clamped to the
+            // picture) is the bottom, and its place across the screen, not the requested place
+            at = remotePlace[1] >= 1f;
+            x = remotePlace[0];
+        } else {
+            at = y >= 1f;
+        }
+        dock.restDriven(at, x);
+    }
 
     private WirelessFinder autoFinder;
     private boolean activityStarted;

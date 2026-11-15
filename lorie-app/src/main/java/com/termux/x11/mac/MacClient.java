@@ -16,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Display;
 import android.view.Surface;
 import android.widget.Toast;
 
@@ -556,6 +557,7 @@ public final class MacClient {
             Surface target = surface;
             // Only another user's session hides the picture; a locked screen is shown, so the desktop can be unlocked (as sall)
             if (locked && offConsole && !offConsoleView || target == null) return;
+            resumePass();
             if (passFrame(s, m)) return;
             if (!video.frame(m.payload, m.length, m.keyframe, m.timestamp, target)) askKeyframe(s);
             return;
@@ -809,6 +811,10 @@ public final class MacClient {
     /** Set by XDesk: who can take this Mac's video compressed for a display (the wireless receiver's). */
     public static volatile Passthrough.Provider passthroughProvider;
     private volatile Passthrough pass;
+    /** The display the passthrough was opened for (the wireless receiver's), from the last setSurface. */
+    private volatile int passDisplay = Display.INVALID_DISPLAY;
+    /** A status line took the picture (locked, taken, the session down): the passthrough waits for frames (resumePass). */
+    private volatile boolean passSuspended;
     /** The last parameter sets and cursor as Sill sent them: a passthrough that opens later starts with them. */
     private volatile byte[] lastParameters, lastCursor;
     private byte[] annexB;
@@ -876,6 +882,55 @@ public final class MacClient {
         sendViewport();
     }
 
+    /**
+     * A status line is about to cover the screen (statusToView): the passthrough must go, or the receiver would sit
+     * on a frozen picture and never see the line. The phone decodes and encodes again, line and all, until frames
+     * come again (resumePass). Any thread; the end is off the UI thread, it writes to the receiver.
+     */
+    private void suspendPass() {
+        Passthrough p = pass;
+        if (p == null) return;
+        passSuspended = true;
+        synchronized (surfaceLock) {
+            if (pass != p) return;
+            pass = null;
+        }
+        offUi(p::end);
+        askKeyframeSoon();
+        sendViewport();
+    }
+
+    /** Frames came again and they are this side's own picture: the passthrough comes back. Reader thread. */
+    private void resumePass() {
+        if (pass != null) {
+            passSuspended = false;
+            return;
+        }
+        if (!passSuspended || surface == null || !oursFlowing()) return;
+        Passthrough.Provider p = passthroughProvider;
+        Passthrough opened = p != null ? p.open(passDisplay, this::askKeyframeSoon) : null;
+        if (opened != null) {
+            passSuspended = false;
+            pass = opened;
+            Log.i(TAG, "passthrough again, frames came back");
+            offUi(() -> {
+                passParameters();
+                passCursor();
+            });
+        }
+    }
+
+    /**
+     * Whether the Mac streams the picture this side wants: false while the status line covers the screen
+     * (statusToView). Frames of another source still reach every device when the stream is taken over, and must not
+     * bring the passthrough back while the line is up.
+     */
+    private boolean oursFlowing() {
+        if (state != State.CONNECTED) return false;
+        if (locked && (offConsole && !offConsoleView || !offConsoleView && want != DESKTOP)) return false;
+        return want >= 0 ? activeWindow == want : want == DESKTOP && activeDesktop;
+    }
+
     // --- the screen ---
 
     /** A screen shows this Mac (MacActivity). One at a time: a new one replaces the old. */
@@ -925,6 +980,7 @@ public final class MacClient {
     private void applySurface(Surface s, int width, int height, float density, int fps, int displayId) {
         boolean fresh, resized;
         Passthrough ended = null;
+        passDisplay = displayId;
         synchronized (surfaceLock) {
             Surface old = surface;
             fresh = s != old;
@@ -948,6 +1004,10 @@ public final class MacClient {
             if (opened != null) {
                 Log.i(TAG, "passthrough to the receiver of display " + displayId);
                 pass = opened;
+                passSuspended = false;
+                // A status line already covering the screen (locked, taken) would never reach the receiver through
+                // the passthrough: the picture goes back to the encoder until frames come again
+                statusToView();
                 offUi(() -> {
                     passParameters();
                     passCursor();
@@ -1374,6 +1434,10 @@ public final class MacClient {
         }
         statusSettling = settling;
         final boolean t = taken;
+        // The status line covers the screen: through the passthrough the receiver would sit on a frozen picture
+        // (DISPLAY.md §3.4). Not while the Mac still streams during a switch (settling) or a launch waits for its
+        // window: the picture flows on then.
+        if (line != null && !settling && pendingLaunch == null) suspendPass();
         ui.post(() -> {
             View v = view;
             if (v != null) v.status(line, t);
