@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.termux.x11.app.R;
 import com.termux.x11.mac.MacActivity;
@@ -23,8 +24,9 @@ import java.util.List;
  * - "m:<mac>:app:<bundle id>" an installed app: its newest window if it has one, else launched, and the host picks
  *   its first window (Sill's pendingLaunch).
  * Opening puts MacActivity full screen on the display; the picture is the Mac's HEVC decoded into its SurfaceView.
- * Taking it off the screen (hidden) stops the stream and keeps the connection; close() closes the window on the
- * Mac. Nothing connects until the chooser asks for the catalog or something is opened.
+ * Taking it off the screen (hidden) stops the stream and keeps the connection; close() closes a window on the Mac
+ * and quits an app (MacClient.quitApp, through Sill's menu protocol, SALL-SYNC.md "The Mac's menus"). Nothing
+ * connects until the chooser asks for the catalog or something is opened.
  */
 final class MacSource implements ContentSource {
     private static final String TAG = "XDeskMac";
@@ -250,9 +252,49 @@ final class MacSource implements ContentSource {
                 m.windowCommand(Long.parseLong(rest), "close");
             } catch (NumberFormatException ignored) { }
         } else if ("app".equals(kind)) {
-            // Sill can't quit an app: its windows close
-            for (MacClient.Window w : m.windows()) if (rest.equals(w.bundleId)) m.windowCommand(w.id, "close");
+            // "Quit" on a Mac app quits it for real, through Sill's menu protocol (MacClient.quitApp,
+            // SALL-SYNC.md "The Mac's menus"): Sill's AppInfo has no running flag, so an app with no windows
+            // would otherwise stay on the Mac unseen; quitting one needs no window
+            quitApp(m, rest);
         }
+    }
+
+    /** Quit the app of a window item (ContentSource.quit, the card's "Quit <app>" on a Mac window). */
+    @Override public void quit(String key) {
+        Object[] k = parse(key);
+        if (k == null) return;
+        MacClient m = (MacClient) k[0];
+        String kind = (String) k[1], rest = (String) k[2];
+        if ("win".equals(kind)) {
+            // The window's app: the key's window may have closed since, but a window of the app is enough
+            for (MacClient.Window w : m.windows())
+                if (rest.equals(String.valueOf(w.id))) {
+                    quitApp(m, w.bundleId);
+                    return;
+                }
+        } else if ("app".equals(kind)) {
+            quitApp(m, rest);
+        }
+    }
+
+    /** One app quit through Sill's menu protocol; its answer goes to the user, on the UI thread. */
+    private void quitApp(MacClient m, String bundleId) {
+        m.quitApp(bundleId, (result, winId, note) -> {
+            if (result == MacClient.QuitListener.OK) return;  // the lists refresh with the window list
+            if (result == MacClient.QuitListener.SAVE) {
+                Toast.makeText(context, note, Toast.LENGTH_LONG).show();
+                if (winId >= 0) {
+                    // The app asked something (a save dialog, most likely): answer it on the Mac. Its newest
+                    // window becomes the content, the normal way (XDeskActivity's chooseKey), with the same
+                    // line over the picture once the screen is up
+                    Contents.Host host = Contents.host();
+                    if (host != null) host.open(macPrefix(m) + "win:" + winId);
+                    ui.postDelayed(() -> m.flash(note), 700);
+                }
+                return;
+            }
+            Toast.makeText(context, note, Toast.LENGTH_LONG).show();
+        });
     }
 
     @Override public void hidden(String key) {

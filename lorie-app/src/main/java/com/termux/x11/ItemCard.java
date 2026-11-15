@@ -358,12 +358,32 @@ final class ItemCard {
             final Devices.Device d = device();
             if (d == null || !d.canStop || d.busy || !session.equals(devices.runningSession())) return;
             action(R.string.xd_dev_stop, Style.SURFACE, Style.DANGER, () -> devices.stop(d.id));
+        } else if (isMac()) {
+            // A Mac window closes (its app keeps running); a Mac app quits through Sill's menu protocol, for real
+            // (MacSource.close on an "app" key, SALL-SYNC.md). Sill's app list has no running flag, so the quit
+            // is offered whether or not the app has windows — a windowless app would otherwise be unquittable
+            boolean window = e != null && e.detail != null;
+            if (window) {
+                action(R.string.xd_card_close_window, Style.SURFACE, Style.DANGER, () -> source.close(key));
+                action(c.getString(R.string.xd_card_quit, e.label), Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
+            } else if (e != null && !ChooserView.isDesktopKey(key)) {
+                action(R.string.xd_card_quit_app, Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
+            }
         } else if (e != null && e.running && !ChooserView.isDesktopKey(key)) {
-            // A window closes; a program quits, which for a Mac app is its windows closing (ContentSource.close).
-            // A Mac's desktop is not closed: its Mac is disconnected, below
+            // A window closes; a program quits (ContentSource.close). A Mac's desktop is not closed: its Mac is
+            // disconnected, below
             boolean program = hideable();
             action(program ? R.string.xd_dev_quit : R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
         }
+    }
+
+    /** Quitting is asked first, with the same words about unsaved work as closing an app. */
+    private void confirmQuit(String label) {
+        s.confirm(c.getString(R.string.xd_card_quit_title, label), str(R.string.xd_unsaved_may_be_lost),
+            str(R.string.xd_dev_quit), () -> {
+                card.dismiss();
+                source.quit(key);
+            });
     }
 
     // --- below, by kind ---

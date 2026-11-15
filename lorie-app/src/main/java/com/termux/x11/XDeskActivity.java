@@ -3605,6 +3605,12 @@ public class XDeskActivity extends Activity {
         @Override public boolean wanted(String key) {
             return key.equals(pendingContent);
         }
+        @Override public void open(String key) {
+            // The normal way anything is opened or switched to, as the card's open does (a Mac app's save dialog
+            // after a quit, MacSource.quitApp): the Launchpad still open goes away first
+            if (SwitcherOverlay.isShown()) SwitcherOverlay.hide(switcherHost);
+            chooseKey(key);
+        }
         @Override public void freeDisplay() {
             releaseLatches();
             if (apps.isActive()) appWasInFront = true;

@@ -39,6 +39,12 @@ final class Contents {
          */
         default boolean wanted(String key) { return true; }
 
+        /**
+         * Open a key the normal way (chooseKey): a source that needs content on the screen after an action of
+         * its own (a Mac app's save dialog, quitApp's SAVE).
+         */
+        void open(String key);
+
         /** Something about this content changed that the phone UI shows (title, running state). */
         void contentChanged();
 

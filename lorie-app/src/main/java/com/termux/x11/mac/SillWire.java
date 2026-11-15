@@ -24,6 +24,8 @@ final class SillWire {
     /** Device → host: one changed setting (HostSettingsChange). Host → device: sound (Audio.swift). */
     static final int CHANGE_SETTINGS = 17, AUDIO = 43;
     static final int MAC_INFO = 18, PAIR_REQUEST = 19, PAIR_RESULT = 20, GOODBYE = 22, HELLO = 23;
+    /** The Mac's menus (MacMenu.swift): 24 host → device, 25 and 27 device → host, around the pointer's 26. */
+    static final int MAC_MENU = 24, PRESS_MENU_ITEM = 25, FETCH_MENU = 27;
     static final int MAC_POINTER = 26, CLIPBOARD = 32, KEYFRAME_REQUEST = 44;
 
     static final int MAX_FRAME = 32 << 20, MAX_OTHER = 4 << 20, MAX_OUTGOING = 1 << 20;

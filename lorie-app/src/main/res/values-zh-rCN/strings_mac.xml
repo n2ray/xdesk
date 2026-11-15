@@ -64,6 +64,14 @@
     <string name="xd_mac_taken">另一台设备正在看这台 Mac。点这里要回来</string>
     <string name="xd_mac_waiting_picture">正在等 %1$s 送来画面（它的屏幕可能在睡眠）。点这里再试一次</string>
     <string name="xd_mac_window_closed">这个窗口已在 Mac 上关闭</string>
+    <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
+    <string name="xd_mac_quitting">正在退出 %1$s…</string>
+    <string name="xd_mac_quit_save">%1$s 有未保存的内容，请在 Mac 上处理</string>
+    <string name="xd_mac_quit_no_access">Mac 上的 Sill 没有辅助功能权限，XDesk 已改发 ⌘Q。请在「系统设置 › 隐私与安全性 › 辅助功能」里允许，退出应用才可靠</string>
+    <string name="xd_mac_quit_no_menus">这个应用没有菜单栏，没法从菜单退出</string>
+    <string name="xd_mac_quit_no_item">这个应用的菜单里没有「退出」一项</string>
+    <string name="xd_mac_quit_no_answer">Mac 没有回应菜单请求</string>
+    <string name="xd_mac_quit_failed">没能退出 %1$s：%2$s</string>
     <string name="xd_mac_unpaired">Mac 移除了 XDesk。请在 XDesk 设置 › Mac 里重新配对</string>
     <string name="xd_mac_identity_changed">Mac 的身份变了。请移除后重新配对</string>
     <string name="xd_mac_remote_off">Mac 上的远程访问已关闭</string>

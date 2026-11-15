@@ -432,6 +432,10 @@
     <string name="xd_card_device_settings">%1$s settings</string>
     <string name="xd_card_on_phone">Its settings are on the phone</string>
     <string name="xd_card_close_title">Close %1$s?</string>
+    <string name="xd_card_close_window">Close window</string>
+    <string name="xd_card_quit">Quit %1$s</string>
+    <string name="xd_card_quit_app">Quit app</string>
+    <string name="xd_card_quit_title">Quit %1$s?</string>
 
     <!-- Termux environments in the launcher -->
     <string name="xd_termux_not_installed">Termux is not installed. Install it, then tap here</string>
