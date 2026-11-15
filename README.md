@@ -2,9 +2,9 @@
 
 <p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="XDesk on a portable display: an Android desktop with a dock, the phone in a stand as touchpad, a keyboard and a mouse"></p>
 
-**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and a push of the pointer against the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and a push of the pointer against the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
 
-> **0.6.0 is a beta.** It reworks how XDesk handles content and devices — one switchboard for the phone, the display and the docks, devices added on demand, Mac support, and more — and it has been tested less than the stable releases. v0.5.1 stays the stable version. The beta is published under the tag `v0.6.0-beta.1` on the [releases](https://github.com/n2ray/xdesk/releases) page and installs over 0.5.1.
+> **0.6.0 is a beta.** It reworks how XDesk handles content and devices — one switchboard for the phone, the display and the docks, devices added on demand, Mac support, and more — and it has been tested less than the stable releases. v0.5.1 stays the stable version. The betas are published on the [releases](https://github.com/n2ray/xdesk/releases) page (the newest is `v0.6.0-beta.4`) and install over 0.5.1.
 
 | Screen | How it connects |
 |---|---|
@@ -81,6 +81,15 @@ Long-press any item on the phone, or right-click its icon on the display, to ope
 - **Interface size.** The screen's **Size** setting sizes XDesk's own screens — the Launchpad, the docks, the cursor — and X and Mac contents; **Android apps' interface size** applies only to Android apps. It sets the default density from 120 to 220 dpi while an Android app is on the display, remembered per physical display. An app can have its own number on its card, which applies before it starts and whenever you switch to it. Density only changes when the value differs, because apps reconfigure. The cursor keeps its size, set from the display's height. It is reset when the session ends, so mirroring is normal again. While a Termux desktop is shown, the display uses a separate number, 168 dpi by default and set in the same place. It only sizes Android's windows there, such as the input method's candidates; the desktop has its own DPI setting. On HyperOS a cleared density falls back to the phone's own, so XDesk sets the display's own value instead. It needs the injector service.
 - **RustDesk's input relies on its internals.** Flutter breaks drags from normal mouse events there, so XDesk sends button changes as hover events, and guesses when a click is meant for RustDesk's own toolbar. A RustDesk update may break this. Packages with their own method are listed in `AppInputProfile.java`. Everything else gets normal Android mouse events.
 - **The phone keyboard can only send what a keyboard can type.** Chinese and other IME text does not reach Android apps.
+
+## Games: the phone as a game console
+
+Open a cloud gaming app such as **GeForce NOW** on the display, connect a gamepad, and the phone is a game console on the big screen. Gamepads go straight to the app. For games played with a **keyboard and mouse**, press **Ctrl+Alt+G**: XDesk lets go of them and the app gets the real keyboard and mouse, so mouse look, WASD and every key work as on a PC. Press Ctrl+Alt+G again, or touch the phone, to give them back to XDesk.
+
+- Tried with GeForce NOW on the test phone: a Bluetooth gamepad, and a keyboard and mouse with Ctrl+Alt+G, smooth on a USB-C display and over Wi-Fi to XDesk Receiver on a projector.
+- The same should work for Steam Link, Moonlight and other apps that want the real keyboard and mouse; they have not been tried yet.
+- The keyboard and mouse must be connected to the phone (Bluetooth or USB). The picture can go to any screen XDesk drives.
+- While Ctrl+Alt+G is on, the Dock, the notification centre and XDesk's other shortcuts wait until you leave it. Details in [GAMING.md](GAMING.md).
 
 ## Linux desktops with Termux
 
@@ -223,6 +232,7 @@ It shares its machinery with the wireless display, so there is one browser or re
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
 - Resolution presets, sensitivity, portrait or landscape touch screen, dim the phone when idle
 - Survives unplugging the display, switching apps and locking the phone
+- Games: cloud gaming such as GeForce NOW on the big screen with a gamepad, and with the real keyboard and mouse after Ctrl+Alt+G. See [Games](#games-the-phone-as-a-game-console)
 - Android Auto, parked only (experimental): XDesk appears among the car's apps and shows a clock on the car's screen. From the phone you can run a Linux desktop there, sized to the car's screen, with the phone as touchpad and keyboard, and its sound plays in the car. Android apps (YouTube, Chrome and others) run there too, on a display XDesk makes for them, and the car's touch screen works on them. With an external display also connected, the external display is used
 
 It installs next to the official Termux:X11 and does not touch it. Do not run both at once, since both use display `:1`.
