@@ -142,6 +142,8 @@ final class Devices {
     private final LinkedHashSet<String> linuxPhoneIme = new LinkedHashSet<>();
     /** An input method runs on the X side (xdesk status says so): X can compose what a physical keyboard types. */
     private boolean xIme;
+    /** The remembered X side keyboard layout (xdesk status: "Keyboard layout: NAME"), null when X's own is used. */
+    private String xLayout;
 
     private List<String> sessions = new ArrayList<>();
     private String defaultSession, runningSession, stoppingSession, termuxHint;
@@ -233,6 +235,17 @@ final class Devices {
     void setXIme(boolean runs) {
         if (runs == xIme) return;
         xIme = runs;
+        changed();
+    }
+
+    /** The remembered X side keyboard layout (INPUT.md §5.2), or null: X's own ("from X") or an xdesk without the line. */
+    String xLayout() {
+        return xLayout;
+    }
+
+    void setXLayout(String layout) {
+        if (Objects.equals(layout, xLayout)) return;
+        xLayout = layout;
         changed();
     }
 
