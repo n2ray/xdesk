@@ -72,7 +72,8 @@ public class XDeskActivity extends Activity {
     private static final String PREF_OUTPUT = "audio_output", PREF_WIDTH = "desktop_width", PREF_SPEED = "pad_speed",
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
-        PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density";
+        PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density",
+        PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked";
     /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
     private static final int DESKTOP_DENSITY = 168;
     /** IME this tall (part of the window) is a soft keyboard; less is the candidate bar of a physical keyboard. */
@@ -152,6 +153,8 @@ public class XDeskActivity extends Activity {
     private android.app.Dialog webCodeDialog;
     private DockBar runningDock;
     private ExternalDock externalDock;
+    /** The notification centre's windows on the external screen (NOTIFY.md): the bell, the banners, the panel. */
+    private Notify notify;
     /** What the switchboard (Switchboard: the phone's list, the external Launchpad, the Docks) asks of this window. */
     private final Switchboard.Host boardHost = new Switchboard.Host() {
         @Override public List<String> favourites() { return savedLines(PREF_DOCK); }
@@ -260,6 +263,7 @@ public class XDeskActivity extends Activity {
     private final DockPointer dockPointer = new DockPointer(new DockPointer.Host() {
         @Override public InputSink target() { return client; }
         @Override public ExternalDock dock() { return externalDock; }
+        @Override public Notify notifyCenter() { return notify; }
     }, mouseIn, padIn, remoteIn);
 
     private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
@@ -270,7 +274,9 @@ public class XDeskActivity extends Activity {
         @Override public void button(int b, boolean down) { dockPointer.button(padIn, b, down); }
         @Override public void click(int b) { dockPointer.click(padIn, b); }
         @Override public void scroll(int phase, float dx, float dy) {
-            if (!dockPointer.takesScroll()) padIn.scrollFine(dy, dx, phase);
+            // While the Dock or the notification centre has the pointer its wheel is not the content's (the centre scrolls)
+            if (dockPointer.scroll(dy, dx)) return;
+            padIn.scrollFine(dy, dx, phase);
         }
         @Override public void action(int a, int arg) { padIn.action(a, arg); }
     };
@@ -323,6 +329,7 @@ public class XDeskActivity extends Activity {
     /** The keys and mouse went to the phone: the external Dock had only that pointer to work it. */
     private void closeDockForPhone() {
         if (externalDock != null) externalDock.closeForPhone();
+        if (notify != null) notify.closeForPhone();
     }
 
     /** Whether the app session had the keys and mouse at the last state: there the injector's evdev reader hears Ctrl+Alt+M. */
@@ -438,7 +445,7 @@ public class XDeskActivity extends Activity {
             }
         }
         @Override public void mouseScroll(float v, float h) {
-            if (client == null || (v == 0 && h == 0) || dockPointer.takesScroll()) return;
+            if (client == null || (v == 0 && h == 0) || dockPointer.scroll(-v, h)) return;
             // A wheel turned up is a positive AXIS_VSCROLL. High resolution wheels give fractions: fine scrolling
             // keeps them, the Router makes whole steps for a target that takes only those
             mouseIn.scrollFine(-v, h, io.github.n2ray.xdesk.input.Input.WHEEL);
@@ -928,7 +935,7 @@ public class XDeskActivity extends Activity {
         }
         @Override public void scroll(int dy, int dx) {
             // While the Dock has the receiver's pointer its wheel is not the content's, as for the phone's mouse
-            if (receiverOverDrawn() && dockPointer.takesScroll()) return;
+            if (receiverOverDrawn() && dockPointer.scroll(dy, dx)) return;
             remoteIn.scroll(dy, dx);
         }
         @Override public void key(int scan, boolean down) {
@@ -957,7 +964,6 @@ public class XDeskActivity extends Activity {
     /** Feeds the dock what a placed receiver pointer resting at the bottom means over X and a Mac (DISPLAY.md §7). */
     private void receiverRest(float x, float y) {
         ExternalDock dock = externalDock;
-        if (dock == null) return;
         InputSink c = client;
         boolean at;
         if (c instanceof MacInput && c.pointerPlace(remotePlace)) {
@@ -968,7 +974,9 @@ public class XDeskActivity extends Activity {
         } else {
             at = y >= 1f;
         }
-        dock.restDriven(at, x);
+        if (dock != null) dock.restDriven(at, x);
+        // The notification centre's corner and bell hear the same placed pointer (NOTIFY.md §4.1)
+        if (notify != null) notify.placedAt(x, y);
     }
 
     private WirelessFinder autoFinder;
@@ -1332,6 +1340,9 @@ public class XDeskActivity extends Activity {
         updateReceiverSettings();
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
         apps.setBottomEdgeListener(externalDock);
+        notify = Notify.get(this);
+        notify.attachActivity(this);
+        apps.setCornerEdgeListener(notify);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
@@ -1453,6 +1464,10 @@ public class XDeskActivity extends Activity {
         // onStop took the hotkey and the input away for the cover. The session outlives this window, so give them back
         removeCover();
         if (externalDock != null) externalDock.setDisplay(null);
+        if (notify != null) {
+            notify.setDisplay(null);
+            notify.attachActivity(null);
+        }
         if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
         ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
@@ -2106,6 +2121,10 @@ public class XDeskActivity extends Activity {
         boolean content = !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && !SwitcherOverlay.isHome();
         Display d = (android || content) && prefs.getBoolean(PREF_EXTERNAL_DOCK, true) && Settings.canDrawOverlays(this) ? externalDisplay() : null;
         externalDock.setDisplay(d != null && !TargetDisplay.isCar(d) ? d : null);
+        // The notification centre is over every content, the home included (NOTIFY.md §1), on the same display —
+        // only with the notification access granted: without it everything is as before (NOTIFY.md §2)
+        Display nd = Settings.canDrawOverlays(this) && NotifyCenter.accessGranted(this) ? externalDisplay() : null;
+        if (notify != null) notify.setDisplay(nd != null && !TargetDisplay.isCar(nd) ? nd : null);
         // Open over something that is no longer the target: it goes, and the pointer is the target's again
         dockPointer.check();
     }
@@ -2218,8 +2237,16 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateStatus() {
-        if (wireless != null) wireless.setDesktopShown(session.isConnected() && !apps.isActive());
-        audioRoute.setCar(onCar());
+        if (wireless != null) {
+            wireless.setDesktopShown(session.isConnected() && !apps.isActive());
+            // The desktop content's cursor is in the picture: a Mac, the switchboard's arrow, the driven Dock's
+            // arrow (over X without these the X cursor may be hidden by an absolute placement: INPUT_MODE 1)
+            wireless.setDesktopCursor(contentKey != null && contentKey.startsWith(MacSource.PREFIX)
+                    || SwitcherOverlay.isShown() || externalDock != null && externalDock.driven());
+            // An Android receiver hides its own pointer when the picture has a cursor: our arrow stays for it
+            apps.setRemoteHidesPointer(wireless.receiverHidesPointer());
+        }
+        audioRoute.setCar(carConnected());
         applyFullscreen();
         applyModeToTopBar();
         if (apps.isActive()) {
@@ -2414,6 +2441,11 @@ public class XDeskActivity extends Activity {
 
     private void addDensitySetting(SettingsUi s, LinearLayout card) {
         if (session.isActive() && !apps.isActive() && apps.hasInjector()) {
+            // On the car the display's density is Android Auto's own: this setting is not applied there (setDesktopDensity)
+            if (TargetDisplay.isCar(externalDisplay())) {
+                s.infoRow(card, getString(R.string.xd_density), getString(R.string.xd_density_car), null);
+                return;
+            }
             s.numberRow(card, getString(R.string.xd_density), getString(R.string.xd_density_desktop_range, DENSITY_MIN, DENSITY_MAX, DESKTOP_DENSITY),
                 "dpi", prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY), DENSITY_MIN, DENSITY_MAX,
                 dpi -> setDesktopDensity(dpi), getString(R.string.xd_reset), () -> setDesktopDensity(-1));
@@ -2627,6 +2659,8 @@ public class XDeskActivity extends Activity {
             prefs.edit().putBoolean(PREF_EXTERNAL_DOCK, on).apply();
             updateExternalDock();
         });
+        // NOTIFY.md §6: the notifications on the external screen, a page of their own
+        s.valueRow(external, getString(R.string.xd_section_notifications), null, "", this::showNotifySettings);
         String cover = getString(Settings.canDrawOverlays(this) ? R.string.xd_cover_note : R.string.xd_cover_note_no_overlay);
         s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
@@ -2636,6 +2670,58 @@ public class XDeskActivity extends Activity {
             resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), getString(WIDTH_LABELS[widthIndex()]), () -> chooseResolution(resolution[0]));
         }
         settingsPage(getString(R.string.xd_section_display), c, null);
+    }
+
+    /** NOTIFY.md §6: what shows on the external screen, what banners say, per app, the bell, the low-battery banners. */
+    private void showNotifySettings() {
+        final SettingsUi s = ui();
+        final NotifyCenter center = NotifyCenter.get(this);
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        boolean granted = NotifyCenter.accessGranted(this);
+        if (!granted) {
+            pageNote(c, R.string.xd_notify_access_note);
+            // Explained once (NOTIFY.md §2), then the system's page; afterwards the row below says how to get back
+            if (!prefs.getBoolean(PREF_NOTIFY_ACCESS_ASKED, false)) {
+                prefs.edit().putBoolean(PREF_NOTIFY_ACCESS_ASKED, true).apply();
+                s.confirm(getString(R.string.xd_notify_access_title), getString(R.string.xd_notify_access_message),
+                    getString(R.string.xd_notify_access_open), () -> NotifyCenter.openAccessSettings(this));
+            }
+        }
+        LinearLayout show = s.card(c);
+        s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(), center::setNotifyOn);
+        s.segmentedRow(show, getString(R.string.xd_notify_content), getString(R.string.xd_notify_content_note),
+            new String[]{getString(R.string.xd_notify_content_all), getString(R.string.xd_notify_content_name), getString(R.string.xd_notify_content_none)},
+            center.bannerContent(), center::setBannerContent);
+        s.valueRow(show, getString(R.string.xd_notify_access), null,
+            granted ? getString(R.string.xd_notify_access_on) : getString(R.string.xd_notify_access_off),
+            () -> NotifyCenter.openAccessSettings(this));
+        LinearLayout per = s.card(c);
+        s.valueRow(per, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), "", this::showNotifyApps);
+        LinearLayout more = s.card(c);
+        s.switchRow(more, getString(R.string.xd_notify_bell), getString(R.string.xd_notify_bell_note), center.bellShown(), center::setBellShown);
+        s.switchRow(more, getString(R.string.xd_notify_battery_banner), getString(R.string.xd_notify_battery_banner_note),
+            center.lowBatteryBanners(), center::setLowBatteryBanners);
+        settingsPage(getString(R.string.xd_section_notifications), c, null);
+    }
+
+    /** The per-app page of NOTIFY.md §6: the apps that posted recently, each with its own choice. */
+    private void showNotifyApps() {
+        final SettingsUi s = ui();
+        final NotifyCenter center = NotifyCenter.get(this);
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout card = s.card(c);
+        java.util.List<String> apps = center.recentApps();
+        if (apps.isEmpty()) {
+            s.infoRow(card, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), null);
+        } else {
+            String[] modes = {getString(R.string.xd_notify_mode_banner), getString(R.string.xd_notify_mode_center), getString(R.string.xd_notify_mode_hidden)};
+            for (final String pkg : apps) {
+                s.segmentedRow(card, center.appLabel(pkg), pkg, modes, center.appMode(pkg), mode -> center.setAppMode(pkg, mode));
+            }
+        }
+        settingsPage(getString(R.string.xd_notify_per_app), c, null);
     }
 
     private void x11Changed(String key) {
@@ -2911,6 +2997,8 @@ public class XDeskActivity extends Activity {
         }
         // Ctrl+Alt+Q with a Mac on the external screen: cycle its quick quality mode (INPUT.md §7)
         if (qualityKey(e)) return true;
+        // Ctrl+Alt+N: the notification centre on the external screen (INPUT.md §7, NOTIFY.md §4.1)
+        if (notify != null && notify.hotkey(e)) return true;
         // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display
         // has the focus), so nothing is passed to it from here
         boolean forwarding = client != null && (client == SwitcherOverlay.INPUT || !apps.isActive()) && phoneForwards();
@@ -2924,6 +3012,9 @@ public class XDeskActivity extends Activity {
         // The Launchpad's search takes what the input method made of the key, text in the keyboard's layout: the
         // bridge goes on with it. (Keys that came straight here are keys to it, on a US layout.)
         if (fromIme && client == SwitcherOverlay.INPUT) return releaseHeld(e);
+        // The notification centre's keys while it is open (NOTIFY.md §4): the arrows, Enter, Delete, R, Esc, and
+        // text into an open reply field only
+        if (notify != null && notify.key(e)) return true;
         // Esc closes the Dock opened over this content, and is not the content's then
         if (dockPointer.key(e.getScanCode(), e.getAction() == KeyEvent.ACTION_DOWN)) return true;
         if (mouseSideKey(e)) return true;
@@ -2992,7 +3083,7 @@ public class XDeskActivity extends Activity {
     /**
      * Ctrl+Alt+Q with a Mac on the external screen: cycle its quick quality mode (清晰 → 平衡 → 流畅, INPUT.md §7)
      * and flash the new one over the picture. Not on a Mac, it is just a key, like any other. Q was not taken by
-     * anything (INPUT.md §5.2: XDesk takes only Ctrl+Alt+M and Ctrl+Alt+Q).
+     * anything (INPUT.md §5.2: XDesk takes only Ctrl+Alt+M, Ctrl+Alt+Q and Ctrl+Alt+N).
      */
     private boolean qualityKey(KeyEvent e) {
         if (e.getKeyCode() != KeyEvent.KEYCODE_Q) return false;
@@ -3160,7 +3251,7 @@ public class XDeskActivity extends Activity {
         int id = car != null ? car.getDisplayId() : Display.INVALID_DISPLAY;
         if (id == carSeen) return;
         carSeen = id;
-        audioRoute.setCar(onCar());
+        audioRoute.setCar(carConnected());
         if (!session.isActive() || !desktopOnCar) {
             updateChooserDisplay();
             return;
@@ -3393,7 +3484,8 @@ public class XDeskActivity extends Activity {
      */
     void showSwitcher(boolean onlySystem) {
         Display d = externalDisplay();
-        if (d == null) {
+        // Not on the car: the Launchpad swallows its touches there (no onTouchEvent) until it gets a touch-first switcher (audit P1)
+        if (d == null || TargetDisplay.isCar(d)) {
             showChooser();
             return;
         }
@@ -3795,7 +3887,7 @@ public class XDeskActivity extends Activity {
         }
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
         updateChooserTop();
-        audioRoute.setCar(onCar());
+        audioRoute.setCar(carConnected());
     }
 
     /** 要外接屏才能做的事：在启动器上一直说着，接上屏为止。 */
@@ -3808,7 +3900,14 @@ public class XDeskActivity extends Activity {
         displayNoticeShown = true;
     }
 
-    /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。 */
+    /** Android Auto is connected now: CarActivity sits on the car's display. Unlike onCar(), this turns false the
+     *  moment the car goes away, whatever content still lives on its display. */
+    private boolean carConnected() {
+        return TargetDisplay.car(displays) != null;
+    }
+
+    /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。
+     *  Sound routing and the chip do not use this: they follow carConnected(). */
     private boolean onCar() {
         return apps.isActive() ? apps.isOnCar() : TargetDisplay.isCar(externalDisplay());
     }
@@ -4323,7 +4422,7 @@ public class XDeskActivity extends Activity {
         releaseLatches();
         apps.suspend();
         desktopOnCar = TargetDisplay.isCar(d);
-        audioRoute.setCar(desktopOnCar);
+        audioRoute.setCar(carConnected());
         if (desktopOnCar) Log.i(TAG, "desktop on the car, display=" + d.getDisplayId() + " size=" + desktopSize(d));
         LorieView.capFramerate(desktopOnCar ? d.getDisplayId() : Display.INVALID_DISPLAY, (int) AppSession.CAR_REFRESH_HZ);
         placeX11(d.getDisplayId());

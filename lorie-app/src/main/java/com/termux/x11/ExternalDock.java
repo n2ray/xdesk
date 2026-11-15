@@ -46,7 +46,7 @@ import java.util.List;
  * edge of its own picture). Nothing beyond the edge can be known there. Over X and a Mac that rest opens the dock
  * driven (restDriven), its own arrow under the content's pointer; over an Android app it opens by atBottom's dwell.
  */
-final class ExternalDock implements AppSession.BottomEdgeListener {
+final class ExternalDock implements AppSession.EdgeListener {
     private static final String TAG = "XDesk";
     private static final long DWELL_MS = 250, LEAVE_MS = 450, SLIDE_MS = 180;
     /** No hover heard at the edge: the pointer's place is the only sign, and over the input method it has far to go to the dock. */
@@ -107,7 +107,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
      * nothing). A pointer that can be pushed opens the dock by the push alone (pushed); for one that is placed
      * (a receiver's, a browser's) resting here is all there is.
      */
-    @Override public void atBottom(boolean at, boolean pushable) {
+    @Override public void atEdge(int edge, boolean at, boolean pushable) {
+        if (edge != EdgePush.BOTTOM) return;  // the top and right edges are the notification centre's corner
         atEdge = at;
         if (!at) rule.forget();
         if (windows == null) return;
@@ -125,7 +126,11 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
      * rule as over X and a Mac, with a single window's thresholds (an app has no panel of its own to tell apart).
      * With the input method up the dock opens above it, as from the edge before.
      */
-    @Override public void pushed(int dx, int dy, boolean held) {
+    @Override public void pushed(int edge, int dx, int dy, boolean held) {
+        if (edge != EdgePush.BOTTOM) {
+            rule.forget();
+            return;
+        }
         if (windows == null || panel != null || held) {
             rule.forget();
             return;

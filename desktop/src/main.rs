@@ -289,6 +289,9 @@ fn main() -> Result<(), String> {
     let mut mouse = (0i32, 0i32);
     let mut at_top_since: Option<Instant> = None;
     let mut bar_open = false;
+    let mut cursor_hidden = false;
+    // macOS may show the cursor again on its own when the pointer enters the window: re-apply the wanted state
+    let mut cursor_stale = true;
     let mut bar_hover: Option<usize> = None;
     let mut bar_labels: Vec<(u8, Words)> = Vec::new();
     let mut bar_scale = 0f32;
@@ -355,7 +358,10 @@ fn main() -> Result<(), String> {
                     }
                     WindowEvent::Moved(..) => save_window_at = Some(Instant::now() + SAVE_WINDOW_SETTLE),
                     WindowEvent::Exposed => dirty = true,
-                    WindowEvent::Enter => tap::INSIDE.store(true, Ordering::Relaxed),
+                    WindowEvent::Enter => {
+                        tap::INSIDE.store(true, Ordering::Relaxed);
+                        cursor_stale = true;
+                    }
                     WindowEvent::Leave => {
                         tap::INSIDE.store(false, Ordering::Relaxed);
                         tap::RELEASED.store(false, Ordering::Relaxed);
@@ -492,6 +498,24 @@ fn main() -> Result<(), String> {
         if !streaming && apps.is_some() {
             apps = None;
             dirty = true;
+        }
+        // The picture contains the desktop's cursor (INPUT_MODE 3, FEATURES bit 3): this computer's own pointer
+        // must not double it over the picture. Over the receiver's own bar and lists it stays visible.
+        if streaming {
+            let over_picture = picture.0 > 0 && !bar_open && apps.is_none() && {
+                let (px, py, pw, ph) = fit(points, picture);
+                mouse.0 >= px && mouse.0 < px + pw as i32 && mouse.1 >= py && mouse.1 < py + ph as i32
+            };
+            let hide = net::picture_cursor() && over_picture;
+            if hide != cursor_hidden || cursor_stale {
+                cursor_hidden = hide;
+                cursor_stale = false;
+                unsafe { sdl2::sys::SDL_ShowCursor(if hide { 0 } else { 1 }) };
+            }
+        } else if cursor_hidden || cursor_stale {
+            cursor_hidden = false;
+            cursor_stale = false;
+            unsafe { sdl2::sys::SDL_ShowCursor(1) };
         }
         if let Some(found) = net::take_apps() {
             if found.is_empty() {

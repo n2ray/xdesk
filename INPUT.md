@@ -204,7 +204,7 @@ Mac 接收器现在就是这么做的。手机接实体键盘、目标不是 And
    - **候选框（Termux 的 fcitx5 是按 Android 编译的）：** fcitx5 5.1 按 Android 编译时一启动就处在“屏幕键盘模式”（`src/lib/fcitx/instance_p.h`：`inputMethodMode_ = isAndroid() ? OnScreenKeyboard : PhysicalKeyboard`），这个模式下只认 D-Bus 上的虚拟键盘界面（`userinterfacemanager.cpp` 的 `isUserInterfaceValid`）；总线上没有虚拟键盘，它就一个界面也不用，classicui 一直挂起：能拼字、能上屏，但没有候选框。回到实体键盘模式的代码在虚拟键盘界面里（`virtualkeyboard.cpp`：收到第一个真实按键就 `setInputMethodMode(PhysicalKeyboard)`），而这个界面只有在总线名 `org.fcitx.Fcitx5.VirtualKeyboard` 有主人时才启用。所以 `xdesk` 起 fcitx5 时在同一条总线上放一个占名字的进程（`dbus-test-tool echo --name=…`，dbus 包自带，`ime_panel`，pid 在 `$RUN/ime-panel.pid`）：按下第一个键 fcitx5 就切到实体键盘模式，之后由 classicui 画候选框。它陪 fcitx5 到结束（fcitx5 自己重启后还要靠它），`xdesk ime stop` 一起停。别人起的 Termux fcitx5（XFCE 自启动）也给它放一个。X 服务器这边什么都不缺（32 位 visual、Composite、SHAPE、XFIXES 都有）。
    - **拼音的两个 Android 默认值：** 同样因为按 Android 编译，拼音默认不在光标处显示正在拼的字母（`PreeditMode="Do not show"`），并且每上屏一个词就弹出联想（`Prediction=True`，这时数字键是选联想词而不是打数字）。没有 `~/.config/fcitx5/conf/pinyin.conf` 时 `xdesk` 写一份桌面上的默认值（`PreeditMode="Composing pinyin"`、`PreeditCursorPositionAtBeginning=True`、`Prediction=False`）；已有的文件不改，想要的话自己加这三行（先 `xdesk ime stop`，fcitx5 退出时会重写这个文件）。
    - **布局现在由 X 决定，记住一个：** 原样的键按 X 服务器的 XKB 布局出字（和键盘直接插在一台 Linux 电脑上一样）。lorie 的 X 服务器默认是 `evdev` 规则、`pc105`、`us`；扫描码 +8 就是 X 的 keycode，和 PC 键盘的 evdev 键位一致。新起的 X 总是 `us`，所以不是美式键盘时布局不能只靠读 X，它要写成设置：`xdesk ime layout NAME` 存进 `~/.config/xdesk/keyboard-layout`（`NAME` 是 fcitx5 的名字，如 `de-nodeadkeys` 就是 XKB 的 `de(nodeadkeys)`；不带 NAME 看设置和 profile 的布局，`auto` 取消），并立刻生效：有 profile 就改写它的 `Default Layout=` 和 `Name=keyboard-...`（先停掉 xdesk 起的 fcitx5——它退出时会把 profile 写回去——改完再起），X 在跑时用 setxkbmap 直接设上。以后写新 profile，以及 fcitx5 不跑时（没装或 `xdesk ime off`）X 刚起来，都用这个设置。fcitx5 会把 X 的布局设成 profile 里的那个（它的默认行为），所以 profile 的布局写对就行。走 §5.1 时布局是 Android 那边的，和 X 无关。
-   - **切换输入法：** Shift+空格（`xdesk` 第一次配置 fcitx5 时写进它的配置；已有配置不覆盖）。fcitx5 默认的 Ctrl+空格在手机上用不了：Android 系统先把它拿去切换自己的输入法，应用收不到（真机验证过）。左 Shift 只能在用过拼音之后来回切，刚启动时没有“上一个输入法”，按了没反应。XDesk 自己只占 Ctrl+Alt+M 和 Ctrl+Alt+Q，不冲突。
+   - **切换输入法：** Shift+空格（`xdesk` 第一次配置 fcitx5 时写进它的配置；已有配置不覆盖）。fcitx5 默认的 Ctrl+空格在手机上用不了：Android 系统先把它拿去切换自己的输入法，应用收不到（真机验证过）。左 Shift 只能在用过拼音之后来回切，刚启动时没有“上一个输入法”，按了没反应。XDesk 自己只占 Ctrl+Alt+M、Ctrl+Alt+Q 和 Ctrl+Alt+N，不冲突。
    - 每个 Linux 设备一个开关"实体键盘用手机输入法打字"（默认关 = 上面的自动判断），打开就回到 §5.1。
    - **手机软键盘还是 §5.1：** 它的字经文字桥变成 X 的按键事件。这时 X 这边的 fcitx5 如果正处在拼音状态，软键盘打的英文字母会被它再拼一次；fcitx5 默认是英文状态，切到拼音后又改用软键盘才会遇到，切回英文即可。
    - 命令：`xdesk ime`（状态）、`xdesk ime setup`（写配置、在当前 X 上起 fcitx5；没装时打印 `pkg install` 那一行）、`xdesk ime start|stop`、`xdesk ime layout [NAME]`（键盘布局，见上；`xdesk status` 的 `Keyboard layout:` 一行报给应用）、`xdesk ime off|on`（整个功能的开关，文件 `~/.config/xdesk/ime-off`）。
@@ -285,6 +285,7 @@ Target {
 
 - 状态只用一个图标表示："键鼠在本机" / "键鼠在外屏"。
 - **Ctrl+Alt+Q（快速画质）：** 外接屏上是 Mac 时，循环切换快速画质（清晰 / 平衡 / 流畅，就是"画面和声音"页顶部那三档），Mac 的画面上短暂显示新的一档（`MacClient.flash`）；外接屏上不是 Mac 时不占键，照常转发。和外接屏上开没开"键鼠在外屏"无关，但只在实体键盘经 XDesk 窗口时有效（和 Ctrl+Alt+M 一样，应用会话里键被注入服务拿走）。三档对应的设置见 SALL-SYNC.md。
+- **Ctrl+Alt+N（通知中心）：** 打开/关闭外屏的通知中心（NOTIFY.md §4.1），按下时动作、松开吞掉；外屏上没有通知中心的窗口时不占键，照常转发。和 Ctrl+Alt+M、Q 一样只在实体键盘经 XDesk 窗口时有效。通知中心开着时键盘归它：↑↓ 选中，Enter 打开，Delete 清除，R 回复，Esc 关闭；文字只进有焦点的回复框（横幅上的快捷回复点开"回复"后也是）。
 - 实现上，把 EvdevReader 抓取、焦点、pointer capture、输入法显示策略合并成一个 `Ownership` 类，取代现在桌面模式和应用模式各一套的"接管"。
 
 ## 8. 多设备同时操作

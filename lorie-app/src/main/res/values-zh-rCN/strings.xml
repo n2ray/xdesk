@@ -278,6 +278,7 @@
     <string name="xd_language_system">跟随系统</string>
     <string name="xd_density_desktop">Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值</string>
     <string name="xd_density_desktop_range">Termux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小；桌面本身用它自己的 DPI 设置，X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。默认 %3$d</string>
+    <string name="xd_density_car">不适用于车机</string>
     <string name="xd_clipboard_sync">剪贴板同步</string>
     <string name="xd_clipboard_sync_note">电脑或平板和手机互通文字剪贴板。Wi-Fi 下内容不加密</string>
     <string name="xd_section_connect">连接</string>

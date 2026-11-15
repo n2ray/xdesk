@@ -121,6 +121,11 @@ final class AppSession {
     /** A browser's pointer is on top, so the display's cursor stays hidden. Main thread. */
     private volatile boolean webPointer;
     /**
+     * The remote pointer belongs to an Android receiver (WirelessDisplay.receiverHidesPointer): it hides its own
+     * pointer when the picture has a cursor, so our arrow stays and follows its absolute placements.
+     */
+    private volatile boolean remoteHidesPointer;
+    /**
      * Android Auto encodes about 30 frames a second. At 60 the apps' display keeps feeding it more, unevenly: the picture
      * stuttered as soon as a finger moved, and the encoder fell to about 10 (measured with a browser playing video).
      */
@@ -146,6 +151,7 @@ final class AppSession {
                 lastCursorY = y;
                 cursorPolicy.moved(y);
                 pointerAtHeight(y, true);
+                pointerAtCorner(x, y, true);
                 pointerPlaced(x, y);
                 // Only what a computer does not place comes here: a touchpad or a mouse on the phone
                 webPointer = false;
@@ -154,10 +160,20 @@ final class AppSession {
                 scheduleCursorHide();
             });
         }
-        @Override public void onEdgePush(final int dx, final int dy, final boolean held) {
+        @Override public void onEdgePush(final int edge, final int dx, final int dy, final boolean held,
+                                         final int x, final int y, final boolean left) {
             ui.post(() -> {
-                BottomEdgeListener l = bottomEdge;
-                if (active && l != null) l.pushed(dx, dy, held);
+                if (!active) return;
+                EdgeListener dock = bottomEdge, corner = cornerEdge;
+                if (edge == EdgePush.BOTTOM) {
+                    // The Dock's rule, byte for byte: its leave is the one (0, -1) it always knew
+                    if (dock != null) dock.pushed(edge, left ? 0 : dx, left ? -1 : dy, held);
+                    return;
+                }
+                // TOP and RIGHT are the notification centre's corner: only pushes inside its 48 shell dp count
+                // (NOTIFY.md §4.1), so the rest of those edges is the content's own. Leaving the corner needs no
+                // signal here: the corner state clearing (atEdge false) forgets the rule.
+                if (corner != null && !left && cornerEdgeAt(x, y) != 0) corner.pushed(edge, dx, dy, held);
             });
         }
         @Override public void onForwarding(final boolean on, final int devices) {
@@ -253,14 +269,28 @@ final class AppSession {
         @Override public void moveToFraction(float x, float y) {
             // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice
             pointerAtHeight(y * cursorPolicy.height(), false);
-            BottomEdgeListener l = bottomEdge;
+            final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
+            pointerAtCorner(px, py, false);
+            EdgeListener l = bottomEdge;
             if (l != null && l.wantsPlace()) {
-                final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
                 ui.post(() -> pointerPlaced(px, py));
             }
-            // May be on the network thread, and the overlay is a window
-            if (!webPointer) ui.post(cursor::hide);
-            webPointer = true;
+            if (remoteHidesPointer) {
+                // The receiver hides its own pointer for Android content (INPUT_MODE 0): our arrow is the only
+                // cursor there, so it moves to the placed point instead of hiding, as for a relative move
+                webPointer = false;
+                ui.post(() -> {
+                    if (!active) return;
+                    cursorPolicy.moved(py);
+                    cursor.moveTo(px, py);
+                    updateCursor();
+                    scheduleCursorHide();
+                });
+            } else {
+                // May be on the network thread, and the overlay is a window
+                if (!webPointer) ui.post(cursor::hide);
+                webPointer = true;
+            }
             IInjector i = injector;
             try {
                 if (i != null) i.moveToFraction(x, y);
@@ -395,32 +425,46 @@ final class AppSession {
     AppCatalog.App app() { return active ? app : null; }
     InputSink input() { return input; }
     void raiseCursor() { cursor.raise(); }
+    /** The wireless receiver hides its own pointer when the picture has a cursor: our arrow follows its placements. */
+    void setRemoteHidesPointer(boolean on) {
+        remoteHidesPointer = on;
+    }
 
-    interface BottomEdgeListener {
+    interface EdgeListener {
         /**
+         * @param edge EdgePush.BOTTOM, TOP or RIGHT: the pointer is at this edge of the screen now
          * @param pushable the pointer is moved by relative moves the injector clamps (the phone's touchpad, a mouse
          *     grabbed for the app): pushes against the edge are reported (pushed), and resting there means nothing
          */
-        void atBottom(boolean at, boolean pushable);
-        /** A move asked for while the pointer was at the bottom edge already (InputInjector.CursorListener.onEdgePush). */
-        void pushed(int dx, int dy, boolean held);
+        void atEdge(int edge, boolean at, boolean pushable);
+        /** A move asked for while the pointer was at an edge already (InputInjector.CursorListener.onEdgePush). */
+        void pushed(int edge, int dx, int dy, boolean held);
         /** Whether anything is on the screen that needs to know where the pointer is. */
         boolean wantsPlace();
         void placed(int x, int y);
     }
 
     private static final int BOTTOM_EDGE_PX = 4;
-    private volatile BottomEdgeListener bottomEdge;
+    /** NOTIFY.md §4.1: the corner is this much of the right edge's top and the top edge's right, in shell dp. */
+    private static final int CORNER_DP = 48;
+    private volatile EdgeListener bottomEdge, cornerEdge;
     private volatile boolean pointerAtBottom;
+    private volatile int pointerAtCorner;
     private volatile int pointerWidth;
 
     private void pointerPlaced(int x, int y) {
-        BottomEdgeListener l = bottomEdge;
-        if (l != null && l.wantsPlace()) l.placed(x, y);
+        EdgeListener dock = bottomEdge, corner = cornerEdge;
+        if (dock != null && dock.wantsPlace()) dock.placed(x, y);
+        if (corner != null && corner.wantsPlace()) corner.placed(x, y);
     }
 
-    void setBottomEdgeListener(BottomEdgeListener l) {
+    void setBottomEdgeListener(EdgeListener l) {
         bottomEdge = l;
+    }
+
+    /** The notification centre's corner over an Android app (NOTIFY.md §4.1): the injector reports its pushes. */
+    void setCornerEdgeListener(EdgeListener l) {
+        cornerEdge = l;
     }
 
     private void pointerAtHeight(float y, final boolean pushable) {
@@ -428,9 +472,30 @@ final class AppSession {
         if (at == pointerAtBottom) return;
         pointerAtBottom = at;
         ui.post(() -> {
-            BottomEdgeListener l = bottomEdge;
-            if (l != null) l.atBottom(at, pushable);
+            EdgeListener l = bottomEdge;
+            if (l != null) l.atEdge(EdgePush.BOTTOM, at, pushable);
         });
+    }
+
+    /** On an edge inside the top-right corner's 48 shell dp: RIGHT on the right edge, TOP on the top edge. */
+    private void pointerAtCorner(int x, int y, boolean pushable) {
+        final boolean push = pushable;
+        // From any thread (the injector's, a browser's): the corner and the shell's factor are read on the main one
+        ui.post(() -> {
+            int edge = cornerEdgeAt(x, y);
+            if (edge == pointerAtCorner) return;
+            pointerAtCorner = edge;
+            EdgeListener l = cornerEdge;
+            if (l != null) l.atEdge(edge, edge != 0, push);
+        });
+    }
+
+    /** Main thread. */
+    private int cornerEdgeAt(int x, int y) {
+        Display d = display;
+        if (d == null) return 0;
+        int corner = Math.max(1, Math.round(CORNER_DP * Sizing.shell(context, d).density));
+        return NotifyCorner.edge(x, y, pointerWidth, cursorPolicy.height(), corner);
     }
 
     /** Where the input method begins, -1 while it is not showing. Blocks. */
@@ -440,6 +505,17 @@ final class AppSession {
             return i != null ? i.imeTop(display) : -1;
         } catch (RemoteException e) {
             return -1;
+        }
+    }
+
+    /** The package in front on this display (NOTIFY.md §5: where a notification's activity landed), null when unknown. */
+    String topPackage(Display d) {
+        IInjector i = injector;
+        if (i == null || d == null) return null;
+        try {
+            return i.topPackage(d.getDisplayId());
+        } catch (RemoteException e) {
+            return null;
         }
     }
     ShellActivation shell() { return shell; }
