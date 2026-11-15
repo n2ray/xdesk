@@ -260,6 +260,15 @@ final class Switchboard {
         return hiddenOpen;
     }
 
+    /**
+     * Whether this key's items are drawn in their own device's tab now: there the tab already says whose everything
+     * is, so its items carry no device badge (DEVICES.md §3.2). Cross-device places (running, favourites, the search,
+     * the Docks) are not it.
+     */
+    boolean ownTab(String key) {
+        return !searching() && devices.deviceOf(key).equals(tab());
+    }
+
     void setHiddenOpen(boolean open) {
         if (open == hiddenOpen) return;
         hiddenOpen = open;
