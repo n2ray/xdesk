@@ -306,10 +306,17 @@ final class MacMenus {
         return driven;
     }
 
-    /** The content under it ended or changed: the pointer is the content's again, the bar goes (DockPointer.open). */
+    /**
+     * The pointer is the content's again (DockPointer.open): it left the ≡ or the bar, or the content changed. The
+     * bar stays for LEAVE_MS, as the notification centre's panel does, so the pointer can go from the ≡ over the gap
+     * to the bar (grab() takes it there and cancels the leave); a changed content closes it through update().
+     */
     void drivenClosed() {
         endDriven();
-        closeBar();
+        if (bar != null) {
+            ui.removeCallbacks(barLeave);
+            ui.postDelayed(barLeave, LEAVE_MS);
+        }
     }
 
     /**
