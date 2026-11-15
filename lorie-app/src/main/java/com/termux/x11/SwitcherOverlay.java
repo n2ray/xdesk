@@ -71,6 +71,13 @@ final class SwitcherOverlay {
         @Override public void button(int button, boolean down) { if (!down) onUi(p -> p.click(button)); }
         @Override public void click(int button) { onUi(p -> p.click(button)); }
         @Override public void scroll(int dy, int dx) { onUi(p -> p.wheel(dy != 0 ? dy : dx)); }
+        // A mouse wheel (phase WHEEL) turns a page per notch; a touchpad's fine scrolling goes on as whole steps (scroll)
+        @Override public boolean scrollFine(float dy, float dx, int phase) {
+            if (phase != io.github.n2ray.xdesk.input.Input.WHEEL) return false;
+            float v = dy != 0 ? dy : dx;
+            onUi(p -> p.wheelNotch(v));
+            return true;
+        }
         @Override public void key(int scan, boolean down) { onUi(p -> p.key(scan, down)); }
         @Override public void tapKey(int scan) { onUi(p -> { p.key(scan, true); p.key(scan, false); }); }
         @Override public void text(String s) { onUi(p -> p.type(s)); }
@@ -684,6 +691,26 @@ final class SwitcherOverlay {
                 wheel = 0;
             }
         }
+
+        /**
+         * A mouse wheel: a page per notch (three notches for one page felt like no paging at all). A high resolution
+         * wheel's fractions add up to a notch; after a turn the next waits NOTCH_PAUSE_MS, so a spun wheel turns one
+         * page at a time and not several at once.
+         */
+        void wheelNotch(float v) {
+            long now = android.os.SystemClock.uptimeMillis();
+            notch += v;
+            if (Math.abs(notch) < 1f) return;
+            boolean ahead = notch > 0;
+            notch = 0;
+            if (now - lastNotchPage < NOTCH_PAUSE_MS) return;
+            lastNotchPage = now;
+            setPage(page + (ahead ? 1 : -1));
+        }
+
+        private float notch;
+        private long lastNotchPage;
+        private static final long NOTCH_PAUSE_MS = 250;
 
         // --- keyboard ---
 
