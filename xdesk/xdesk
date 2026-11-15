@@ -249,6 +249,8 @@ start_session() {
             say "No window manager for apps only: install one in Termux (pkg install xfwm4 xfce4-settings)"
             return 1
         fi
+    elif [ "$(session_env "$name")" = termux ] && g=$(termux_desktop_script "$f"); then
+        f=$g
     fi
     # The input method of the X side, when there is one (ime_later starts it): what the session's programs reach it
     # with. A Termux session gets fcitx5 on its own bus; any other system only has X in common with it
@@ -401,6 +403,16 @@ stop_apps_bus() {
     p=$(cat "$RUN/bus.pid" 2>/dev/null)
     if [[ $p =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q '^dbus-daemon '; then kill "$p" 2>/dev/null; fi
     rm -f "${RUN:?}/bus.address" "${RUN:?}/bus.pid"
+}
+
+# Generated Termux desktops share the bus with programs already open in apps-only mode.
+termux_desktop_script() {
+    local bus out=$RUN/desktop-session.sh
+    grep -qE '^exec dbus-run-session (startxfce4|startlxqt|mate-session)$' "$1" || return 1
+    bus=$(apps_bus) || return 1
+    { echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
+      sed -E 's/^exec dbus-run-session (startxfce4|startlxqt|mate-session)$/exec \1/' "$1"; } >"$out" || return 1
+    echo "$out"
 }
 
 # --- The input method of the X side (INPUT.md §5.2) ---

@@ -364,6 +364,7 @@ final class SwitcherOverlay {
         // --- building ---
 
         void build() {
+            UI.removeCallbacks(refresh);
             collect();
             String tab = board.tab(), query = board.query();
             if (!tab.equals(shownTab) || !query.equals(shownQuery)) page = 0;
@@ -703,6 +704,8 @@ final class SwitcherOverlay {
             if (scan == 29 || scan == 97) { ctrl = down; return; }
             if (scan == 42 || scan == 54) { shift = down; return; }
             if (!down) return;
+            // A search or tab changed on the phone can still be waiting for the delayed redraw.
+            if (!board.tab().equals(shownTab) || !board.query().equals(shownQuery)) rebuildKeep();
             String query = board.query();
             switch (scan) {
                 case 1:  // Esc: clear the search, else close

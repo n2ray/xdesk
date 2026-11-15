@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="XDesk on a portable display: an Android desktop with a dock, the phone in a stand as touchpad, a keyboard and a mouse"></p>
 
-**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display gets a home screen of your favourites and a dock at the bottom edge, so it feels much like a computer. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display gets a launcher and a dock at the bottom edge, so it feels much like a computer. From there you can add Linux desktops through Termux, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display.
 
 | Screen | How it connects |
 |---|---|
@@ -52,9 +52,9 @@ Connect a monitor with a USB-C to HDMI cable or dock, and open **XDesk**. The ph
 
 ## Android apps on the display
 
-The home screen of the external display shows the phone's favourites as a grid: click one to open it, and manage them on the phone. Over an app, rest the pointer on the very bottom of the screen and a dock comes up with the current app, the previous app and the favourites, and goes away when you move off it. With the input method open the dock sits above it. It can be turned off in the settings, and there is no dock on Linux desktops.
+The external display's home is a launcher with tabs for running items, favourites, the phone and connected devices. The phone shows the same selection and search. Push the pointer against the bottom edge to open the dock over Android apps, Linux and Mac content; move away to close it.
 
-Tap an app in the chooser to run it full screen on the external display, with the phone as its touchpad and keyboard. A physical mouse and keyboard stay with the phone until you press **Take over** in the top bar or Ctrl+Alt+M, and **Give back** or the same keys again return them. With a physical keyboard, taking over also moves the input method's candidates to the display, next to the text, and giving back returns them to the phone. **Launcher** shows the launcher over the session and changes nothing on the display. **Back to touchpad** closes it.
+Tap an app in the launcher to run it on the external display. Physical keys and mouse go to the external content by default; Ctrl+Alt+M gives them to the phone for the current content. With a mouse attached, the phone stays on the launcher and its touchpad is available from the top row; without a mouse it opens the touchpad.
 
 - **Activation, with no other app.** Android does not let normal apps inject input into other apps, so a small service of this APK runs as the shell user. It reads `/dev/input` and injects events. XDesk starts it itself through wireless debugging (Android 11 or later). You turn on wireless debugging and enter the pairing code once, in the notification or on XDesk's activation page. Then XDesk starts the service whenever it opens with wireless debugging on. Termux sessions need none of this.
   - Activating needs a Wi-Fi connection: Android switches wireless debugging off without one, and the phone's own hotspot probably does not count. Once the service runs, Wi-Fi can go away.
@@ -185,7 +185,7 @@ It shares its machinery with the wireless display, so there is one browser or re
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard, forwarded to the desktop. **Take over** in the top bar gives the desktop window the keyboard and mouse directly, so a physical keyboard's input method candidates show on the display; **Give back** returns them to the phone. Taking over needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
-- The display's home screen shows the phone's favourites as a grid. Over Android apps, resting the pointer on the bottom edge brings up a dock with the current and previous app and the favourites; it can be turned off in the settings
+- The display's launcher shares tabs and search with the phone. Push against the bottom edge to open a dock over the current content
 - Wireless display: the same over Wi-Fi to XDesk Receiver on a projector, TV box or old phone, with sound
 - Mac app: over USB or Wi-Fi, moving between them by itself, with text and files shared. See [Mac receiver](#mac-receiver)
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
