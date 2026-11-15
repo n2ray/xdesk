@@ -100,11 +100,13 @@ final class DockBar extends LinearLayout {
         box.setMinimumWidth(dp(Style.TARGET));
         box.setMinimumHeight(dp(Style.TARGET));
         box.setPadding(dp(4), dp(2), dp(4), dp(2));
+        // A device badge hangs a little past its icon's edge: don't cut it at the box's padding
+        box.setClipToPadding(false);
         box.setBackground(Style.ripple(c, current ? Style.ACCENT : Style.BACKGROUND, Style.RADIUS));
         box.setContentDescription(it.title);
         int size = dp(36);
         ImageView icon = new ImageView(c);
-        ExternalLauncher.icon(c, it, icon);
+        ExternalLauncher.icon(c, it, icon, Style.BACKGROUND, false);
         box.addView(icon, new LayoutParams(size, size));
         LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);

@@ -50,6 +50,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
     private static final long ZOOM_MS = 110;
     private static final int MIN_EDGE_PX = 4;
     private static final int PANEL = 0xEB1B1E24, EDGE = 0x33FFFFFF, BUBBLE = 0xF02A2E36, DOT = 0xFFFFFFFF;
+    /** The badge's ring is drawn in the dock's surface colour: PANEL made opaque, or the ring would show the icon through. */
+    private static final int PANEL_OPAQUE = 0xFF1B1E24;
 
     private final Context context;
     private final Runnable shown;
@@ -355,6 +357,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             super(dc);
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER_HORIZONTAL);
+            // The zoom and a device badge draw past the icons' bounds: no cutting at any of these levels
             setClipChildren(false);
             setClipToPadding(false);
             setPadding(dp(16), dp(4), dp(16), dp(ROOM_BELOW_DP));
@@ -426,7 +429,8 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.setClickable(true);
             box.setFocusable(false);
             box.setClipChildren(false);
-            final View icon = ExternalLauncher.icon(dc, it);
+            box.setClipToPadding(false);
+            final View icon = ExternalLauncher.icon(dc, it, PANEL_OPAQUE, false);
             box.setTag(icon);
             box.addView(icon, new LayoutParams(dp(ICON_DP), dp(ICON_DP)));
             icon.setPivotX(dp(ICON_DP) / 2f);

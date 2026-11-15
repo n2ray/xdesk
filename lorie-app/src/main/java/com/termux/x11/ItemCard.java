@@ -149,6 +149,8 @@ final class ItemCard {
     private void build() {
         LinearLayout head = new LinearLayout(c);
         head.setGravity(Gravity.CENTER_VERTICAL);
+        // A device badge hangs a little past the icon's edge: don't cut it at the head's bounds
+        head.setClipToPadding(false);
         int iconSize = dp(52);
         head.addView(icon(), new LinearLayout.LayoutParams(iconSize, iconSize));
         LinearLayout titles = new LinearLayout(c);
@@ -228,7 +230,7 @@ final class ItemCard {
     private View icon() {
         ImageView view = new ImageView(c);
         Switchboard.Item it = Switchboard.get(c).find(key);
-        if (it != null) ExternalLauncher.icon(c, it, view);
+        if (it != null) ExternalLauncher.icon(c, it, view, Style.BACKGROUND, false);
         else view.setImageDrawable(Style.letterIcon(c, "?"));  // gone: the card is closing
         return view;
     }

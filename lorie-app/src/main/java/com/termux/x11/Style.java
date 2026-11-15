@@ -30,6 +30,20 @@ final class Style {
     static final int OK = 0xFF3FCF7F;
     static final int WARN = 0xFFF2B33D;
     static final int DANGER = 0xFFE5534B;
+    /**
+     * 设备徽章的颜色盘（ExternalLauncher 的设备徽章）：同一个设备永远是同一个颜色。取中间明度的饱和色，
+     * 在深色和浅色的表面上都清楚，彼此分得开。
+     */
+    static final int[] BADGE = {
+        0xFF3D7EF5,  // blue
+        0xFF1F8A4C,  // green
+        0xFFB26A00,  // amber
+        0xFF8B5CF6,  // violet
+        0xFF0E9F9F,  // teal
+        0xFFD14B85,  // magenta
+        0xFFC0392B,  // red
+        0xFF6B8E23,  // olive
+    };
 
     /** 间距，单位 dp。 */
     static final int GAP = 6, EDGE = 8;

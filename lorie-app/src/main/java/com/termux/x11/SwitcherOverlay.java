@@ -521,7 +521,9 @@ final class SwitcherOverlay {
             // What is on this screen now stands out, the same way as its row on the phone
             box.setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
-            box.addView(ExternalLauncher.icon(c, it), new LinearLayout.LayoutParams(icon, icon));
+            // The badge's ring in the grid's surface colour; the scrim is the same colour, only translucent
+            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(it.key)),
+                new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
