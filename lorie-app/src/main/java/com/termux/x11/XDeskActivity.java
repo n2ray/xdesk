@@ -2213,7 +2213,7 @@ public class XDeskActivity extends Activity {
 
     private void updateStatus() {
         if (wireless != null) wireless.setDesktopShown(session.isConnected() && !apps.isActive());
-        audioRoute.setCar(onCar());
+        audioRoute.setCar(carConnected());
         applyFullscreen();
         applyModeToTopBar();
         if (apps.isActive()) {
@@ -2408,6 +2408,11 @@ public class XDeskActivity extends Activity {
 
     private void addDensitySetting(SettingsUi s, LinearLayout card) {
         if (session.isActive() && !apps.isActive() && apps.hasInjector()) {
+            // On the car the display's density is Android Auto's own: this setting is not applied there (setDesktopDensity)
+            if (TargetDisplay.isCar(externalDisplay())) {
+                s.infoRow(card, getString(R.string.xd_density), getString(R.string.xd_density_car), null);
+                return;
+            }
             s.numberRow(card, getString(R.string.xd_density), getString(R.string.xd_density_desktop_range, DENSITY_MIN, DENSITY_MAX, DESKTOP_DENSITY),
                 "dpi", prefs.getInt(PREF_DESKTOP_DENSITY, DESKTOP_DENSITY), DENSITY_MIN, DENSITY_MAX,
                 dpi -> setDesktopDensity(dpi), getString(R.string.xd_reset), () -> setDesktopDensity(-1));
@@ -3154,7 +3159,7 @@ public class XDeskActivity extends Activity {
         int id = car != null ? car.getDisplayId() : Display.INVALID_DISPLAY;
         if (id == carSeen) return;
         carSeen = id;
-        audioRoute.setCar(onCar());
+        audioRoute.setCar(carConnected());
         if (!session.isActive() || !desktopOnCar) {
             updateChooserDisplay();
             return;
@@ -3383,7 +3388,8 @@ public class XDeskActivity extends Activity {
      */
     void showSwitcher(boolean onlySystem) {
         Display d = externalDisplay();
-        if (d == null) {
+        // Not on the car: the Launchpad swallows its touches there (no onTouchEvent) until it gets a touch-first switcher (audit P1)
+        if (d == null || TargetDisplay.isCar(d)) {
             showChooser();
             return;
         }
@@ -3724,7 +3730,7 @@ public class XDeskActivity extends Activity {
         }
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
         updateChooserTop();
-        audioRoute.setCar(onCar());
+        audioRoute.setCar(carConnected());
     }
 
     /** 要外接屏才能做的事：在启动器上一直说着，接上屏为止。 */
@@ -3737,7 +3743,14 @@ public class XDeskActivity extends Activity {
         displayNoticeShown = true;
     }
 
-    /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。 */
+    /** Android Auto is connected now: CarActivity sits on the car's display. Unlike onCar(), this turns false the
+     *  moment the car goes away, whatever content still lives on its display. */
+    private boolean carConnected() {
+        return TargetDisplay.car(displays) != null;
+    }
+
+    /** 现在用的是车机，不是外接屏：说法和能做的事不同。车机断开时车机上的应用还在它的显示器上，还算车机。
+     *  Sound routing and the chip do not use this: they follow carConnected(). */
     private boolean onCar() {
         return apps.isActive() ? apps.isOnCar() : TargetDisplay.isCar(externalDisplay());
     }
@@ -4251,7 +4264,7 @@ public class XDeskActivity extends Activity {
         releaseLatches();
         apps.suspend();
         desktopOnCar = TargetDisplay.isCar(d);
-        audioRoute.setCar(desktopOnCar);
+        audioRoute.setCar(carConnected());
         if (desktopOnCar) Log.i(TAG, "desktop on the car, display=" + d.getDisplayId() + " size=" + desktopSize(d));
         LorieView.capFramerate(desktopOnCar ? d.getDisplayId() : Display.INVALID_DISPLAY, (int) AppSession.CAR_REFRESH_HZ);
         placeX11(d.getDisplayId());
