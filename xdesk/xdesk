@@ -5,7 +5,7 @@
 #   xdesk x                  start only the X server and audio
 #   xdesk run CMD...         run any program on the display
 #   xdesk list               list sessions (found by "xdesk setup" or added by you)
-#   xdesk add NAME 'CMD'     add a session, e.g. a chroot
+#   xdesk add NAME 'CMD' [--root DIR] [--launch 'PREFIX']   add a session, e.g. a chroot (writes NAME.root / NAME.launch)
 #   xdesk rm NAME            remove a session
 #   xdesk use NAME           choose the default session
 #   xdesk start [NAME]       start a session (default: the chosen one)
@@ -145,6 +145,58 @@ x_layout() {
     log "X keyboard layout: $s"
 }
 
+# CURSOR.md §2.4, §2.5: XDesk's own cursor is a black arrow with a white edge, 24 dp·b·u. X gets the same
+# from the "Adwaita" theme of the Termux package adwaita-icon-theme: a black arrow with a white edge. Its
+# size is 24·DPI/96 -- the X DPI is 96·b·u·R/N (DISPLAY.md §4.1), so 24 dp·b·u is 24·DPI/96 X pixels, which
+# the screen's R/N rendering turns back into 24 dp·b·u. Delivered three ways: the Xcursor.theme/Xcursor.size
+# resources in the X server's database (every X program reads them), XCURSOR_THEME/XCURSOR_SIZE for the
+# sessions xdesk starts, and Gtk/CursorThemeName in scale_commands next to Gtk/CursorThemeSize.
+CURSOR_THEME=Adwaita
+cursor_installed() { [ -d "$PREFIX/share/icons/$CURSOR_THEME/cursors" ]; }
+cursor_missing_msg() {
+    echo "Cursor theme: '$CURSOR_THEME' is not installed (pkg install adwaita-icon-theme has it, a black arrow with a white edge). Until then X keeps its current cursor theme."
+}
+
+# The cursor size in X pixels: 24 at 96 DPI, scaled by DPI/96 like the XFCE sizes in scale_commands. With no
+# dpi given, the one the app last asked for
+cursor_size() {  # dpi, or nothing
+    local d=${1:-$(cut -d' ' -f1 "$RUN/scale" 2>/dev/null)}
+    [[ $d =~ ^[0-9]{2,4}$ ]] || d=96
+    awk -v d="$d" 'BEGIN { printf "%d", int(24 * d / 96 + 0.5) }'
+}
+
+# The two cursor lines of $HOME/.Xresources; everything else in the file and a Xcursor.theme of the user's
+# own are left alone. Prints the file; nothing without an installed theme
+cursor_resources() {  # dpi, or nothing
+    local f=$HOME/.Xresources size
+    cursor_installed || return 1
+    size=$(cursor_size "${1:-}")
+    if grep -q '^[[:space:]]*Xcursor\.theme:' "$f" 2>/dev/null; then
+        log "Cursor theme: kept Xcursor.theme from $f"
+    else
+        printf 'Xcursor.theme: %s\n' "$CURSOR_THEME" >>"$f"
+    fi
+    if grep -q '^[[:space:]]*Xcursor\.size:' "$f" 2>/dev/null; then
+        sed -i 's/^\([[:space:]]*Xcursor\.size:\).*/\1 '"$size"'/' "$f"
+    else
+        printf 'Xcursor.size: %s\n' "$size" >>"$f"
+    fi
+    echo "$f"
+}
+
+# The resources into the X server's database (on the root window): new programs read them from there, ones
+# already running keep what they loaded. Without xrdb the session environment still sets them
+cursor_apply() {  # dpi, or nothing
+    local f
+    f=$(cursor_resources "${1:-}") || return 0
+    command -v xrdb >/dev/null 2>&1 || { log "Cursor theme: xorg-xrdb is not installed, sessions set it through their environment"; return 0; }
+    x_up || return 0
+    DISPLAY=$DPY xrdb -merge "$f" 2>/dev/null || log "Cursor theme: xrdb could not merge $f"
+}
+
+# What X gets as soon as it is up, and only then: the keyboard layout and the cursor resources
+x_ready() { x_layout; cursor_apply; }
+
 start_x() {
     local up=0 p
     x_up && up=1
@@ -154,7 +206,7 @@ start_x() {
         # Ours but not answering (still starting, or busy): never remove its socket and start a
         # second one, wait for it instead.
         for _ in $(seq 20); do
-            x_up && { x_layout; return 0; }
+            x_up && { x_ready; return 0; }
             sleep 0.5
         done
         say "The X server (pid $p) is running but does not answer on $DPY. Run: xdesk stop, then start again."
@@ -324,6 +376,11 @@ termux_env() {  # export lines for programs on the display in Termux
     # Menus follow the phone's language. LC_ALL is left alone, Termux sets it for the terminal
     lang=$(getprop persist.sys.locale 2>/dev/null | tr - _)
     [ -n "$lang" ] && echo "export LANGUAGE=$lang"
+    # The X side's cursor (CURSOR.md §2.4): the size here is the one known when this runs (the last scale
+    # the app asked); scale_later keeps the X resources at the current size afterwards
+    if cursor_installed; then
+        echo "export XCURSOR_THEME=$CURSOR_THEME XCURSOR_SIZE=$(cursor_size)"
+    fi
     # With a Vulkan driver (Turnip on Adreno) Mesa runs OpenGL through zink by itself, and falls back to
     # software rendering when the driver finds no usable GPU. Forcing zink would break OpenGL there.
     # Broken graphics on some GPU: add export LIBGL_ALWAYS_SOFTWARE=1 to the session file
@@ -364,6 +421,7 @@ setup() {
         [ -n "$name" ] && echo "${name%.sh}" >"$CONF/current"
     fi
     list
+    cursor_installed || cursor_missing_msg
 }
 
 list() {
@@ -847,6 +905,11 @@ apps_only_script() {  # file, session name
     local out=$RUN/apps-session.sh bus
     grep -qE '(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|$)' "$1" || return 1
     sed -E "s/(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|\$)/\\1sh -c 'xfsettingsd \\& exec xfwm4'\\3/" "$1" >"$out.tmp" || return 1
+    # The cursor environment of a session in its own system (a Termux session has it from termux_env):
+    # into the env its script passes in. A XCURSOR_THEME of the user's own stays
+    if [ "$(session_env "$2")" != termux ] && cursor_installed && ! grep -q 'XCURSOR_THEME=' "$out.tmp"; then
+        sed -i -E "s/(^|[[:space:]])-- env /\1-- env XCURSOR_THEME=$CURSOR_THEME XCURSOR_SIZE=$(cursor_size) /" "$out.tmp"
+    fi
     if [ "$(session_env "$2")" = termux ] && grep -qE '(^|[[:space:]])dbus-run-session[[:space:]]' "$out.tmp" && bus=$(apps_bus); then
         { echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
           sed -E 's/(^|[[:space:]])dbus-run-session[[:space:]]+(--[[:space:]]+)?/\1/' "$out.tmp"; } >"$out" || return 1
@@ -1311,16 +1374,23 @@ launch_app() {
 }
 
 # XFCE follows the X DPI the app worked out for the screen (DISPLAY.md §4.1): with s = DPI / 96 the panel is 28·s, its
-# icons 16·s, the cursor 24·s and the desktop icons 48·s, as desktop-scale.sh did per resolution. The app asks through
+# icons 16·s, the cursor 24·s and the desktop icons 48·s, as desktop-scale.sh did per resolution. The cursor size keeps
+# 24·DPI/96: 24 dp·b·u·R/N in X pixels, which the R/N rendering shows as 24 dp·b·u (CURSOR.md §2.5). The app asks through
 # the X server once the desktop is connected and whenever the screen's size factors change, before the session may be
 # up: a job in the background waits for it, and a newer request replaces an older one.
 scale_commands() {  # dpi
-    local dpi panel picon cursor dicon
+    local dpi panel picon cursor dicon theme=""
     read -r dpi panel picon cursor dicon < <(awk -v d="$1" 'BEGIN { s = d / 96;
         printf "%d %d %d %d %d\n", d, int(28 * s + 0.5), int(16 * s + 0.5), int(24 * s + 0.5), int(48 * s + 0.5) }')
+    # CURSOR.md §2.4: the cursor theme next to its size. Never over a theme the user chose: only when
+    # xsettings has none (or "default", GTK's own fallback) does xdesk name one
+    if cursor_installed; then
+        theme="v=\$(xfconf-query -c xsettings -p /Gtk/CursorThemeName 2>/dev/null) || :; if [ -z \"\$v\" ] || [ \"\$v\" = default ]; then xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s $CURSOR_THEME; fi"
+    fi
     printf '%s; ' \
         "xfconf-query -c xsettings -p /Xft/DPI -n -t int -s $dpi" \
         "xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s $cursor" \
+        "$theme" \
         "xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t uint -s $panel" \
         "xfconf-query -c xfce4-panel -p /panels/panel-1/icon-size -n -t uint -s $picon" \
         "xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s $dicon"
@@ -1356,6 +1426,8 @@ scale_later() {  # dpi
     echo "$token" >"$RUN/scale"
     (
         mine() { [ "$(cat "$RUN/scale" 2>/dev/null)" = "$token" ]; }
+        # The cursor size in the X resources follows the new scale right away; it needs no window manager
+        cursor_apply "$dpi"
         for _ in $(seq 90); do
             mine || exit 0
             wm=$(session_wm_pid) && break
@@ -1440,11 +1512,40 @@ stop)
     ;;
 list) list ;;
 add)
-    [ $# -eq 2 ] || { usage; exit 2; }
-    valid_name "$1" || exit 2
-    case "$1" in *+apps) echo "Names ending in +apps are the apps only variant of a session"; exit 2 ;; esac
-    printf '%s\n' "exec $2" >"$SESSIONS/$1.sh"
-    [ -n "$(current)" ] || echo "$1" >"$CONF/current"
+    [ $# -ge 2 ] || { usage; exit 2; }
+    name=$1; cmd=$2
+    shift 2
+    root=""; launch=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --root)
+            [ $# -ge 2 ] && [ -n "${2:-}" ] || { usage; exit 2; }
+            root=$2; shift 2 ;;
+        --launch)
+            [ $# -ge 2 ] && [ -n "${2:-}" ] || { usage; exit 2; }
+            launch=$2; shift 2 ;;
+        *) usage; exit 2 ;;
+        esac
+    done
+    valid_name "$name" || exit 2
+    case "$name" in *+apps) echo "Names ending in +apps are the apps only variant of a session"; exit 2 ;; esac
+    printf '%s\n' "exec $cmd" >"$SESSIONS/$name.sh"
+    # The chroot files for its app catalog: NAME.root is its root directory, NAME.launch a script that runs
+    # "$@" inside it (xdesk launch calls it as: bash NAME.launch sh -c 'CMD')
+    if [ -n "$root" ]; then
+        if [ ! -d "$root" ] || [ ! -r "$root" ]; then
+            # /data/local and such need root: the Termux user cannot read them. Warn, but write anyway
+            echo "  '$root' is not a readable directory for the Termux user (does it need root?). Wrote $name.root anyway."
+        fi
+        printf '%s\n' "$root" >"$SESSIONS/$name.root" && echo "  wrote $name.root"
+    fi
+    if [ -n "$launch" ]; then
+        {
+            printf '# Runs "$@" in the chroot. Written by: xdesk add %s --launch\n' "$name"
+            printf 'exec %s "$@"\n' "$launch"
+        } >"$SESSIONS/$name.launch" && echo "  wrote $name.launch"
+    fi
+    [ -n "$(current)" ] || echo "$name" >"$CONF/current"
     list
     ;;
 rm)
@@ -1473,6 +1574,8 @@ status)
     DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | sed -n 's/.*\(current [0-9]* x [0-9]*\).*/Resolution: \1/p'
     if [ -n "$(session_pid)" ]; then echo "Session: $(cat "$RUN/session.name")"; else echo "Session: none"; fi
     echo "Default: $(current)"
+    # CURSOR.md §2.4: the cursor theme of X, and which package gives it while it is not installed
+    if cursor_installed; then echo "Cursor theme: $CURSOR_THEME"; else cursor_missing_msg; fi
     # Read by the app: with an input method on the X side a keyboard on the phone types as keys (INPUT.md §5.2)
     if x_up && imp=$(ime_pid); then echo "Input method: fcitx5 (pid $imp)"; else echo "Input method: none"; fi
     # Read by the app: the remembered X side keyboard layout (INPUT.md §5.2); "from X" without one

@@ -29,7 +29,7 @@
 | 类型 | 设备 | 现在 | key 归属 |
 |---|---|---|---|
 | 内部 | 手机（只有一个，总是已连接，不能断开） | 有 | `a:` |
-| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里。**和别的设备一样，只在「添加设备 › Linux」里由用户添加**（用户 2026-11-15 定）：第一次装 XDesk 只有手机自己的安卓应用，不主动推荐 Termux。加的时候顺便要 Termux 的权限、读一次它的状态；还没装 xdesk 时，Termux 标签和添加页都有「在 Termux 里安装 xdesk」：复制安装命令、打开 Termux，让用户粘贴（XDesk 自己装不了：新的 Termux 不接受别的应用发来的命令，要先打开 `allow-external-apps`，这个安全开关只由用户决定，安装脚本会先说明再问 y/N，不会自己打开）。升级上来的老用户（xdesk 回答过）自动算已添加。加 proot / chroot 环境会顺带加上 Termux。移除这个设备只是隐藏：Linux 设备和收藏、Dock、「上一个」里的 Linux 条目不显示（正在屏上的那一个例外），加回来就恢复。手机上删了 Termux 或重装了它（按 Termux 的 `firstInstallTime` 认，`Devices.forgetGoneTermux`）：XDesk 弹窗告诉用户（之前加过的话），清掉记下的 Termux 的一切：环境、会话、加过的设备、隐藏项、Linux 的收藏和最近使用、程序列表缓存（`linux-apps.tsv`），并移除这个设备，要用就重新添加），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot，`xdesk add` 加的 chroot） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
+| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里。**和别的设备一样，只在「添加设备 › Linux」里由用户添加**（用户 2026-11-15 定）：第一次装 XDesk 只有手机自己的安卓应用，不主动推荐 Termux。加的时候顺便要 Termux 的权限、读一次它的状态；还没装 xdesk 时，Termux 标签和添加页都有「在 Termux 里安装 xdesk」：复制安装命令、打开 Termux，让用户粘贴（XDesk 自己装不了：新的 Termux 不接受别的应用发来的命令，要先打开 `allow-external-apps`，这个安全开关只由用户决定，安装脚本会先说明再问 y/N，不会自己打开）。升级上来的老用户（xdesk 回答过）自动算已添加。加 proot / chroot 环境会顺带加上 Termux。移除这个设备只是隐藏：Linux 设备和收藏、Dock、「上一个」里的 Linux 条目不显示（正在屏上的那一个例外），加回来就恢复。手机上删了 Termux 或重装了它（按 Termux 的 `firstInstallTime` 认，`Devices.forgetGoneTermux`）：XDesk 弹窗告诉用户（之前加过的话），清掉记下的 Termux 的一切：环境、会话、加过的设备、隐藏项、Linux 的收藏和最近使用、程序列表缓存（`linux-apps.tsv`），并移除这个设备，要用就重新添加），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot；`xdesk add` 加的 chroot，`--root`/`--launch` 写它的 `NAME.root`/`NAME.launch`） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
 | Mac | 每台配对过的 Mac（Sill） | 有 | `m:<mac>:…` |
 | Windows | 以后（RDP / Moonlight） | 「添加设备」里显示「即将支持」，不能点 | — |
 | 其他 Android 设备 | 以后（scrcpy 式） | 同上 | — |
@@ -228,5 +228,4 @@ XDesk                 [触摸板] [键鼠在外屏] [声音] [设置]
 - Linux 多个 X 服务器（第二期无根模式之后）：那时每个环境可以单独停止，也可以同时有两个整个桌面。
 - 轻量 X 空闲一段时间后自动停（建议，未实现）：最后一个窗口关了以后 X、xfwm4、xfsettingsd、PulseAudio 一直留着，空闲时几乎不占 CPU，占一些内存。可以在 `updateHome` 的 `idleX` 成立 N 分钟（比如 10 分钟，期间没有 Linux 窗口、没有新的启动）后跑 `xdesk stop`；代价是下一次点应用又要等 X 起来。要先在真机上看空闲 X 的内存再决定，默认应该关着。
 - proot 环境的 `+apps` 会话用的是它自己的 `dbus-launch` 总线，会话被换掉（切到别的环境的整个桌面）时，那个环境里先开的 GTK 程序可能跟着退出。要修就给每个环境一条不随会话结束的总线，需要有 proot 环境的机器来试。
-- chroot 环境的应用列表要用户自己写 `NAME.root`（根目录）和 `NAME.launch`（进入它运行命令的脚本），`xdesk add` 还没有对应的参数。
 - 收藏标签里拖动排序。
