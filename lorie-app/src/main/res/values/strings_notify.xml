@@ -44,4 +44,7 @@
     <string name="xd_notify_unlock">Please unlock the phone — then it opens</string>
     <string name="xd_notify_unlock_short">K</string>
     <string name="xd_notify_unlock_app">Locked</string>
+    <string name="xd_notify_access_offer">XDesk can show your phone\'s notifications on the external screen: banners in the top-right corner and a notification centre (the corner, the bell or Ctrl+Alt+N). It needs the system\'s notification access. Nothing is stored or sent anywhere. Without it everything else works as before; you can turn it on later in XDesk settings → Notifications.</string>
+    <string name="xd_notify_access_later">Later</string>
+    <string name="xd_notify_access_needed">The notification centre needs the notification access: XDesk settings → Notifications</string>
 </resources>

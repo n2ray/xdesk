@@ -73,7 +73,7 @@ public class XDeskActivity extends Activity {
         PREF_DIM = "dim_idle", PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
         PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density",
-        PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked";
+        PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked", PREF_NOTIFY_ACCESS_OFFERED = "notify_access_offered";
     /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
     private static final int DESKTOP_DENSITY = 168;
     /** IME this tall (part of the window) is a soft keyboard; less is the candidate bar of a physical keyboard. */
@@ -2135,6 +2135,8 @@ public class XDeskActivity extends Activity {
         // only with the notification access granted: without it everything is as before (NOTIFY.md §2)
         Display nd = Settings.canDrawOverlays(this) && NotifyCenter.accessGranted(this) ? externalDisplay() : null;
         if (notify != null) notify.setDisplay(nd != null && !TargetDisplay.isCar(nd) ? nd : null);
+        // Without the access the centre is not there at all: said once, when an external screen is first used
+        if (nd == null && Settings.canDrawOverlays(this) && !NotifyCenter.accessGranted(this)) offerNotifyAccess();
         // The Mac menu (MACMENU.md §2): only over a single Mac window or app — never the Mac's whole desktop,
         // whose own menu bar is in the picture. Its display follows the centre's (no permission gates of its own)
         boolean macContent = contentKey != null && contentKey.startsWith(MacSource.PREFIX)
@@ -2789,6 +2791,39 @@ public class XDeskActivity extends Activity {
         settingsPage(getString(R.string.xd_section_display), c, null);
     }
 
+    /**
+     * Once, the first time an external screen (not a car) is used without the notification access: what the access
+     * gives and where it is turned on later. "Later" is an answer too: never asked again, the settings row stays.
+     */
+    private void offerNotifyAccess() {
+        if (prefs.getBoolean(PREF_NOTIFY_ACCESS_OFFERED, false) || isFinishing()) return;
+        Display d = externalDisplay();
+        if (d == null || TargetDisplay.isCar(d)) return;
+        prefs.edit().putBoolean(PREF_NOTIFY_ACCESS_OFFERED, true).putBoolean(PREF_NOTIFY_ACCESS_ASKED, true).apply();
+        ui.post(() -> {
+            if (isFinishing() || NotifyCenter.accessGranted(this)) return;
+            ui().confirm(getString(R.string.xd_notify_access_title), getString(R.string.xd_notify_access_offer),
+                getString(R.string.xd_notify_access_open), getString(R.string.xd_notify_access_later),
+                () -> NotifyCenter.openAccessSettings(this));
+        });
+    }
+
+    private boolean swallowNoAccessN;
+
+    /** Ctrl+Alt+N while the centre cannot be there (no notification access): a word on the phone, the key is taken. */
+    private boolean notifyAccessKey(KeyEvent e) {
+        if (e.getKeyCode() != KeyEvent.KEYCODE_N) return false;
+        if (e.getAction() == KeyEvent.ACTION_UP && swallowNoAccessN) {
+            swallowNoAccessN = false;
+            return true;
+        }
+        if (e.getAction() != KeyEvent.ACTION_DOWN || !e.isCtrlPressed() || !e.isAltPressed()) return false;
+        if (NotifyCenter.accessGranted(this) || externalDisplay() == null) return false;
+        swallowNoAccessN = true;
+        if (e.getRepeatCount() == 0) Toast.makeText(this, R.string.xd_notify_access_needed, Toast.LENGTH_LONG).show();
+        return true;
+    }
+
     /** NOTIFY.md §6: what shows on the external screen, what banners say, per app, the bell, the low-battery banners. */
     private void showNotifySettings() {
         final SettingsUi s = ui();
@@ -3143,6 +3178,8 @@ public class XDeskActivity extends Activity {
         if (qualityKey(e)) return true;
         // Ctrl+Alt+N: the notification centre on the external screen (INPUT.md §7, NOTIFY.md §4.1)
         if (notify != null && notify.hotkey(e)) return true;
+        // Ctrl+Alt+N with no notification access: the centre is not there, so the phone says how to get it
+        if (notifyAccessKey(e)) return true;
         // Ctrl+Alt+Space with a single Mac window or app on the screen: its menu bar (INPUT.md §7, MACMENU.md §3)
         if (menus != null && menus.hotkey(e)) return true;
         // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display

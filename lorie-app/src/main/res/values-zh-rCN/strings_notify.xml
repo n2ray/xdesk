@@ -44,4 +44,7 @@
     <string name="xd_notify_unlock">请在手机上解锁，解锁后接着打开</string>
     <string name="xd_notify_unlock_short">锁</string>
     <string name="xd_notify_unlock_app">已锁定</string>
+    <string name="xd_notify_access_offer">XDesk 可以把手机的通知放到外屏上：右上角弹横幅，还有通知中心（推右上角、点铃铛或 Ctrl+Alt+N 打开）。这需要系统的「通知使用权」。内容不落盘、不外传。不开也不影响其他功能，以后可以在 XDesk 设置 → 通知 里打开。</string>
+    <string name="xd_notify_access_later">以后再说</string>
+    <string name="xd_notify_access_needed">通知中心要先开通知使用权：XDesk 设置 → 通知</string>
 </resources>
