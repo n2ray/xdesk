@@ -20,7 +20,9 @@ import android.view.WindowManager;
  * MacMenus), over Android apps by Android's own hover. Sizes from Sizing.shell, never the display's density.
  */
 final class CornerButton {
-    static final float SIZE_DP = 20;
+    static final float SIZE_DP = 24;
+    /** The plate under the glyph: the notification panel's dark surface, slightly see-through, and its edge. */
+    private static final int PLATE = 0xE61B1E24, PLATE_EDGE = 0x33FFFFFF;
     /** The pointer within this much of the button keeps it lit (NOTIFY.md §4.1). */
     static final float NEAR_DP = 100;
     /** How faint it fades to, of the shown alpha. */
@@ -155,9 +157,23 @@ final class CornerButton {
         int w = view.getWidth(), h = view.getHeight();
         if (w == 0) return;
         float s = Math.min(w, h) / SIZE_DP;  // the glyph on a grid of SIZE_DP
+        // A dark plate under the glyph (the notification panel's surface, a hairline edge): white lines alone were lost
+        // over a light picture (owner, 2026-11-15). The bell and the ≡ share it
+        float r = dp(6), edge = Math.max(1f, dp(0.5f));
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(PLATE);
+        c.drawRoundRect(0, 0, w, h, r, r, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(edge);
+        paint.setColor(PLATE_EDGE);
+        c.drawRoundRect(edge / 2f, edge / 2f, w - edge / 2f, h - edge / 2f, r, r, paint);
         paint.setColor(Style.TEXT);
         paint.setStyle(Paint.Style.FILL);
+        // The glyph a little smaller, centred, so the plate shows round it
+        c.save();
+        c.scale(0.7f, 0.7f, w / 2f, h / 2f);
         icon.draw(c, w, h, s, paint);
+        c.restore();
         // The unread badge: a round dot over the corner, the count inside when there is room
         if (unread > 0) {
             int d = Math.max(dp(10), dp(SIZE_DP * 0.45f));
