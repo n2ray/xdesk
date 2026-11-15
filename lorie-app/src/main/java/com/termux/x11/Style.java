@@ -115,6 +115,12 @@ final class Style {
     /** The same with a caller's factor (Sizing.shell on the external screen), so the corners do not follow the display's override. */
     static Drawable letterIcon(Context c, String label, float density) {
         final String letter = label == null || label.isEmpty() ? "?" : label.substring(0, label.offsetByCodePoints(0, 1)).toUpperCase();
+        return wordIcon(c, letter, density);
+    }
+
+    /** letterIcon's tile, but the whole of a short label ("+12") instead of its first letter. */
+    static Drawable wordIcon(Context c, String label, float density) {
+        final String word = label == null || label.isEmpty() ? "?" : label;
         final float radius = 10 * density;
         return new Drawable() {
             private final Paint tile = new Paint(Paint.ANTI_ALIAS_FLAG), text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -122,9 +128,10 @@ final class Style {
             @Override public void draw(android.graphics.Canvas canvas) {
                 android.graphics.Rect b = getBounds();
                 canvas.drawRoundRect(b.left, b.top, b.right, b.bottom, radius, radius, tile);
-                text.setTextSize(b.height() * 0.5f);
+                // "+12" is the longest there is: a little smaller than a single letter's half of the height
+                text.setTextSize(b.height() * (word.length() > 2 ? 0.42f : 0.5f));
                 Paint.FontMetrics m = text.getFontMetrics();
-                canvas.drawText(letter, b.exactCenterX(), b.exactCenterY() - (m.ascent + m.descent) / 2, text);
+                canvas.drawText(word, b.exactCenterX(), b.exactCenterY() - (m.ascent + m.descent) / 2, text);
             }
             @Override public void setAlpha(int a) { tile.setAlpha(a); text.setAlpha(a); }
             @Override public void setColorFilter(android.graphics.ColorFilter f) { text.setColorFilter(f); }
