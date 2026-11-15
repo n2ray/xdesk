@@ -3927,7 +3927,7 @@ public class XDeskActivity extends Activity {
             updateCapture();
         }
         @Override public void contentGone(String key) {
-            contentGone(key);
+            XDeskActivity.this.contentGone(key);  // this anonymous class's own contentGone would call itself for ever
         }
     };
 
