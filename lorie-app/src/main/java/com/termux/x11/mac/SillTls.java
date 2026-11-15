@@ -130,24 +130,73 @@ final class SillTls implements Closeable {
     Paired pair(String code, String deviceName, String model) throws Exception {
         byte[] key = PairingProof.codeKey(code, peer);
         try {
-            byte[] proof = PairingProof.proof(key, peer, own, true);
-            String encoded = Base64.encodeToString(proof, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
-            JSONObject request = new JSONObject().put("v", 1).put("method", "code").put("proof", encoded)
-                    .put("name", deviceName).put("model", model);
-            send(SillWire.PAIR_REQUEST, request.toString().getBytes(StandardCharsets.UTF_8));
-            SillWire.Message m = new SillWire.Message();
-            SillWire.read(in, m, 4096);
-            if (m.kind != SillWire.PAIR_RESULT || m.length == 0) throw new IOException("Invalid pairing response");
-            JSONObject result = new JSONObject(m.text());
-            if (!result.optBoolean("ok")) throw new PairRefused(result.optString("reason", "unknown"));
-            byte[] answer = Base64.decode(result.getString("proof"), Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
-            if (!PairingProof.verifyMac(PairingProof.proof(key, peer, own, false), answer))
-                throw new IOException("Mac pairing proof failed");
-            String id = result.optString("macID", "");
-            return new Paired(peer.clone(), id.isEmpty() ? macId(peer) : id, result.optString("name", ""));
+            return pairWithKey(key, "code", deviceName, model);
         } finally {
             java.util.Arrays.fill(key, (byte) 0);
         }
+    }
+
+    /** The QR path (method "qr"): the key is the pairing link's one-time secret, the connection is pinned by its key. */
+    Paired pairQr(byte[] secret, String deviceName, String model) throws Exception {
+        if (secret == null || secret.length != 16) throw new IllegalArgumentException("Invalid QR secret");
+        return pairWithKey(secret, "qr", deviceName, model);
+    }
+
+    private Paired pairWithKey(byte[] key, String method, String deviceName, String model) throws Exception {
+        byte[] proof = PairingProof.proof(key, peer, own, true);
+        String encoded = Base64.encodeToString(proof, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        JSONObject request = new JSONObject().put("v", 1).put("method", method).put("proof", encoded)
+                .put("name", deviceName).put("model", model);
+        send(SillWire.PAIR_REQUEST, request.toString().getBytes(StandardCharsets.UTF_8));
+        SillWire.Message m = new SillWire.Message();
+        SillWire.read(in, m, 4096);
+        if (m.kind != SillWire.PAIR_RESULT || m.length == 0) throw new IOException("Invalid pairing response");
+        JSONObject result = new JSONObject(m.text());
+        if (!result.optBoolean("ok")) throw new PairRefused(result.optString("reason", "unknown"));
+        byte[] answer = Base64.decode(result.getString("proof"), Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        if (!PairingProof.verifyMac(PairingProof.proof(key, peer, own, false), answer))
+            throw new IOException("Mac pairing proof failed");
+        String id = result.optString("macID", "");
+        return new Paired(peer.clone(), id.isEmpty() ? macId(peer) : id, result.optString("name", ""));
+    }
+
+    /** The Mac's answer to an "ask": show me a pairing code. */
+    static final class Asked {
+        /** "shown", "locked", "busy", "openOnMac", "closed"… */
+        final String reason;
+        /** How long the Mac says to wait before asking again. */
+        final long retryMillis;
+
+        Asked(String reason, long retryMillis) {
+            this.reason = reason;
+            this.retryMillis = retryMillis;
+        }
+    }
+
+    /**
+     * Kind 19 "ask", the home door's protocol: pair me now if you can, else show me your code. The remote door
+     * answers "closed" without counting a try. XDesk sends no cable claim, so the Mac never pairs it outright:
+     * an ok reply is not a real answer, and neither is a reason that is empty or absurdly long (as Sall checks).
+     */
+    Asked ask(String deviceName, String model) throws Exception {
+        JSONObject request = new JSONObject().put("v", 1).put("method", "ask").put("proof", "")
+                .put("name", deviceName).put("model", model);
+        send(SillWire.PAIR_REQUEST, request.toString().getBytes(StandardCharsets.UTF_8));
+        SillWire.Message m = new SillWire.Message();
+        SillWire.read(in, m, 4096);
+        if (m.kind != SillWire.PAIR_RESULT || m.length == 0) throw new IOException("Invalid pairing response");
+        JSONObject result = new JSONObject(m.text());
+        if (result.optBoolean("ok")) throw new IOException("Invalid pairing response");
+        String reason = result.optString("reason", "");
+        if (reason.isEmpty() || reason.length() > 100) throw new IOException("Invalid pairing response");
+        return new Asked(reason, retryMillis(result.opt("retryAfter")));
+    }
+
+    /** Sill's retryAfter: seconds, usually fractional, 0.2–10 s. */
+    private static long retryMillis(Object value) {
+        double seconds = value instanceof Number ? ((Number) value).doubleValue() : 1;
+        if (!Double.isFinite(seconds)) seconds = 1;
+        return Math.round(Math.max(.2, Math.min(10, seconds)) * 1000);
     }
 
     static final class PairRefused extends IOException {

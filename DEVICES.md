@@ -184,7 +184,7 @@ XDesk                 [触摸板] [键鼠在外屏] [声音] [设置]
       → 选类型：Linux（Termux、proot、chroot） / Mac（Sill） / Windows（即将支持） / Android 设备（即将支持）
           Linux → 「xdesk 命令知道的环境」：Termux 本身（始终是设备）；其他每个环境一行，点一下添加，再点一下移除
                   下面是让 xdesk 知道更多环境的步骤：没装 Termux 去下载；`xdesk setup`（找 proot）、`xdesk add NAME 'CMD'`（chroot），可复制命令；「重新读取」
-          Mac   → 原来的配对流程：地址 → Sill 显示的 12 位码 → 配对
+          Mac   → 配对流程：地址 → Sill 显示的 12 位码 → 配对；或扫 Sill 配对窗口里的二维码；输码的框里也能「让 Mac 显示配对码」（Mac 答应时，随后的配对只认这台 Mac）
 ```
 
 - Linux 环境只是"添加成设备"：加和移除都只改 XDesk 记的名单（`linux`），不动环境本身，也不运行任何东西。xdesk 不再报告的环境，它的设备自动不显示（名单里留着，环境回来就又有了）。Termux 本身不能移除。

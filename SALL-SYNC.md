@@ -19,6 +19,10 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 | `mac/MacAudio.java` | wire and decoder setup: `Sources/StreamProtocol/Audio.swift`, `AudioPlayer.java` (`decoderName`, `configure`), `AudioPackets.java` (`parse`, `needsFlush`, `primingFrames`), `AndroidAudioDevice.java` (`open`, `poll`). **The playout is XDesk's own**, see below |
 | `mac/MacClient.java`: `helloAudio`, `audioMessage` | `MainActivity.java`: the hello's `audio` (`wantsAudio`), `case 43` |
 | `mac/MacClient.java`: `viewportFps` | `ViewportFps.java` (Sall caps at 60 on power saving or away; XDesk has a per-Mac choice instead) |
+| `mac/PairLink.java` | `PairLink.java` (the sill://pair link: its fields, parsing, address order, name cleaning; records written as classes). XDesk has no discovery of local doors, so the local candidates are always empty |
+| `mac/SillTls.java`: `pairQr`, `ask` | `SillConnection.java`: `pairQrIdentity` (kind 19 method "qr": the link's secret is the key), `homePairingCommand` (kind 19 "ask": the Mac answers "shown", "locked", "busy"…, and the remote door "closed" without counting a try) |
+| `mac/MacPairing.java`: `pairLink`, `ask`, `pair` with the Mac's key | `MainActivity.java`: `beginPairLink` (dial the link's addresses, pinned to its key), `sendHomeAsk` (ask, then pair with the code against the key the ask saw) |
+| `MacSettings.java`: "Scan QR code", the code step's "Ask the Mac for a code", the link's confirmation; `mac/PairScannerActivity.java` | `PairScannerActivity.java`, `MainActivity.java`: `handlePairIntent` (confirm the link before pairing), `openHomePairing`. XDesk's scanner hands the link straight to MacSettings (a static one-shot receiver), never through an Intent, because XDesk has no activity-result plumbing |
 
 ## To compare later
 
@@ -26,7 +30,8 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 cd sall && git fetch && git diff 3d17c0e..origin/main --stat -- \
   Sources/StreamProtocol/HostSettings.swift Sources/StreamProtocol/Audio.swift \
   Sources/StreamProtocol/StreamMessage.swift Sources/SillHost/DeviceSettings.swift \
-  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps}.java
+  Sources/StreamProtocol/Pairing.swift \
+  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection}.java
 # the settings panel lives in one big file: look at just its functions
 git log -p 3d17c0e..origin/main -L '/private void changeHostSetting(String field, Object value, Double/,+16:AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java'
 git diff 3d17c0e..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java | grep -n 'hostSettings\|addHost\|QUALITY_'
@@ -77,4 +82,4 @@ screen shows the Mac. If Sall's lip sync is ever wanted, port those classes behi
 | Share clipboard, paste right away, send clipboard (`ClipboardDefaultPolicy`, …) | XDesk syncs the clipboard whenever the Mac offers it, without a switch |
 | Reverse scrolling | XDesk's own "Natural scrolling" (all touchpads) |
 | Multi-finger Mac gestures, thumbnail hold time, larger picture, picture in picture, the tour, connection tiles, Aa text scale | Sall's own touch interface; XDesk's input and windows are its own (INPUT.md, DISPLAY.md) |
-| Pair by QR code or link, ask the Mac for a code | XDesk pairs by address and the 12-digit code (MacSettings) |
+| PairingAuthorization, QrPairingAttempt, OverlayPairing* (cancel and remove-while-pairing guards; pair another Mac while a session runs), the paste-link dialog, InlinePairScanner (scan during a session) | XDesk pairs only from the Mac settings page, one attempt at a time, and a Mac paired by QR or link lands in MacStore exactly as one paired by code |
