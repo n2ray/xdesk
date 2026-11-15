@@ -82,6 +82,20 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     private final ArrayList<NotifyBanner> banners = new ArrayList<>();
     private NotifyPanel panel;
     private CursorOverlay arrow;
+    /** The cursor of an Android app session (AppSession.raiseCursor), drawn in a window of its own: set by the activity. */
+    private Runnable raiseAppCursor;
+
+    /** What raises the Android app's cursor: the panel, the bell and the banners are added after it (as for the Dock). */
+    void setRaiseAppCursor(Runnable r) {
+        raiseAppCursor = r;
+    }
+
+    /** Both pointers that can be over the centre's windows above them: XDesk's own (over X, a Mac) and an Android app's. */
+    private void raiseArrows() {
+        if (arrow != null) arrow.raise();
+        Runnable r = raiseAppCursor;
+        if (r != null) r.run();
+    }
     /** The driven pointer: where the arrow is (a screen width by height), and whose window it is over. */
     private boolean driven;
     private float px, py;
@@ -158,7 +172,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         bell = new NotifyBell(dc, density, this::toggle);
         try {
             windows.addView(bell.view(), bell.params());
-            if (arrow != null) arrow.raise();  // XDesk's arrow stays above every window of the centre
+            raiseArrows();  // the pointer stays above every window of the centre
             bell.setUnread(center.unread());
         } catch (RuntimeException e) {
             Log.w(TAG, "no notification bell", e);
@@ -182,7 +196,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         try {
             windows.removeViewImmediate(bell.view());
             windows.addView(bell.view(), bell.params());
-            if (arrow != null) arrow.raise();  // XDesk's arrow stays above every window of the centre
+            raiseArrows();  // the pointer stays above every window of the centre
         } catch (RuntimeException e) {
             Log.w(TAG, "cannot raise bell", e);
         }
@@ -259,7 +273,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         b.show(e, center.icon(e.pkg), center.appLabel(e.pkg), nameOnly, e.when);
         try {
             windows.addView(b.view(), b.params());
-            if (arrow != null) arrow.raise();  // XDesk's arrow stays above every window of the centre
+            raiseArrows();  // the pointer stays above every window of the centre
             b.shown();
         } catch (RuntimeException ex) {
             Log.w(TAG, "no notification banner", ex);
@@ -340,7 +354,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         b.showNotice(icon, context.getString(R.string.xd_notify_battery_app), context.getString(R.string.xd_notify_battery, level), System.currentTimeMillis());
         try {
             windows.addView(b.view(), b.params());
-            if (arrow != null) arrow.raise();  // XDesk's arrow stays above every window of the centre
+            raiseArrows();  // the pointer stays above every window of the centre
             b.shown();
         } catch (RuntimeException ex) {
             banners.remove(b);
@@ -383,7 +397,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         panel = new NotifyPanel(dc, density, this, windows);
         panel.open();
         raiseBell();
-        if (arrow != null) arrow.raise();  // the panel came after the arrow: the arrow over it, not under
+        raiseArrows();  // the panel came after the pointer: the pointer over it, not under
         ui.removeCallbacks(panelLeave);
     }
 
@@ -869,7 +883,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             System.currentTimeMillis());
         try {
             windows.addView(b.view(), b.params());
-            if (arrow != null) arrow.raise();  // XDesk's arrow stays above every window of the centre
+            raiseArrows();  // the pointer stays above every window of the centre
             b.stay();
         } catch (RuntimeException ex) {
             banners.remove(b);

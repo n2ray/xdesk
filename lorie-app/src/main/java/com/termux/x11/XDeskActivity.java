@@ -1349,6 +1349,7 @@ public class XDeskActivity extends Activity {
         apps.setBottomEdgeListener(externalDock);
         notify = Notify.get(this);
         notify.attachActivity(this);
+        notify.setRaiseAppCursor(() -> apps.raiseCursor());  // over an Android app its cursor stays above the centre
         apps.setCornerEdgeListener(notify);
         menus = MacMenus.get(this);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
@@ -1475,6 +1476,7 @@ public class XDeskActivity extends Activity {
         if (notify != null) {
             notify.setDisplay(null);
             notify.attachActivity(null);
+            notify.setRaiseAppCursor(null);
         }
         if (menus != null) menus.setDisplay(null);
         if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
