@@ -11,7 +11,7 @@ import java.util.Map;
  * How big things are on a screen, DISPLAY.md §4.1. Two numbers, and one ratio:
  * <ul>
  *   <li><b>b</b>, the screen's fact: effective ppi ÷ 96 × a distance factor for its kind (monitor 1, TV 1.6, projector 2,
- *       a tablet or phone held in the hand 0.6);</li>
+ *       the car 1.3, a tablet or phone held in the hand 0.6);</li>
  *   <li><b>u</b>, the user's choice: small 0.85, medium 1, large 1.15, extra large 1.3;</li>
  *   <li><b>R/N</b>, the pixels the content renders ÷ the screen's own pixels (the X desktop at 1920 on a 2560 screen).</li>
  * </ul>
@@ -19,7 +19,7 @@ import java.util.Map;
  * Pure arithmetic apart from reading a Display; nothing here runs per frame.
  */
 public final class Sizing {
-    static final int KIND_UNSET = 0, MONITOR = 1, TV = 2, PROJECTOR = 3, HANDHELD = 4;
+    static final int KIND_UNSET = 0, MONITOR = 1, TV = 2, PROJECTOR = 3, HANDHELD = 4, CAR = 5;
     /** u, index 1 (medium) by default. */
     static final float[] SIZES = {0.85f, 1f, 1.15f, 1.3f};
     static final int SIZE_DEFAULT = 1;
@@ -34,6 +34,7 @@ public final class Sizing {
             case TV: return 1.6f;
             case PROJECTOR: return 2f;
             case HANDHELD: return 0.6f;
+            case CAR: return 1.3f;  // 60–70 cm away, only glanced at: text must read in a look
             default: return 1f;
         }
     }
@@ -91,10 +92,10 @@ public final class Sizing {
     /** b of display d, which XDesk uses: wired, the car or the wireless display. */
     static float b(Context c, Display d, ScreenProfiles.Profile p) {
         if (TargetDisplay.isCar(d)) {
-            // Android Auto gives the car's DPI as the display's density
+            // Android Auto gives the car's DPI as the display's density; the distance factor is ours, so a glance reads
             DisplayMetrics m = new DisplayMetrics();
             d.getRealMetrics(m);
-            return densityB(m.densityDpi, KIND_UNSET, MONITOR);
+            return (m.densityDpi > 0 ? m.densityDpi / 160f : 1f) * distance(CAR);
         }
         if (d.getDisplayId() == WirelessDisplay.displayId()) return WirelessDisplay.get(c).screenB(p.kind);
         return wiredB(d, p.kind);
