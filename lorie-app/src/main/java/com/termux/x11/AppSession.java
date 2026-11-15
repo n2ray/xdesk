@@ -164,11 +164,12 @@ final class AppSession {
                                          final int x, final int y, final boolean left) {
             ui.post(() -> {
                 EdgeListener dock = bottomEdge, corner = cornerEdge;
-                if (edge == EdgePush.BOTTOM && (!active || dock == null) && !left) {
+                if (!left) {
                     long now = android.os.SystemClock.uptimeMillis();
                     if (now - edgeSaidAt >= 1000) {
                         edgeSaidAt = now;
-                        Log.d("XDeskDock", "bottom push from the injector dropped: " + (!active ? "session not active" : "no Dock listener"));
+                        Log.d("XDeskDock", "push from the injector: edge " + edge + " d " + dx + "," + dy + " held " + held
+                            + " at " + x + "," + y + (!active ? ", session not active" : dock == null ? ", no Dock listener" : ""));
                     }
                 }
                 if (!active) return;

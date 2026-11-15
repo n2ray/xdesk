@@ -478,6 +478,8 @@ final class InputInjector {
     private int pushingEdge;
     /** What of a push is less than a whole pixel yet. */
     private float pushX, pushY;
+    /** When a move at the bottom was last said (the log of a test build). */
+    private long pushSaidAt;
 
     /**
      * Before a move is clamped: at an edge already, the whole of it is a push against (or along, or away from) the
@@ -490,6 +492,13 @@ final class InputInjector {
     private void reportPush(float dx, float dy) {
         if (placedFromComputer) return;
         int edge = y >= height - 1 ? EdgePush.BOTTOM : y <= 0 ? EdgePush.TOP : x >= width - 1 ? EdgePush.RIGHT : 0;
+        if (dy > 0 && y >= height - 80) {
+            long now = SystemClock.uptimeMillis();
+            if (now - pushSaidAt >= 1000) {
+                pushSaidAt = now;
+                Log.d("XDeskDock", "injector: move down at y " + y + " of " + height + ", edge " + edge + ", display " + display);
+            }
+        }
         if (edge == 0) {
             if (pushingEdge != 0) cursor.onEdgePush(pushingEdge, 0, 0, false, (int) x, (int) y, true);
             pushingEdge = 0;
