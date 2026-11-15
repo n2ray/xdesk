@@ -315,7 +315,9 @@ final class MacMenuBar {
                 rowViews.add(line);
                 continue;
             }
-            rowViews.add(rowView(row));
+            View line = rowView(row);
+            dropdown.addView(line, new LinearLayout.LayoutParams(-1, -2));  // made but never added: an empty dropdown
+            rowViews.add(line);
         }
         placeDropdown();
         updateSelection();
