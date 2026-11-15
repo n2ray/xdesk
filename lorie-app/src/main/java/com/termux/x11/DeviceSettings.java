@@ -124,6 +124,10 @@ final class DeviceSettings {
     private void device(final String id) {
         Devices.Device first = devices.find(id);
         if (first == null) return;
+        if (first.type == Devices.Type.MAC) {
+            macDevicePage(first.name, id);
+            return;
+        }
         live(first.name, content -> {
             final Devices.Device d = devices.find(id);
             if (d == null) {
@@ -169,11 +173,64 @@ final class DeviceSettings {
                 final String env = id.substring(Devices.LINUX.length());
                 s.valueRow(more, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_dev_remove_linux_note), "",
                         () -> devices.setLinuxAdded(env, false));
-            } else if (d.type == Devices.Type.MAC) {
-                LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
-                s.valueRow(more, c.getString(R.string.xd_mac_settings), c.getString(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
             }
         });
+    }
+
+    /** The quick quality row shown at the top of a Mac's device page; re-added on every fill of the page. */
+    private MacModeRow macMode;
+
+    /**
+     * A Mac's page (SALL-SYNC.md "XDesk's own additions"): the quick quality modes at the top, the Mac's state
+     * and the ways to its settings — the whole picture page straight, and the pairing/options page. The mode row
+     * follows the Mac's settings while the page shows (MacModeRow's own listener, detached on dismiss).
+     */
+    private Dialog macDevicePage(String name, final String id) {
+        final LinearLayout content = new LinearLayout(c);
+        content.setOrientation(LinearLayout.VERTICAL);
+        final Runnable[] refill = new Runnable[1];
+        refill[0] = () -> {
+            content.removeAllViews();
+            fillMacDevice(content, id, refill[0]);
+        };
+        refill[0].run();
+        devices.addListener(refill[0]);
+        Dialog d = s.page(name, content);
+        d.setOnDismissListener(x -> {
+            devices.removeListener(refill[0]);
+            if (macMode != null) {
+                macMode.detach();
+                macMode = null;
+            }
+        });
+        return d;
+    }
+
+    private void fillMacDevice(LinearLayout content, final String id, final Runnable refill) {
+        final Devices.Device d = devices.find(id);
+        if (d == null) {
+            // Removed: nothing left to show
+            s.infoRow(s.card(content), c.getString(R.string.xd_dev_gone), null, null);
+            return;
+        }
+        String macId = id.substring(Devices.MAC.length());
+        if (macMode != null) {
+            macMode.detach();
+            macMode = null;
+        }
+        macMode = MacModeRow.add(c, s, macId, content, refill);
+        LinearLayout state = s.section(content, typeName(d.type));
+        s.infoRow(state, c.getString(R.string.xd_dev_state), null, stateText(d));
+        if (d.state == Devices.State.CONNECTED && !d.busy) {
+            s.valueRow(state, c.getString(R.string.xd_dev_disconnect), c.getString(R.string.xd_dev_disconnect_mac_note), "", () -> devices.disconnect(id));
+        } else if (d.state == Devices.State.NOT_SET_UP) {
+            s.valueRow(state, c.getString(R.string.xd_dev_set_up), null, "", () -> setUp(c, d.type));
+        } else if (d.state != Devices.State.CONNECTING && d.canConnect(devices)) {
+            s.valueRow(state, c.getString(R.string.xd_dev_connect), null, "", () -> devices.connect(id));
+        }
+        LinearLayout more = s.section(content, c.getString(R.string.xd_section_more));
+        s.valueRow(more, c.getString(R.string.xd_mac_stream), c.getString(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, macId));
+        s.valueRow(more, c.getString(R.string.xd_mac_settings), c.getString(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
     }
 
     private boolean termuxInstalled() {

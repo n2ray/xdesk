@@ -318,6 +318,7 @@ public final class MacClient {
         failure = why;
         changed();
         statusToView();
+        ui.post(this::autoTickFollow);  // the auto quality tick follows the connection
     }
 
     private void run() {
@@ -478,7 +479,7 @@ public final class MacClient {
                 // A screen wants the pongs for liveness; the settings page for the round trip it shows (Sall pings
                 // always). The interval is read again after each short step, so the page's 1 s cadence starts at
                 // once when it opens mid-wait, not up to 4 s later
-                long interval = surface != null || settingsListener != null ? 1000 : 4000;
+                long interval = surface != null || !settingsListeners.isEmpty() ? 1000 : 4000;
                 if (SystemClock.uptimeMillis() - lastSent >= interval) {
                     if (SystemClock.uptimeMillis() - lastPong > PONG_DEADLINE_MS) {
                         Log.i(TAG, "no pong: the connection is gone");
@@ -1185,7 +1186,8 @@ public final class MacClient {
     /** HostSettingsChange.token: strictly increasing for the process, never reset, whichever Mac it goes to. */
     private static final java.util.concurrent.atomic.AtomicInteger settingsToken = new java.util.concurrent.atomic.AtomicInteger();
     private volatile HostSettings hostState;
-    private volatile SettingsListener settingsListener;
+    /** Who follows the settings: the stream page, the mode rows (MacModeRow) on other pages. UI thread. */
+    private final java.util.List<SettingsListener> settingsListeners = new java.util.ArrayList<>();
     // The one change the Mac has not answered yet (Sall's pendingSettings*), UI thread
     private volatile int pendingSettingsToken;
     private volatile String pendingSettingsField;
@@ -1202,7 +1204,14 @@ public final class MacClient {
     public HostSettings settings() { return hostState; }
     /** The field of the change that waits for the Mac's answer, or null. */
     public String pendingSetting() { return pendingSettingsToken != 0 ? pendingSettingsField : null; }
-    public void setSettingsListener(SettingsListener l) { settingsListener = l; }
+    public void addSettingsListener(SettingsListener l) { settingsListeners.add(l); }
+    public void removeSettingsListener(SettingsListener l) { settingsListeners.remove(l); }
+
+    private java.util.List<SettingsListener> listeners() {
+        synchronized (settingsListeners) {
+            return new java.util.ArrayList<>(settingsListeners);
+        }
+    }
 
     private MacStore.Stream streamOptions() {
         MacStore.Stream o = streamOptions;
@@ -1213,6 +1222,7 @@ public final class MacClient {
     /** This device's own options changed (MacStore.setStreamOptions): the rate at once, the sound with a new session. */
     public void streamOptionsChanged() {
         streamOptions = MacStore.stream(context, mac.id);
+        autoTickFollow();
         SillTls s = session;
         if (s == null || state != State.CONNECTED) return;
         if (wantsAudio() != (audio != null)) {
@@ -1244,15 +1254,21 @@ public final class MacClient {
                     + (h.suggestedCaptureScale != null ? " at scale " + h.suggestedCaptureScale : ""));
         ui.post(() -> {
             if (hostState != h) return;
-            SettingsListener l = settingsListener;
+            java.util.List<SettingsListener> ls = listeners();
             if (pendingSettingsToken != 0 && h.answering == pendingSettingsToken) {
                 boolean accepted = HostSettings.accepted(h.value(pendingSettingsField), pendingSettingsValue,
                         h.captureScale, pendingSettingsScale);
                 pendingSettingsToken = 0;
                 Log.i(TAG, mac.name + ": " + pendingSettingsField + (accepted ? " set" : " not taken by the Mac"));
-                if (l != null) l.settingsAnswer(accepted ? SettingsListener.ACCEPTED : SettingsListener.REFUSED);
+                for (SettingsListener l : ls) l.settingsAnswer(accepted ? SettingsListener.ACCEPTED : SettingsListener.REFUSED);
+                pumpChanges();  // the queue of several changes (a mode, auto quality) sends its next one
+            } else if (pendingSettingsToken == 0) {
+                // Not an answer to a change sent from here: the Mac's own menu or another device changed them
+                quality.external(AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed),
+                        h.bitrate != null ? HostSettings.preset(h.bitrate) : -1, SystemClock.uptimeMillis());
             }
-            if (l != null) l.settingsChanged();
+            for (SettingsListener l : ls) l.settingsChanged();
+            autoTickFollow();
         });
     }
 
@@ -1277,18 +1293,133 @@ public final class MacClient {
         } catch (JSONException e) {
             return false;
         }
+        // A manual change of the picture is what the user wants now: the auto machine follows it (a refusal
+        // is settled by the real state that comes next)
+        if (HostSettings.BITRATE.equals(field) || HostSettings.CAPTURE_SCALE.equals(field) || HostSettings.PRIORITIZE_SPEED.equals(field)) {
+            Integer b = HostSettings.BITRATE.equals(field) ? ((Number) value).intValue() : h.bitrate;
+            Double scale = HostSettings.CAPTURE_SCALE.equals(field) ? (Double) value
+                    : captureScale != null ? captureScale : h.captureScale;
+            Boolean speed = HostSettings.PRIORITIZE_SPEED.equals(field) ? (Boolean) value : h.prioritizeSpeed;
+            quality.userChose(AutoQuality.modeOf(b, scale, speed), b != null ? HostSettings.preset(b) : -1, SystemClock.uptimeMillis());
+        }
         ui.postDelayed(() -> {
             if (pendingSettingsToken != token) return;
             pendingSettingsToken = 0;
-            SettingsListener l = settingsListener;
-            if (l != null) {
+            java.util.List<SettingsListener> ls = listeners();
+            for (SettingsListener l : ls) {
                 l.settingsAnswer(SettingsListener.TIMEOUT);
                 l.settingsChanged();
             }
         }, SETTINGS_ANSWER_MS);
-        SettingsListener l = settingsListener;
-        if (l != null) l.settingsChanged();
+        java.util.List<SettingsListener> ls = listeners();
+        for (SettingsListener l : ls) l.settingsChanged();
         return true;
+    }
+
+    // --- several changes in a row (AutoQuality: a quick mode, the machine's steps) ---
+
+    /** The changes that set a mode: only the fields that differ, bitrate, resolution, speed, in that order. */
+    public static java.util.List<AutoQuality.Change> modeChanges(HostSettings h, int mode) {
+        java.util.ArrayList<AutoQuality.Change> changes = new java.util.ArrayList<>();
+        if (h.bitrate != null && h.bitrate != AutoQuality.preset(mode))
+            changes.add(new AutoQuality.Change(HostSettings.BITRATE, AutoQuality.preset(mode), null));
+        if (h.captureScale != null && h.captureScale != AutoQuality.scale(mode))
+            changes.add(new AutoQuality.Change(HostSettings.CAPTURE_SCALE, AutoQuality.scale(mode), null));
+        if (h.prioritizeSpeed != null && h.prioritizeSpeed != AutoQuality.speed(mode))
+            changes.add(new AutoQuality.Change(HostSettings.PRIORITIZE_SPEED, AutoQuality.speed(mode), null));
+        return changes;
+    }
+
+    /** The quick modes' machine, one for this Mac for the process. */
+    private final AutoQuality quality = new AutoQuality();
+    public AutoQuality quality() { return quality; }
+
+    /** Changes waiting to be sent, each after the Mac answered the last (the queue the page never needs). UI thread. */
+    private final java.util.ArrayDeque<AutoQuality.Change> pendingChanges = new java.util.ArrayDeque<>();
+    /** The queue holds a manual pick (its result becomes the user's mode); false: the machine's own steps. */
+    private boolean queueManual;
+    /** A batch of changes is in the pipe: settle the machine when it drains. */
+    private boolean queueActive;
+
+    /**
+     * Several changes one after another, each its own kind 17, the next only after the Mac's answer — the quick
+     * mode rows and the auto machine send this way. A manual pick clears the machine's unsent steps. UI thread.
+     * @return false when nothing went out: not connected, or a manual pick already holds the pipe
+     */
+    public boolean changeAll(java.util.List<AutoQuality.Change> changes, boolean manual) {
+        if (manual) {
+            pendingChanges.clear();
+            queueManual = true;
+        } else if (queueManual) {
+            return false;  // the user's pick goes first; this auto step is superseded
+        }
+        if (changes.isEmpty()) return false;
+        pendingChanges.addAll(changes);
+        queueActive = true;
+        pumpChanges();
+        return pendingSettingsToken != 0 || !pendingChanges.isEmpty();
+    }
+
+    /** Send the queue's next change when the Mac has answered the last; settle the machine when it drains. */
+    private void pumpChanges() {
+        if (pendingSettingsToken != 0) return;
+        if (pendingChanges.isEmpty()) {
+            settleChanges();
+            return;
+        }
+        AutoQuality.Change c = pendingChanges.poll();
+        HostSettings h = hostState;
+        if (h == null || state != State.CONNECTED || h.value(c.field) == null
+                || c.captureScale != null && h.captureScale == null) {
+            // Gone (disconnected, the host lost the field): drop the rest, the page's toast says why
+            pendingChanges.clear();
+            settleChanges();
+            return;
+        }
+        sendSetting(c);
+    }
+
+    /** One change of the queue, out as its own kind 17 (the next waits for the Mac's answer). */
+    private void sendSetting(AutoQuality.Change c) {
+        final int token = settingsToken.incrementAndGet();
+        try {
+            JSONObject request = new JSONObject().put("token", token).put(c.field, c.value);
+            if (c.captureScale != null) request.put(HostSettings.CAPTURE_SCALE, c.captureScale);
+            pendingSettingsField = c.field;
+            pendingSettingsValue = c.value;
+            pendingSettingsScale = c.captureScale;
+            pendingSettingsToken = token;
+            enqueue(SillWire.CHANGE_SETTINGS, request);
+        } catch (JSONException e) {
+            pumpChanges();
+            return;
+        }
+        ui.postDelayed(() -> {
+            if (pendingSettingsToken != token) return;
+            pendingSettingsToken = 0;
+            java.util.List<SettingsListener> ls = listeners();
+            for (SettingsListener l : ls) {
+                l.settingsAnswer(SettingsListener.TIMEOUT);
+                l.settingsChanged();
+            }
+            pumpChanges();
+        }, SETTINGS_ANSWER_MS);
+        java.util.List<SettingsListener> ls = listeners();
+        for (SettingsListener l : ls) l.settingsChanged();
+    }
+
+    /** The batch of several changes is done: the machine hears what the Mac's settings are now. */
+    private void settleChanges() {
+        if (!queueActive) return;
+        queueActive = false;
+        boolean manual = queueManual;
+        queueManual = false;
+        HostSettings h = hostState;
+        if (h == null) return;
+        int mode = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
+        int tier = h.bitrate != null ? HostSettings.preset(h.bitrate) : -1;
+        if (manual) quality.userChose(mode, tier, SystemClock.uptimeMillis());
+        else quality.applied(mode, tier, SystemClock.uptimeMillis());
     }
 
     /** The session ended: its state and whatever waited for an answer are gone with it. */
@@ -1296,8 +1427,12 @@ public final class MacClient {
         hostState = null;
         ui.post(() -> {
             pendingSettingsToken = 0;
-            SettingsListener l = settingsListener;
-            if (l != null) l.settingsChanged();
+            pendingChanges.clear();
+            queueManual = false;
+            queueActive = false;
+            autoTickFollow();
+            java.util.List<SettingsListener> ls = listeners();
+            for (SettingsListener l : ls) l.settingsChanged();
         });
     }
 
@@ -1355,6 +1490,76 @@ public final class MacClient {
         if (m != null) m.setPlayer(null);
     }
 
+    // --- auto quality (AutoQuality, SALL-SYNC.md "XDesk's own additions"): the machine's tick and its notices ---
+
+    /** Every second while connected and the switch is on: does the machine want to move? UI thread. */
+    private final Runnable autoTick = new Runnable() {
+        @Override public void run() {
+            if (streamOptions().autoQuality && state == State.CONNECTED) autoWatch();
+            ui.postDelayed(this, 1000);
+        }
+    };
+
+    /** The tick follows the connection and the switch; re-armed so it runs a second after the last state. */
+    private void autoTickFollow() {
+        boolean on = streamOptions().autoQuality && state == State.CONNECTED;
+        if (on) {
+            ui.removeCallbacks(autoTick);
+            ui.postDelayed(autoTick, 1000);
+        } else {
+            ui.removeCallbacks(autoTick);
+        }
+    }
+
+    /**
+     * The Mac's link report against the machine: 5 s of continuous behind lowers (the Mac's suggestion, or one
+     * mode down), a long keep-up raises one step back. Nothing while a change is in the pipe: the machine moves
+     * only on what the Mac really has. UI thread.
+     */
+    private void autoWatch() {
+        HostSettings h = hostState;
+        if (h == null || pendingSettingsToken != 0 || !pendingChanges.isEmpty()) return;
+        HostSettings.Advice advice = h.advice(rttSlow());
+        boolean behind = advice.kind == HostSettings.Advice.BEHIND || advice.kind == HostSettings.Advice.BEHIND_SUGGESTION;
+        // A suggestion that is already what the Mac has is not one: the step down takes its place
+        boolean suggest = advice.kind == HostSettings.Advice.BEHIND_SUGGESTION
+                && (h.bitrate == null || advice.bitrate != h.bitrate
+                    || advice.captureScale != null && (h.captureScale == null
+                        || advice.captureScale.doubleValue() != h.captureScale.doubleValue()));
+        int action = behind ? quality.lower(SystemClock.uptimeMillis(), suggest) : quality.keep(SystemClock.uptimeMillis());
+        String[] names = context.getResources().getStringArray(com.termux.x11.app.R.array.xd_mac_mode_names);
+        if (action == AutoQuality.SUGGEST) {
+            java.util.ArrayList<AutoQuality.Change> changes = new java.util.ArrayList<>();
+            changes.add(new AutoQuality.Change(HostSettings.BITRATE, advice.bitrate, advice.captureScale));
+            if (changeAll(changes, false)) {
+                int m = AutoQuality.modeOf(advice.bitrate,
+                        advice.captureScale != null ? advice.captureScale : h.captureScale, h.prioritizeSpeed);
+                flash(m >= 0 ? context.getString(com.termux.x11.app.R.string.xd_mac_auto_lowered, names[m])
+                        : context.getString(com.termux.x11.app.R.string.xd_mac_auto_lowered_generic));
+            }
+        } else if (action >= 0) {
+            if (changeAll(modeChanges(h, action), false))
+                flash(context.getString(behind ? com.termux.x11.app.R.string.xd_mac_auto_lowered
+                        : com.termux.x11.app.R.string.xd_mac_auto_raised, names[action]));
+        }
+    }
+
+    private static final long FLASH_MS = 3_000;
+    /** Put the real status line back after a flash. */
+    private final Runnable hideFlash = () -> statusToView();
+
+    /** A short line over this Mac's picture (the hotkey's answer, auto quality's notice); a toast without one. */
+    public void flash(String text) {
+        View v = view;
+        if (v == null) {
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ui.removeCallbacks(hideFlash);
+        v.status(text, false);
+        ui.postDelayed(hideFlash, FLASH_MS);
+    }
+
     // --- round trip and this device's mute (Sall's ConnectionDiagnostics.Rtt, LocalAudioControl) ---
 
     /** The round trip of the latest pongs, in milliseconds; null before a connection or a pong in the last 1.5 s. */
@@ -1383,8 +1588,8 @@ public final class MacClient {
     private void audioMuteChanged(boolean muted) {
         MacStore.Stream own = streamOptions();
         MacStore.setStreamOptions(context, mac.id, own.fpsCap, own.sound, muted);
-        SettingsListener l = settingsListener;
-        if (l != null) l.settingsChanged();
+        java.util.List<SettingsListener> ls = listeners();
+        for (SettingsListener l : ls) l.settingsChanged();
     }
 
     /** The headphones went away while the Mac's sound played to them: it is muted now (Sall's headphonesOut). UI thread. */

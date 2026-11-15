@@ -130,6 +130,20 @@
     <string name="xd_mac_mute_note">Only mutes this device; it does not change the Mac\'s sound setting</string>
     <string name="xd_mac_sound_muted_headphones">Headphones disconnected, the Mac\'s sound is muted on this device</string>
     <string name="xd_mac_stream_about">About these settings</string>
+    <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
+    <string name="xd_mac_mode">Quick quality</string>
+    <string name="xd_mac_mode_note">One tap between Sharp, Balanced and Smooth. These are the Mac\'s settings, so they hold for every device connected to it; with a Mac on the external screen, Ctrl+Alt+Q cycles them</string>
+    <string-array name="xd_mac_mode_names">
+        <item>Sharp</item>
+        <item>Balanced</item>
+        <item>Smooth</item>
+    </string-array>
+    <string name="xd_mac_mode_flash">Quality: %1$s</string>
+    <string name="xd_mac_auto">Lower quality automatically on a weak link</string>
+    <string name="xd_mac_auto_note">When the Mac keeps reporting for 5 seconds that the connection cannot carry the picture, XDesk lowers the quality to the Mac\'s suggestion or one step, and steps back towards your mode after the link has kept up for a while. Only while XDesk is connected to the Mac</string>
+    <string name="xd_mac_auto_lowered">Link slowed: quality lowered to %1$s</string>
+    <string name="xd_mac_auto_lowered_generic">Link slowed: quality lowered automatically</string>
+    <string name="xd_mac_auto_raised">Link recovered: quality back to %1$s</string>
     <string name="xd_mac_stream_kept">Picture and “Mac sends sound” are the Mac\'s own settings: they hold for every device connected to it, Sill on the Mac keeps them, and its menu changes them too</string>
     <string name="xd_mac_stream_kept_session">Picture and “Mac sends sound” are the Mac\'s own settings: they hold for every device connected to it, until Sill\'s host on the Mac quits</string>
     <string name="xd_mac_on">On</string>

@@ -64,12 +64,12 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         if (client == null) return null;
         // The Mac's settings come with a connection: ask for one (it closes by itself when nothing shows this Mac)
         client.touch();
-        client.setSettingsListener(m);
+        client.addSettingsListener(m);
         m.fill(client);
         m.page = m.s.page(c.getString(R.string.xd_mac_stream_title, client.name()), m.content);
         m.page.setOnDismissListener(d -> {
             MacClient now = MacClients.get(c, macId);
-            if (now != null) now.setSettingsListener(null);
+            if (now != null) now.removeSettingsListener(m);
             m.ticker.removeCallbacks(m.tick);
         });
         m.ticker.postDelayed(m.tick, 1000);
@@ -95,7 +95,7 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         MacStore.Stream own = MacStore.stream(c, macId);
         // rttSlow: the slow-link advice appears and goes with it, without the Mac saying anything
         return (live != null ? live.snapshot() : "saved " + own.host) + "|" + client.pendingSetting() + "|" + own.fpsCap
-                + "|" + own.sound + "|" + own.muted + "|" + client.rttSlow();
+                + "|" + own.sound + "|" + own.muted + "|" + own.autoQuality + "|" + client.rttSlow();
     }
 
     /** Just the round trip's number (Sall's refreshDiagnostics updating its readout alone). */
@@ -122,6 +122,10 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         final String pending = client.pendingSetting();
         // A control only while the Mac listens and has answered the last change; otherwise the value alone
         final boolean open = live != null && pending == null;
+
+        // The quick quality modes, the page's first control (SALL-SYNC.md "XDesk's own additions"): the page
+        // itself follows the Mac, so the row needs no refill of its own
+        MacModeRow.add(c, s, macId, content, null);
 
         LinearLayout now = s.section(content, c.getString(R.string.xd_mac_stream_now));
         if (live == null) {
@@ -204,6 +208,12 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         int capAt = own.fpsCap == 60 ? 1 : own.fpsCap == 30 ? 2 : 0;
         s.segmentedRow(device, c.getString(R.string.xd_mac_cap), c.getString(R.string.xd_mac_cap_note), capNames, capAt, which -> {
             MacStore.setStreamOptions(c, macId, caps[which], MacStore.stream(c, macId).sound, MacStore.stream(c, macId).muted);
+            client.streamOptionsChanged();
+            drawn = snapshot(client);
+        });
+        // The auto quality machine (AutoQuality): this device's own switch, kept per Mac like the other two
+        s.switchRow(device, c.getString(R.string.xd_mac_auto), c.getString(R.string.xd_mac_auto_note), own.autoQuality, on -> {
+            MacStore.setAutoQuality(c, macId, on);
             client.streamOptionsChanged();
             drawn = snapshot(client);
         });
