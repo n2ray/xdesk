@@ -83,7 +83,8 @@ words to tell them apart (the menus changed, the app is gone, it is not answerin
 many requests…).
 
 XDesk has no menu bar UI; the protocol is used for one thing: **quitting an app** (`MacClient.quitApp`, the
-card's "Quit app" / "Quit <app>", `MacSource.close` on an "app" key). Sill can't quit an app on its own, and
+Running app item's "Quit", `MacSource.close` on an "app" key; MACMENU.md §8: a window's card only closes it,
+quitting is the menu's, ⌘Q's and the app item's). Sill can't quit an app on its own, and
 its AppInfo has no running flag, so an app with no windows would stay on the Mac unseen — quitting one is
 what this is for. quitApp makes the app the streamed app first (one of its windows, or kind 7 with no
 window), fetches its first top-level menu (the app menu: the Apple menu is left out), presses the enabled

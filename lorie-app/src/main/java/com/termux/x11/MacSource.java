@@ -84,9 +84,44 @@ final class MacSource implements ContentSource {
                 // Ended for good (removed on the Mac, another key): its screen closes instead of waiting forever
                 MacActivity.failedFor(c.mac().id, c.failure());
             }
+            // MACMENU.md §8: the window or app shown on this Mac's screen closed on the Mac (a window closed, an
+            // app quit there): the content is gone. Not while a quit runs here: its stream switch may close the
+            // shown window before the app's save dialog opens — the quit's answer then does the same check. Not
+            // while the Mac launches an app (want == NONE): its window is not in the list yet
+            if (c.state() == MacClient.State.CONNECTED && c.want() != MacClient.NONE && !c.quitting())
+                contentWindowClosed(c);
             fireChanged();
         });
         fireChanged();
+    }
+
+    /** The window or app shown on this Mac's screen left the window list: the content is gone (MACMENU.md §8). */
+    private void contentWindowClosed(MacClient c) {
+        String key = shown.get(c.mac().id);
+        if (key == null || !macGone(c, key)) return;
+        shown.remove(c.mac().id);
+        MacInput in = inputs.get(c.mac().id);
+        if (in != null) in.releaseAll();
+        Contents.Host host = Contents.host();
+        if (host != null) host.contentGone(key);
+    }
+
+    /** A shown "win" key whose window, or an "app" key whose every window, left the list. */
+    private static boolean macGone(MacClient c, String key) {
+        if (!key.startsWith(PREFIX + c.mac().id + ":")) return false;
+        int win = key.indexOf(":win:");
+        if (win >= 0) {
+            String rest = key.substring(win + 5);
+            for (MacClient.Window w : c.windows()) if (rest.equals(String.valueOf(w.id))) return false;
+            return true;
+        }
+        int app = key.indexOf(":app:");
+        if (app >= 0) {
+            String bundle = key.substring(app + 5);
+            for (MacClient.Window w : c.windows()) if (bundle.equals(w.bundleId)) return false;
+            return true;
+        }
+        return false;
     }
 
     /** A Mac screen ended on its own (destroyed, its display gone, the Mac failed): the host forgets it. */
@@ -259,28 +294,15 @@ final class MacSource implements ContentSource {
         }
     }
 
-    /** Quit the app of a window item (ContentSource.quit, the card's "Quit <app>" on a Mac window). */
-    @Override public void quit(String key) {
-        Object[] k = parse(key);
-        if (k == null) return;
-        MacClient m = (MacClient) k[0];
-        String kind = (String) k[1], rest = (String) k[2];
-        if ("win".equals(kind)) {
-            // The window's app: the key's window may have closed since, but a window of the app is enough
-            for (MacClient.Window w : m.windows())
-                if (rest.equals(String.valueOf(w.id))) {
-                    quitApp(m, w.bundleId);
-                    return;
-                }
-        } else if ("app".equals(kind)) {
-            quitApp(m, rest);
-        }
-    }
-
     /** One app quit through Sill's menu protocol; its answer goes to the user, on the UI thread. */
     private void quitApp(MacClient m, String bundleId) {
         m.quitApp(bundleId, (result, winId, note) -> {
-            if (result == MacClient.QuitListener.OK) return;  // the lists refresh with the window list
+            if (result == MacClient.QuitListener.OK) {
+                // MACMENU.md §8: the app is really gone. While the quit ran, its window leaving the list was held
+                // back (quitting()); if that window was the content, the content is gone now
+                contentWindowClosed(m);
+                return;
+            }
             if (result == MacClient.QuitListener.SAVE) {
                 Toast.makeText(context, note, Toast.LENGTH_LONG).show();
                 if (winId >= 0) {

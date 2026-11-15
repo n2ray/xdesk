@@ -50,6 +50,12 @@ final class Contents {
 
         /** The content ended on its own (its activity was destroyed, the stream failed, its display went away). */
         void contentEnded(String key);
+
+        /**
+         * The content disappeared on its own — a Mac app quit or a window closed on the Mac, a Linux window
+         * closed: XDesk shows the previous content, or the Launchpad home (MACMENU.md §8).
+         */
+        void contentGone(String key);
     }
 
     private static final ArrayList<ContentSource> sources = new ArrayList<>();

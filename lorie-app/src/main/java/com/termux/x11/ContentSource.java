@@ -40,14 +40,6 @@ interface ContentSource {
     /** Close a window or quit an app (the explicit "quit", not taking it off a screen). */
     void close(String key);
 
-    /**
-     * Quit the app an item belongs to (the explicit "quit" of a window's app, distinct from closing the
-     * window). Close by default: most sources' "quit" is closing its windows.
-     */
-    default void quit(String key) {
-        close(key);
-    }
-
     /** Called on the UI thread whenever apps() or windows() changed. */
     void setListener(Runnable changed);
 

@@ -238,6 +238,8 @@ public final class MacClient {
     public boolean activeDesktop() { return activeDesktop; }
     public float pointerX() { return pointerX; }
     public float pointerY() { return pointerY; }
+    /** quitApp is running: the Mac's stream may leave the shown window before its app's save dialog opens. */
+    public boolean quitting() { return quittingApp != null; }
 
     /**
      * Screen pixels per Mac point, DISPLAY.md §4.1: max(b·u·R/N, 1.5). How big the Mac window is asked to be on this

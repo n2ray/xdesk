@@ -359,15 +359,15 @@ final class ItemCard {
             if (d == null || !d.canStop || d.busy || !session.equals(devices.runningSession())) return;
             action(R.string.xd_dev_stop, Style.SURFACE, Style.DANGER, () -> devices.stop(d.id));
         } else if (isMac()) {
-            // A Mac window closes (its app keeps running); a Mac app quits through Sill's menu protocol, for real
-            // (MacSource.close on an "app" key, SALL-SYNC.md). Sill's app list has no running flag, so the quit
-            // is offered whether or not the app has windows — a windowless app would otherwise be unquittable
+            // A Mac window's card only closes it, as on the Mac; quitting is the menu's, ⌘Q's and the Running app
+            // item's (MACMENU.md §8). The app item quits for real, through Sill's menu protocol (MacSource.close
+            // on an "app" key, SALL-SYNC.md); Sill's app list has no running flag, so the quit is offered whether
+            // or not the app has windows — a windowless app would otherwise be unquittable
             boolean window = e != null && e.detail != null;
             if (window) {
-                action(R.string.xd_card_close_window, Style.SURFACE, Style.DANGER, () -> source.close(key));
-                action(c.getString(R.string.xd_card_quit, e.label), Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
+                action(R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
             } else if (e != null && !ChooserView.isDesktopKey(key)) {
-                action(R.string.xd_card_quit_app, Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
+                action(R.string.xd_dev_quit, Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
             }
         } else if (e != null && e.running && !ChooserView.isDesktopKey(key)) {
             // A window closes; a program quits (ContentSource.close). A Mac's desktop is not closed: its Mac is
@@ -382,7 +382,7 @@ final class ItemCard {
         s.confirm(c.getString(R.string.xd_card_quit_title, label), str(R.string.xd_unsaved_may_be_lost),
             str(R.string.xd_dev_quit), () -> {
                 card.dismiss();
-                source.quit(key);
+                source.close(key);  // a Mac "app" key quits through MacClient.quitApp (MacSource.close)
             });
     }
 

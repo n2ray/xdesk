@@ -410,9 +410,6 @@
     <string name="xd_card_device_settings">「%1$s」的设置</string>
     <string name="xd_card_on_phone">它的设置在手机上</string>
     <string name="xd_card_close_title">关闭 %1$s？</string>
-    <string name="xd_card_close_window">关闭窗口</string>
-    <string name="xd_card_quit">退出 %1$s</string>
-    <string name="xd_card_quit_app">退出应用</string>
     <string name="xd_card_quit_title">退出 %1$s？</string>
 
     <string name="xd_termux_not_installed">没有安装 Termux，装好后点这里</string>
