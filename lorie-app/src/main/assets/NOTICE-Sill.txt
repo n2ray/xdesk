@@ -1,5 +1,6 @@
 XDesk's Mac client (com.termux.x11.mac and MacInput/MacSource) contains code derived from
-Sill (https://github.com/Saffsanity/sill) and its Android client Sall (https://github.com/n2ray/sall).
+Sill (https://github.com/Saffsanity/sill) and Sall (https://github.com/n2ray/sall), a third-party
+Android client for Sill by n2ray, the author of XDesk.
 
 Copyright 2026 Noah Saffer
 

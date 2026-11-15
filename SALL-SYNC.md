@@ -1,7 +1,7 @@
 # Keeping XDesk's Mac support in step with Sall
 
 XDesk shows a Mac through [Sill](https://github.com/Saffsanity/sill) on the Mac. Its client code is a port of
-Sall, the Android client in the owner's fork (github.com/n2ray/sall, `AndroidClient/`), which follows upstream
+Sall, the owner's own third-party Android client for Sill (github.com/n2ray/sall, `AndroidClient/`; not an official Sill app), which follows upstream
 Sill. This file says which Sall commit each part follows and how to see what changed since.
 
 **Last compared: Sall `3d17c0e` (2026-11-13, "Recover from HEVC decoder failures"); the round trip and the audio mute follow the checkout's HEAD `ff5d1f0d` (2026-11-13, "Guard oversized HEVC streams on Android").**
