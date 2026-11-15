@@ -39,11 +39,23 @@ final class Contents {
          */
         default boolean wanted(String key) { return true; }
 
+        /**
+         * Open a key the normal way (chooseKey): a source that needs content on the screen after an action of
+         * its own (a Mac app's save dialog, quitApp's SAVE).
+         */
+        void open(String key);
+
         /** Something about this content changed that the phone UI shows (title, running state). */
         void contentChanged();
 
         /** The content ended on its own (its activity was destroyed, the stream failed, its display went away). */
         void contentEnded(String key);
+
+        /**
+         * The content disappeared on its own — a Mac app quit or a window closed on the Mac, a Linux window
+         * closed: XDesk shows the previous content, or the Launchpad home (MACMENU.md §8).
+         */
+        void contentGone(String key);
     }
 
     private static final ArrayList<ContentSource> sources = new ArrayList<>();

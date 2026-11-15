@@ -149,6 +149,26 @@ public final class MacClient {
     private final java.util.concurrent.atomic.AtomicInteger inputsQueued = new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean launchFailed;
 
+    // The Mac's menus (kinds 24, 25 and 27): the streamed app's menu bar, for quitApp and the menu bar overlay.
+    // The reader thread feeds receiveTop/receiveAnswer, the quit machine and the UI ask fetch/press;
+    // MacMenuState's methods are synchronized.
+    private final MacMenuState mirroredMenus = new MacMenuState();
+    /** FetchMenu/PressMenuItem tokens, strictly increasing per connection, as kind 17's are (Sall's menuToken). */
+    private final java.util.concurrent.atomic.AtomicLong menuToken = new java.util.concurrent.atomic.AtomicLong();
+    /** This connection asked for the top level (kind 27 without an id): the host then serves fetches and presses. */
+    private boolean menuSubscribed;
+    /** Who hears tops and answers for the menu bar UI; all get every one, the quit machine's slot stays its own. */
+    private final java.util.List<MenuListener> menuListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** What the menu bar UI hears (MacMenuBar, the phone's dialog), on the UI thread. */
+    public interface MenuListener {
+        /** The top level came or moved (read it afresh), and the requests the host answered. */
+        void menusChanged(MacMenuState.Top top, java.util.List<MacMenuState.Done> done);
+    }
+    /** The app the quit machine is quitting (its stream is switching): the screen says so meanwhile. */
+    private volatile String quittingApp;
+    /** Sall's Accessibility is missing on the Mac: said once per process (MacMenuState.NOT_TRUSTED). */
+    private static volatile boolean quitAccessibilitySaid;
+
     /** A pointer move waiting for the sender; while it is the queue's last, later moves only change where it goes. */
     private static final class Move {
         float x, y;
@@ -226,6 +246,8 @@ public final class MacClient {
     public boolean activeDesktop() { return activeDesktop; }
     public float pointerX() { return pointerX; }
     public float pointerY() { return pointerY; }
+    /** quitApp is running: the Mac's stream may leave the shown window before its app's save dialog opens. */
+    public boolean quitting() { return quittingApp != null; }
 
     /**
      * Screen pixels per Mac point, DISPLAY.md §4.1: max(b·u·R/N, 1.5). How big the Mac window is asked to be on this
@@ -473,6 +495,10 @@ public final class MacClient {
         stopClipboard();
         settingsCleared();
         closeAudio();
+        // The next session's menus start afresh (a new connection, so a new subscription); anything the quit
+        // machine still waits for settles now, and it ends on the next state check
+        for (MacMenuState.Done d : mirroredMenus.reset()) quitAnswer(d);
+        menuSubscribed = false;
     }
 
     private void pingLoop(SillTls s) {
@@ -605,6 +631,9 @@ public final class MacClient {
         case SillWire.CURSOR_SHAPE:
             cursorShape(m);
             return;
+        case SillWire.MAC_MENU:
+            macMenu(new JSONObject(m.text()));
+            return;
         case SillWire.MAC_POINTER: {
             // The Mac's own mouse (or another device) moved its pointer. This side's pointer is the one the user
             // moves and looks at, so a report only ever moves it, as in Sall (PointerSync.accepts): never one built
@@ -662,8 +691,77 @@ public final class MacClient {
             throw new Ended(text, again, removed);
         }
         default:
-            // Thumbnails (3), Mac info (18), menus: not used
+            // Thumbnails (3), Mac info (18): not used
         }
+    }
+
+    /**
+     * Kind 24 (MacMenu.swift): the top level of the streamed app's menu bar (with `menus`), or the answer to
+     * one of this connection's kind 27s or 25s (with `answering`). What the menu state settles goes to the quit
+     * machine (quitAnswer) and to the menu bar UI's listeners. Reader thread.
+     */
+    private void macMenu(JSONObject menu) {
+        MacMenuState.Received received;
+        JSONArray top = menu.optJSONArray("menus");
+        if (top != null) {
+            received = mirroredMenus.receiveTop(optInt(menu, "version"), optString(menu, "app"),
+                    optString(menu, "bundleID"), menuItems(top), menu.optBoolean("stale", false),
+                    optString(menu, "note"));
+        } else {
+            Long answering = optLong(menu, "answering");
+            if (answering == null) return;
+            JSONArray items = menu.optJSONArray("items");
+            received = mirroredMenus.receiveAnswer(answering, optInt(menu, "version"),
+                    items == null ? null : menuItems(items), Math.max(0, menu.optInt("more", 0)),
+                    optBool(menu, "pressed"), optString(menu, "note"));
+        }
+        for (MacMenuState.Done d : received.done) quitAnswer(d);
+        if (!received.done.isEmpty() || received.topChanged) {
+            final MacMenuState.Top now = mirroredMenus.top();
+            final java.util.List<MacMenuState.Done> done = received.done;
+            for (MenuListener l : menuListeners) ui.post(() -> l.menusChanged(now, done));
+        }
+    }
+
+    /** Sall's optionalMenu*: a field is read only when it is there and of its kind (HostSettings.swift's rules). */
+    private static String optString(JSONObject o, String name) {
+        Object v = o.opt(name);
+        return v instanceof String ? (String) v : null;
+    }
+
+    private static Integer optInt(JSONObject o, String name) {
+        Object v = o.opt(name);
+        if (!(v instanceof Number)) return null;
+        double n = ((Number) v).doubleValue();
+        return Double.isFinite(n) && n >= Integer.MIN_VALUE && n <= Integer.MAX_VALUE && n == Math.rint(n)
+                ? (int) n : null;
+    }
+
+    private static Long optLong(JSONObject o, String name) {
+        Object v = o.opt(name);
+        if (!(v instanceof Number)) return null;
+        double n = ((Number) v).doubleValue();
+        return Double.isFinite(n) && n >= 0 && n <= 9007199254740991d && n == Math.rint(n)
+                ? ((Number) v).longValue() : null;
+    }
+
+    private static Boolean optBool(JSONObject o, String name) {
+        Object v = o.opt(name);
+        return v instanceof Boolean ? (Boolean) v : null;
+    }
+
+    private static List<MacMenuState.Item> menuItems(JSONArray values) {
+        ArrayList<MacMenuState.Item> items = new ArrayList<>();
+        if (values == null) return items;
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject item = values.optJSONObject(i);
+            if (item == null) continue;
+            Object enabled = item.opt("enabled");
+            items.add(new MacMenuState.Item(optString(item, "id"), optString(item, "title"),
+                    item.optBoolean("separator", false), enabled instanceof Boolean ? (Boolean) enabled : null,
+                    optString(item, "mark"), optString(item, "key"), item.optBoolean("submenu", false)));
+        }
+        return items;
     }
 
     private void askKeyframe(SillTls s) {
@@ -1622,6 +1720,10 @@ public final class MacClient {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_opening);
         } else if (launchFailed) {
             line = context.getString(com.termux.x11.app.R.string.xd_mac_launch_failed);
+        } else if (quittingApp != null) {
+            // quitApp switched the stream to the app it quits: the picture changes though this side's own
+            // content is left alone, so the line says it is quitting, not that someone took the stream
+            line = context.getString(com.termux.x11.app.R.string.xd_mac_quitting, quittingApp);
         } else if (want >= 0 && activeWindow != want || want == DESKTOP && !activeDesktop) {
             boolean gone = want >= 0 && !hasWindow(want);
             // The Mac streams one source, to every device, and its list does not say who picked it. So "another
@@ -1689,6 +1791,392 @@ public final class MacClient {
         selectSource(want);
         sendViewport();
         statusToView();
+    }
+
+    // --- quitting an app (Sill's menu protocol, kinds 24, 25 and 27; SALL-SYNC.md "The Mac's menus") ---
+
+    /** quitApp's answers, on the UI thread. */
+    public interface QuitListener {
+        /** The app's windows left the window list: it quit. */
+        int OK = 0;
+        /** The app did not quit (a save dialog, most likely): winId is the window to put on the screen, -1 none. */
+        int SAVE = 1;
+        /** It could not be quit; note says why, for the user. */
+        int FAILED = 2;
+
+        /** @param winId SAVE's window (>= 0), else -1; note: what to tell the user when the result is not OK. */
+        void quitDone(int result, long winId, String note);
+    }
+
+    private static final long QUIT_READY_MS = 15_000, QUIT_GONE_MS = 5_000, QUIT_MENU_MS = 4_000;
+    /** quitApp's runs, one at a time: the menu state and the answer slot are for one request in flight. */
+    private final Object quitGate = new Object();
+    /** The answer slot the reader thread hands the quit machine (quitAnswer, waitQuitAnswer). */
+    private final Object quitLock = new Object();
+    private MacMenuState.Done quitDone;
+
+    /**
+     * Quit an installed app for real ("Sill can't quit an app" — it can, through its menu protocol): make it
+     * the streamed app if it is not, then press its menu's Quit item (the item with the key "⌘Q", so it is
+     * found whatever the menu's language; without a ⌘Q item, a title that starts with "Quit"/"退出"/"Beenden"…),
+     * and wait for the app's windows to leave the window list. Sill's AppInfo has no running flag, so an app
+     * with no windows would otherwise stay on the Mac unseen and unquittable; quitting one needs no window.
+     *
+     * The stream switch does not take over any screen: XDesk's own content (what it shows) is left alone, and
+     * the Mac's stream goes back to what streamed before afterwards. A screen showing this Mac sees the switch
+     * (the picture is the Mac's one stream), with a "Quitting…" line, and then what it showed before. An app
+     * that keeps windows after the press (a save dialog, most likely) is reported as SAVE with its newest
+     * window, and the stream left on it. Sill without Accessibility on the Mac refuses the menus: ⌘Q then goes
+     * as key input to the streamed app (the raw key path MacInput uses), and the user is told once that
+     * allowing Accessibility makes quitting reliable. Off the UI thread; the listener runs on the UI thread.
+     */
+    public void quitApp(String bundleId, QuitListener listener) {
+        new Thread(() -> {
+            synchronized (quitGate) {
+                quitRun(bundleId, listener);
+            }
+        }, "mac-quit").start();
+    }
+
+    private void quitRun(String bundleId, QuitListener listener) {
+        try {
+            quitBody(bundleId, listener);
+        } finally {
+            // Whatever ended it (an unexpected error included): the screen must not stay on "Quitting…"
+            if (quittingApp != null) {
+                quittingApp = null;
+                statusToView();
+            }
+        }
+    }
+
+    private void quitBody(String bundleId, QuitListener listener) {
+        final String name = appName(bundleId);
+        if (!awaitConnected(10_000)) {
+            done(listener, QuitListener.FAILED, -1, context.getString(com.termux.x11.app.R.string.xd_mac_cannot_connect, name));
+            return;
+        }
+        long before = activeSource();
+        long wantAt = want;
+        boolean switched = false;
+        if (!streamsApp(bundleId)) {
+            // Not the streamed app: pick one of its windows, or launch it (the host picks its first window).
+            // The Mac's stream only, never XDesk's own content: `want` and what a screen shows stay
+            switched = true;
+            quittingApp = name;
+            statusToView();
+            MacClient.Window win = newestWindow(bundleId);
+            if (win != null) switchStreamTo(win.id);
+            else try {
+                enqueue(SillWire.LAUNCH_APP, new JSONObject().put("bundleID", bundleId));
+            } catch (JSONException ignored) { }
+            long until = SystemClock.uptimeMillis() + QUIT_READY_MS;
+            while (!streamsApp(bundleId)) {
+                if (state != State.CONNECTED || SystemClock.uptimeMillis() >= until) {
+                    finishQuit(listener, QuitListener.FAILED, -1,
+                            context.getString(com.termux.x11.app.R.string.xd_mac_launch_failed), before, wantAt, switched);
+                    return;
+                }
+                SystemClock.sleep(50);
+            }
+        }
+        menuSubscribe();
+        MacMenuState.Top top = waitTop(bundleId, QUIT_READY_MS);
+        if (top == null) {
+            finishQuit(listener, QuitListener.FAILED, -1, quitFailed(name,
+                    context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_answer)), before, wantAt, switched);
+            return;
+        }
+        // The app menu is the first top-level entry (the Apple menu is left out); press its Quit item. The menus
+        // can move between a fetch and the press (an app changes them in place): the version moves, the host
+        // sends the new top level by itself (we are a subscriber), and one more fetch and press follows
+        MacMenuState.Refusal refusal = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            top = mirroredMenus.top();
+            boolean fromTop = false;  // a refusal read off the top level itself: nothing to retry a fetch for
+            if (top.version == null || !matches(top, bundleId)) {
+                // The stream moved off the app while quitting (someone took it back): never press another app's Quit
+                refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.CHANGED, MacMenuState.CHANGED_NOTE);
+                fromTop = true;
+            } else if (top.stale) {
+                refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.NOT_ANSWERING,
+                        top.note == null ? MacMenuState.DEFAULT_NOT_RESPONDING : top.note);
+            } else {
+                MacMenuState.Item menu = MacMenuState.firstMenu(top.menus);
+                if (menu == null) {
+                    // No menu bar at all: the top's note says why (no Accessibility: NOT_TRUSTED)
+                    refusal = MacMenuState.Refusal.of(top.note);
+                    if (refusal == null) refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.OTHER,
+                            context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_menus));
+                } else {
+                    long token = menuToken.incrementAndGet();
+                    MacMenuState.Sent sent = mirroredMenus.fetch(menu.id, menu.title, top.version, token,
+                            SystemClock.uptimeMillis());
+                    if (sent.refusal != null) {
+                        refusal = sent.refusal;
+                    } else {
+                        sendMenu(SillWire.FETCH_MENU, sent.command);
+                        MacMenuState.Done d = waitQuitAnswer(token, menuWaitMs());
+                        if (d == null) {
+                            mirroredMenus.drop(token);
+                            refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.NOT_ANSWERING,
+                                    context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_answer));
+                        } else if (d.refusal != null) {
+                            refusal = d.refusal;
+                        } else {
+                            MacMenuState.Item quit = MacMenuState.quitItem(d.items);
+                            if (quit == null) {
+                                refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.OTHER,
+                                        context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_item));
+                            } else {
+                                token = menuToken.incrementAndGet();
+                                sent = mirroredMenus.press(quit, token);
+                                if (sent.refusal != null) {
+                                    refusal = sent.refusal;
+                                } else {
+                                    sendMenu(SillWire.PRESS_MENU_ITEM, sent.command);
+                                    d = waitQuitAnswer(token, menuWaitMs());
+                                    if (d == null) {
+                                        mirroredMenus.drop(token);
+                                        refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.NOT_ANSWERING,
+                                                context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_answer));
+                                    } else {
+                                        refusal = d.refusal;
+                                        if (refusal == null && Boolean.FALSE.equals(d.pressed)) {
+                                            // pressed false without a note: the menus changed, as in Sall
+                                            refusal = new MacMenuState.Refusal(MacMenuState.RefusalKind.CHANGED,
+                                                    MacMenuState.CHANGED_NOTE);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (refusal == null) break;  // pressed: wait for its windows to leave
+            if (refusal.kind == MacMenuState.RefusalKind.CHANGED && attempt == 0 && !fromTop) {
+                waitTopChanged(bundleId, top.version, QUIT_MENU_MS);  // the new top level comes by itself
+                continue;
+            }
+            if (refusal.kind == MacMenuState.RefusalKind.GONE) refusal = null;  // the app is already closed: as good as quit
+            break;
+        }
+        if (refusal != null && refusal.kind == MacMenuState.RefusalKind.NOT_TRUSTED) {
+            // Sill has no Accessibility on the Mac: no menu is ever readable. ⌘Q as key input to the streamed
+            // app works without it, as MacInput's shortcut() sends it; say once that allowing Accessibility
+            // makes quitting reliable
+            if (!quitAccessibilitySaid) {
+                quitAccessibilitySaid = true;
+                String access = context.getString(com.termux.x11.app.R.string.xd_mac_quit_no_access);
+                ui.post(() -> Toast.makeText(context, access, Toast.LENGTH_LONG).show());
+            }
+            sendQuitKeys();
+            refusal = null;
+        }
+        if (refusal != null) {
+            finishQuit(listener, QuitListener.FAILED, -1, quitFailed(name, refusal.note), before, wantAt, switched);
+            return;
+        }
+        // The Quit item was pressed (or ⌘Q sent): wait for the app's windows to leave the list
+        if (waitGone(bundleId, QUIT_GONE_MS)) {
+            finishQuit(listener, QuitListener.OK, -1, null, before, wantAt, switched);
+            return;
+        }
+        // The app stays (a save dialog, most likely): its newest window is the one the user must answer on the Mac
+        long win = -1;
+        for (MacClient.Window w : windows) if (bundleId.equals(w.bundleId)) win = w.id;
+        if (win >= 0) switchStreamTo(win);  // the dialog is what streams; the caller puts it on the screen
+        finishQuit(listener, QuitListener.SAVE, win,
+                context.getString(com.termux.x11.app.R.string.xd_mac_quit_save, name), before, wantAt, switched);
+    }
+
+    /** The app whose menus these are, by its bundle id (the name, when the host's bundleID field is absent). */
+    private boolean matches(MacMenuState.Top top, String bundleId) {
+        return bundleId.equals(top.bundleID) || top.bundleID == null && bundleId.equals(top.app);
+    }
+
+    /** A top level of this app, once it streams; null when the connection went or the time ran out. */
+    private MacMenuState.Top waitTop(String bundleId, long ms) {
+        long until = SystemClock.uptimeMillis() + ms;
+        while (state == State.CONNECTED && SystemClock.uptimeMillis() < until) {
+            MacMenuState.Top top = mirroredMenus.top();
+            if (top.version != null && matches(top, bundleId)) return top;
+            SystemClock.sleep(50);
+        }
+        return null;
+    }
+
+    /** Wait for the next top level of this app (its version moved), for the one retry after a CHANGED refusal. */
+    private void waitTopChanged(String bundleId, int oldVersion, long ms) {
+        long until = SystemClock.uptimeMillis() + ms;
+        while (state == State.CONNECTED && SystemClock.uptimeMillis() < until) {
+            MacMenuState.Top top = mirroredMenus.top();
+            if (top.version != null && top.version != oldVersion && matches(top, bundleId)) return;
+            SystemClock.sleep(50);
+        }
+    }
+
+    private boolean waitGone(String bundleId, long ms) {
+        long until = SystemClock.uptimeMillis() + ms;
+        while (state == State.CONNECTED && SystemClock.uptimeMillis() < until) {
+            if (newestWindow(bundleId) == null) return true;
+            SystemClock.sleep(100);
+        }
+        return newestWindow(bundleId) == null;
+    }
+
+    /** Whether a window of this app is what streams now. */
+    private boolean streamsApp(String bundleId) {
+        long active = activeWindow;
+        if (active < 0) return false;
+        for (MacClient.Window w : windows) if (w.id == active && bundleId.equals(w.bundleId)) return true;
+        return false;
+    }
+
+    /** The app's newest window (the Mac lists windows first seen first), or null when it has none. */
+    private MacClient.Window newestWindow(String bundleId) {
+        MacClient.Window newest = null;
+        for (MacClient.Window w : windows) if (bundleId.equals(w.bundleId)) newest = w;
+        return newest;
+    }
+
+    private String appName(String bundleId) {
+        for (MacClient.App a : apps) if (bundleId.equals(a.bundleId)) return a.name;
+        return bundleId;
+    }
+
+    /** Sall's sendMenuCommand shape: version, id, title, token — kinds 25 and 27 both. */
+    private static JSONObject menuJson(MacMenuState.Command command) throws JSONException {
+        return new JSONObject().put("version", command.version).put("id", command.id)
+                .put("title", command.title).put("token", command.token);
+    }
+
+    /** One kind 25 or 27 of a quit step; JSONException cannot happen with these fields, and then the step times out. */
+    private void sendMenu(int kind, MacMenuState.Command command) {
+        try {
+            enqueue(kind, menuJson(command));
+        } catch (JSONException e) {
+            Log.i(TAG, "cannot build the menu request", e);
+        }
+    }
+
+    /** An answer wait: 4 s at least, four round trips when the link is slow (Sall's menuTimeoutMs). */
+    private long menuWaitMs() {
+        Long rtt = rttMedian();
+        return Math.max(QUIT_MENU_MS, rtt != null ? 4 * Math.min(rtt, 4000) : 0);
+    }
+
+    /** The reader thread settled a request of the quit machine's (an answer, or a version that moved past it). */
+    private void quitAnswer(MacMenuState.Done d) {
+        synchronized (quitLock) {
+            quitDone = d;
+            quitLock.notifyAll();
+        }
+    }
+
+    /** The answer to the request with this token, or null when the time ran out or the connection went. */
+    private MacMenuState.Done waitQuitAnswer(long token, long ms) {
+        long until = SystemClock.uptimeMillis() + ms;
+        synchronized (quitLock) {
+            while (state == State.CONNECTED && SystemClock.uptimeMillis() < until) {
+                if (quitDone != null) {
+                    MacMenuState.Done d = quitDone;
+                    quitDone = null;
+                    if (d.token == token) return d;
+                    continue;  // an earlier request's late answer: dropped, the expected one may still come
+                }
+                try {
+                    quitLock.wait(Math.max(1, until - SystemClock.uptimeMillis()));
+                } catch (InterruptedException e) {
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
+    /** Pick the Mac's source without touching XDesk's own content: `want` and what a screen shows stay. */
+    private void switchStreamTo(long source) {
+        switchAt = SystemClock.uptimeMillis();
+        selectSource(source);
+    }
+
+    /** The app was quit or the quit failed: put back what streamed before, when it can still stream. */
+    private void restoreAfterQuit(long before, long wantAt) {
+        // The user moved on while the quit ran (chose another content, took this Mac off the screen):
+        // their pick stands, nothing is put back over it
+        if (want != wantAt) return;
+        if (before == NONE) return;
+        if (before == DESKTOP || hasWindow(before)) switchStreamTo(before);
+        // A window that closed meanwhile: nothing to put back; a screen of this Mac says so (statusToView)
+    }
+
+    private void finishQuit(QuitListener listener, int result, long winId, String note, long before, long wantAt,
+                            boolean switched) {
+        // SAVE leaves the stream on the app's dialog window: the caller puts it on the screen
+        if (switched && result != QuitListener.SAVE) restoreAfterQuit(before, wantAt);
+        quittingApp = null;
+        statusToView();
+        done(listener, result, winId, note);
+    }
+
+    private void done(QuitListener listener, int result, long winId, String note) {
+        ui.post(() -> listener.quitDone(result, winId, note));
+    }
+
+    private String quitFailed(String name, String why) {
+        return context.getString(com.termux.x11.app.R.string.xd_mac_quit_failed, name, why);
+    }
+
+    /** ⌘Q as MacInput's shortcut() sends it (its raw key path): GUI down, Q down, Q up, GUI up. */
+    private void sendQuitKeys() {
+        key(HidKeys.LEFT_GUI, true, COMMAND);
+        key(HidKeys.forChar('q'), true, COMMAND);
+        key(HidKeys.forChar('q'), false, COMMAND);
+        key(HidKeys.LEFT_GUI, false, 0);
+    }
+
+    // --- the menu bar UI (MacMenuBar, the phone's dialog): the same state the quit machine drives ---
+
+    public void addMenuListener(MenuListener l) {
+        menuListeners.add(l);
+    }
+
+    public void removeMenuListener(MenuListener l) {
+        menuListeners.remove(l);
+    }
+
+    /** The top level as last heard; version null before the first one. */
+    public MacMenuState.Top menuTop() {
+        return mirroredMenus.top();
+    }
+
+    /** Ask for the top level once per connection (the subscription): the host then serves fetches and presses,
+     *  and pushes each new top level. Asked again when the answer never came: a second subscription is served
+     *  the same, so no harm. */
+    public void menuSubscribe() {
+        if (!menuSubscribed || mirroredMenus.top().version == null) {
+            menuSubscribed = true;
+            enqueue(SillWire.FETCH_MENU, new JSONObject());
+        }
+    }
+
+    /** Ask for one menu's items (kind 27), by the id and the title shown in that version; the answer comes
+     *  through the menu listeners. The refusal when nothing was sent (stale, another version). */
+    public MacMenuState.Sent menuFetch(String id, String title, int version) {
+        long token = menuToken.incrementAndGet();
+        MacMenuState.Sent sent = mirroredMenus.fetch(id, title, version, token, SystemClock.uptimeMillis());
+        if (sent.refusal == null) sendMenu(SillWire.FETCH_MENU, sent.command);
+        return sent;
+    }
+
+    /** Choose the item a menu UI shows as this row (kind 25); the answer comes through the menu listeners. */
+    public MacMenuState.Sent menuPress(MacMenuState.Row row) {
+        long token = menuToken.incrementAndGet();
+        MacMenuState.Sent sent = mirroredMenus.press(row, token);
+        if (sent.refusal == null) sendMenu(SillWire.PRESS_MENU_ITEM, sent.command);
+        return sent;
     }
 
     // --- input (any thread) ---

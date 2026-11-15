@@ -358,12 +358,32 @@ final class ItemCard {
             final Devices.Device d = device();
             if (d == null || !d.canStop || d.busy || !session.equals(devices.runningSession())) return;
             action(R.string.xd_dev_stop, Style.SURFACE, Style.DANGER, () -> devices.stop(d.id));
+        } else if (isMac()) {
+            // A Mac window's card only closes it, as on the Mac; quitting is the menu's, ⌘Q's and the Running app
+            // item's (MACMENU.md §8). The app item quits for real, through Sill's menu protocol (MacSource.close
+            // on an "app" key, SALL-SYNC.md); Sill's app list has no running flag, so the quit is offered whether
+            // or not the app has windows — a windowless app would otherwise be unquittable
+            boolean window = e != null && e.detail != null;
+            if (window) {
+                action(R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
+            } else if (e != null && !ChooserView.isDesktopKey(key)) {
+                action(R.string.xd_dev_quit, Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
+            }
         } else if (e != null && e.running && !ChooserView.isDesktopKey(key)) {
-            // A window closes; a program quits, which for a Mac app is its windows closing (ContentSource.close).
-            // A Mac's desktop is not closed: its Mac is disconnected, below
+            // A window closes; a program quits (ContentSource.close). A Mac's desktop is not closed: its Mac is
+            // disconnected, below
             boolean program = hideable();
             action(program ? R.string.xd_dev_quit : R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
         }
+    }
+
+    /** Quitting is asked first, with the same words about unsaved work as closing an app. */
+    private void confirmQuit(String label) {
+        s.confirm(c.getString(R.string.xd_card_quit_title, label), str(R.string.xd_unsaved_may_be_lost),
+            str(R.string.xd_dev_quit), () -> {
+                card.dismiss();
+                source.close(key);  // a Mac "app" key quits through MacClient.quitApp (MacSource.close)
+            });
     }
 
     // --- below, by kind ---
@@ -413,6 +433,9 @@ final class ItemCard {
             String macId = devices.deviceOf(key).substring(Devices.MAC.length());
             macMode = MacModeRow.add(c, s, macId, rows, refill);
             s.valueRow(rows, str(R.string.xd_mac_stream), str(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, macId));
+            // The Mac's menus as a list on the phone (MACMENU.md §5), while the Mac is connected
+            if (d.state == Devices.State.CONNECTED)
+                s.valueRow(rows, str(R.string.xd_mac_menu), str(R.string.xd_mac_menu_note), "", () -> MacMenuDialog.show(c, macId));
             s.valueRow(rows, c.getString(R.string.xd_card_device_settings, d.name), str(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
             if (d.state == Devices.State.CONNECTED && !d.busy)
                 s.valueRow(rows, str(R.string.xd_dev_disconnect), null, "", () -> confirmDisconnect(c, d));

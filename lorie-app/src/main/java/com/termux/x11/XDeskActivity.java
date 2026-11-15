@@ -155,6 +155,8 @@ public class XDeskActivity extends Activity {
     private ExternalDock externalDock;
     /** The notification centre's windows on the external screen (NOTIFY.md): the bell, the banners, the panel. */
     private Notify notify;
+    /** The Mac menu's windows (MACMENU.md): the ≡ button and the bar, over a single Mac window or app. */
+    private MacMenus menus;
     /** What the switchboard (Switchboard: the phone's list, the external Launchpad, the Docks) asks of this window. */
     private final Switchboard.Host boardHost = new Switchboard.Host() {
         @Override public List<String> favourites() { return savedLines(PREF_DOCK); }
@@ -264,6 +266,7 @@ public class XDeskActivity extends Activity {
         @Override public InputSink target() { return client; }
         @Override public ExternalDock dock() { return externalDock; }
         @Override public Notify notifyCenter() { return notify; }
+        @Override public MacMenus menus() { return menus; }
     }, mouseIn, padIn, remoteIn);
 
     private final io.github.n2ray.xdesk.input.GestureOutput output = new io.github.n2ray.xdesk.input.GestureOutput() {
@@ -330,6 +333,7 @@ public class XDeskActivity extends Activity {
     private void closeDockForPhone() {
         if (externalDock != null) externalDock.closeForPhone();
         if (notify != null) notify.closeForPhone();
+        if (menus != null) menus.closeForPhone();
     }
 
     /** Whether the app session had the keys and mouse at the last state: there the injector's evdev reader hears Ctrl+Alt+M. */
@@ -673,7 +677,13 @@ public class XDeskActivity extends Activity {
             refreshDocks();
         }
         @Override public void onAppGone() {
-            openChooserOverSession();
+            if (apps.isActive() && !onCar() && appKey != null) {
+                // MACMENU.md §8: the app on the external screen finished or was removed: the previous content,
+                // or the Launchpad home. On the car there is no home: what was there today stays
+                contentGone(appKey);
+            } else {
+                openChooserOverSession();
+            }
             dashboardTried = Display.INVALID_DISPLAY;
             ensureDashboard();
         }
@@ -969,8 +979,9 @@ public class XDeskActivity extends Activity {
             at = y >= 1f;
         }
         if (dock != null) dock.restDriven(at, x);
-        // The notification centre's corner and bell hear the same placed pointer (NOTIFY.md §4.1)
+        // The notification centre's corner and bell, and the Mac menu's ≡, hear the same placed pointer
         if (notify != null) notify.placedAt(x, y);
+        if (menus != null) menus.placedAt(x, y);
     }
 
     private WirelessFinder autoFinder;
@@ -1339,6 +1350,7 @@ public class XDeskActivity extends Activity {
         notify = Notify.get(this);
         notify.attachActivity(this);
         apps.setCornerEdgeListener(notify);
+        menus = MacMenus.get(this);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
         applyOrientation();
         lastOrientation = getResources().getConfiguration().orientation;
@@ -1464,6 +1476,7 @@ public class XDeskActivity extends Activity {
             notify.setDisplay(null);
             notify.attachActivity(null);
         }
+        if (menus != null) menus.setDisplay(null);
         if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
         ui.removeCallbacks(retakeDesktop);
         // 换语言等会重建这个窗口，新的不知道桌面被接管了：先交还，键盘焦点和输入法回手机
@@ -2122,6 +2135,15 @@ public class XDeskActivity extends Activity {
         // only with the notification access granted: without it everything is as before (NOTIFY.md §2)
         Display nd = Settings.canDrawOverlays(this) && NotifyCenter.accessGranted(this) ? externalDisplay() : null;
         if (notify != null) notify.setDisplay(nd != null && !TargetDisplay.isCar(nd) ? nd : null);
+        // The Mac menu (MACMENU.md §2): only over a single Mac window or app — never the Mac's whole desktop,
+        // whose own menu bar is in the picture. Its display follows the centre's (no permission gates of its own)
+        boolean macContent = contentKey != null && contentKey.startsWith(MacSource.PREFIX)
+                && (contentKey.indexOf(":win:") >= 0 || contentKey.indexOf(":app:") >= 0);
+        if (menus != null) {
+            Display md = Settings.canDrawOverlays(this) ? externalDisplay() : null;
+            menus.setDisplay(md != null && !TargetDisplay.isCar(md) ? md : null);
+            menus.update(macContent ? macOnScreen() : null);
+        }
         // Open over something that is no longer the target: it goes, and the pointer is the target's again
         dockPointer.check();
     }
@@ -3121,6 +3143,8 @@ public class XDeskActivity extends Activity {
         if (qualityKey(e)) return true;
         // Ctrl+Alt+N: the notification centre on the external screen (INPUT.md §7, NOTIFY.md §4.1)
         if (notify != null && notify.hotkey(e)) return true;
+        // Ctrl+Alt+Space with a single Mac window or app on the screen: its menu bar (INPUT.md §7, MACMENU.md §3)
+        if (menus != null && menus.hotkey(e)) return true;
         // The Launchpad takes the keys whatever is under it. An Android app has the keyboard by itself (its display
         // has the focus), so nothing is passed to it from here
         boolean forwarding = client != null && (client == SwitcherOverlay.INPUT || !apps.isActive()) && phoneForwards();
@@ -3137,6 +3161,8 @@ public class XDeskActivity extends Activity {
         // The notification centre's keys while it is open (NOTIFY.md §4): the arrows, Enter, Delete, R, Esc, and
         // text into an open reply field only
         if (notify != null && notify.key(e)) return true;
+        // The Mac menu bar's keys while it is open (MACMENU.md §4): ←→ ↑↓ Enter → Esc
+        if (menus != null && menus.key(e)) return true;
         // Esc closes the Dock opened over this content, and is not the content's then
         if (dockPointer.key(e.getScanCode(), e.getAction() == KeyEvent.ACTION_DOWN)) return true;
         if (mouseSideKey(e)) return true;
@@ -3530,7 +3556,11 @@ public class XDeskActivity extends Activity {
 
     /** 上一个应用：现在这个之前用的那个；什么都没在运行时就是最后用的那个。 */
     private String previousKey() {
-        String current = currentKey();
+        return previousKey(currentKey());
+    }
+
+    /** 上一个内容（Dock 里第二位）：最近使用里第一个不是 `current` 的；`current` 是现在或刚消失的那一项。 */
+    private String previousKey(String current) {
         for (String key : savedRecents()) {
             if (key.equals(current)) continue;
             if (!ChooserView.isAppKey(key) || catalog.find(ChooserView.componentOf(key)) != null) return key;
@@ -3657,6 +3687,8 @@ public class XDeskActivity extends Activity {
 
     /** 外接屏上现在的内容（"l:"、"m:" 开头的键）；是安卓应用或整个 Linux 桌面时为 null。 */
     private String contentKey;
+    /** 外接屏上的安卓应用的键（recentKey），在 chooseApp 里记下：它结束时 contentGone 要跳过它找上一个。 */
+    private String appKey;
     /** The content last chosen and still being opened; a result for any other key is stale (the user moved on). */
     private String pendingContent;
     /** The display the content was opened on. */
@@ -3732,6 +3764,7 @@ public class XDeskActivity extends Activity {
         ICmdEntryInterface x = MainActivity.verifiedServer;
         boolean desktop = MainActivity.getInstance("") != null && x != null && x.asBinder().isBinderAlive();
         if ((appWasInFront || !desktop) && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
+            appKey = ChooserView.recentKey(apps.app());  // the app on the screen again, for contentGone
             showSetup(getString(R.string.xd_returning_to, apps.label()), "", true, null, null);
             return;
         }
@@ -3825,6 +3858,12 @@ public class XDeskActivity extends Activity {
         @Override public boolean wanted(String key) {
             return key.equals(pendingContent);
         }
+        @Override public void open(String key) {
+            // The normal way anything is opened or switched to, as the card's open does (a Mac app's save dialog
+            // after a quit, MacSource.quitApp): the Launchpad still open goes away first
+            if (SwitcherOverlay.isShown()) SwitcherOverlay.hide(switcherHost);
+            chooseKey(key);
+        }
         @Override public void freeDisplay() {
             releaseLatches();
             if (apps.isActive()) appWasInFront = true;
@@ -3850,7 +3889,57 @@ public class XDeskActivity extends Activity {
             // Nothing to capture the mouse for any more: it is the phone's again
             updateCapture();
         }
+        @Override public void contentGone(String key) {
+            contentGone(key);
+        }
     };
+
+    /**
+     * MACMENU.md §8, for every kind of content: the content on the external screen disappeared on its own — a Mac
+     * app quit (from the card, ⌘Q, the menu later, or on the Mac: its windows leave the list), a Mac or Linux
+     * window closed, an Android app finished or removed. XDesk shows the previous content (the Dock's second item)
+     * when it still exists, else the Launchpad home. Never for the user's own moves — leaving the content for
+     * another, stopping a device, disconnecting a Mac, ending XDesk, the display going away: those keep what they
+     * do today (contentEnded above).
+     *
+     * @param key the gone content's key, or an "a:" key for the Android app that finished on the screen
+     */
+    private void contentGone(String key) {
+        if (key == null) return;
+        boolean appCase = ChooserView.isAppKey(key);
+        if (appCase) {
+            if (!apps.isActive()) return;
+        } else {
+            if (key.equals(pendingContent)) pendingContent = null;
+            if (!key.equals(contentKey)) return;
+            contentKey = null;
+            // Giving the keys to the phone lasts for one content (chooseKey): with it gone they are the screen's
+            // again, or what comes now had neither keyboard nor mouse
+            phoneKeys = true;
+            setTarget(apps.isActive() ? apps.input() : session.isActive() ? session.input() : null);
+            // A Mac screen still up (its window closed, the app quit) stops its stream and finishes
+            if (key.startsWith(MacSource.PREFIX)) {
+                ContentSource s = Contents.sourceOf(key);
+                if (s != null) s.hidden(key);
+            }
+        }
+        refreshDocks();
+        updateStatus();
+        // The Launchpad home comes back by itself when nothing took the screen (updateCapture); with a previous
+        // content, the normal way of opening it (chooseKey) takes the screen instead
+        updateCapture();
+        if (displayGoing) return;  // its display is gone: nothing to show instead (DISPLAY.md §5.4)
+        String previous = previousKey(key);
+        if (previous != null && Switchboard.get(this).exists(previous)) {
+            chooseKey(previous);
+            return;
+        }
+        if (appCase) {
+            // Nothing took the screen: the empty app session is off it (as when a content takes over), the home comes
+            apps.suspend();
+            updateCapture();
+        }
+    }
 
     /** 桌面连上了：先做等着的事。 */
     private void desktopConnected() {
@@ -3886,6 +3975,8 @@ public class XDeskActivity extends Activity {
 
     /** 已经有安卓应用在外接屏上就直接切换，否则走完整的启动流程。 */
     private void chooseApp(AppCatalog.App a) {
+        // The app on the screen, for contentGone to skip when it finishes (MACMENU.md §8)
+        appKey = ChooserView.recentKey(a);
         if (apps.isActive() && apps.isStarted() && apps.hasDisplay() && apps.hasInjector()) {
             rememberRecent(ChooserView.recentKey(a));
             apps.switchTo(a);
@@ -4193,6 +4284,7 @@ public class XDeskActivity extends Activity {
         // 应用留在了桌面所在的那种屏上，车机上是它自己的显示器
         Display d = desktopDisplay();
         if (d != null && apps.resumeApp(d, prefs.getFloat(PREF_MOUSE_SPEED, 1f), prefs.getBoolean(PREF_ALWAYS_CURSOR, false))) {
+            appKey = ChooserView.recentKey(apps.app());  // the app on the screen again, for contentGone
             showSetup(getString(R.string.xd_returning_to, apps.label()), getString(R.string.xd_returning_to_message), true, null, null);
             return;
         }

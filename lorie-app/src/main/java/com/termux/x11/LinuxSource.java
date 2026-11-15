@@ -491,7 +491,7 @@ final class LinuxSource implements ContentSource {
 
     /**
      * The window of the content on the screen closed: another window of the same program takes its place, else the
-     * content has ended and the host hears it (the external home comes back, the docks forget it).
+     * content has ended and the host hears it (MACMENU.md §8: the previous content, or the Launchpad home).
      */
     private final Runnable shownGone = () -> {
         final String key = shownKey;
@@ -508,7 +508,7 @@ final class LinuxSource implements ContentSource {
         shownKey = null;
         shownWindow = 0;
         Contents.Host h = Contents.host();
-        if (h != null) h.contentEnded(key);
+        if (h != null) h.contentGone(key);
     };
 
     private static void command(ICmdEntryInterface s, int window, int command) {

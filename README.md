@@ -112,7 +112,7 @@ xdesk list              # list sessions, * marks the default
 xdesk use NAME          # choose the default session
 xdesk start [NAME]      # start a session
 xdesk switch NAME       # stop the current session and start another, the window stays
-xdesk add NAME 'CMD'    # add your own session
+xdesk add NAME 'CMD' [--root DIR] [--launch 'PREFIX']   # add your own session
 xdesk rm NAME           # remove a session
 xdesk status            # what is running
 xdesk stop              # stop everything
@@ -126,7 +126,7 @@ xdesk ime layout NAME   # the keyboard layout of the X side, e.g. de-nodeadkeys;
 
 A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit these files freely, `xdesk setup` will not overwrite them.
 
-Programs of a proot-distro session are found in its system and run in it. For a chroot session, add `NAME.root` (one line: the path of its root, readable by Termux) and `NAME.launch` (a script that runs its arguments in that system, with `DISPLAY` and the other variables it gets passed on) next to `NAME.sh`.
+Programs of a proot-distro session are found in its system and run in it. For a chroot session, `xdesk add NAME 'CMD' --root DIR --launch 'PREFIX'` writes `NAME.root` (one line: the path of its root; xdesk warns when it cannot read it, e.g. under `/data/local`, but writes it anyway) and `NAME.launch` (a script that runs `PREFIX` with the arguments it is called with — `--launch 'chroot DIR'` for a plain chroot — and passes `DISPLAY` and the other variables on) next to `NAME.sh`.
 
 | Environment | How to connect |
 |---|---|

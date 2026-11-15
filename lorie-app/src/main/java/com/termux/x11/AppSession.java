@@ -495,7 +495,7 @@ final class AppSession {
         Display d = display;
         if (d == null) return 0;
         int corner = Math.max(1, Math.round(CORNER_DP * Sizing.shell(context, d).density));
-        return NotifyCorner.edge(x, y, pointerWidth, cursorPolicy.height(), corner);
+        return NotifyCorner.edge(x, y, pointerWidth, cursorPolicy.height(), corner, false);
     }
 
     /** Where the input method begins, -1 while it is not showing. Blocks. */

@@ -4,7 +4,7 @@ XDesk shows a Mac through [Sill](https://github.com/Saffsanity/sill) on the Mac.
 Sall, the owner's own third-party Android client for Sill (github.com/n2ray/sall, `AndroidClient/`; not an official Sill app), which follows upstream
 Sill. This file says which Sall commit each part follows and how to see what changed since.
 
-**Last compared: Sall `3d17c0e` (2026-11-13, "Recover from HEVC decoder failures"); the round trip and the audio mute follow the checkout's HEAD `ff5d1f0d` (2026-11-13, "Guard oversized HEVC streams on Android").**
+**Last compared: Sall `3d17c0e` (2026-11-13, "Recover from HEVC decoder failures"); the round trip, the audio mute and the Mac's menus (kinds 24, 25 and 27) follow the checkout's HEAD `ff5d1f0d` (2026-11-13, "Guard oversized HEVC streams on Android").**
 
 ## What follows what
 
@@ -17,6 +17,9 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 | `MacStreamSettings.java`'s round trip row and slow-link advice (`HostSettings.advice(boolean slow)`) | `MainActivity.refreshDiagnostics` (the readout, the 1 s tick), `ConnectionDiagnostics.advice`'s `olderHost && remote && slow` case. XDesk has no route label (`ConnectionRouteLabel` is not ported), so any address counts as remote: the advice also shows on a slow local link, where it is just as true |
 | `mac/AudioMute.java`; `MacStreamSettings.java`'s "mute this device" switch; `MacAudio.setMuted` | `LocalAudioControl.java`, `AudioMutePolicy.java` (the switch, `ACTION_AUDIO_BECOMING_NOISY`, the "mute only if sound played" rule); `MainActivity`'s `soundMuted` preference (XDesk keeps it per Mac in `MacStore.Stream.muted`, beside `sound`), `muteIndex` row, `case 43`'s `localAudio.received` |
 | `mac/MacClient.java`, section "Sill's settings": `settingsState`, `changeSetting`, `settingsCleared` | `MainActivity.java`: `case 16`, `changeHostSetting`, the reset on disconnect. Field and method names kept (`pendingSettingsToken`, `pendingSettingsField`, …) |
+| `mac/MacMenuState.java` | `MacMenuState.java` (the mirrored menus: version, tokens, the refusals by their `note` words, and the row shaping — `Row`, `Content`, `topRows`, `sections`, `mark`, `clean`; `MacMenuRow.noteText`). Plain Java, tested in /tmp |
+| `mac/MacMenuNav.java`; `MacMenus.java`, `MacMenuBar.java`, `MacMenuDialog.java`; `CornerButton.java` (the bell's and the ≡'s shared button) | `MacMenuAdapter.java` (the row: mark, title, key, ›), `MainActivity.java`'s `showMenuRows`/`openMenuRow`/`sendMenuCommand` (the dialogs, the fetch on open, the press, the refusals as note rows, "The menus changed…" and the no-Accessibility words). XDesk's bar is its own overlay (MACMENU.md: the corner button, the push, Ctrl+Alt+Space, the driven pointer's grab as the notification centre's), Sall has no such thing |
+| `mac/MacClient.java`, section "quitting an app": `quitApp`, `case 24`, kinds 25 and 27 | `MainActivity.java`: `sendMenuCommand`, `sendMenu`, `case 24` (without the dialog rows); `Sources/StreamProtocol/MacMenu.swift` (kinds 24, 25 and 27, the rules in its header); `Sources/SillHost/MenuMirror.swift`, `MenuReader.swift`, `MenuPolicy.swift` (what each refusal's `note` says — matched to tell them apart) |
 | `MacStreamSettings.java` (the page) | `MainActivity.settings()`: `refreshInlineHostSettings`, `addHostChoice`, `addHostSegments`, `addHostToggle`, `showQualityMenu`, `refreshDiagnostics`, `applyDiagnosticsAdvice` |
 | `mac/AacEldConfig.java` | `AacEldConfig.java`, unchanged but for the package and records written as classes (XDesk builds as Java 9) |
 | `mac/MacAudio.java` | wire and decoder setup: `Sources/StreamProtocol/Audio.swift`, `AudioPlayer.java` (`decoderName`, `configure`), `AudioPackets.java` (`parse`, `needsFlush`, `primingFrames`), `AndroidAudioDevice.java` (`open`, `poll`). **The playout is XDesk's own**, see below |
@@ -33,8 +36,9 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 cd sall && git fetch && git diff 3d17c0e..origin/main --stat -- \
   Sources/StreamProtocol/HostSettings.swift Sources/StreamProtocol/Audio.swift \
   Sources/StreamProtocol/StreamMessage.swift Sources/SillHost/DeviceSettings.swift \
-  Sources/StreamProtocol/Pairing.swift \
-  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection}.java
+  Sources/StreamProtocol/Pairing.swift Sources/StreamProtocol/MacMenu.swift \
+  Sources/SillHost/{MenuMirror,MenuReader,MenuPolicy}.swift \
+  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection,MacMenuState,MacMenuAdapter,MacMenuRow}.java
 # the settings panel lives in one big file: look at just its functions
 git log -p 3d17c0e..origin/main -L '/private void changeHostSetting(String field, Object value, Double/,+16:AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java'
 git diff 3d17c0e..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java | grep -n 'hostSettings\|addHost\|QUALITY_'
@@ -66,6 +70,40 @@ shows as "Custom — N Mbps". After comparing, update the commit at the top of t
   on a host from before the away quality get a plain advice row instead (`HostSettings.advice(boolean slow)`).
 - Direct Wireless (`directWireless`) is parsed and not shown: it adds AWDL to the Mac's listener for Apple
   devices, and XDesk reaches a Mac by the address typed when pairing.
+
+## The Mac's menus and quitting apps
+
+Sill's menu protocol (kinds 24, 25 and 27, `MacMenu.swift`) carries the streamed app's menu bar, read on
+the Mac over Accessibility: XDesk asks once per connection for the top level (a kind 27 without an id, after
+the first window list), and the host then serves one menu's items (kind 27 with an id, its version and the
+title shown) and a choice (kind 25). The version is the host's, one for all devices, and an id is good only
+within it; a fetch and a choice carry the title this side showed, and the host acts only while the item at
+the id still has it. Tokens are this side's, strictly increasing per connection, echoed in `answering`. The
+host's refusals come as `note` words (`MenuPolicy.swift`'s `MenuRefusal.note`); `MacMenuState` matches those
+words to tell them apart (the menus changed, the app is gone, it is not answering, no Accessibility, too
+many requests…).
+
+The protocol serves the menu bar UI (MACMENU.md, `MacMenus`/`MacMenuBar`/`MacMenuDialog`: the ≡ corner
+button, the bar overlay, the phone's list) and **quitting an app** (`MacClient.quitApp`, the Running app item's
+"Quit", `MacSource.close` on an "app" key; MACMENU.md §8: a window's card only closes it, quitting is the menu's,
+⌘Q's and the app item's). Sill can't quit an app on its own, and
+its AppInfo has no running flag, so an app with no windows would stay on the Mac unseen — quitting one is
+what this is for. quitApp makes the app the streamed app first (one of its windows, or kind 7 with no
+window), fetches its first top-level menu (the app menu: the Apple menu is left out), presses the enabled
+item whose key is "⌘Q" (the shortcut as the Mac draws it, found whatever the menu's language; only with no
+⌘Q item at all, an item whose title starts with "Quit"/"退出"/"Beenden"…), and waits ~5 s for the app's
+windows to leave the window list. The stream switch never touches XDesk's own content — only the Mac's
+stream changes, and it goes back to what streamed before afterwards; a screen showing this Mac sees the
+switch, with a "Quitting…" line. If the app keeps windows (a save dialog, most likely), its newest window
+becomes the content and the user is told, on the phone and over the picture, to answer it on the Mac. If
+the menus are refused for Accessibility (Sill has none on the Mac), ⌘Q goes as key input to the streamed
+app instead (MacInput's raw key path), and the user is told once that allowing Sill Accessibility makes
+quitting reliable. A "The menus changed…" answer is retried once, against the new top level the host sends
+by itself.
+
+**Limit:** Sill's AppInfo (the kind 5 app list) has no running flag, so XDesk cannot tell an installed app
+that runs without windows from one that is not running: the Mac lists all installed apps, and whether one
+runs is known only by its windows.
 
 ## Sound
 
@@ -120,4 +158,5 @@ menu's values, only fields the Mac reported, one change at a time, the Mac's ans
 | Share clipboard, paste right away, send clipboard (`ClipboardDefaultPolicy`, …) | XDesk syncs the clipboard whenever the Mac offers it, without a switch |
 | Reverse scrolling | XDesk's own "Natural scrolling" (all touchpads) |
 | Multi-finger Mac gestures, thumbnail hold time, larger picture, picture in picture, the tour, connection tiles, Aa text scale | Sall's own touch interface; XDesk's input and windows are its own (INPUT.md, DISPLAY.md) |
+| Sall's menu dialogs themselves (the iPad's bar is its own; XDesk's overlay is MACMENU.md's corner button, push and hotkey) | XDesk's `MacMenuBar` draws the same rows over the external screen, `MacMenuDialog` the same lists on the phone |
 | PairingAuthorization, QrPairingAttempt, OverlayPairing* (cancel and remove-while-pairing guards; pair another Mac while a session runs), the paste-link dialog, InlinePairScanner (scan during a session) | XDesk pairs only from the Mac settings page, one attempt at a time, and a Mac paired by QR or link lands in MacStore exactly as one paired by code |

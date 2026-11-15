@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.termux.x11.app.R;
 import com.termux.x11.mac.MacActivity;
@@ -23,8 +24,9 @@ import java.util.List;
  * - "m:<mac>:app:<bundle id>" an installed app: its newest window if it has one, else launched, and the host picks
  *   its first window (Sill's pendingLaunch).
  * Opening puts MacActivity full screen on the display; the picture is the Mac's HEVC decoded into its SurfaceView.
- * Taking it off the screen (hidden) stops the stream and keeps the connection; close() closes the window on the
- * Mac. Nothing connects until the chooser asks for the catalog or something is opened.
+ * Taking it off the screen (hidden) stops the stream and keeps the connection; close() closes a window on the Mac
+ * and quits an app (MacClient.quitApp, through Sill's menu protocol, SALL-SYNC.md "The Mac's menus"). Nothing
+ * connects until the chooser asks for the catalog or something is opened.
  */
 final class MacSource implements ContentSource {
     private static final String TAG = "XDeskMac";
@@ -82,9 +84,44 @@ final class MacSource implements ContentSource {
                 // Ended for good (removed on the Mac, another key): its screen closes instead of waiting forever
                 MacActivity.failedFor(c.mac().id, c.failure());
             }
+            // MACMENU.md §8: the window or app shown on this Mac's screen closed on the Mac (a window closed, an
+            // app quit there): the content is gone. Not while a quit runs here: its stream switch may close the
+            // shown window before the app's save dialog opens — the quit's answer then does the same check. Not
+            // while the Mac launches an app (want == NONE): its window is not in the list yet
+            if (c.state() == MacClient.State.CONNECTED && c.want() != MacClient.NONE && !c.quitting())
+                contentWindowClosed(c);
             fireChanged();
         });
         fireChanged();
+    }
+
+    /** The window or app shown on this Mac's screen left the window list: the content is gone (MACMENU.md §8). */
+    private void contentWindowClosed(MacClient c) {
+        String key = shown.get(c.mac().id);
+        if (key == null || !macGone(c, key)) return;
+        shown.remove(c.mac().id);
+        MacInput in = inputs.get(c.mac().id);
+        if (in != null) in.releaseAll();
+        Contents.Host host = Contents.host();
+        if (host != null) host.contentGone(key);
+    }
+
+    /** A shown "win" key whose window, or an "app" key whose every window, left the list. */
+    private static boolean macGone(MacClient c, String key) {
+        if (!key.startsWith(PREFIX + c.mac().id + ":")) return false;
+        int win = key.indexOf(":win:");
+        if (win >= 0) {
+            String rest = key.substring(win + 5);
+            for (MacClient.Window w : c.windows()) if (rest.equals(String.valueOf(w.id))) return false;
+            return true;
+        }
+        int app = key.indexOf(":app:");
+        if (app >= 0) {
+            String bundle = key.substring(app + 5);
+            for (MacClient.Window w : c.windows()) if (bundle.equals(w.bundleId)) return false;
+            return true;
+        }
+        return false;
     }
 
     /** A Mac screen ended on its own (destroyed, its display gone, the Mac failed): the host forgets it. */
@@ -250,9 +287,36 @@ final class MacSource implements ContentSource {
                 m.windowCommand(Long.parseLong(rest), "close");
             } catch (NumberFormatException ignored) { }
         } else if ("app".equals(kind)) {
-            // Sill can't quit an app: its windows close
-            for (MacClient.Window w : m.windows()) if (rest.equals(w.bundleId)) m.windowCommand(w.id, "close");
+            // "Quit" on a Mac app quits it for real, through Sill's menu protocol (MacClient.quitApp,
+            // SALL-SYNC.md "The Mac's menus"): Sill's AppInfo has no running flag, so an app with no windows
+            // would otherwise stay on the Mac unseen; quitting one needs no window
+            quitApp(m, rest);
         }
+    }
+
+    /** One app quit through Sill's menu protocol; its answer goes to the user, on the UI thread. */
+    private void quitApp(MacClient m, String bundleId) {
+        m.quitApp(bundleId, (result, winId, note) -> {
+            if (result == MacClient.QuitListener.OK) {
+                // MACMENU.md §8: the app is really gone. While the quit ran, its window leaving the list was held
+                // back (quitting()); if that window was the content, the content is gone now
+                contentWindowClosed(m);
+                return;
+            }
+            if (result == MacClient.QuitListener.SAVE) {
+                Toast.makeText(context, note, Toast.LENGTH_LONG).show();
+                if (winId >= 0) {
+                    // The app asked something (a save dialog, most likely): answer it on the Mac. Its newest
+                    // window becomes the content, the normal way (XDeskActivity's chooseKey), with the same
+                    // line over the picture once the screen is up
+                    Contents.Host host = Contents.host();
+                    if (host != null) host.open(macPrefix(m) + "win:" + winId);
+                    ui.postDelayed(() -> m.flash(note), 700);
+                }
+                return;
+            }
+            Toast.makeText(context, note, Toast.LENGTH_LONG).show();
+        });
     }
 
     @Override public void hidden(String key) {

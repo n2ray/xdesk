@@ -13,7 +13,7 @@ XDesk 只占 **Ctrl+Alt+字母** 这一组，其余按键原样交给外屏上�
 | Ctrl+Alt+M | 键鼠在外屏和手机之间切换 | 任何时候 | ✅ | INPUT.md §7，`Ownership` |
 | Ctrl+Alt+Q | 循环切换快速画质（清晰 → 平衡 → 流畅） | 外屏上是 Mac 时 | ✅ | INPUT.md §7，`XDeskActivity.physicalKey` |
 | Ctrl+Alt+N | 打开 / 关上通知中心 | 外屏上任何内容 | 🚧 | NOTIFY.md §4.1 |
-| Ctrl+Alt+Space | 打开 Mac 应用的菜单 | 外屏上是单个 Mac 窗口或应用时 | 📝 | MACMENU.md §3 |
+| Ctrl+Alt+Space | 打开 Mac 应用的菜单 | 外屏上是单个 Mac 窗口或应用时 | ✅ | MACMENU.md §3，`MacMenus.hotkey` |
 | Ctrl+Alt+S（暂定） | 打开文件中转架 | 外屏上任何内容 | 📝 | SHELF.md §3 |
 
 已经用掉的 Ctrl+Alt 字母：M、Q、N、Space；暂定 S。新的先查这里。
@@ -44,8 +44,8 @@ XDesk 只占 **Ctrl+Alt+字母** 这一组，其余按键原样交给外屏上�
 |---|---|---|
 | 指针推到外屏底边再往下推 | 打开 Dock | ✅ |
 | 指针推到右上角再往外推 | 打开通知中心 | 🚧 |
-| 指针推到左上角再往外推 | 打开 Mac 菜单（单个 Mac 窗口时） | 📝 |
-| 点右上角铃铛 / 左上角 ≡ | 通知中心 / Mac 菜单 | 🚧 / 📝 |
+| 指针推到左上角再往外推 | 打开 Mac 菜单（单个 Mac 窗口时） | ✅ |
+| 点右上角铃铛 / 左上角 ≡ | 通知中心 / Mac 菜单 | 🚧 / ✅ |
 | 右键点启动台或 Dock 里的图标 | 在手机上打开这一项的卡片 | ✅ |
 | 滚轮（启动台） | 一格翻一页 | ✅ |
 
