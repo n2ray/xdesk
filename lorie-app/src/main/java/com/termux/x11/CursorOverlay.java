@@ -178,6 +178,25 @@ final class CursorOverlay {
     }
 
     /**
+     * The same arrow as a plain view, for a surface that draws its own pointer (the Launchpad), so every pointer XDesk
+     * draws on the external screen looks the same. Sized from the shell factor like the cursor. Its tip is at
+     * {@link #arrowTipX(View)}, 0 inside the view.
+     */
+    static View arrow(Context c, float shellFactor) {
+        int size = Math.max(MIN_SIZE, Math.round(SIZE_DP * shellFactor));
+        int margin = Math.round(size * MARGIN_OF_SIZE);
+        ArrowView v = new ArrowView(c, size, margin);
+        v.setTag(margin);
+        v.setLayoutParams(new android.widget.FrameLayout.LayoutParams(size + 2 * margin, size + 2 * margin));
+        return v;
+    }
+
+    /** Where the tip of an {@link #arrow} view is, from its left edge. */
+    static int arrowTipX(View arrow) {
+        return arrow.getTag() instanceof Integer ? (Integer) arrow.getTag() : 0;
+    }
+
+    /**
      * Our own drawings, so they work on any phone: in 键鼠 a slim black arrow with a tail, a thin white outline and a soft
      * shadow; in 触控 a rounded black arrowhead without a tail, with a thick white outline and a soft shadow. All sizes come
      * from the cursor size passed in, nothing from density.

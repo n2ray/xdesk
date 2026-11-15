@@ -313,14 +313,10 @@ final class SwitcherOverlay {
             clockAt.rightMargin = dp(28);
             root.addView(time, clockAt);
 
-            pointer = new View(c);
-            GradientDrawable d = new GradientDrawable();
-            d.setShape(GradientDrawable.OVAL);
-            d.setColor(Color.WHITE);
-            d.setStroke(Math.max(2, dp(2)), Style.ACCENT);
-            pointer.setBackground(d);
-            int dot = Math.max(12, dp(12));
-            root.addView(pointer, new FrameLayout.LayoutParams(dot, dot));
+            // The same arrow as the cursor and the Dock's pointer: it was a blue dot, and the pointer looked like two
+            // different things depending on whether the Launchpad or Android drew it
+            pointer = CursorOverlay.arrow(c, density);
+            root.addView(pointer);
         }
 
         private static float clamp(float v, float lo, float hi) {
@@ -650,7 +646,8 @@ final class SwitcherOverlay {
             px = Math.max(0, Math.min(width - 1, x));
             py = Math.max(0, Math.min(height - 1, y));
             if (pointer.getVisibility() != View.VISIBLE) pointer.setVisibility(View.VISIBLE);
-            pointer.setTranslationX(px);
+            // The arrow's tip is the point
+            pointer.setTranslationX(px - CursorOverlay.arrowTipX(pointer));
             pointer.setTranslationY(py);
             Target t = under();
             if (t != null && t.tile >= 0) {
