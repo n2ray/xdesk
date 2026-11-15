@@ -163,8 +163,15 @@ final class AppSession {
         @Override public void onEdgePush(final int edge, final int dx, final int dy, final boolean held,
                                          final int x, final int y, final boolean left) {
             ui.post(() -> {
-                if (!active) return;
                 EdgeListener dock = bottomEdge, corner = cornerEdge;
+                if (edge == EdgePush.BOTTOM && (!active || dock == null) && !left) {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - edgeSaidAt >= 1000) {
+                        edgeSaidAt = now;
+                        Log.d("XDeskDock", "bottom push from the injector dropped: " + (!active ? "session not active" : "no Dock listener"));
+                    }
+                }
+                if (!active) return;
                 if (edge == EdgePush.BOTTOM) {
                     // The Dock's rule, byte for byte: its leave is the one (0, -1) it always knew
                     if (dock != null) dock.pushed(edge, left ? 0 : dx, left ? -1 : dy, held);
@@ -448,6 +455,8 @@ final class AppSession {
     /** NOTIFY.md §4.1: the corner is this much of the right edge's top and the top edge's right, in shell dp. */
     private static final int CORNER_DP = 48;
     private volatile EdgeListener bottomEdge, cornerEdge;
+    /** When a dropped bottom push was last said (the log of a test build). Main thread. */
+    private long edgeSaidAt;
     private volatile boolean pointerAtBottom;
     private volatile int pointerAtCorner;
     private volatile int pointerWidth;

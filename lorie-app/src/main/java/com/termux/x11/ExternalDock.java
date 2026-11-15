@@ -132,10 +132,24 @@ final class ExternalDock implements AppSession.EdgeListener {
             return;
         }
         if (windows == null || panel != null || held) {
+            say(windows == null ? "not on a display" : panel != null ? "already open" : "the injector says a button is held");
             rule.forget();
             return;
         }
-        if (rule.pushed(dx, dy, false)) openFromEdge();
+        if (rule.pushed(dx, dy, false)) {
+            Log.d("XDeskDock", "push over an Android app counted");
+            openFromEdge();
+        }
+    }
+
+    /** Why a push did not count, once a second at most (the log of a test build). */
+    private long saidAt;
+
+    private void say(String why) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - saidAt < 1000) return;
+        saidAt = now;
+        Log.d("XDeskDock", "push not counted: " + why);
     }
 
     @Override public boolean wantsPlace() {
@@ -348,9 +362,15 @@ final class ExternalDock implements AppSession.EdgeListener {
     private void open(int above) {
         if (panel != null || windows == null) return;
         Switchboard board = Switchboard.get(context);
-        if (board.host() == null) return;  // the phone's window is gone: nothing could be opened
+        if (board.host() == null) {  // the phone's window is gone: nothing could be opened
+            Log.d("XDeskDock", "not opened: no switchboard host");
+            return;
+        }
         Panel fresh = new Panel(board);
-        if (fresh.empty()) return;
+        if (fresh.empty()) {
+            Log.d("XDeskDock", "not opened: nothing to show");
+            return;
+        }
         try {
             WindowManager.LayoutParams p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, "XDesk dock");
             p.y = above;
