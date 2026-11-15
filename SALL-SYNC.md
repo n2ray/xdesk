@@ -74,9 +74,10 @@ Sall plays the Mac's sound against the video's presentation clock: `AudioRuntime
 (about 1500 lines, Java 17), and stops it on any underrun. XDesk shows a frame as soon as it is decoded and has no
 such clock, so `MacAudio` plays the sound as it arrives behind a short buffer, like `AudioPlayer` does for the
 Linux desktop: 40 ms before the track starts, a 100 ms track, and a backlog over 200 ms is dropped. It goes to the
-output of XDesk's sound setting (`AudioRoute`, through `MacClient.audioDevice`). Two switches, both off at first as
-in Sall: the Mac's "Send Audio" (`sendAudio`, for every device) and this device's "Play the Mac's sound here"
-(`MacStore.Stream.sound`: the hello lists `aac-eld`, so it takes a new connection). Packets are played only while a
+output of XDesk's sound setting (`AudioRoute`, through `MacClient.audioDevice`). Two switches: the Mac's "Send Audio"
+(`sendAudio`, for every device, off at first) and this device's "Play the Mac's sound here" (`MacStore.Stream.sound`,
+saved as `playSound`: the hello lists `aac-eld`, so it takes a new connection). Unlike Sall's, the second is on at
+first (owner's choice, 2026-11-15): sound then follows the Mac's switch alone. Each hello logs whether it asks for sound. Packets are played only while a
 screen shows the Mac. This device can also mute itself ("Mute this device", `MacStore.Stream.muted`, off at first,
 shown only while it plays the sound): the packets still come and `MacAudio` keeps its decoder in step but plays
 nothing, so unmuting is immediate and no new connection; when the wired or Bluetooth headphones the sound goes to

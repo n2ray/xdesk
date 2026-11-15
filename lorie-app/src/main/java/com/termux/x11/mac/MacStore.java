@@ -152,7 +152,7 @@ public final class MacStore {
     public static final class Stream {
         /** The frame rate this device asks for at most (its viewport's fps): 0 for the screen's own, else 30 or 60. */
         public final int fpsCap;
-        /** Play the Mac's sound here (the hello lists a codec); off by default, as Sall's "experimentalAudio". */
+        /** Play the Mac's sound here (the hello lists a codec). On by default (Sall's "experimentalAudio" is off): the Mac's own Send Audio still decides. */
         public final boolean sound;
         /** Muted here (Sall's soundMuted): sound still streams, this device says nothing; off by default. */
         public final boolean muted;
@@ -167,18 +167,22 @@ public final class MacStore {
         }
     }
 
+    /** The key of Stream.sound. Not "sound": that was saved as off with every settings change while off was the default, so it
+     *  says nothing about a choice; the switch is on for everyone from here, and a choice is kept under this key. */
+    private static final String SOUND = "playSound";
+
     public static Stream stream(Context c, String id) {
         try {
             JSONObject o = new JSONObject(prefs(c).getString(STREAM + id, "{}"));
-            return new Stream(o.optInt("fpsCap", 0), o.optBoolean("sound", false), o.optBoolean("muted", false), o.optString("host", ""));
+            return new Stream(o.optInt("fpsCap", 0), o.optBoolean(SOUND, true), o.optBoolean("muted", false), o.optString("host", ""));
         } catch (JSONException e) {
-            return new Stream(0, false, false, "");
+            return new Stream(0, true, false, "");
         }
     }
 
     private static void saveStream(Context c, String id, Stream s) {
         try {
-            prefs(c).edit().putString(STREAM + id, new JSONObject().put("fpsCap", s.fpsCap).put("sound", s.sound)
+            prefs(c).edit().putString(STREAM + id, new JSONObject().put("fpsCap", s.fpsCap).put(SOUND, s.sound)
                     .put("muted", s.muted).put("host", s.host).toString()).apply();
         } catch (JSONException e) {
             throw new IllegalStateException(e);

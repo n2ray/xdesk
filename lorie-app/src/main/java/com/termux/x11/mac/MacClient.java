@@ -1251,7 +1251,13 @@ public final class MacClient {
     /** The hello's `audio`: the codecs this device plays. The Mac sends kind 43 only to a device that lists one. */
     private void helloAudio(JSONObject hello) throws JSONException {
         closeAudio();
-        if (!wantsAudio()) return;
+        // Whether the Mac will send sound is decided by this one hello: say which, and why not
+        if (!wantsAudio()) {
+            Log.i(TAG, mac.name + ": hello without sound (" + (!streamOptions().sound ? "\"Play the Mac's sound here\" is off"
+                    : "no AAC-ELD decoder on this phone") + ")");
+            return;
+        }
+        Log.i(TAG, mac.name + ": hello asks for sound (aac-eld, decoder " + MacAudio.decoderName() + ")");
         hello.put("audio", new JSONArray().put("aac-eld"));
         audio = new MacAudio(() -> {
             java.util.function.Supplier<android.media.AudioDeviceInfo> d = audioDevice;
