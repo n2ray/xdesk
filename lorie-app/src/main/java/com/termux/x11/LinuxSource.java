@@ -142,6 +142,17 @@ final class LinuxSource implements ContentSource {
     private long settleUntil;
     private static final long SETTLE_MS = 3000;
 
+    /** Termux is gone or new (Devices.forgetGoneTermux): the program list kept from it is no longer true. */
+    static void forgetCatalog(Context c) {
+        File f = new File(c.getFilesDir(), CATALOG_FILE);
+        if (f.exists() && !f.delete()) Log.w(TAG, "Could not delete " + f);
+        LinuxSource l = get();
+        if (l == null) return;
+        l.catalog = Collections.emptyList();
+        l.catalogAt = 0;
+        l.notifyChanged();
+    }
+
     private LinuxSource(Context c) {
         context = c;
         bg.execute(() -> {

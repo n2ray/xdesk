@@ -3565,6 +3565,25 @@ public class XDeskActivity extends Activity {
         return new ArrayList<String>(Arrays.asList(saved.split("\n")));
     }
 
+    /**
+     * Termux removed or installed anew: everything XDesk kept of it goes (DEVICES.md §1). A new Termux need not have
+     * the old programs or desktops, so favourites and recents of Linux go too, with the sessions and the program list.
+     */
+    private void forgetGoneTermux() {
+        Devices dv = Devices.get(this);
+        if (!dv.forgetGoneTermux()) return;
+        SharedPreferences.Editor ed = prefs.edit().remove(PREF_SESSIONS);
+        for (String pref : new String[]{PREF_DOCK, PREF_RECENTS}) {
+            List<String> keep = new ArrayList<>();
+            for (String key : savedLines(pref)) if (!dv.deviceOf(key).startsWith(Devices.LINUX)) keep.add(key);
+            ed.putString(pref, String.join("\n", keep));
+        }
+        ed.apply();
+        LinuxSource.forgetCatalog(this);
+        Log.i(TAG, "Termux is gone or new: its sessions, programs, favourites and recents are forgotten");
+        refreshDocks();
+    }
+
     private List<String> savedRecents() {
         return savedLines(PREF_RECENTS);
     }
@@ -3590,6 +3609,7 @@ public class XDeskActivity extends Activity {
     /** 列出环境和正在运行的东西。列不出时用上次的结果，并说明原因。 */
     private void refreshTermux() {
         ui.removeCallbacks(termuxNoReply);
+        forgetGoneTermux();
         if (!installed(PKG_TERMUX)) {
             setChooserTermux(new ArrayList<String>(), null, null, false, getString(R.string.xd_termux_not_installed));
             return;

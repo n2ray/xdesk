@@ -29,7 +29,7 @@
 | 类型 | 设备 | 现在 | key 归属 |
 |---|---|---|---|
 | 内部 | 手机（只有一个，总是已连接，不能断开） | 有 | `a:` |
-| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里。**和别的设备一样按需添加**（用户 2026-11-15 定）：第一次装 XDesk 只有手机自己的安卓应用；Termux 在「添加设备 › Linux」里加，加的时候顺便要 Termux 的权限、读一次它的状态；xdesk 已经回答过（升级上来的老用户、之前加过）就自动算加了；用户也能移除。加 proot / chroot 环境会顺带加上 Termux。手机上删了 Termux 或移除了这个设备，所有 Linux 设备都不显示，收藏、Dock、「上一个」里的 Linux 条目也一起消失（正在屏上的那一个例外），重新装上、加上后回来），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot，`xdesk add` 加的 chroot） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
+| Linux（本地） | 每个环境一个：`linux:termux`（Termux 本身，X 服务器也在这里。**和别的设备一样按需添加**（用户 2026-11-15 定）：第一次装 XDesk 只有手机自己的安卓应用；Termux 在「添加设备 › Linux」里加，加的时候顺便要 Termux 的权限、读一次它的状态；xdesk 已经回答过（升级上来的老用户、之前加过）就自动算加了；用户也能移除。加 proot / chroot 环境会顺带加上 Termux。移除了这个设备：所有 Linux 设备都不显示，收藏、Dock、「上一个」里的 Linux 条目也一起隐藏（正在屏上的那一个例外），加回来后回来。手机上删了 Termux 或重装了它（按 Termux 的 `firstInstallTime` 认，`Devices.forgetGoneTermux`）：XDesk 记的 Termux 的东西全部清掉：环境、会话、加过的设备、隐藏项、Linux 的收藏和最近使用、程序列表缓存（`linux-apps.tsv`），新的 Termux 里不一定还有原来的程序；重装后要重新添加），以及用户在「添加设备 › Linux」里加进来的 proot / chroot 环境（`linux:<环境名>`，和 `xdesk` 的 SCOPE 同名）。有哪些环境由 `xdesk envs` 报告 | 有（`xdesk setup` 找出的 proot，`xdesk add` 加的 chroot） | `l:a:SCOPE/ID` 按 SCOPE；`l:w:` 窗口按它所在的环境（`LinuxSource.scopeOf`，见 §2「一个 X 服务器」），认不出的归正在跑整个桌面的那个环境，否则归 Termux；`t:<会话>` 归会话所在的环境（`xdesk envs` 的第 4 列；老版本 xdesk 没有这个命令时按名字：`termux-*` 归 Termux，其他各自一个） |
 | Mac | 每台配对过的 Mac（Sill） | 有 | `m:<mac>:…` |
 | Windows | 以后（RDP / Moonlight） | 「添加设备」里显示「即将支持」，不能点 | — |
 | 其他 Android 设备 | 以后（scrcpy 式） | 同上 | — |

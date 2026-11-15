@@ -35,7 +35,8 @@ final class Devices {
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     private static final String TERMUX_PACKAGE = "com.termux";
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
-        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime", PREF_TERMUX = "termux";
+        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime", PREF_TERMUX = "termux",
+        PREF_TERMUX_AT = "termux_installed_at";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
@@ -458,12 +459,45 @@ final class Devices {
 
     /** A quick question to the package manager, no I/O of our own. Asked on every rebuild: installing Termux shows up. */
     private boolean termuxInstalled() {
+        return termuxInstallTime() != 0;
+    }
+
+    /** When this Termux was installed (an update keeps it, a new install changes it), 0 when there is none. */
+    private long termuxInstallTime() {
         try {
-            context.getPackageManager().getPackageInfo(TERMUX_PACKAGE, 0);
-            return true;
+            return context.getPackageManager().getPackageInfo(TERMUX_PACKAGE, 0).firstInstallTime;
         } catch (PackageManager.NameNotFoundException e) {
-            return false;
+            return 0;
         }
+    }
+
+    /**
+     * Termux removed, or installed anew, since the last look: what XDesk knew of it is forgotten here (its
+     * environments, sessions, added devices, hidden entries), and true tells the caller to forget its part too
+     * (favourites, recents, the program list). A new Termux need not have any of the old programs.
+     */
+    boolean forgetGoneTermux() {
+        long at = termuxInstallTime(), saved = prefs.getLong(PREF_TERMUX_AT, -1);
+        if (at == saved) return false;
+        prefs.edit().putLong(PREF_TERMUX_AT, at).apply();
+        // The first look on this version with Termux there: nothing to say it changed
+        if (saved == -1 && at != 0) return false;
+        addedLinux.clear();
+        linuxPhoneIme.clear();
+        reportedEnvs = new ArrayList<>();
+        sessions = new ArrayList<>();
+        defaultSession = runningSession = stoppingSession = termuxHint = null;
+        xRunning = false;
+        linuxStarting = null;
+        boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX));
+        SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS).remove(PREF_LINUX_PHONE_IME).remove(PREF_TERMUX);
+        if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden));
+        String tab = boardTab();
+        if (tab != null && tab.startsWith(LINUX)) ed.remove(PREF_BOARD_TAB).remove(PREF_OLD_TAB);
+        ed.apply();
+        rebuildEnvs();
+        changed();
+        return true;
     }
 
     static String linuxName(Context c, String deviceId) {
