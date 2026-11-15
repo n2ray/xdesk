@@ -43,6 +43,8 @@ final class MacMenuBar {
         void close();
         /** The pointer's hover: it keeps the bar open while inside. */
         void hover(boolean inside);
+        /** The dropdown's window was just added: it is above the driven arrow, which has to come up again. */
+        void dropdownShown();
     }
 
     private static final int PANEL = 0xF61B1E24, SELECT = 0x223D7EF5, EDGE = 0x33FFFFFF;
@@ -406,7 +408,10 @@ final class MacMenuBar {
         dropdownParams.x = at[0];
         dropdownParams.y = barAt[1] + root.getHeight() + dp(2);
         try {
-            if (dropdown.getParent() == null) windows.addView(dropdown, dropdownParams);
+            if (dropdown.getParent() == null) {
+                windows.addView(dropdown, dropdownParams);
+                host.dropdownShown();
+            }
             else windows.updateViewLayout(dropdown, dropdownParams);
         } catch (RuntimeException e) {
             android.util.Log.w("XDeskMacMenus", "no menu dropdown", e);
@@ -539,6 +544,20 @@ final class MacMenuBar {
     }
 
     /** A click of XDesk's own pointer: on the view that is there, as the Android pointer's click would be. */
+    /** The driven arrow is here: the dropdown's row under it is the selected one (the Mac's hover highlight). */
+    void pointerAt(int x, int y) {
+        if (dropdown == null || closing) return;
+        int[] at = new int[2];
+        for (int i = 0; i < rowViews.size(); i++) {
+            View v = rowViews.get(i);
+            v.getLocationOnScreen(at);
+            if (x >= at[0] && x < at[0] + v.getWidth() && y >= at[1] && y < at[1] + v.getHeight()) {
+                if (nav.selectRow(i)) updateSelection();
+                return;
+            }
+        }
+    }
+
     void clickAt(int x, int y) {
         if (dropdown != null && !clickWalk(dropdown, x, y)) clickWalk(root, x, y);
         else if (dropdown == null) clickWalk(root, x, y);

@@ -60,6 +60,14 @@ public final class MacMenuNav {
         if (index >= 0 && index < levels.get(0).size() && selectable(levels.get(0).get(index))) selected[0] = index;
     }
 
+    /** The pointer is over this row of the open level: it is the selected one, as the keys would make it. */
+    public boolean selectRow(int index) {
+        List<MacMenuState.Row> rows = levels.get(level);
+        if (level == 0 || index < 0 || index >= rows.size() || !selectable(rows.get(index)) || selected[level] == index) return false;
+        selected[level] = index;
+        return true;
+    }
+
     /** The rows of a level, for the view to draw after a level change. */
     public List<MacMenuState.Row> rows(int level) {
         return levels.get(level);

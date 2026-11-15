@@ -242,6 +242,7 @@ final class MacMenus {
         }
         bar.setTop(client.menuTop());
         raiseButton();
+        if (arrow != null) arrow.raise();  // the bar's window came after the arrow's
         ui.removeCallbacks(barLeave);
     }
 
@@ -273,6 +274,9 @@ final class MacMenus {
         @Override public void hover(boolean inside) {
             ui.removeCallbacks(barLeave);
             if (!inside) ui.postDelayed(barLeave, LEAVE_MS);  // left the bar: it goes in a second
+        }
+        @Override public void dropdownShown() {
+            if (arrow != null) arrow.raise();  // the arrow over the dropdown, not under it
         }
     };
 
@@ -429,7 +433,10 @@ final class MacMenus {
         int x = Math.round(px), y = Math.round(py);
         arrow.moveTo(x, y);
         if (over == SURFACE_BAR) {
-            if (bar.holds(x, y)) return null;
+            if (bar.holds(x, y)) {
+                bar.pointerAt(x, y);  // the row under the arrow is highlighted, as on the Mac
+                return null;
+            }
             bar.rect(rect);
             int[] left = grab.release(rect.left, rect.top, rect.right, rect.bottom, x, y);
             endDriven();
