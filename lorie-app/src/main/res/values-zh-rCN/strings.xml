@@ -170,6 +170,7 @@
     <string name="xd_switcher_running">正在运行</string>
     <string name="xd_switcher_short">全部</string>
     <string name="xd_switcher_empty">没有正在运行的。可以在手机上添加收藏。</string>
+    <string name="xd_dock_more">还有 %1$d 个——在启动台里</string>
     <string name="xd_linux_title">Linux</string>
     <string name="xd_linux_no_x">X 服务器没有连上</string>
     <string name="xd_linux_old_x">X 服务器是旧版 XDesk 起的，请结束桌面再启动</string>

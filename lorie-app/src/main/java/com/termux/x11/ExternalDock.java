@@ -14,9 +14,13 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
+
+import java.util.List;
 
 /**
  * The dock at the bottom of the external display: the switchboard's short strip (Switchboard.strip), what is on the
@@ -201,11 +205,14 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
         p.point(x, y);
     }
 
-    /** A click of the dock's pointer: on an icon it opens that (and the dock goes), anywhere else the dock just goes. */
+    /**
+     * A click of the dock's pointer: anywhere on the bar's row it opens the nearest item (and the dock goes),
+     * as the Android pointer's click in a gap does; anywhere else the dock just goes.
+     */
     void clickDriven() {
         Panel p = panel;
         if (!driven() || p == null) return;
-        View item = p.itemAt(Math.round(px), Math.round(py));
+        View item = p.itemFor(Math.round(px), Math.round(py));
         if (item != null) item.performClick();
         else close();
     }
@@ -393,11 +400,19 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
 
     /** Space for the name above it, the rounded bar, and room below that still counts as being on the dock. */
     private final class Panel extends LinearLayout {
+        /** The icons shrink to this much of ICON_DP at most, the gaps with them, when not all of the strip fits. */
+        private static final float MIN_SCALE = 0.7f;
         private final LinearLayout bar;
+        /** The name bubble's fixed box: the bar's width at most, one line high, whatever the text (see the ctor). */
+        private final FrameLayout bubble;
         private final TextView name;
+        /** The icon size as a part of ICON_DP (the gaps shrink the same): worked out in fill. */
+        private float scale = 1f;
         private int items;
         private View over;
         private boolean visited;
+        /** The click's start, in the Panel's coordinates, for a click between the boxes (the bar itself is clicked). */
+        private float downX, downY;
         private final int[] place = new int[2];
 
         Panel(Switchboard board) {
@@ -408,31 +423,43 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             setClipChildren(false);
             setClipToPadding(false);
             setPadding(dp(16), dp(4), dp(16), dp(ROOM_BELOW_DP));
+            // The bubble's box is a fixed size (its width becomes the bar's, at most 220dp, in onLayout): a new
+            // label must never re-measure the Panel or the window, which is what shifted the bar. The bubble itself
+            // is the wrap-content text inside it, centred and ellipsized; the box around it stays invisible
+            bubble = new FrameLayout(dc);
             name = Style.label(dc, "", Style.TEXT, 13);
             // The shell's text factor (b·u, no font scale): sp from the display context would follow the density override
             name.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
-            name.setMaxWidth(dp(220));
             name.setPadding(dp(10), dp(4), dp(10), dp(4));
-            GradientDrawable bubble = new GradientDrawable();
-            bubble.setColor(BUBBLE);
-            bubble.setCornerRadius(dp(8));
-            name.setBackground(bubble);
-            name.setAlpha(0f);
-            LayoutParams nameAt = new LayoutParams(-2, -2);
+            GradientDrawable back = new GradientDrawable();
+            back.setColor(BUBBLE);
+            back.setCornerRadius(dp(8));
+            name.setBackground(back);
+            bubble.addView(name, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+            bubble.setAlpha(0f);
+            LayoutParams nameAt = new LayoutParams(0, Math.round(13 * density * 1.4f) + dp(8));
             nameAt.bottomMargin = dp(8);
-            addView(name, nameAt);
+            addView(bubble, nameAt);
             bar = new LinearLayout(dc);
             bar.setGravity(Gravity.BOTTOM);
             bar.setClipChildren(false);
             bar.setClipToPadding(false);
             bar.setPadding(dp(PAD_DP), dp(PAD_DP), dp(PAD_DP), dp(4));
-            GradientDrawable back = new GradientDrawable();
-            back.setColor(PANEL);
-            back.setCornerRadius(dp(RADIUS_DP));
-            back.setStroke(Math.max(1, dp(0.5f)), EDGE);
-            bar.setBackground(back);
+            GradientDrawable surface = new GradientDrawable();
+            surface.setColor(PANEL);
+            surface.setCornerRadius(dp(RADIUS_DP));
+            surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
+            bar.setBackground(surface);
+            // A click between the boxes (their margins, the divider) lands on the bar itself: it opens the nearest box
+            bar.setClickable(true);
+            bar.setFocusable(false);
+            bar.setOnClickListener(v -> {
+                getLocationOnScreen(place);
+                View near = itemFor(place[0] + Math.round(downX), place[1] + Math.round(downY));
+                if (near != null) near.performClick();
+            });
             addView(bar, new LayoutParams(-2, -2));
             fill(board);
         }
@@ -441,34 +468,97 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             return items == 0;
         }
 
-        /** The strip as the model has it; as many as fit, the last tile ("All") always. */
+        /**
+         * The strip as the model has it, in its order, the last tile ("All") always. The icons (and their gaps)
+         * shrink so that all of it fits, to 70% at most; if even that is not enough, the end of the favourites
+         * drops and a "+N" tile before "All" says how many.
+         */
         private void fill(Switchboard board) {
-            int room = (int) (dc.getResources().getDisplayMetrics().widthPixels * WIDTH_USED - dp(2 * PAD_DP + 32));
-            int each = dp(ICON_DP + ITEM_GAP_DP);
-            int most = Math.max(1, room / each);
-            boolean left = false, line = false;
-            for (Switchboard.Item it : board.strip(true)) {
-                if (it.strip == Switchboard.STRIP_ALL) {
-                    bar.addView(item(board, it));
-                    continue;
+            List<Switchboard.Item> all = board.strip(true);
+            int curPrev = 0;
+            boolean hasFav = false;
+            for (Switchboard.Item it : all) {
+                if (it.strip == Switchboard.STRIP_FAVOURITE) hasFav = true;
+                else if (it.strip != Switchboard.STRIP_ALL) curPrev++;
+            }
+            float avail = dc.getResources().getDisplayMetrics().widthPixels * WIDTH_USED - dp(2 * PAD_DP + 32);
+            float each = dp(ICON_DP + ITEM_GAP_DP);  // one tile, icon and gaps, at the full size
+            float divExtra = dp(ITEM_GAP_DP + 4);    // the divider's margins at the full size (its hairline stays)
+            float hair = Math.max(1, dp(1));
+            boolean divider = hasFav && curPrev > 0;
+            // The scale where all of it fits; 1 when it does at the full size
+            float s = divider ? (avail - hair) / (each * all.size() + divExtra) : avail / (each * all.size());
+            int kept = all.size() - 1;  // everything before "All"
+            int more = 0;
+            if (s > 1f) {
+                s = 1f;
+            } else if (s < MIN_SCALE) {
+                // Not even at 70%: as many as fit minus one (the "+N" tile takes a slot too)
+                s = MIN_SCALE;
+                float e = dp((ICON_DP + ITEM_GAP_DP) * s);
+                int fit = Math.max(1, (int) ((avail - (divider ? hair + dp((ITEM_GAP_DP + 4) * s) : 0)) / e));
+                kept = Math.max(0, fit - 2);
+                // The divider only shows with a favourite after it; where none is shown its room is a tile's,
+                // but where its room frees one, the divider is drawn after all and the smaller count is right
+                if (divider && kept <= curPrev) {
+                    int without = Math.max(0, (int) (avail / e) - 2);
+                    kept = without > curPrev ? kept : without;
                 }
-                if (items >= most) continue;
-                if (it.strip != Switchboard.STRIP_FAVOURITE) {
-                    left = true;
-                } else if (left && !line) {
+                if (kept > all.size() - 1) kept = all.size() - 1;
+                more = all.size() - 1 - kept;
+            }
+            scale = s;
+            boolean left = false, line = false;
+            for (int i = 0; i < kept; i++) {
+                Switchboard.Item it = all.get(i);
+                if (it.strip != Switchboard.STRIP_FAVOURITE) left = true;
+                else if (left && !line) {
                     line = true;
-                    View divider = new View(dc);
-                    divider.setBackgroundColor(EDGE);
-                    LayoutParams at = new LayoutParams(Math.max(1, dp(1)), dp(ICON_DP * 0.72f));
-                    at.leftMargin = at.rightMargin = dp(ITEM_GAP_DP / 2 + 2);
-                    at.bottomMargin = dp(12);
-                    bar.addView(divider, at);
+                    bar.addView(divider());
                 }
                 bar.addView(item(board, it));
             }
+            if (more > 0) bar.addView(moreTile(board, more));
+            bar.addView(item(board, all.get(all.size() - 1)));
+        }
+
+        /** The hairline between what is on the screen and the favourites; its margins shrink with the icons. */
+        private View divider() {
+            View divider = new View(dc);
+            divider.setBackgroundColor(EDGE);
+            LayoutParams at = new LayoutParams(Math.max(1, dp(1)), dp(ICON_DP * 0.72f * scale));
+            at.leftMargin = at.rightMargin = dp((ITEM_GAP_DP / 2 + 2) * scale);
+            at.bottomMargin = dp(12 * scale);
+            divider.setLayoutParams(at);
+            return divider;
+        }
+
+        /** The "+N" tile before "All": the favourites that did not fit are in the Launchpad's favourites tab. */
+        private View moreTile(final Switchboard board, int n) {
+            Switchboard.Item it = new Switchboard.Item();
+            it.kind = Switchboard.ITEM;
+            it.key = "more";  // no real item: only the tile's own listeners below ever see it
+            it.label = "+" + n;  // the tile, drawn whole, unlike a letter tile's first letter
+            it.title = dc.getString(R.string.xd_dock_more, n);  // the name bubble
+            ImageView tile = new ImageView(dc);
+            tile.setImageDrawable(Style.wordIcon(dc, it.label, density));
+            View box = item(board, it, tile);
+            box.setOnClickListener(v -> {
+                board.setTab(Switchboard.TAB_FAVOURITES);
+                board.open(ExternalLauncher.SWITCHER);
+                close();
+            });
+            // No card for it; the press is just taken, or it would count as a click
+            box.setOnContextClickListener(v -> true);
+            return box;
         }
 
         private View item(final Switchboard board, Switchboard.Item it) {
+            return item(board, it, ExternalLauncher.icon(dc, it, PANEL_OPAQUE, false, density));
+        }
+
+        /** {@code icon} made by the caller for a tile of the dock's own (the "+N" tile), instead of the item's. */
+        private View item(final Switchboard board, Switchboard.Item it, final View icon) {
             final String key = it.key;
             boolean running = it.strip == Switchboard.STRIP_CURRENT;
             items++;
@@ -479,11 +569,11 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.setFocusable(false);
             box.setClipChildren(false);
             box.setClipToPadding(false);
-            final View icon = ExternalLauncher.icon(dc, it, PANEL_OPAQUE, false, density);
             box.setTag(icon);
-            box.addView(icon, new LayoutParams(dp(ICON_DP), dp(ICON_DP)));
-            icon.setPivotX(dp(ICON_DP) / 2f);
-            icon.setPivotY(dp(ICON_DP));
+            box.addView(icon, new LayoutParams(dp(ICON_DP * scale), dp(ICON_DP * scale)));
+            // The zoom goes around the icon's middle, bottom-fixed, whatever the scale: it never changes the layout
+            icon.setPivotX(dp(ICON_DP * scale) / 2f);
+            icon.setPivotY(dp(ICON_DP * scale));
             View dot = new View(dc);
             GradientDrawable round = new GradientDrawable();
             round.setShape(GradientDrawable.OVAL);
@@ -496,12 +586,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             box.addView(dot, dotAt);
             // The name as the lists have it: a whole desktop says whose, not its session's name
             box.setContentDescription(it.title);
-            box.setOnHoverListener((v, e) -> {
-                int action = e.getActionMasked();
-                if (action == MotionEvent.ACTION_HOVER_ENTER) setOver(v);
-                else if (action == MotionEvent.ACTION_HOVER_EXIT && over == v) setOver(null);
-                return false;
-            });
+            // No hover listener here: dispatchHoverEvent picks the item from the pointer's x, so the row has no gaps
             box.setOnClickListener(v -> {
                 board.open(key);
                 close();
@@ -513,7 +598,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
                 return true;
             });
             LayoutParams at = new LayoutParams(-2, -2);
-            at.leftMargin = at.rightMargin = dp(ITEM_GAP_DP / 2);
+            at.leftMargin = at.rightMargin = dp(ITEM_GAP_DP * scale / 2);
             box.setLayoutParams(at);
             return box;
         }
@@ -523,7 +608,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             if (over != null) ((View) over.getTag()).animate().scaleX(1f).scaleY(1f).setDuration(ZOOM_MS).start();
             over = v;
             if (v == null) {
-                name.animate().alpha(0f).setDuration(ZOOM_MS).start();
+                bubble.animate().alpha(0f).setDuration(ZOOM_MS).start();
                 return;
             }
             ((View) v.getTag()).animate().scaleX(HOVER_ZOOM).scaleY(HOVER_ZOOM).setDuration(ZOOM_MS).start();
@@ -536,6 +621,30 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             return x >= place[0] && x < place[0] + v.getWidth() && y >= place[1] && y < place[1] + v.getHeight();
         }
 
+        /**
+         * The item whose part of the bar's row holds this place of the screen: from the midpoint to its neighbour on
+         * one side to the midpoint to the next on the other, and from the bar's edges at the ends, so the row over
+         * the bar has no dead gaps (a box holds half of each margin beside it, the divider's place included). Null
+         * above or below the row, or beside the bar.
+         */
+        View itemFor(int x, int y) {
+            bar.getLocationOnScreen(place);
+            int left = place[0], right = left + bar.getWidth();
+            if (y < place[1] || y >= place[1] + bar.getHeight() || x < left || x >= right) return null;
+            View prev = null;
+            for (int i = 0; i < bar.getChildCount(); i++) {
+                View child = bar.getChildAt(i);
+                if (child.getTag() == null) continue;  // the divider
+                if (prev == null) {
+                    if (x < left + child.getLeft()) return child;  // before the first box: it is the nearest
+                } else if (x < left + (prev.getRight() + child.getLeft()) / 2) {
+                    return prev;
+                }
+                prev = child;
+            }
+            return prev;  // from the last midpoint to the bar's right edge: the last box
+        }
+
         /** The pointer's place when no hover events tell it. */
         void placed(int x, int y) {
             if (!holds(this, x, y)) {
@@ -545,10 +654,10 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             }
             visited = true;
             ui.removeCallbacks(close);
-            setOver(itemAt(x, y));
+            setOver(itemFor(x, y));
         }
 
-        /** The icon at this place of the screen, null beside them. */
+        /** The item's box at this place of the screen, null beside them: for the secondary button, which takes none in a gap. */
         View itemAt(int x, int y) {
             for (int i = 0; i < bar.getChildCount(); i++) {
                 View child = bar.getChildAt(i);
@@ -559,7 +668,7 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
 
         /** The dock's own pointer (driven) is here. */
         void point(int x, int y) {
-            setOver(itemAt(x, y));
+            setOver(itemFor(x, y));
         }
 
         /** Higher on the screen than the dock with the room for its names. Not before it is laid out. */
@@ -573,19 +682,50 @@ final class ExternalDock implements AppSession.BottomEdgeListener {
             name.setText(label);
             name.post(() -> {
                 float centre = bar.getLeft() + over.getLeft() + over.getWidth() / 2f;
-                float half = name.getWidth() / 2f;
+                float half = name.getWidth() / 2f;  // the visible bubble: the text, not its fixed box
                 float clamped = Math.max(half, Math.min(getWidth() - half, centre));
-                name.setTranslationX(clamped - getWidth() / 2f);
-                name.animate().alpha(1f).setDuration(ZOOM_MS).start();
+                bubble.setTranslationX(clamped - getWidth() / 2f);
+                bubble.animate().alpha(1f).setDuration(ZOOM_MS).start();
             });
         }
 
-        // The children's own enter and exit are handled below this: here is only whether the pointer is on the dock at all
+        // The hovered item is picked from the pointer's x here, for the Android pointer and (through point/placed)
+        // for the driven one: a box holds half of each margin beside it, so crossing between two boxes changes
+        // nothing at the moment the pointer is over the divider between their extents... see itemFor
         @Override public boolean dispatchHoverEvent(MotionEvent e) {
             int action = e.getActionMasked();
-            if (action == MotionEvent.ACTION_HOVER_EXIT) later(close, LEAVE_MS);
-            else ui.removeCallbacks(close);
+            if (action == MotionEvent.ACTION_HOVER_EXIT) {
+                setOver(null);  // left the dock: nothing is hovered any more, whatever the strip's listener decides
+                later(close, LEAVE_MS);
+                return super.dispatchHoverEvent(e);
+            }
+            ui.removeCallbacks(close);
+            if (action == MotionEvent.ACTION_HOVER_ENTER || action == MotionEvent.ACTION_HOVER_MOVE) {
+                getLocationOnScreen(place);
+                setOver(itemFor(place[0] + (int) e.getX(), place[1] + (int) e.getY()));
+            }
             return super.dispatchHoverEvent(e);
+        }
+
+        // The click's start, for the bar's own click: where the pointer was when it went down between the boxes
+        @Override public boolean dispatchTouchEvent(MotionEvent e) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                downX = e.getX();
+                downY = e.getY();
+            }
+            return super.dispatchTouchEvent(e);
+        }
+
+        // The bubble's box becomes as wide as the bar (at most 220dp): fixed for good then, so a new label never
+        // re-measures the Panel or the window (which is what shifted the bar when the name changed)
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            super.onLayout(changed, l, t, r, b);
+            LayoutParams at = (LayoutParams) bubble.getLayoutParams();
+            int w = Math.min(dp(220), bar.getWidth());
+            if (at.width != w) {
+                at.width = w;
+                bubble.requestLayout();
+            }
         }
 
         void slideIn() {
