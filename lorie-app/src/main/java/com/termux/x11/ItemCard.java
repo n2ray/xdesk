@@ -207,14 +207,17 @@ final class ItemCard {
         content.addView(below, new LinearLayout.LayoutParams(-1, -2));
         if (app != null) appSettings(below);
 
+        // Through a holder: the lambda refers to itself (deviceRows re-runs it on a change), which Java does not allow directly
+        final Runnable[] self = new Runnable[1];
         final Runnable again = () -> {
             refresh();
             // The device's rows say its state (Disconnect only while connected); an app's settings stay as built
             if (app == null) {
                 below.removeAllViews();
-                deviceRows(below, again);
+                deviceRows(below, self[0]);
             }
         };
+        self[0] = again;
         again.run();
         devices.addListener(again);
         card = s.bottomSheet(head, content);
