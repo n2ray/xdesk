@@ -2525,6 +2525,9 @@ public class XDeskActivity extends Activity {
         s.valueRow(device, getString(R.string.xd_section_input), null, "", this::showInputSettings);
         s.valueRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::showSoundSettings);
         s.valueRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
+        // The notifications on the external screen here too, not only under 外屏: the access was hard to find (owner, 2026-11-15)
+        s.valueRow(device, getString(R.string.xd_section_notifications), null,
+            NotifyCenter.accessGranted(this) ? "" : getString(R.string.xd_notify_access_short_off), this::showNotifySettings);
         LinearLayout connect = s.section(c, getString(R.string.xd_section_connect));
         // Every external device (Linux environments, Macs, later Windows and Android) behind one entry: DEVICES.md §5
         int connectedDevices = Devices.get(this).connectedCount();
@@ -2850,6 +2853,18 @@ public class XDeskActivity extends Activity {
         s.valueRow(show, getString(R.string.xd_notify_access), null,
             granted ? getString(R.string.xd_notify_access_on) : getString(R.string.xd_notify_access_off),
             () -> NotifyCenter.openAccessSettings(this));
+        // Android 13 on: an app not installed by a store must first be let through ("restricted settings"), else the
+        // system's switch is grey. Where to do that, and the app's details page to do it on (owner, 2026-11-15)
+        if (!granted && android.os.Build.VERSION.SDK_INT >= 33) {
+            s.valueRow(show, getString(R.string.xd_notify_restricted), getString(R.string.xd_notify_restricted_note),
+                getString(R.string.xd_notify_restricted_open), () -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+                    } catch (RuntimeException e) {
+                        Log.w(TAG, "no app details page", e);
+                    }
+                });
+        }
         LinearLayout per = s.card(c);
         s.valueRow(per, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), "", this::showNotifyApps);
         LinearLayout more = s.card(c);

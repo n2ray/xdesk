@@ -1,8 +1,5 @@
 package com.termux.x11;
 
-import android.os.SystemClock;
-import android.util.Log;
-
 import io.github.n2ray.xdesk.input.Caps;
 
 /**
@@ -59,8 +56,6 @@ final class DockPointer {
     /** The Mac menu's corner rule (MACMENU.md §3), TOP and LEFT edges. */
     private final EdgePush menuCorner = new EdgePush();
     private boolean escTaken;
-    /** When the last "push not counted" was said: once a second at most (the log of a test build). */
-    private long saidAt;
 
     /** @param devices the devices that move the pointer (the phone's mouse and touchpad, the receiver): none of them may hold a button when the Dock or the centre opens */
     DockPointer(Host host, Router.Device... devices) {
@@ -130,39 +125,14 @@ final class DockPointer {
         InputSink t = host.target();
         ExternalDock dock = host.dock();
         if (dy < 0 || t == null || dock == null || !dock.attached() || holding() || !t.pointerPlace(place) || place[1] < 1f) {
-            if (dy > 0) notCounted(t, dock);
             rule.forget();
             return;
         }
         Caps caps = t.caps();
-        if (rule.pushed(dx, dy, caps != null && caps.scope == Caps.DESKTOP)) {
-            if (dock.openDriven(place[0])) {
-                over = t;
-                surface = SURFACE_DOCK;
-                Log.d("XDeskDock", "opened by the push over " + t.getClass().getSimpleName());
-            } else {
-                Log.d("XDeskDock", "push counted but the Dock did not open");
-            }
+        if (rule.pushed(dx, dy, caps != null && caps.scope == Caps.DESKTOP) && dock.openDriven(place[0])) {
+            over = t;
+            surface = SURFACE_DOCK;
         }
-    }
-
-    /** Why a downward move did not count for the Dock, said once a second at most: what stops it when it never opens. */
-    private void notCounted(InputSink t, ExternalDock dock) {
-        long now = SystemClock.uptimeMillis();
-        if (now - saidAt < 1000) return;
-        String why;
-        if (t == null) why = "no target";
-        else if (dock == null) why = "no Dock";
-        else if (!dock.attached()) why = "the Dock is not on the display";
-        else if (holding()) {
-            StringBuilder b = new StringBuilder("a button is held:");
-            for (Router.Device d : devices) if (d.holdsButtons()) b.append(" device ").append(d.id);
-            why = b.toString();
-        } else if (!t.pointerPlace(place)) why = "no pointer place from " + t.getClass().getSimpleName();
-        else if (place[1] < 0.97f) return;  // simply not at the bottom: nothing to say
-        else why = "pointer short of the bottom, y " + place[1];
-        saidAt = now;
-        Log.d("XDeskDock", "push not counted: " + why);
     }
 
     /**
