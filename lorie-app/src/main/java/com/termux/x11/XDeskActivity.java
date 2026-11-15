@@ -2212,7 +2212,15 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateStatus() {
-        if (wireless != null) wireless.setDesktopShown(session.isConnected() && !apps.isActive());
+        if (wireless != null) {
+            wireless.setDesktopShown(session.isConnected() && !apps.isActive());
+            // The desktop content's cursor is in the picture: a Mac, the switchboard's arrow, the driven Dock's
+            // arrow (over X without these the X cursor may be hidden by an absolute placement: INPUT_MODE 1)
+            wireless.setDesktopCursor(contentKey != null && contentKey.startsWith(MacSource.PREFIX)
+                    || SwitcherOverlay.isShown() || externalDock != null && externalDock.driven());
+            // An Android receiver hides its own pointer when the picture has a cursor: our arrow stays for it
+            apps.setRemoteHidesPointer(wireless.receiverHidesPointer());
+        }
         audioRoute.setCar(onCar());
         applyFullscreen();
         applyModeToTopBar();

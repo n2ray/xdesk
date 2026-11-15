@@ -88,8 +88,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private Boolean padOverride;
     /** A Mac is passed through: the cursor is drawn here, and this device's own pointer would be a wrong second one. */
     private boolean passthrough;
-    /** The last INPUT_MODE from the phone (0 Android apps, 1 desktop, 2 an app that takes touches), -1 until the first. */
+    /** The last INPUT_MODE from the phone (0 Android apps, 1 desktop, 2 an app that takes touches, 3 desktop whose
+     *  cursor is in the picture, FEATURES bit 3), -1 until the first. */
     private int phoneInputMode = -1;
+    /** FEATURES bit 3: the phone says whether the picture contains a cursor (INPUT_MODE 3), hide this device's own. */
+    private static final int FEATURE_PICTURE_CURSOR = 8;
     /** applyPointerIcon hid this device's pointer. */
     private boolean pointerHidden;
     private LinearLayout bar, tools;
@@ -571,15 +574,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     }
 
     /**
-     * This device's pointer is hidden while the picture has the phone's own pointer: Android content (INPUT_MODE 0,
-     * the phone draws its arrow in the picture) and before the first INPUT_MODE says what is showing, as before the
-     * fix. Also while this device draws the cursor itself (a passed-through Mac). Otherwise the system pointer
-     * shows: for X content placed absolutely the phone hides the X cursor, and a tablet's mouse must still show one
-     * (PROTOCOL.md, DISPLAY.md §8).
+     * This device's pointer is hidden while the picture has a cursor of its own: Android content (INPUT_MODE 0 or 2,
+     * the phone draws its arrow in the picture), before the first INPUT_MODE says what is showing, a passed-through
+     * Mac (this device draws the cursor itself), and with FEATURES bit 3 a desktop whose cursor is in the picture
+     * (INPUT_MODE 3: X driven by relative moves, a Mac re-encoded, the switchboard, the Dock). Otherwise the system
+     * pointer shows: for X content placed absolutely the phone hides the X cursor, and a tablet's mouse must still
+     * show one (PROTOCOL.md, DISPLAY.md §8).
      */
     private void applyPointerIcon() {
         if (Build.VERSION.SDK_INT < 24) return;
-        boolean hide = controlling() && (passthrough || phoneInputMode < 0 || phoneInputMode == 0 || phoneInputMode == 2);  // 0, 2: Android content, the phone draws its arrow
+        boolean pictureCursor = (features & FEATURE_PICTURE_CURSOR) != 0 && phoneInputMode == 3;
+        boolean hide = controlling() && (passthrough || phoneInputMode < 0 || phoneInputMode == 0
+                || phoneInputMode == 2 || pictureCursor);
         if (hide == pointerHidden) return;
         pointerHidden = hide;
         PointerIcon icon = hide ? PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL) : null;
@@ -761,6 +767,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             features = bits;
             control.setFeatures(bits);
             applyFeatures();
+            // FEATURES bit 3 decides whether INPUT_MODE 3 means the picture has a cursor
+            applyPointerIcon();
         });
     }
 
