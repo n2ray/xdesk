@@ -28,18 +28,22 @@ final class NotifyBell {
     }
 
     private void draw(Canvas c, float w, float h, float s, Paint paint) {
-        // The dome
-        bell.reset();
-        bell.moveTo(w * 0.18f, h * 0.52f);
-        bell.cubicTo(w * 0.05f, h * 0.35f, w * 0.22f, h * 0.12f, w * 0.5f, h * 0.12f);
-        bell.cubicTo(w * 0.78f, h * 0.12f, w * 0.95f, h * 0.35f, w * 0.82f, h * 0.52f);
-        c.drawPath(bell, paint);
-        // The clapper and the rim
+        // An outline in the ≡'s stroke (owner, 2026-11-15: the filled dome read as a mushroom once on a plate): the
+        // knob, the body flaring to the rim, the rim, and the clapper's arc below it
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(Math.max(1f, 1.6f * s));
         paint.setStrokeCap(Paint.Cap.ROUND);
-        c.drawLine(w * 0.18f, h * 0.52f, w * 0.82f, h * 0.52f, paint);
-        c.drawCircle(w * 0.5f, h * 0.68f, Math.max(1f, 2.2f * s), paint);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        bell.reset();
+        bell.moveTo(w * 0.20f, h * 0.70f);
+        bell.cubicTo(w * 0.29f, h * 0.62f, w * 0.29f, h * 0.54f, w * 0.29f, h * 0.44f);
+        bell.cubicTo(w * 0.29f, h * 0.29f, w * 0.38f, h * 0.20f, w * 0.5f, h * 0.20f);
+        bell.cubicTo(w * 0.62f, h * 0.20f, w * 0.71f, h * 0.29f, w * 0.71f, h * 0.44f);
+        bell.cubicTo(w * 0.71f, h * 0.54f, w * 0.71f, h * 0.62f, w * 0.80f, h * 0.70f);
+        bell.close();
+        c.drawPath(bell, paint);
+        c.drawLine(w * 0.5f, h * 0.13f, w * 0.5f, h * 0.20f, paint);
+        c.drawArc(w * 0.42f, h * 0.70f, w * 0.58f, h * 0.84f, 0, 180, false, paint);
         paint.setStyle(Paint.Style.FILL);
     }
 
