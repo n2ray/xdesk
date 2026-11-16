@@ -173,12 +173,28 @@ final class MacInput implements InputSink {
         if (!had) send(HidKeys.LEFT_GUI, false);
     }
 
+    /** scan code to the usage its press sent, until its release */
+    private final android.util.SparseIntArray pressedAs = new android.util.SparseIntArray();
+    /** Above 0 while Router sends a semantic action's keys (INPUT.md §3.4): those are a Mac's keys already (⌘ as Meta). */
+    private volatile int semantic;
+
+    synchronized void semanticKeys(boolean on) {
+        semantic += on ? 1 : -1;
+    }
+
     @Override public synchronized void key(int scan, boolean isDown) {
         if (scan == SCAN_ALT || scan == SCAN_RIGHT_ALT) altHeld = isDown;
         if (scan == SCAN_SHIFT || scan == SCAN_RIGHT_SHIFT) shiftHeld = isDown;
         int usage = HidKeys.fromLinux(scan);
         if (usage == 0) return;
-        if (translateModifiers && !client.mac().macKeyboard && !sourceMacKeyboard) usage = HidKeys.pcToMac(usage);
+        if (translateModifiers && !client.mac().macKeyboard && !sourceMacKeyboard && semantic == 0) usage = HidKeys.pcToMac(usage);
+        // Released as it was pressed: the translation may have changed in between (a session ending, the setting)
+        if (isDown) pressedAs.put(scan, usage);
+        else {
+            int was = pressedAs.get(scan, 0);
+            pressedAs.delete(scan);
+            if (was != 0) usage = was;
+        }
 
         // Alt+Tab is "switch app" (INPUT.md §5.5, §3.4)
         if (scan == SCAN_TAB && altHeld) {
@@ -248,6 +264,11 @@ final class MacInput implements InputSink {
         } else if (button == 2 || button == 3) {
             if (switcher != null) switcher.show(prefix);
         }
+    }
+
+    /** The switch-app gesture over a Mac window (INPUT.md §3.4): this Mac's next or previous window, one per step. */
+    synchronized void stepWindow(int step) {
+        if (step != 0) nextWindow(step > 0 ? 1 : -1);
     }
 
     /** This Mac's next (or previous) window, in the order the Mac lists them. */

@@ -379,13 +379,17 @@ public class XDeskActivity extends Activity {
                 else goHomeOnDisplay();
                 break;
             case io.github.n2ray.xdesk.input.Input.OVERVIEW:
-                showSwitcher(true);
+                // A Mac window: XDesk's switcher for this Mac only (§3.4), as its Home
+                if (window && target instanceof MacInput) target.androidButton(3);
+                else showSwitcher(true);
                 break;
             case io.github.n2ray.xdesk.input.Input.SWITCHER:
                 showSwitcher(false);
                 break;
             case io.github.n2ray.xdesk.input.Input.SWITCH_APP:
-                switchAppStep(arg);
+                // A Mac window: this Mac's own windows (§3.4), not the Dock's list
+                if (window && target instanceof MacInput) ((MacInput) target).stepWindow(arg);
+                else switchAppStep(arg);
                 break;
             default:
                 // 换屏（只有一块屏时没有）、其他目标不认的动作：丢掉，不报错（§6）
@@ -442,6 +446,7 @@ public class XDeskActivity extends Activity {
             if (x != 0 || y != 0) {
                 mouseRestX -= x;
                 mouseRestY -= y;
+                wireless.phonePointerMoved();  // as the touchpad: the X cursor shows again, the receiver's pointer goes
                 dockPointer.move(mouseIn, x, y);
             }
         }

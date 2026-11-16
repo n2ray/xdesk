@@ -214,7 +214,9 @@ final class Router {
             // A Mac keyboard's Command comes as Meta (INPUT.md §5.5): for a non-Mac target it becomes Ctrl, as the
             // Mac receiver's own translation had it, so those targets see exactly what they saw before. A Mac target
             // gets the Meta untranslated (MacInput skips pcToMac for a Mac keyboard).
-            if (macKeyboard && (scan == KEY_LEFTMETA || scan == KEY_RIGHTMETA)) {
+            // A release goes by what its press recorded even when the keyboard is no Mac one any more (a session that
+            // ended with Command held resets the kind before the keys are released)
+            if ((macKeyboard || !down && metaAsCtrl != 0) && (scan == KEY_LEFTMETA || scan == KEY_RIGHTMETA)) {
                 // Decided at the press and kept for its release: a target change in between must not leave a
                 // Ctrl down that is released as Meta
                 int bit = scan == KEY_LEFTMETA ? 1 : 2;
@@ -323,8 +325,19 @@ final class Router {
         void action(int action, int arg) {
             InputSink t = action == Input.SWITCH_APP && switchModifier != 0 ? bound : target();
             Caps c = t != null ? t.caps() : null;
-            if (t == null || c == null || c.scope != Caps.DESKTOP || !desktopAction(t, c, action, arg)) {
+            if (t == null || c == null || c.scope != Caps.DESKTOP || !macAwareAction(t, c, action, arg)) {
                 host.hostAction(t, action, arg);
+            }
+        }
+
+        /** desktopAction's keys are a Mac's own for a Mac (⌘ as Meta): MacInput must not swap Ctrl and ⌘ on them again. */
+        private boolean macAwareAction(InputSink t, Caps c, int action, int arg) {
+            MacInput m = c.macKeys && t instanceof MacInput ? (MacInput) t : null;
+            if (m != null) m.semanticKeys(true);
+            try {
+                return desktopAction(t, c, action, arg);
+            } finally {
+                if (m != null) m.semanticKeys(false);
             }
         }
 

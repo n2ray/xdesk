@@ -1140,15 +1140,19 @@ final class WirelessDisplay {
         // The Launchpad and a driven Dock draw their own arrow whatever is under them, also with no X and over an
         // Android app (the home Launchpad): 3 then too, or a computer or a browser shows its pointer beside it
         // (MACAPP.md §1). XDesk Receiver hides its pointer over Android content anyway, and keeps its touch mode (2)
-        boolean drawn = desktopCursor || SwitcherOverlay.isShown() || dockDriven();
-        int mode = drawn && (computer || web) ? 3 : !desktopShown ? touchMode && !computer ? 2 : 0
-                : drawn || !absolutePlacement ? 3 : 1;
-        if (mode == sentInputMode || webLost) return;
-        try {
-            writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);
-            sentInputMode = mode;
-        } catch (IOException e) {
-            Log.i(TAG, "input mode: " + e);
+        // Worked out, compared and sent under the write lock: three threads call this, and a mode sent out of order
+        // against the one recorded was never sent again (no pointer at all on the receiver)
+        synchronized (writeLock) {
+            boolean drawn = desktopCursor || SwitcherOverlay.isShown() || dockDriven();
+            int mode = drawn && (computer || web) ? 3 : !desktopShown ? touchMode && !computer ? 2 : 0
+                    : drawn || !absolutePlacement ? 3 : 1;
+            if (mode == sentInputMode || webLost) return;
+            try {
+                writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);
+                sentInputMode = mode;
+            } catch (IOException e) {
+                Log.i(TAG, "input mode: " + e);
+            }
         }
     }
 
