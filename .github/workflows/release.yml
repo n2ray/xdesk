@@ -61,6 +61,7 @@ jobs:
         dpkg-deb -x shell-loader/build/outputs/companion/termux-x11-*-all.deb deb
         cp "$(find deb -name loader.apk)" out/loader.apk
         cp xdesk/xdesk out/xdesk
+        sed -i "s/^XDESK_CLI_VERSION=.*/XDESK_CLI_VERSION=$VERSION/" out/xdesk
         (cd out && sha256sum xdesk.apk xdesk-receiver.apk loader.apk xdesk > SHA256SUMS)
         rm -f "$XDESK_KEYSTORE"
     - name: Upload (manual runs)

@@ -5,24 +5,31 @@
 #   xdesk x                  start only the X server and audio
 #   xdesk run CMD...         run any program on the display
 #   xdesk list               list sessions (found by "xdesk setup" or added by you)
-#   xdesk add NAME 'CMD' [--root DIR] [--launch 'PREFIX']   add a session, e.g. a chroot (writes NAME.root / NAME.launch)
-#   xdesk rm NAME            remove a session
+#   xdesk add NAME ['CMD'] [--root DIR] [--launch 'PREFIX']   add a session, or without CMD an environment (writes NAME.root / NAME.launch)
+#   xdesk rm NAME            remove a session or an environment
 #   xdesk use NAME           choose the default session
 #   xdesk start [NAME]       start a session (default: the chosen one)
 #   xdesk switch NAME        stop the running session and start another, keeping X and the window
 #   xdesk stop               stop everything
 #   xdesk recover [NAME]     like start, unless you ran xdesk stop (the app does not use this)
 #   xdesk status             show what is running
-#   xdesk setup              look for desktops in Termux and proot-distro
+#   xdesk setup              look for desktops and environments in Termux and proot-distro
+#   xdesk doctor             check the setup, one line per item (exit 1 when something is broken)
+#   xdesk version            print the xdesk command version
+#   xdesk update [VERSION]   replace the xdesk command with the newest release (or VERSION)
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
-#   xdesk apps [--refresh]   list the programs XDesk can open one by one (from .desktop files)
-#   xdesk launch SCOPE/ID    open one of them on the display, in its session (Termux, proot or chroot)
+#   xdesk apps [--refresh|--path]   list the programs XDesk can open one by one (from .desktop files); --path prints the catalog file
+#   xdesk launch [--startup-id ID] SCOPE/ID   open one of them on the display, in its session (Termux, proot or chroot)
 #   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
 #   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
+#   xdesk app state          one JSON line with everything the app reads (sessions, X, environments)
 #   xdesk ime [status|setup|start|stop|on|off|layout [NAME]]   the X side's input method and keyboard layout (fcitx5 in Termux)
+#   xdesk help [all]         the commands above; "all" adds the ones only the app uses
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 #                            ("termux+apps" needs no session: Termux's own xfwm4)
 set -u
+# CI stamps the release version into this line; a copy from the repository stays dev, which the app does not prompt about
+XDESK_CLI_VERSION=dev
 APP=io.github.n2ray.xdesk.x11
 DPY=:1
 AUDIO_PORT=47130   # only for removing what an older xdesk loaded
@@ -34,9 +41,12 @@ PULSE_COOKIE_FILE=$PREFIX/tmp/xdesk-pulse-cookie
 DEFAULT_RES='1280 x 1024'    # what X reports before the app has connected
 CONF=$HOME/.config/xdesk
 SESSIONS=$CONF/sessions
+# Environments with no session of their own (a container without a desktop): NAME.root, NAME.launch
+ENVS=$CONF/envs
 RUN=$PREFIX/tmp/xdesk
 LOG=$PREFIX/tmp/xdesk.log
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
+INSTALL_URL=https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh
 LOG_MAX=2097152              # xdesk.log is rotated to xdesk.log.1 beyond this many bytes
 # Scripts with #!/bin/... only run through termux-exec, and RUN_COMMAND starts us without it
 TERMUX_EXEC=$PREFIX/lib/libtermux-exec-ld-preload.so
@@ -44,7 +54,7 @@ if [ -z "${LD_PRELOAD:-}" ] && [ -f "$TERMUX_EXEC" ]; then export LD_PRELOAD=$TE
 # RUN_COMMAND also starts us at nice 0. Chromium then runs its renderer at -8, above the X server,
 # and video drops frames. Only change the default, not a chosen value.
 if [ "$(ps -o ni= -p $$ | tr -d ' ')" = 0 ]; then renice -n -10 -p $$ >/dev/null 2>&1; fi
-mkdir -p "$SESSIONS" "$RUN"
+mkdir -p "$SESSIONS" "$ENVS" "$RUN"
 # XDesk passes a nonce when it runs us; xdesk stop sends it back, so the app can tell its STOPPED
 # broadcast from one any other app could send. Other apps cannot read $RUN.
 if [ -n "${XDESK_NONCE:-}" ]; then printf '%s\n' "$XDESK_NONCE" >"$RUN/nonce"; unset XDESK_NONCE; fi
@@ -60,6 +70,19 @@ say() { echo "$*"; log "$*"; }
 x_up() { DISPLAY=$DPY timeout 2 xrandr >/dev/null 2>&1; }
 x_pid() { pgrep -f '^xdesk-x11 ' | head -1; }
 
+# When the X server started, in Unix seconds: the boot time plus the process's starttime from /proc/PID/stat
+# (field 22, in clock ticks; pid and comm with its possible spaces are skipped first). Fails when it is not ours
+x_started() {  # pid
+    local p=${1:-} btime ticks hz
+    [ -n "$p" ] || return 1
+    btime=$(awk '/^btime / { print $2; exit }' /proc/stat 2>/dev/null)
+    ticks=$(sed 's/^[0-9]* (.*) //' "/proc/$p/stat" 2>/dev/null | awk '{ print $20 }')
+    [ -n "$btime" ] && [ -n "$ticks" ] || return 1
+    hz=$(getconf CLK_TCK 2>/dev/null) || hz=100
+    [[ $hz =~ ^[0-9]+$ ]] || hz=100
+    echo $(( btime + ticks / hz ))
+}
+
 # Whatever holds the X lock file of our display is still alive (another X server, or ours under
 # a name pgrep does not know).
 x_lock_alive() {
@@ -73,8 +96,16 @@ x_lock_alive() {
     return 1
 }
 
-# Commands the X and session commands need, with the Termux package that has them
-need_tools() {
+# The X server's pid: ours by name, else whatever holds the display's lock (another X server)
+x_server_pid() {
+    local p f=$PREFIX/tmp/.X${DPY#:}-lock
+    p=$(x_pid)
+    if [ -z "$p" ] && [ -f "$f" ] && x_lock_alive; then p=$(tr -d ' ' <"$f" 2>/dev/null); fi
+    [ -n "$p" ] && echo "$p"
+}
+
+# The Termux packages of the commands that are not there, space separated (empty when all are)
+missing_tools() {
     local pair missing=""
     for pair in xrandr:xorg-xrandr flock:util-linux setsid:util-linux timeout:coreutils \
                 seq:coreutils pgrep:procps pkill:procps ps:procps; do
@@ -82,7 +113,14 @@ need_tools() {
     done
     [ -z "$missing" ] && return 0
     # shellcheck disable=SC2086
-    missing=$(printf '%s\n' $missing | sort -u | tr '\n' ' ')
+    printf '%s\n' $missing | sort -u | tr '\n' ' '
+}
+
+# Commands the X and session commands need, with the Termux package that has them
+need_tools() {
+    local missing
+    missing=$(missing_tools)
+    [ -z "$missing" ] && return 0
     say "Missing commands. Install them with: pkg install ${missing% }"
     exit 1
 }
@@ -96,7 +134,7 @@ valid_name() {
 
 ensure_loader() {
     [ -f "$LOADER" ] && return 0
-    say "Loader not found: $LOADER. Install XDesk again: curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash"
+    say "Loader not found: $LOADER. Install XDesk again: curl -fsSL $INSTALL_URL | bash"
     return 1
 }
 
@@ -388,8 +426,8 @@ termux_session() {  # command that starts the desktop
 
 setup() {
     echo "Looking for desktops..."
-    local de bin name distro root
-    for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session; do
+    local de bin name distro root found created
+    for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session lxde:startlxde kde:startplasma-x11 openbox:openbox-session i3:i3; do
         name=${de%%:*}; bin=${de##*:}
         if command -v "$bin" >/dev/null; then
             write_session "termux-$name" "$(termux_session "$bin")"
@@ -398,13 +436,31 @@ setup() {
     for root in "$PREFIX"/var/lib/proot-distro/containers/*/rootfs "$PREFIX"/var/lib/proot-distro/installed-rootfs/*; do
         [ -d "$root" ] || continue
         distro=$(basename "$(echo "$root" | sed 's|/rootfs$||')")
-        for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session; do
+        found=0
+        for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session lxde:startlxde kde:startplasma-x11 openbox:openbox-session i3:i3; do
             name=${de%%:*}; bin=${de##*:}
             if [ -e "$root/usr/bin/$bin" ]; then
                 write_session "proot-$distro-$name" \
                     "exec proot-distro login $distro --shared-tmp -- env DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session $bin"
+                found=1
             fi
         done
+        # Every container is an environment, with or without a desktop: its programs open one by one.
+        # Existing files belong to the user and are never overwritten
+        created=0
+        if [ ! -e "$ENVS/proot-$distro.root" ]; then
+            printf '%s\n' "$root" >"$ENVS/proot-$distro.root"
+            created=1
+        fi
+        if [ ! -e "$ENVS/proot-$distro.launch" ]; then
+            {
+                printf '# Runs "$@" in the container. Written by: xdesk setup\n'
+                printf 'exec proot-distro login %s --shared-tmp -- "$@"\n' "$distro"
+            } >"$ENVS/proot-$distro.launch"
+            created=1
+        fi
+        # A container with a desktop is already found as its sessions; only a bare one is news
+        [ $created = 1 ] && [ $found = 0 ] && echo "  found proot-$distro"
     done
     if [ -z "$(current)" ]; then
         name=$(ls "$SESSIONS" 2>/dev/null | head -1)
@@ -412,6 +468,8 @@ setup() {
     fi
     list
     cursor_installed || cursor_missing_msg
+    # chroot and proot scripts of other kinds cannot be found from here: say how to add one (CLI.md §3.4)
+    echo "Other proot or chroot systems: xdesk add NAME --root DIR --launch 'entry command'"
 }
 
 list() {
@@ -938,12 +996,69 @@ session_env() {
     fi
 }
 
-# What the session script of an environment enters it with, for the app's list
+# The .launch that enters an environment and runs "$@" there, if any: a session's, else the environment's
+env_launch_file() {
+    if [ -f "$SESSIONS/$1.launch" ]; then echo "$SESSIONS/$1.launch"
+    elif [ -f "$ENVS/$1.launch" ]; then echo "$ENVS/$1.launch"
+    fi
+}
+
+# The entry command of a NAME.launch script: the "exec PREFIX \"$@\"" line xdesk writes. Empty for a script of
+# the user's own
+launch_prefix() {  # file
+    sed -n 's/^exec \(.*\) "\$@"$/\1/p' "$1" 2>/dev/null | head -1
+}
+
+# What a session script or an environment's launch command enters it with, for the app's list. A session keeps
+# the kind its .sh gave it; an environment without a session is classified by its .launch
 env_kind() {
     local f=$SESSIONS/$1.sh
+    [ -f "$f" ] || f=$ENVS/$1.launch
     if grep -qE '(^|[^[:alnum:]_-])(proot|proot-distro)([[:space:]]|$)' "$f" 2>/dev/null; then echo proot
     elif grep -qE '(^|[^[:alnum:]_-])(chroot|unshare|nsenter)([[:space:]]|$)' "$f" 2>/dev/null; then echo chroot
     else echo other; fi
+}
+
+# Its programs can be listed and opened one by one: a root to read, and a way into it
+env_apps() {
+    [ -n "$(session_root "$1")" ] || return 1
+    if [ -f "$SESSIONS/$1.launch" ] || [ -f "$ENVS/$1.launch" ]; then return 0; fi
+    grep -q 'proot-distro login' "$SESSIONS/$1.sh" 2>/dev/null
+}
+
+# The sessions whose system has a root of its own: NAME<TAB>ROOT, root without a trailing slash
+session_env_roots() {
+    local f n r
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        r=$(session_root "$n")
+        [ -n "$r" ] && printf '%s\t%s\n' "$n" "${r%/}"
+    done
+}
+
+# Environments registered in envs/ that no session already covers: NAME<TAB>ROOT (ROOT empty for one with only a
+# launch command). A container with desktops is listed through its sessions, never also as a desktop-less environment
+plain_envs() {
+    local f n r e skip seen=" "
+    local -a roots=()
+    while IFS=$'\t' read -r _ r; do roots+=("$r"); done < <(session_env_roots)
+    for f in "$ENVS"/*.root "$ENVS"/*.launch; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f"); n=${n%.*}
+        case "$seen" in *" $n "*) continue ;; esac
+        seen="$seen$n "
+        [ -f "$SESSIONS/$n.sh" ] && continue
+        r=$(head -1 "$ENVS/$n.root" 2>/dev/null); r=${r%/}
+        skip=""
+        if [ -n "$r" ]; then
+            for e in "${roots[@]}"; do
+                [ "$e" = "$r" ] || [ "$e" -ef "$r" ] && { skip=1; break; }
+            done
+        fi
+        [ -n "$skip" ] && continue
+        printf '%s\t%s\n' "$n" "$r"
+    done
 }
 
 # One line per environment: NAME, kind (termux, proot, chroot, other), "apps" when its programs can be listed and
@@ -962,17 +1077,94 @@ list_envs() {
         n=$(basename "$f" .sh)
         e=$(session_env "$n")
         [ "$e" = termux ] && continue
-        apps=-
-        if [ -n "$(session_root "$n")" ] && { [ -f "$SESSIONS/$n.launch" ] || grep -q 'proot-distro login' "$f"; }; then apps=apps; fi
+        if env_apps "$n"; then apps=apps; else apps=-; fi
         printf '%s\t%s\t%s\t%s\n' "$n" "$(env_kind "$n")" "$apps" "$n"
     done
+    # An environment without a session: no desktop of its own, so no sessions in the last field
+    while IFS=$'\t' read -r n _; do
+        if env_apps "$n"; then apps=apps; else apps=-; fi
+        printf '%s\t%s\t%s\t%s\n' "$n" "$(env_kind "$n")" "$apps" ""
+    done < <(plain_envs)
+}
+
+# A string in JSON: quotes, backslash and control characters escaped, everything else as it is (UTF-8)
+json_str() {
+    local s=$1 out="" c i
+    for ((i = 0; i < ${#s}; i++)); do
+        c=${s:i:1}
+        case "$c" in
+        "\\") out+="\\\\" ;;
+        '"') out+='\"' ;;
+        $'\n') out+='\n' ;;
+        $'\r') out+='\r' ;;
+        $'\t') out+='\t' ;;
+        $'\b') out+='\b' ;;
+        $'\f') out+='\f' ;;
+        [[:cntrl:]]) printf -v c '\\u%04x' "'$c"; out+=$c ;;
+        *) out+=$c ;;
+        esac
+    done
+    printf '"%s"' "$out"
+}
+
+# Everything the app reads in one line of JSON (CLI.md §2), instead of parsing list, status and envs as text
+app_state() {
+    local f n sep xp xr started default running layout name kind apps sessions s2 sepr
+    local -a ss=()
+    printf '{"format":1,"version":%s,"sessions":[' "$(json_str "$XDESK_CLI_VERSION")"
+    sep=""
+    for f in "$SESSIONS"/*.sh; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .sh)
+        printf '%s%s' "$sep" "$(json_str "$n")"
+        sep=,
+    done
+    printf '],'
+    default=$(current)
+    if [ -n "$default" ]; then printf '"default":%s,' "$(json_str "$default")"; else printf '"default":null,'; fi
+    running=""
+    [ -n "$(session_pid)" ] && running=$(cat "$RUN/session.name" 2>/dev/null)
+    if [ -n "$running" ]; then printf '"running":%s,' "$(json_str "$running")"; else printf '"running":null,'; fi
+    xp=$(x_server_pid)
+    started=null
+    if x_up; then
+        xr=true
+        # Its start time, when the pid is known (ours, or the one in the display's lock for another X server)
+        [ -n "$xp" ] && s2=$(x_started "$xp") && started=$s2
+    else
+        xr=false
+    fi
+    printf '"x":{"running":%s,"started":%s},' "$xr" "$started"
+    if [ "$xr" = true ] && [ -n "$(ime_pid)" ]; then printf '"ime":true,'; else printf '"ime":false,'; fi
+    layout=$(layout_setting)
+    if [ -n "$layout" ]; then printf '"layout":%s,' "$(json_str "$layout")"; else printf '"layout":null,'; fi
+    printf '"envs":['
+    sep=""
+    while IFS=$'\t' read -r name kind apps sessions; do
+        [ "$name" = "#xdesk-envs 1" ] && continue
+        [ -n "$name" ] || continue
+        if [ "$apps" = apps ]; then apps=true; else apps=false; fi
+        printf '%s{"name":%s,"kind":%s,"apps":%s,"sessions":[' \
+            "$sep" "$(json_str "$name")" "$(json_str "$kind")" "$apps"
+        ss=()
+        if [ -n "$sessions" ]; then IFS=/ read -r -a ss <<<"$sessions"; fi
+        sepr=""
+        for s2 in "${ss[@]}"; do printf '%s%s' "$sepr" "$(json_str "$s2")"; sepr=,; done
+        printf ']}'
+        sep=,
+    done < <(list_envs)
+    printf ']}\n'
 }
 
 # The apps-only session a program of this scope is opened on when nothing runs: the environment's own, for Termux the
-# default session if it is one of Termux's, else the first of them, else none at all ("termux+apps")
+# default session if it is one of Termux's, else the first of them, else none at all ("termux+apps"). An environment
+# without a session uses Termux's own window manager; without one there too, the program opens without a window manager
 apps_session_for() {  # scope
     local c f n
-    if [ "$1" != termux ]; then echo "$1+apps"; return 0; fi
+    if [ "$1" != termux ]; then
+        if [ -f "$SESSIONS/$1.sh" ]; then echo "$1+apps"; else echo termux+apps; fi
+        return 0
+    fi
     c=$(current)
     if [ -n "$c" ] && [ -f "$SESSIONS/$c.sh" ] && [ "$(session_env "$c")" = termux ]; then echo "$c+apps"; return 0; fi
     for f in "$SESSIONS"/*.sh; do
@@ -983,7 +1175,7 @@ apps_session_for() {  # scope
     echo termux+apps
 }
 
-# The root directory of a session's system, empty for one that runs in Termux itself
+# The root directory of a session's or environment's system, empty for one that runs in Termux itself
 session_root() {
     local f=$SESSIONS/$1.sh d r
     if [ -f "$SESSIONS/$1.root" ]; then
@@ -992,22 +1184,24 @@ session_root() {
     fi
     d=$(sed -n 's/.*proot-distro login[[:space:]]\{1,\}\(.*\)/\1/p' "$f" 2>/dev/null | head -1 |
         tr -s ' \t' '\n\n' | grep -v '^-' | head -1)
-    [ -n "$d" ] || return 0
+    if [ -z "$d" ]; then
+        # An environment registered without a session (xdesk add NAME --root DIR); a session is never overridden by one
+        [ ! -f "$f" ] && [ -f "$ENVS/$1.root" ] && head -1 "$ENVS/$1.root"
+        return 0
+    fi
     for r in "$PREFIX/var/lib/proot-distro/installed-rootfs/$d" "$PREFIX/var/lib/proot-distro/containers/$d/rootfs"; do
         [ -d "$r/usr" ] && { echo "$r"; return 0; }
     done
     return 0
 }
 
-# Scopes with programs, one per line: "termux" and every session with a root of its own
+# Scopes with programs, one per line: "termux", every session with a root of its own, and every environment
+# a session does not cover (CLI.md §3.1)
 app_scopes() {
-    local f n
+    local n r
     echo termux
-    for f in "$SESSIONS"/*.sh; do
-        [ -e "$f" ] || continue
-        n=$(basename "$f" .sh)
-        [ -n "$(session_root "$n")" ] && echo "$n"
-    done
+    while IFS=$'\t' read -r n _; do echo "$n"; done < <(session_env_roots)
+    while IFS=$'\t' read -r n r; do [ -n "$r" ] && echo "$n"; done < <(plain_envs)
     return 0
 }
 
@@ -1149,7 +1343,7 @@ icon_png64() {
 apps_signature() {
     local s d
     echo "format $APPS_FORMAT $ICON_PX $(app_locale) $(icon_theme)"
-    stat -c '%n %Y' "$SESSIONS" "$SESSIONS"/*.root 2>/dev/null
+    stat -c '%n %Y' "$SESSIONS" "$SESSIONS"/*.root "$ENVS" "$ENVS"/*.root 2>/dev/null
     while IFS= read -r s; do
         while IFS= read -r d; do
             stat -c '%n %Y' "$d" "$d"/*/ 2>/dev/null
@@ -1304,9 +1498,16 @@ launch_app() {
     [ -n "$cmd" ] || { say "App $key has no command"; exit 1; }
     cmd="exec $cmd"
     [ -n "$wd" ] && cmd="cd $(sq "$wd") 2>/dev/null; $cmd"
-    if [ "$scope" != termux ] && [ ! -f "$SESSIONS/$scope.launch" ]; then
-        line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh")
-        [ -n "$line" ] || { say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"; exit 1; }
+    if [ "$scope" != termux ] && [ ! -f "$SESSIONS/$scope.launch" ] && [ ! -f "$ENVS/$scope.launch" ]; then
+        line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh" 2>/dev/null)
+        if [ -z "$line" ]; then
+            if [ -f "$SESSIONS/$scope.sh" ]; then
+                say "Session $scope: write $SESSIONS/$scope.launch to run programs in it"
+            else
+                say "Environment $scope: write $ENVS/$scope.launch to run programs in it"
+            fi
+            exit 1
+        fi
     fi
     # The X server (which runs this for the app) is on half the cores, and what is started here would inherit that
     command -v taskset >/dev/null && taskset -p "$(printf '%x' $(( (1 << $(nproc --all)) - 1 )))" $$ >/dev/null 2>&1
@@ -1355,6 +1556,22 @@ launch_app() {
         # Written by the user for systems xdesk cannot enter itself (chroot): runs "$@" in that system
         export PULSE_COOKIE=$PULSE_COOKIE_FILE "${e[@]}"
         exec setsid bash "$SESSIONS/$scope.launch" sh -c "$cmd"
+    fi
+    if [ -f "$ENVS/$scope.launch" ]; then
+        # An environment without a session (setup writes one for every container). Its proot-distro prefix gets
+        # the X environment after it, as a session's login line does: proot-distro passes no host DISPLAY on.
+        # A script of the user's own runs "$@" in its system with the environment above exported
+        prefix=$(launch_prefix "$ENVS/$scope.launch")
+        case "$prefix" in
+        *proot-distro*login*)
+            export PULSE_COOKIE=$PULSE_COOKIE_FILE "${e[@]}"
+            prefix=${prefix% --}
+            eval "set -- $prefix"
+            exec setsid "$@" -- env "${e[@]}" PULSE_COOKIE=/tmp/xdesk-pulse-cookie sh -c "$cmd"
+            ;;
+        esac
+        export PULSE_COOKIE=$PULSE_COOKIE_FILE "${e[@]}"
+        exec setsid bash "$ENVS/$scope.launch" sh -c "$cmd"
     fi
     line=${line#"${line%%[![:space:]]*}"}
     line=${line#exec }
@@ -1436,7 +1653,185 @@ list_apps() {
     awk -F'\t' 'NR > 1 { printf "%-40s %s%s\n", $1, $2, ($3 == 1 ? " (terminal)" : "") }' "$cat"
 }
 
-usage() { sed -n '4,24p' "$0" | sed 's/^# \?//'; }
+# doctor's lines: ✓ fine, ! worth knowing, ✗ broken; any ✗ makes it exit 1
+doctor_ok() { echo "✓ $*"; }
+doctor_warn() { echo "! $*"; }
+doctor_bad() { echo "✗ $*"; doctor_failed=1; }
+
+# Checks the setup, one line per item, with the fix in the same line. Reads only: it never starts or stops anything,
+# and it works without X (CLI.md §3.3)
+doctor() {
+    local xp xrun started started_h missing n sessions r launch progs desktops p
+    doctor_failed=0
+
+    doctor_ok "xdesk command: $XDESK_CLI_VERSION"
+    if [ -f "$LOADER" ]; then
+        doctor_ok "loader: $LOADER"
+    else
+        doctor_bad "loader: not found (fix: xdesk update, or install XDesk again)"
+    fi
+    if grep -qs '^allow-external-apps *= *true' "$HOME/.termux/termux.properties"; then
+        doctor_ok "allow-external-apps: on"
+    else
+        doctor_bad "allow-external-apps: off, the app cannot use Termux (fix: xdesk enable-app-start)"
+    fi
+    missing=$(missing_tools)
+    if [ -z "$missing" ]; then
+        doctor_ok "commands: all present"
+    else
+        doctor_bad "commands: missing ${missing% } (fix: pkg install ${missing% })"
+    fi
+    if command -v pulseaudio >/dev/null 2>&1; then
+        doctor_ok "pulseaudio: present"
+    else
+        doctor_warn "pulseaudio: not installed, no sound (fix: pkg install pulseaudio)"
+    fi
+
+    xp=$(x_server_pid)
+    xrun=0
+    x_up && xrun=1
+    if [ $xrun = 1 ]; then
+        started=$(x_started "$xp" 2>/dev/null) || started=""
+        if [ -n "$started" ]; then
+            started_h=$(date -d "@$started" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$started")
+            # Its base.apk deleted: an app update replaced it, and the server still runs the code from before. Not pm:
+            # run as the Termux user it can hang
+            if grep -q 'base\.apk (deleted)' "/proc/$xp/maps" 2>/dev/null; then
+                doctor_warn "X server: running since $started_h, from before the app was updated (stop the desktop and start it again: xdesk stop; xdesk start)"
+            else
+                doctor_ok "X server: running on $DPY since $started_h"
+            fi
+        else
+            doctor_warn "X server: running on $DPY, start time unknown (restart it to know when: xdesk stop; xdesk start)"
+        fi
+    elif [ -n "$xp" ]; then
+        doctor_bad "X server: pid $xp does not answer on $DPY (fix: xdesk stop, then xdesk start)"
+    else
+        doctor_warn "X server: not running (start a desktop: xdesk start)"
+    fi
+    if [ $xrun = 1 ] && [ -S "$PREFIX/tmp/.X11-unix/X${DPY#:}" ]; then
+        doctor_ok "X socket: present"
+    elif [ $xrun = 1 ]; then
+        doctor_bad "X socket: missing while X runs (fix: xdesk stop, then xdesk start)"
+    elif [ -e "$PREFIX/tmp/.X11-unix/X${DPY#:}" ]; then
+        doctor_warn "X socket: a stale one, X is not running (xdesk start replaces it)"
+    else
+        doctor_warn "X socket: none, X is not running (it appears with xdesk start)"
+    fi
+
+    if command -v xfwm4 >/dev/null 2>&1; then
+        doctor_ok "window manager: xfwm4 present"
+    else
+        doctor_warn "window manager: xfwm4 not installed, programs opened alone have no window manager (fix: pkg install xfwm4 xfce4-settings)"
+    fi
+    if command -v fc-list >/dev/null 2>&1; then
+        if [ -n "$(timeout 2 fc-list :lang=zh 2>/dev/null | head -1)" ]; then
+            doctor_ok "Chinese fonts: present"
+        else
+            doctor_warn "Chinese fonts: none (fix: pkg install otf-noto-sans-cjk)"
+        fi
+    # fc-list is in fontconfig-utils, which few have: then the names of common CJK font files
+    elif find "$PREFIX/share/fonts" "$HOME/.fonts" "$HOME/.local/share/fonts" -maxdepth 3 -type f 2>/dev/null |
+            grep -qiE 'cjk|wqy|puhui|sarasa|lxgw|droidsansfallback|notosanssc|sourcehan'; then
+        doctor_ok "Chinese fonts: present"
+    else
+        doctor_warn "Chinese fonts: none found (Chinese shows as boxes? pkg install otf-noto-sans-cjk)"
+    fi
+    if cursor_installed; then
+        doctor_ok "cursor theme: $CURSOR_THEME"
+    else
+        doctor_warn "cursor theme: $CURSOR_THEME not installed (fix: pkg install adwaita-icon-theme)"
+    fi
+
+    while IFS=$'\t' read -r n _ _ sessions; do
+        [ "$n" = "#xdesk-envs 1" ] && continue
+        [ -n "$n" ] || continue
+        desktops=0
+        [ -n "$sessions" ] && desktops=$(printf '%s\n' "$sessions" | tr '/' '\n' | grep -c .)
+        # Termux is native: no root and no entry command to check, only what it has
+        if [ "$n" = termux ]; then
+            doctor_ok "environment termux: $(desktop_files termux | wc -l) programs, $desktops desktops"
+            continue
+        fi
+        r=$(session_root "$n")
+        progs=0
+        [ -n "$r" ] && [ -d "$r" ] && progs=$(desktop_files "$n" | wc -l)
+        if [ -z "$r" ]; then
+            doctor_warn "environment $n: no root directory (fix: xdesk add $n --root DIR --launch 'entry command')"
+        elif [ ! -d "$r" ]; then
+            doctor_bad "environment $n: root $r is missing (fix: xdesk rm $n, or add it again)"
+        elif [ ! -r "$r" ]; then
+            doctor_warn "environment $n: root $r is not readable for Termux ($progs programs, $desktops desktops; fix: run xdesk from a root shell or move the root where Termux can read it)"
+        else
+            doctor_ok "environment $n: $r, $progs programs, $desktops desktops"
+        fi
+        launch=$(env_launch_file "$n")
+        if [ -n "$launch" ]; then
+            if grep -q 'proot-distro' "$launch" 2>/dev/null && ! command -v proot-distro >/dev/null 2>&1; then
+                doctor_bad "environment $n: proot-distro is not installed (fix: pkg install proot-distro)"
+            fi
+        elif grep -q 'proot-distro login' "$SESSIONS/$n.sh" 2>/dev/null; then
+            command -v proot-distro >/dev/null 2>&1 ||
+                doctor_bad "environment $n: proot-distro is not installed (fix: pkg install proot-distro)"
+        else
+            doctor_warn "environment $n: no entry command (fix: xdesk add $n --root DIR --launch 'entry command')"
+        fi
+    done < <(list_envs)
+
+    # Only the state: not having fcitx5 is no error
+    if ime_installed; then
+        if [ -e "$CONF/ime-off" ]; then
+            doctor_warn "fcitx5: installed, switched off (fix: xdesk ime on)"
+        elif p=$(ime_pid); then
+            doctor_ok "fcitx5: running (pid $p)"
+        else
+            doctor_warn "fcitx5: installed, not running (it starts with the next session)"
+        fi
+    else
+        doctor_warn "fcitx5: not installed (optional: pkg install $IME_PACKAGES)"
+    fi
+    # chroot and proot scripts of other kinds cannot be found from here (CLI.md §3.4)
+    doctor_warn "other proot or chroot systems: xdesk add NAME --root DIR --launch 'entry command'"
+    [ $doctor_failed = 0 ] || return 1
+}
+
+usage() {
+    cat <<'USAGE'
+xdesk: run desktops and programs on the XDesk display, from Termux, proot or chroot.
+
+  xdesk start [NAME]       start a session (default: the chosen one)
+  xdesk stop               stop everything
+  xdesk switch NAME        stop the running session and start another, keeping X and the window
+  xdesk status             show what is running
+  xdesk run CMD...         run any program on the display
+  xdesk x                  start only the X server and audio
+  xdesk apps [--refresh]   list the programs XDesk can open one by one
+  xdesk launch ENV/ID      open one of them on the display, in its environment
+  xdesk setup              look for desktops and environments in Termux and proot-distro
+  xdesk list               list sessions
+  xdesk add NAME ['CMD'] [--root DIR] [--launch 'PREFIX']
+                           add a session, or without CMD an environment
+  xdesk rm NAME            remove a session or an environment
+  xdesk use NAME           choose the default session
+  xdesk ime ...            the X side's input method and keyboard layout
+  xdesk doctor             check the setup, one line per item
+  xdesk version            print the xdesk command version
+  xdesk update [VERSION]   replace the xdesk command with the newest release
+  xdesk help [all]         this list; "all" adds the commands only the app uses
+USAGE
+    [ "${1:-}" = all ] || return 0
+    cat <<'USAGE_ALL'
+
+The app's own commands (their names stay for older and newer apps):
+  xdesk scale DPI          size XFCE for this X DPI
+  xdesk envs               list the environments with their sessions
+  xdesk recover [NAME]     like start, unless xdesk stop ran
+  xdesk enable-app-start   let the app's "start" button run commands in Termux
+  xdesk apps --path        print the file of the app catalog
+  xdesk launch --startup-id ID ENV/ID   open a program with that startup id
+  xdesk app state          one JSON line with everything the app reads
+USAGE_ALL
+}
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
@@ -1495,10 +1890,52 @@ stop)
     say "Stopped"
     ;;
 list) list ;;
+help)
+    [ $# -le 1 ] || { usage; exit 2; }
+    case "${1:-}" in
+    '') usage ;;
+    all) usage all ;;
+    *) usage; exit 2 ;;
+    esac
+    ;;
+doctor) doctor || exit 1 ;;
+version|--version|-V) echo "xdesk $XDESK_CLI_VERSION" ;;
+update)
+    [ $# -le 1 ] || { usage; exit 2; }
+    url=$INSTALL_URL
+    v=""
+    if [ $# -eq 1 ]; then
+        # The app passes its versionName, a tag has the v
+        case "$1" in v*) v=$1 ;; *) v=v$1 ;; esac
+    fi
+    tmp=$(mktemp) || exit 1
+    # The install script replaces this command and the loader; CLI-only leaves the app and the settings alone
+    if ! curl -fsSL -o "$tmp" "$url"; then
+        rm -f "$tmp"
+        echo "Could not download $url" >&2
+        exit 1
+    fi
+    if [ -n "$v" ]; then XDESK_CLI_ONLY=1 XDESK_VERSION="$v" bash "$tmp"; else XDESK_CLI_ONLY=1 bash "$tmp"; fi
+    rc=$?
+    rm -f "$tmp"
+    exit $rc
+    ;;
+app)
+    [ $# -eq 1 ] && [ "$1" = state ] || { usage; exit 2; }
+    app_state
+    ;;
 add)
-    [ $# -ge 2 ] || { usage; exit 2; }
-    name=$1; cmd=$2
-    shift 2
+    [ $# -ge 1 ] || { usage; exit 2; }
+    name=$1
+    shift
+    cmd=""
+    # The command is optional: without one, only an environment is registered (CLI.md §3.1)
+    if [ $# -gt 0 ]; then
+        case "$1" in
+        --root|--launch) ;;
+        *) cmd=$1; shift ;;
+        esac
+    fi
     root=""; launch=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1513,29 +1950,49 @@ add)
     done
     valid_name "$name" || exit 2
     case "$name" in *+apps) echo "Names ending in +apps are the apps only variant of a session"; exit 2 ;; esac
-    printf '%s\n' "exec $cmd" >"$SESSIONS/$name.sh"
-    # The chroot files for its app catalog: NAME.root is its root directory, NAME.launch a script that runs
-    # "$@" inside it (xdesk launch calls it as: bash NAME.launch sh -c 'CMD')
-    if [ -n "$root" ]; then
-        if [ ! -d "$root" ] || [ ! -r "$root" ]; then
-            # /data/local and such need root: the Termux user cannot read them. Warn, but write anyway
-            echo "  '$root' is not a readable directory for the Termux user (does it need root?). Wrote $name.root anyway."
+    [ -n "$cmd$root$launch" ] || { usage; exit 2; }
+    if [ -n "$cmd" ]; then
+        printf '%s\n' "exec $cmd" >"$SESSIONS/$name.sh"
+        # The chroot files for its app catalog: NAME.root is its root directory, NAME.launch a script that runs
+        # "$@" inside it (xdesk launch calls it as: bash NAME.launch sh -c 'CMD')
+        if [ -n "$root" ]; then
+            if [ ! -d "$root" ] || [ ! -r "$root" ]; then
+                # /data/local and such need root: the Termux user cannot read them. Warn, but write anyway
+                echo "  '$root' is not a readable directory for the Termux user (does it need root?). Wrote $name.root anyway."
+            fi
+            printf '%s\n' "$root" >"$SESSIONS/$name.root" && echo "  wrote $name.root"
         fi
-        printf '%s\n' "$root" >"$SESSIONS/$name.root" && echo "  wrote $name.root"
+        if [ -n "$launch" ]; then
+            {
+                printf '# Runs "$@" in the chroot. Written by: xdesk add %s --launch\n' "$name"
+                printf 'exec %s "$@"\n' "$launch"
+            } >"$SESSIONS/$name.launch" && echo "  wrote $name.launch"
+        fi
+        [ -n "$(current)" ] || echo "$name" >"$CONF/current"
+        list
+    else
+        # No session: the files of an environment, listed by xdesk envs and used to open its programs one by one
+        if [ -n "$root" ]; then
+            if [ ! -d "$root" ] || [ ! -r "$root" ]; then
+                echo "  '$root' is not a readable directory for the Termux user (does it need root?). Wrote $name.root anyway."
+            fi
+            printf '%s\n' "$root" >"$ENVS/$name.root" && echo "  wrote envs/$name.root"
+        fi
+        if [ -n "$launch" ]; then
+            {
+                printf '# Runs "$@" in the chroot. Written by: xdesk add %s --launch\n' "$name"
+                printf 'exec %s "$@"\n' "$launch"
+            } >"$ENVS/$name.launch" && echo "  wrote envs/$name.launch"
+        fi
+        list_envs
     fi
-    if [ -n "$launch" ]; then
-        {
-            printf '# Runs "$@" in the chroot. Written by: xdesk add %s --launch\n' "$name"
-            printf 'exec %s "$@"\n' "$launch"
-        } >"$SESSIONS/$name.launch" && echo "  wrote $name.launch"
-    fi
-    [ -n "$(current)" ] || echo "$name" >"$CONF/current"
-    list
     ;;
 rm)
     [ $# -eq 1 ] || { usage; exit 2; }
     valid_name "$1" || exit 2
-    rm -f "${SESSIONS:?}/${1:?}.sh"
+    # A name can be a session, an environment, or both: remove what is there
+    rm -f "${SESSIONS:?}/${1:?}.sh" "${SESSIONS:?}/${1:?}.root" "${SESSIONS:?}/${1:?}.launch"
+    rm -f "${ENVS:?}/${1:?}.root" "${ENVS:?}/${1:?}.launch"
     if [ "$(current)" = "$1" ]; then rm -f "${CONF:?}/current"; fi
     list
     ;;
@@ -1564,6 +2021,8 @@ status)
     if x_up && imp=$(ime_pid); then echo "Input method: fcitx5 (pid $imp)"; else echo "Input method: none"; fi
     # Read by the app: the remembered X side keyboard layout (INPUT.md §5.2); "from X" without one
     if s=$(layout_setting) && [ -n "$s" ]; then echo "Keyboard layout: $s"; else echo "Keyboard layout: from X"; fi
+    # Read by the app (CLI.md §1): the version of this command. Last line, so older parsers see what they know first
+    echo "xdesk: $XDESK_CLI_VERSION"
     ;;
 setup) setup ;;
 envs) list_envs ;;
