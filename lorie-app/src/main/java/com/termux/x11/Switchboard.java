@@ -485,12 +485,10 @@ final class Switchboard {
             if (d.id.equals(Devices.LINUX + Devices.TERMUX) && !searching) {
                 String hint = devices.termuxHint();
                 if (hint != null) desktops.add(note(hint, null, () -> { if (host != null) host.termuxHint(); }));
-                // CLI.md §1: the command's version, its action named in the second line; and X still on old code
+                // CLI.md §1: the command's version, its action named in the second line
                 String version = devices.termuxVersionHint();
                 if (version != null) desktops.add(note(version, str(R.string.xd_termux_update_command),
                     () -> { if (host != null) host.updateCommand(); }));
-                String xOld = devices.termuxXOldHint();
-                if (xOld != null) desktops.add(note(xOld, null, null));
                 // Not set up yet (just added, or xdesk is missing): the install line, one tap from Termux
                 if (hint != null && devices.sessions().isEmpty())
                     desktops.add(note(str(R.string.xd_termux_install_xdesk), str(R.string.xd_termux_install_xdesk_note), () -> TermuxCommand.copyInstallAndOpen(c)));

@@ -468,7 +468,6 @@
     <string name="xd_termux_cli_old">too old</string>
     <string name="xd_termux_update_command">Update command</string>
     <string name="xd_termux_cli_updating">Updating the xdesk command…</string>
-    <string name="xd_termux_x_before_update">The X server is still running the code from before the update. Stop the desktop and start it again to use the new version.</string>
 
     <string name="xd_returning_to">Going back to %1$s</string>
     <string name="xd_returning_to_message">The desktop window closed; this app is still on the display.</string>

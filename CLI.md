@@ -15,7 +15,7 @@
 - **App 这边：**
   - 读到的命令版本比 App 的 `versionName` 旧（不是 `dev`；比 App 新的不提示，否则「更新」会把它降回去），或者命令太旧报不出版本：Termux 那一栏显示「xdesk 命令是 X，App 是 Y」和一个「更新命令」按钮。
   - 按钮：命令认 `update` 就经 RUN_COMMAND 后台跑 `xdesk update Y`，完了重新读状态；不认（太旧）就走现在的「复制安装命令、打开 Termux」，安装命令带 `XDESK_VERSION=vY`。
-  - **X 服务器是 App 更新前启动的**（状态里 X 的启动时间早于 App 的 `lastUpdateTime`）：提示「X 服务器还在跑更新前的代码，停掉桌面再开一次生效」。只提示，不替用户重启。
+  - **X 服务器是 App 更新前启动的**：App 本来就会处理（`checkServerBuild`：连上 X 后问它的构建号，不同就问要不要重启桌面，带「重启」按钮），这里不另加提示。JSON 里的 `x.started` 留着，App 不读。
 
 ## 2. 两套接口
 
@@ -53,10 +53,18 @@
 
 ### 3.1 环境不必有桌面
 现在 `setup` 只在 proot 容器里找到 XFCE、LXQt、MATE 时才记下它，只装了 Firefox 的容器根本不出现。改成：
-- 每个 proot-distro 容器都是一个环境（`proot-<distro>`），有没有桌面都在 `xdesk envs`、`xdesk apps` 里，能单独开程序。没有桌面的环境，单开程序时用 Termux 的 xfwm4 管窗口（已有的退路）；Termux 也没有 xfwm4 就不带窗口管理器开，记日志，`doctor` 提示装 `xfwm4`。
+- 每个 proot-distro 容器都是一个环境（`proot-<distro>`），有没有桌面都在 `xdesk envs`、`xdesk apps` 里，能单独开程序。没有桌面的环境，单开程序时用 Termux 的 xfwm4 管窗口（已有的退路）：App 启动的 `NAME+apps` 对 `envs/` 里的环境也成立。
 - 记在 `~/.config/xdesk/envs/NAME.root`（根目录）和 `NAME.launch`（进入环境运行一条命令的前缀），和 `xdesk add --root/--launch` 写的一样；会话（`sessions/*.sh`）是环境里的桌面，可以没有。
 - 有桌面的容器照旧按会话列（`proot-debian-xfce` 一行），为了和旧 App 兼容；`envs/` 里同一个根目录的条目不再另列一行。没有桌面的才以 `proot-debian` 出现。
 - `xdesk add NAME --root DIR --launch 'PREFIX'` 不给命令（没有 `'CMD'`）时只登记环境。
+
+### 3.1.1 只装 Termux 就能用（用户 2026-11-16：让用户尽可能少操心）
+- **窗口管理器随安装脚本装上**：`xfwm4`、`xfce4-settings`（xfsettingsd）。单开程序要靠它让窗口铺满外屏，没有它起不来，所以 `doctor` 里缺 xfwm4 算 `✗`。
+- **自动发现**：`xdesk app state` 和 `xdesk envs` 每次先悄悄做一遍 `setup` 的查找（`discover`，只看几个目录，很便宜）。之后才装的 proot 容器、才装的桌面，App 下次读状态就有，不用再跑 `xdesk setup`。
+  - `xdesk rm NAME` 删掉的记进 `~/.config/xdesk/ignored`，自动发现不再把它加回来；`xdesk setup`（用户明确要找）清空这个单子，`xdesk add NAME` 把这个名字移出。
+  - 容器被 `proot-distro remove` 删掉后，`setup` 为它写的环境和桌面会话（内容和 setup 写的一模一样的）自动删掉；用户自己写的不动。
+- **X 没跑过时的程序列表**：App 的程序列表平时由 X 服务器给（带图标），可没有桌面的用户没有东西会先启动 X，列表就一直是空的。所以 X 不在、App 手上也没有列表时，App 经 RUN_COMMAND 跑 `xdesk app catalog`：同一份列表去掉图标那一列（几 KB）。先显示名字，第一次开程序、X 起来后换成带图标的。
+- **为什么 App 不能替用户装 xdesk**：Termux 默认拒绝别的 App 让它执行命令，要 Termux 里 `allow-external-apps = true`，这个只能在 Termux 里改。所以第一次必须在 Termux 里粘贴运行一次安装命令（App 会复制好、打开 Termux）；之后读环境、起桌面、开程序、更新命令都由 App 自动做。
 
 ### 3.2 认更多桌面
 Termux 和容器里都找：XFCE、LXQt、MATE，加上 LXDE（`startlxde`）、KDE Plasma X11（`startplasma-x11`）、Openbox（`openbox-session`）、i3（`i3`）。

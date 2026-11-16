@@ -67,6 +67,7 @@ final class LinuxSource implements ContentSource {
     /** After this long a launch takes a dialog or a splash for its window too: the program may have nothing else. */
     private static final long AUX_AFTER_MS = 4000;
     private static final String CATALOG_FILE = "linux-apps.tsv";
+    private static final String XDESK = "/data/data/com.termux/files/usr/bin/xdesk";
 
     private static LinuxSource instance;
 
@@ -118,6 +119,8 @@ final class LinuxSource implements ContentSource {
     private List<App> catalog = Collections.emptyList();
     private long catalogAt;
     private boolean catalogLoading;
+    /** When the list was last asked of Termux, for as long as no X server has given one (0: never). */
+    private long termuxCatalogAt;
     private final LinkedHashMap<Integer, Win> windows = new LinkedHashMap<>();
     private final Map<Integer, Bitmap> windowIcons = new HashMap<>();
     private long activeCounter;
@@ -150,6 +153,7 @@ final class LinuxSource implements ContentSource {
         if (l == null) return;
         l.catalog = Collections.emptyList();
         l.catalogAt = 0;
+        l.termuxCatalogAt = 0;
         l.notifyChanged();
     }
 
@@ -178,6 +182,7 @@ final class LinuxSource implements ContentSource {
     @Override public List<Entry> apps() {
         ensureServer();
         if (server != null && !catalogLoading && SystemClock.elapsedRealtime() - catalogAt > CATALOG_MAX_AGE_MS) loadCatalog();
+        else if (server == null && catalog.isEmpty()) loadCatalogFromTermux();
         List<Entry> out = new ArrayList<>(catalog.size());
         for (App a : catalog) out.add(new Entry(APP + a.key, a.name, a.icon, null, newestWindowOf(a) != null));
         return out;
@@ -652,6 +657,31 @@ final class LinuxSource implements ContentSource {
                 Log.i(TAG, "Catalog: " + apps.size() + " apps");
                 notifyChanged();
             });
+        });
+    }
+
+    /**
+     * Only the X server gives the list (with icons), and with no desktop to start nothing ever starts X: a Termux with
+     * programs and no desktop showed none (CLI.md §3.1). Before any X has run, xdesk app catalog: the same list without
+     * icons. The X server's list replaces it once one runs. Not saved, so an old xdesk without it costs nothing later.
+     */
+    private void loadCatalogFromTermux() {
+        long now = SystemClock.elapsedRealtime();
+        if (termuxCatalogAt != 0 && now - termuxCatalogAt < CATALOG_MAX_AGE_MS) return;
+        termuxCatalogAt = now;
+        TermuxCommand.run(context, XDESK + " app catalog 2>/dev/null", new TermuxCommand.Callback() {
+            @Override public void onOutput(String stdout) {
+                // An xdesk without the command prints its usage: no catalog header, so no programs. No icons to decode,
+                // so the UI thread is fine
+                List<App> apps = parseCatalog(stdout.getBytes(StandardCharsets.UTF_8));
+                if (apps.isEmpty() || !catalog.isEmpty()) return;
+                catalog = apps;
+                Log.i(TAG, "Catalog from Termux, without icons: " + apps.size() + " apps");
+                notifyChanged();
+            }
+            @Override public void onFailure(String message) {
+                Log.i(TAG, "No catalog from Termux: " + message);
+            }
         });
     }
 

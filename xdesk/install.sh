@@ -10,7 +10,10 @@ LOADER=$HOME/.local/libexec/xdesk/loader.apk
 CLI_ONLY=${XDESK_CLI_ONLY:-}
 
 missing=
-for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux setsid:util-linux sha256sum:coreutils pgrep:procps; do
+# xfwm4 and xfsettingsd: a program opened alone needs a window manager (the app makes its window the full screen one
+# through it), so with these a Termux without any desktop can already open its programs on the display
+for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux setsid:util-linux sha256sum:coreutils pgrep:procps \
+            xfwm4:xfwm4 xfsettingsd:xfce4-settings; do
     command -v "${pair%%:*}" >/dev/null || missing="$missing ${pair##*:}"
 done
 # Adreno GPUs work with Turnip, Mesa's open Vulkan driver, and Mesa then runs OpenGL on the real GPU

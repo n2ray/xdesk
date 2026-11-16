@@ -23,6 +23,7 @@
 #   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
 #   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
 #   xdesk app state          one JSON line with everything the app reads (sessions, X, environments)
+#   xdesk app catalog        the program list without icons, for the app before any X server runs
 #   xdesk ime [status|setup|start|stop|on|off|layout [NAME]]   the X side's input method and keyboard layout (fcitx5 in Termux)
 #   xdesk help [all]         the commands above; "all" adds the ones only the app uses
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
@@ -394,6 +395,7 @@ stop_session() {
 write_session() {  # name, command; never overwrites an existing one
     local f=$SESSIONS/$1.sh
     [ -e "$f" ] && return 1
+    ignored "$1" && return 1
     printf '%s\n' "$2" >"$f"
     echo "  found $1"
 }
@@ -424,9 +426,36 @@ termux_session() {  # command that starts the desktop
     printf '%sexec dbus-run-session %s\n' "$env" "$1"
 }
 
-setup() {
-    echo "Looking for desktops..."
-    local de bin name distro root found created
+# Names the user removed (xdesk rm): finding them again is not news to them, so discover leaves them out until an
+# explicit xdesk setup or xdesk add
+IGNORED=$CONF/ignored
+ignored() { grep -qxF "$1" "$IGNORED" 2>/dev/null; }
+unignore() {
+    [ -f "$IGNORED" ] || return 0
+    grep -vxF "$1" "$IGNORED" >"$IGNORED.tmp" 2>/dev/null
+    mv -f "$IGNORED.tmp" "$IGNORED"
+}
+
+# Finds desktops and environments and writes what is new, one "  found NAME" line each; never overwrites. Cheap, so
+# xdesk app state and envs run it too: a container or desktop installed later appears in the app with nothing to run
+# (CLI.md §3.1). What setup wrote for a container that is gone since is removed again
+discover() {
+    local de bin name distro root found created f r
+    for f in "$ENVS"/*.launch; do
+        [ -e "$f" ] || continue
+        grep -q '^# Runs "$@" in the container. Written by: xdesk setup' "$f" 2>/dev/null || continue
+        name=$(basename "$f" .launch)
+        r=$(head -1 "$ENVS/$name.root" 2>/dev/null)
+        [ -n "$r" ] && [ ! -d "$r" ] || continue
+        distro=${name#proot-}
+        rm -f "${ENVS:?}/$name.root" "${ENVS:?}/$name.launch"
+        # Its desktops, when they are exactly what setup wrote
+        for f in "$SESSIONS"/"proot-$distro-"*.sh; do
+            [ -e "$f" ] || continue
+            grep -q "^exec proot-distro login $distro --shared-tmp -- env DISPLAY=" "$f" && rm -f "$f"
+        done
+        log "Container $distro is gone: removed its environment"
+    done
     for de in xfce:startxfce4 lxqt:startlxqt mate:mate-session lxde:startlxde kde:startplasma-x11 openbox:openbox-session i3:i3; do
         name=${de%%:*}; bin=${de##*:}
         if command -v "$bin" >/dev/null; then
@@ -448,6 +477,7 @@ setup() {
         # Every container is an environment, with or without a desktop: its programs open one by one.
         # Existing files belong to the user and are never overwritten
         created=0
+        ignored "proot-$distro" && continue
         if [ ! -e "$ENVS/proot-$distro.root" ]; then
             printf '%s\n' "$root" >"$ENVS/proot-$distro.root"
             created=1
@@ -466,6 +496,14 @@ setup() {
         name=$(ls "$SESSIONS" 2>/dev/null | head -1)
         [ -n "$name" ] && echo "${name%.sh}" >"$CONF/current"
     fi
+    return 0
+}
+
+setup() {
+    echo "Looking for desktops..."
+    # Asked for: everything removed before is looked for again
+    rm -f "$IGNORED"
+    discover
     list
     cursor_installed || cursor_missing_msg
     # chroot and proot scripts of other kinds cannot be found from here: say how to add one (CLI.md §3.4)
@@ -495,8 +533,11 @@ ICON_PX=64
 session_file() {
     local f=$SESSIONS/${1%+apps}.sh
     [ -f "$f" ] && { echo "$f"; return 0; }
-    # Termux's programs need no session to be opened: apps only on Termux's own window manager (termux_apps_script)
-    [ "$1" = termux+apps ] && echo /dev/null
+    # Termux's programs need no session to be opened: apps only on Termux's own window manager (termux_apps_script).
+    # The same for an environment without a desktop (CLI.md §3.1): the app opens its programs on NAME+apps
+    [ "$1" = termux+apps ] && { echo /dev/null; return 0; }
+    case "$1" in *+apps) { [ -f "$ENVS/${1%+apps}.launch" ] || [ -f "$ENVS/${1%+apps}.root" ]; } && echo /dev/null ;; esac
+    return 0
 }
 
 # A D-Bus session bus of xdesk's own, for apps-only sessions in Termux. The programs opened there take the bus of the
@@ -1722,7 +1763,7 @@ doctor() {
     if command -v xfwm4 >/dev/null 2>&1; then
         doctor_ok "window manager: xfwm4 present"
     else
-        doctor_warn "window manager: xfwm4 not installed, programs opened alone have no window manager (fix: pkg install xfwm4 xfce4-settings)"
+        doctor_bad "window manager: xfwm4 not installed, programs cannot open alone (fix: pkg install xfwm4 xfce4-settings)"
     fi
     if command -v fc-list >/dev/null 2>&1; then
         if [ -n "$(timeout 2 fc-list :lang=zh 2>/dev/null | head -1)" ]; then
@@ -1830,6 +1871,7 @@ The app's own commands (their names stay for older and newer apps):
   xdesk apps --path        print the file of the app catalog
   xdesk launch --startup-id ID ENV/ID   open a program with that startup id
   xdesk app state          one JSON line with everything the app reads
+  xdesk app catalog        the program list without icons, for the app before X runs
 USAGE_ALL
 }
 
@@ -1921,8 +1963,22 @@ update)
     exit $rc
     ;;
 app)
-    [ $# -eq 1 ] && [ "$1" = state ] || { usage; exit 2; }
-    app_state
+    [ $# -eq 1 ] || { usage; exit 2; }
+    case "$1" in
+    state)
+        # What was installed since the last read shows up in the app without an xdesk setup
+        discover >/dev/null
+        app_state
+        ;;
+    catalog)
+        # The app's program list before any X has run (the X server gives it with icons): the catalog without its
+        # icon column, a few KB that fit in what Termux passes back (CLI.md §3.1)
+        discover >/dev/null
+        f=$(apps_catalog 0) || exit 1
+        awk -F'\t' -v OFS='\t' 'NR == 1 { print; next } { print $1, $2, $3, $4, "" }' "$f"
+        ;;
+    *) usage; exit 2 ;;
+    esac
     ;;
 add)
     [ $# -ge 1 ] || { usage; exit 2; }
@@ -1949,6 +2005,7 @@ add)
         esac
     done
     valid_name "$name" || exit 2
+    unignore "$name"
     case "$name" in *+apps) echo "Names ending in +apps are the apps only variant of a session"; exit 2 ;; esac
     [ -n "$cmd$root$launch" ] || { usage; exit 2; }
     if [ -n "$cmd" ]; then
@@ -1993,6 +2050,8 @@ rm)
     # A name can be a session, an environment, or both: remove what is there
     rm -f "${SESSIONS:?}/${1:?}.sh" "${SESSIONS:?}/${1:?}.root" "${SESSIONS:?}/${1:?}.launch"
     rm -f "${ENVS:?}/${1:?}.root" "${ENVS:?}/${1:?}.launch"
+    # Not found again by the next app state: removed means gone until xdesk setup or xdesk add
+    ignored "$1" || printf '%s\n' "$1" >>"$IGNORED"
     if [ "$(current)" = "$1" ]; then rm -f "${CONF:?}/current"; fi
     list
     ;;
@@ -2025,7 +2084,7 @@ status)
     echo "xdesk: $XDESK_CLI_VERSION"
     ;;
 setup) setup ;;
-envs) list_envs ;;
+envs) discover >/dev/null; list_envs ;;
 apps)
     case "${1:-}" in
     --refresh) list_apps 1 ;;

@@ -291,6 +291,44 @@ out=$(bash "$XDESK" app state 2>/dev/null)
 check "app state escapes control characters" has_text "$out" '"ctl\u0001name"'
 bash "$XDESK" rm "$name" >/dev/null 2>&1
 
+# Discovery without setup (CLI.md §3.1): what is installed later shows up in the next app state
+fedora=$PREFIX/var/lib/proot-distro/installed-rootfs/fedora
+mkdir -p "$fedora/usr/bin" "$fedora/usr/share/applications"
+out=$(bash "$XDESK" app state 2>/dev/null)
+check "app state finds a container installed later" has_text "$out" '"name":"proot-fedora"'
+check "app state stays one line of JSON after finding it" test "$(printf '%s\n' "$out" | wc -l)" -eq 1
+printf '#!/bin/sh\nexit 0\n' >"$fedora/usr/bin/startlxde"
+out=$(bash "$XDESK" envs 2>/dev/null)
+check "envs finds a desktop installed later" has_text "$out" "proot-fedora-lxde"
+# Removed stays removed, until setup asks for everything again
+bash "$XDESK" rm proot-fedora-lxde >/dev/null 2>&1
+bash "$XDESK" rm proot-fedora >/dev/null 2>&1
+out=$(bash "$XDESK" app state 2>/dev/null)
+check "a removed environment is not found again by app state" lacks_text "$out" 'proot-fedora'
+out=$(bash "$XDESK" setup 2>&1)
+check "setup finds a removed environment again" has_text "$out" "found proot-fedora-lxde"
+# A container removed with proot-distro: what setup wrote for it goes too
+rm -rf "${fedora:?}"
+out=$(bash "$XDESK" app state 2>/dev/null)
+check "a container that is gone leaves app state" lacks_text "$out" 'proot-fedora'
+check "its desktop session file is removed" test ! -e "$HOME/.config/xdesk/sessions/proot-fedora-lxde.sh"
+check "its environment files are removed" test ! -e "$HOME/.config/xdesk/envs/proot-fedora.root"
+# A file of the user's own for a missing root is kept: only what setup wrote is cleaned up
+printf '/nowhere\n' >"$HOME/.config/xdesk/envs/mine.root"
+printf 'exec chroot /nowhere "$@"\n' >"$HOME/.config/xdesk/envs/mine.launch"
+bash "$XDESK" app state >/dev/null 2>&1
+check "an environment the user added is kept" test -e "$HOME/.config/xdesk/envs/mine.launch"
+bash "$XDESK" rm mine >/dev/null 2>&1
+
+# The program list for the app before any X runs: the catalog's header and rows, icons left out
+out=$(bash "$XDESK" app catalog 2>/dev/null); rc=$?
+check "app catalog exits 0" test "$rc" -eq 0
+check "app catalog starts with the catalog header" test "$(printf '%s\n' "$out" | head -1 | cut -c1-13)" = "#xdesk-apps 1"
+check "app catalog lists a container's program" has_text "$out" "Alpine Program"
+check "app catalog has no icons" test -z "$(printf '%s\n' "$out" | awk -F'\t' 'NR > 1 && $5 != ""')"
+bash "$XDESK" app nonsense >/dev/null 2>&1; rc=$?
+check "app with an unknown subcommand exits 2" test "$rc" -eq 2
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
