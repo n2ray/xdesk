@@ -43,6 +43,17 @@
 
 #include "lorie.h"
 
+Bool todGlamorAttivo(void);   // tod-glamor.c
+Bool todGlamorPrepara(ScreenPtr screen);
+void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona);
+PixmapPtr todGlamorCreaRadice(ScreenPtr screen, int width, int height, int depth);
+struct LorieBuffer *todGlamorRadice(void);
+void todGlamorPubblica(PixmapPtr radice, RegionPtr zona);
+void *todGlamorStaccaRadice(PixmapPtr pixmap);
+void todGlamorLiberaRadice(void *radice);
+PixmapPtr todGlamorPixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds, CARD16 width, CARD16 height,
+                                 const CARD32 *strides, const CARD32 *offsets, CARD8 depth, CARD8 bpp, CARD64 modifier);
+
 #define DRM_FORMAT_MOD_LINEAR 0
 
 extern void android_shmem_sysv_shm_force(uint8_t enable);
@@ -125,8 +136,11 @@ typedef struct {
     void *mem;
 } LoriePixmapPriv;
 
-#define LORIE_PIXMAP_PRIV_FROM_PIXMAP(pixmap) (pixmap ? ((LoriePixmapPriv*) exaGetPixmapDriverPrivate(pixmap)) : NULL)
-#define LORIE_BUFFER_FROM_PIXMAP(pixmap) (pixmap ? ((LoriePixmapPriv*) exaGetPixmapDriverPrivate(pixmap))->buffer : NULL)
+// tod: con glamor EXA non c'è, quindi nessun dato privato di EXA
+#define LORIE_PIXMAP_PRIV_FROM_PIXMAP(pixmap) (pixmap && !todGlamorAttivo() ? ((LoriePixmapPriv*) exaGetPixmapDriverPrivate(pixmap)) : NULL)
+#define LORIE_BUFFER_FROM_PIXMAP(pixmap) (pixmap && !todGlamorAttivo() ? ((LoriePixmapPriv*) exaGetPixmapDriverPrivate(pixmap))->buffer : NULL)
+// tod: il buffer della radice che l'app mostra (con glamor lo tiene tod-glamor.c)
+#define LORIE_ROOT_BUFFER(pixmap) (todGlamorAttivo() ? todGlamorRadice() : LORIE_BUFFER_FROM_PIXMAP(pixmap))
 
 static LorieBuffer *lorieEnsureGpuSampleable(PixmapPtr pixmap, int8_t type) {
     LoriePixmapPriv *priv = LORIE_PIXMAP_PRIV_FROM_PIXMAP(pixmap);
@@ -213,7 +227,7 @@ void lorieActivityConnected(void) {
     pvfb->state->drawRequested = pvfb->state->cursor.updated = true;
     pvfb->state->rendererRelock = pvfb->rendererRelock;
     lorieSendSharedServerState(pvfb->stateFd);
-    lorieRegisterBuffer(LORIE_BUFFER_FROM_PIXMAP(pScreenPtr->devPrivate));
+    lorieRegisterBuffer(LORIE_ROOT_BUFFER(pScreenPtr->devPrivate));
 }
 
 static Bool TrueNoop() { return TRUE; }
@@ -584,10 +598,40 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
 
     pvfb->state->waitForNextFrame = false;
 
+    // tod: prova sul server senza app (:5): la copia nella vetrina a ogni fotogramma come sul desktop vero
+    if (todGlamorAttivo() && getenv("TOD_PUBBLICA_SEMPRE")) {
+        if (RegionNotEmpty(DamageRegion(pvfb->damage)) && todGlamorRadice()) {
+            todGlamorPubblica(pScreenPtr->devPrivate, DamageRegion(pvfb->damage));
+            DamageEmpty(pvfb->damage);
+        }
+        return TRUE;
+    }
+
     if (!lorieConnectionAlive(conn_fd) || !pvfb->state->surfaceAvailable)
         return TRUE;
 
     nonEmpty = RegionNotEmpty(DamageRegion(pvfb->damage));
+
+    if (todGlamorAttivo()) {
+        // tod: con glamor l'app legge la vetrina della radice, aggiornata qui una volta per fotogramma
+        LorieBuffer *rootBuffer = todGlamorRadice();
+        if (!rootBuffer)
+            return TRUE;
+        if (nonEmpty) {
+            // con il lucchetto dell'app: mentre copiamo nella vetrina l'app non la legge
+            lorie_mutex_lock(&pvfb->state->lock, &pvfb->state->lockingPid, conn_fd);
+            todGlamorPubblica(pScreenPtr->devPrivate, DamageRegion(pvfb->damage));
+            lorie_mutex_unlock(&pvfb->state->lock, &pvfb->state->lockingPid);
+            DamageEmpty(pvfb->damage);
+            pvfb->state->drawRequested = TRUE;
+        }
+        if (pvfb->state->drawRequested || pvfb->state->cursor.moved || pvfb->state->cursor.updated) {
+            pvfb->state->rootWindowTextureID = LorieBuffer_description(rootBuffer)->id;
+            pthread_cond_signal(rendererCond);
+        }
+        return TRUE;
+    }
+
     priv = root ? exaGetPixmapDriverPrivate(root) : NULL;
 
     if (!priv)
@@ -651,7 +695,103 @@ static void lorieDmaBufSyncWaited(CARD64 waitedUs, Bool timedOut) {
     suppressed = 0;
 }
 
+// tod: misura del tempo speso per tipo di richiesta X (TERMUX_X11_MISURA=1), scritta ogni 5 s nel registro
+#include "extnsionst.h"
+static int (*todOrig[256])(ClientPtr);
+static uint64_t todNs[256][64];
+static uint32_t todCnt[256][64];
+static uint64_t todTot, todInizioThread, todInizioMuro;
+static uint64_t todBlocco, todRisveglio;
+static ScreenBlockHandlerProcPtr todBlockOrig;
+static ScreenWakeupHandlerProcPtr todWakeupOrig;
+static uint64_t todOra(clockid_t c);
+
+static void todBlockMisurato(ScreenPtr s, void *timeout) {
+    uint64_t a = todOra(CLOCK_THREAD_CPUTIME_ID);
+    s->BlockHandler = todBlockOrig;
+    s->BlockHandler(s, timeout);
+    todBlockOrig = s->BlockHandler;
+    s->BlockHandler = todBlockMisurato;
+    todBlocco += todOra(CLOCK_THREAD_CPUTIME_ID) - a;
+}
+
+static void todWakeupMisurato(ScreenPtr s, int result) {
+    uint64_t a = todOra(CLOCK_THREAD_CPUTIME_ID);
+    s->WakeupHandler = todWakeupOrig;
+    s->WakeupHandler(s, result);
+    todWakeupOrig = s->WakeupHandler;
+    s->WakeupHandler = todWakeupMisurato;
+    todRisveglio += todOra(CLOCK_THREAD_CPUTIME_ID) - a;
+}
+
+static uint64_t todOra(clockid_t c) {
+    struct timespec t;
+    clock_gettime(c, &t);
+    return (uint64_t) t.tv_sec * 1000000000ull + t.tv_nsec;
+}
+
+static int todMisurata(ClientPtr client) {
+    int maj = client->majorOp, min = maj >= EXTENSION_BASE ? client->minorOp & 63 : 0, r;
+    uint64_t a = todOra(CLOCK_THREAD_CPUTIME_ID), d;
+    r = todOrig[maj](client);
+    d = todOra(CLOCK_THREAD_CPUTIME_ID) - a;
+    todNs[maj][min] += d;
+    todCnt[maj][min]++;
+    todTot += d;
+    return r;
+}
+
+static void todMisuraTick(void) {
+    static int attiva = -1;
+    if (attiva < 0) {
+        const char *e = getenv("TERMUX_X11_MISURA");
+        attiva = e && !strcmp(e, "1");
+        if (attiva) {
+            for (int i = 1; i < 256; i++)
+                if (ProcVector[i] && ProcVector[i] != todMisurata) {
+                    todOrig[i] = ProcVector[i];
+                    ProcVector[i] = todMisurata;
+                }
+            todBlockOrig = pScreenPtr->BlockHandler;
+            pScreenPtr->BlockHandler = todBlockMisurato;
+            todWakeupOrig = pScreenPtr->WakeupHandler;
+            pScreenPtr->WakeupHandler = todWakeupMisurato;
+            todInizioThread = todOra(CLOCK_THREAD_CPUTIME_ID);
+            todInizioMuro = todOra(CLOCK_MONOTONIC);
+            log(INFO, "tod-misura: attiva");
+        }
+        return;
+    }
+    if (!attiva)
+        return;
+    uint64_t thr = todOra(CLOCK_THREAD_CPUTIME_ID) - todInizioThread, muro = todOra(CLOCK_MONOTONIC) - todInizioMuro;
+    log(INFO, "tod-misura: filo del server %.0f%% di un core, richieste X %.0f%%, prima dell'attesa %.0f%%, al risveglio %.0f%%, resto %.0f%%",
+        100.0 * thr / muro, 100.0 * todTot / muro, 100.0 * todBlocco / muro, 100.0 * todRisveglio / muro,
+        100.0 * (thr > todTot + todBlocco + todRisveglio ? thr - todTot - todBlocco - todRisveglio : 0) / muro);
+    todBlocco = todRisveglio = 0;
+    for (int n = 0; n < 8; n++) {   // le 8 voci più costose
+        int bi = -1, bj = 0;
+        for (int i = 0; i < 256; i++)
+            for (int j = 0; j < 64; j++)
+                if (todNs[i][j] && (bi < 0 || todNs[i][j] > todNs[bi][bj]))
+                    bi = i, bj = j;
+        if (bi < 0)
+            break;
+        ExtensionEntry *ext = bi >= EXTENSION_BASE ? GetExtensionEntry(bi) : NULL;
+        log(INFO, "tod-misura:   %s %d/%d: %.1f%% di un core, %u volte, %.0f us l'una",
+            ext ? ext->name : "core", bi, bj, 100.0 * todNs[bi][bj] / muro, todCnt[bi][bj],
+            todNs[bi][bj] / 1000.0 / todCnt[bi][bj]);
+        todNs[bi][bj] = 0;   // già scritta: fuori dalla prossima ricerca
+    }
+    memset(todNs, 0, sizeof(todNs));
+    memset(todCnt, 0, sizeof(todCnt));
+    todTot = 0;
+    todInizioThread = todOra(CLOCK_THREAD_CPUTIME_ID);
+    todInizioMuro = todOra(CLOCK_MONOTONIC);
+}
+
 static CARD32 lorieFramecounter(unused OsTimerPtr timer, unused CARD32 time, unused void *arg) {
+    todMisuraTick();
     if (dmaBufSyncs && lorieServerDebugEnabled)
         log(INFO, "dma-buf sync: %llu CPU accesses to client buffers in 5.0 seconds, %llu took 1 ms or more (longest %llu us)",
             (unsigned long long) dmaBufSyncs, (unsigned long long) dmaBufSyncWaits, (unsigned long long) dmaBufSyncMaxWaitUs);
@@ -676,7 +816,9 @@ static CARD32 lorieHeartbeat(unused OsTimerPtr timer, unused CARD32 time, unused
 }
 
 static Bool lorieCreateScreenResources(ScreenPtr pScreen) {
-    pScreen->devPrivate = pScreen->CreatePixmap(pScreen, pScreen->width, pScreen->height, pScreen->rootDepth, CREATE_PIXMAP_USAGE_LORIEBUFFER_BACKED);
+    pScreen->devPrivate = todGlamorAttivo()   // tod: con glamor la radice è un AHardwareBuffer in cui disegna la GPU
+        ? todGlamorCreaRadice(pScreen, pScreen->width, pScreen->height, pScreen->rootDepth)
+        : pScreen->CreatePixmap(pScreen, pScreen->width, pScreen->height, pScreen->rootDepth, CREATE_PIXMAP_USAGE_LORIEBUFFER_BACKED);
 
     pvfb->damage = DamageCreate(NULL, NULL, DamageReportNone, TRUE, pScreen, NULL);
     if (!pvfb->damage)
@@ -687,13 +829,23 @@ static Bool lorieCreateScreenResources(ScreenPtr pScreen) {
     TimerSet(NULL, 0, 1000, lorieHeartbeat, NULL);
     RegisterBlockAndWakeupHandlers(lorieBlockHandler, (ServerWakeupHandlerProcPtr) NoopDDA, NULL);
 
-    lorieRegisterBuffer(LORIE_BUFFER_FROM_PIXMAP(pScreenPtr->devPrivate));
+    lorieRegisterBuffer(LORIE_ROOT_BUFFER(pScreenPtr->devPrivate));
 
     return TRUE;
 }
 
 static Bool lorieCloseScreen(ScreenPtr pScreen) {
     pScreenPtr = NULL;
+    if (todGlamorAttivo()) {
+        // tod: con glamor la radice la distrugge la chiusura stessa (glamor rimette prima i suoi DestroyPixmap;
+        // distruggerla qui passava per quello di MIT-SHM, già liberato). Il suo AHardwareBuffer si libera dopo.
+        void *radice = todGlamorStaccaRadice(pScreen->devPrivate);
+        Bool r;
+        pScreen->CloseScreen = pvfb->CloseScreen;
+        r = pScreen->CloseScreen(pScreen);
+        todGlamorLiberaRadice(radice);
+        return r;
+    }
     pScreen->DestroyPixmap(pScreen->devPrivate);
     pScreen->devPrivate = NULL;
     pScreen->CloseScreen = pvfb->CloseScreen;
@@ -753,7 +905,9 @@ static Bool lorieRRScreenSetSize(ScreenPtr pScreen, CARD16 width, CARD16 height,
     pScreen->mmHeight = ((double) (height)) * 25.4 / monitorResolution;
 
     oldPixmap = pScreen->GetScreenPixmap(pScreen);
-    newPixmap = pScreen->CreatePixmap(pScreen, width, height, pScreen->rootDepth, CREATE_PIXMAP_USAGE_LORIEBUFFER_BACKED);
+    newPixmap = todGlamorAttivo()   // tod
+        ? todGlamorCreaRadice(pScreen, width, height, pScreen->rootDepth)
+        : pScreen->CreatePixmap(pScreen, width, height, pScreen->rootDepth, CREATE_PIXMAP_USAGE_LORIEBUFFER_BACKED);
     pScreen->SetScreenPixmap(newPixmap);
     if (pvfb->damage) {
         DamageUnregister(pvfb->damage);
@@ -777,7 +931,7 @@ static Bool lorieRRScreenSetSize(ScreenPtr pScreen, CARD16 width, CARD16 height,
         pScreen->DestroyPixmap(oldPixmap);
     }
 
-    lorieRegisterBuffer(LORIE_BUFFER_FROM_PIXMAP(pScreenPtr->devPrivate));
+    lorieRegisterBuffer(LORIE_ROOT_BUFFER(pScreenPtr->devPrivate));
 
     pScreen->ResizeWindow(pScreen->root, 0, 0, width, height, NULL);
     RegionReset(&pScreen->root->winSize, &box);
@@ -867,6 +1021,12 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
     static int eventFd = -1;
     pScreenPtr = pScreen;
 
+    if (todGlamorAttivo()) {
+        // tod: con glamor niente copie Present sulla GPU dell'app (usano i dati di EXA) e DRI3 importato da glamor
+        pvfb->gpuPresentDisabled = TRUE;
+        lorieDri3Info.pixmap_from_fds = todGlamorPixmapFromFds;
+    }
+
     if (eventFd == -1)
         eventFd = eventfd(0, EFD_CLOEXEC);
 
@@ -886,7 +1046,7 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
           || !(pScreen->CreateScreenResources = lorieCreateScreenResources) // Simply replace unneeded function
           || !(!pvfb->dri3 || dri3_screen_init(pScreen, &lorieDri3Info))
           || !fbPictureInit(pScreen, 0, 0)
-          || !exaDriverInit(pScreen, &lorieExa)
+          || !(todGlamorAttivo() ? todGlamorPrepara(pScreen) : exaDriverInit(pScreen, &lorieExa))   // tod
           || !lorieRandRInit(pScreen)
           || !miPointerInitialize(pScreen, &loriePointerSpriteFuncs, &loriePointerCursorFuncs, TRUE)
           || !fbCreateDefColormap(pScreen)
@@ -1057,6 +1217,13 @@ Bool lorieTryScheduleGpuCopy(PixmapPtr pixmap, PixmapPtr dst, RegionPtr update, 
     int numRects, i;
     uint32_t writeIndex, readIndex;
 
+    if (todGlamorAttivo()) {   // tod: glamor fa la copia da sé; prima si aggiorna l'immagine importata
+        todGlamorAggiorna(pixmap, update);
+        gpuCopyAttempts++;
+        gpuCopyFallbackOther++;
+        return FALSE;
+    }
+
     if (pvfb->gpuPresentDisabled || pvfb->root.legacyDrawing) {
         gpuCopyAttempts++;
         gpuCopyFallbackOther++;
@@ -1181,6 +1348,10 @@ void lorieGpuCopyAck(PixmapPtr pixmap, void *dst_buffer) {
 }
 
 Bool loriePresentFlip(__unused RRCrtcPtr crtc, __unused uint64_t event_id, __unused uint64_t target_msc, PixmapPtr pixmap, __unused Bool sync_flip) {
+    // tod: con glamor niente flip (qui non ci sono i dati di EXA: si leggeva memoria a caso, e un flip accettato
+    // lasciava la vetrina sulla radice vecchia → fotogrammi vecchi per un attimo). La copia la fa la GPU.
+    if (todGlamorAttivo())
+        return FALSE;
     LoriePixmapPriv* priv = (LoriePixmapPriv*) exaGetPixmapDriverPrivate(pixmap);
     if (!priv || !priv->buffer || priv->mem || pvfb->root.width != pixmap->drawable.width || pvfb->root.height != pixmap->drawable.height)
         return FALSE;

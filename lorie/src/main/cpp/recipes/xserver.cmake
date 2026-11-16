@@ -270,7 +270,9 @@ add_library(xserver_glxvnd STATIC ${GLXVND_SOURCES})
 target_include_directories(xserver_glxvnd PRIVATE ${inc})
 target_compile_options(xserver_glxvnd PRIVATE ${c_only_compile_options} ${compile_options})
 
+include(recipes/glamor.cmake)   # tod
 set(XSERVER_LIBS tirpc Xdmcp Xau pixman Xfont2 fontenc GLESv2 xshmfence xkbcomp)
+set(XSERVER_LIBS ${XSERVER_LIBS} ${TOD_GLAMOR_LIBS})   # tod
 foreach (part glx glxvnd fb mi dix composite damageext dbe randr miext_damage render present xext
          dri3 miext_sync xfixes xi xkb record xi_stubs xkb_stubs os exa)
     set(XSERVER_LIBS ${XSERVER_LIBS} xserver_${part})
@@ -299,4 +301,5 @@ target_link_options(Xlorie PRIVATE "-Wl,--as-needed" "-Wl,--no-undefined" "-fvis
 target_link_libraries(Xlorie "-Wl,--whole-archive" ${XSERVER_LIBS} "-Wl,--no-whole-archive" android mediandk log m z EGL GLESv2)
 target_compile_options(Xlorie PRIVATE ${compile_options} "$<$<COMPILE_LANGUAGE:C>:${c_only_compile_options}>" "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>")
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver.patch")
+target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver-glamor.patch")
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/libepoxy" "${CMAKE_CURRENT_SOURCE_DIR}/patches/libepoxy.patch")
