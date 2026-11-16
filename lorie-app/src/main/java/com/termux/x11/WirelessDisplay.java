@@ -1111,6 +1111,18 @@ final class WirelessDisplay {
         desktopCursor = on;
     }
 
+    /** Whether the external Dock has the pointer now (XDeskActivity): its arrow is in the picture. */
+    private volatile java.util.function.BooleanSupplier dockDriven;
+
+    void setDockDriven(java.util.function.BooleanSupplier s) {
+        dockDriven = s;
+    }
+
+    private boolean dockDriven() {
+        java.util.function.BooleanSupplier s = dockDriven;
+        return s != null && s.getAsBoolean();
+    }
+
     /** The last pointer message placed the pointer absolutely: over X the X cursor is hidden then (DesktopInput). */
     private volatile boolean absolutePlacement;
 
@@ -1125,8 +1137,12 @@ final class WirelessDisplay {
         // relative moves, a Mac re-encoded, the switchboard, the Dock), hide this device's own pointer. 1: the
         // desktop's cursor is hidden (X placed absolutely), show it. A computer knows 0 and 1 and takes anything
         // else as the desktop.
-        int mode = !desktopShown ? touchMode && !computer ? 2 : 0
-                : desktopCursor || !absolutePlacement ? 3 : 1;
+        // The Launchpad and a driven Dock draw their own arrow whatever is under them, also with no X and over an
+        // Android app (the home Launchpad): 3 then too, or a computer or a browser shows its pointer beside it
+        // (MACAPP.md §1). XDesk Receiver hides its pointer over Android content anyway, and keeps its touch mode (2)
+        boolean drawn = desktopCursor || SwitcherOverlay.isShown() || dockDriven();
+        int mode = drawn && (computer || web) ? 3 : !desktopShown ? touchMode && !computer ? 2 : 0
+                : drawn || !absolutePlacement ? 3 : 1;
         if (mode == sentInputMode || webLost) return;
         try {
             writeMessage(INPUT_MODE, new byte[]{(byte) mode}, 0, 1);

@@ -68,7 +68,16 @@ final class DockPointer {
      * longer the target (the content ended or changed, the Launchpad took the input): then not, and it goes.
      */
     boolean open() {
-        if (over == null) return false;
+        if (over == null) {
+            // A receiver's placed pointer resting on the bottom opens the Dock on its own, a moment later
+            // (ExternalDock.restDriven): it has the pointer then, and the buttons are its too (MACAPP.md §1)
+            ExternalDock dock = host.dock();
+            InputSink t = host.target();
+            if (dock == null || !dock.driven() || t == null) return false;
+            over = t;
+            surface = SURFACE_DOCK;
+            return true;
+        }
         if (surface == SURFACE_DOCK) {
             ExternalDock dock = host.dock();
             if (dock != null && dock.driven() && host.target() == over) return true;

@@ -1383,6 +1383,11 @@ public class XDeskActivity extends Activity {
         apps.setListener(appListener);
         audioRoute.setListener(audioListener);
         wireless.setListener(wirelessListener);
+        // A driven Dock's arrow is in the picture: a receiver hides its own pointer then (INPUT_MODE 3)
+        wireless.setDockDriven(() -> {
+            ExternalDock d = externalDock;
+            return d != null && d.driven();
+        });
         wireless.setWebInput(webInput);
         web = WebServer.get(this);
         web.setListener(webListener);
@@ -1519,6 +1524,7 @@ public class XDeskActivity extends Activity {
         apps.setListener(null);
         audioRoute.setListener(null);
         wireless.setListener(null);
+        wireless.setDockDriven(null);
         wireless.setWebInput(null);
         // The server stays: this window is recreated on a language change. Without a listener it turns browsers away
         web.setListener(null);
