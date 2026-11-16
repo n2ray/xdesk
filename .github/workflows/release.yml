@@ -62,7 +62,9 @@ jobs:
         cp "$(find deb -name loader.apk)" out/loader.apk
         cp xdesk/xdesk out/xdesk
         sed -i "s/^XDESK_CLI_VERSION=.*/XDESK_CLI_VERSION=$VERSION/" out/xdesk
-        (cd out && sha256sum xdesk.apk xdesk-receiver.apk loader.apk xdesk > SHA256SUMS)
+        # xdesk update downloads this release's install script and checks it against SHA256SUMS
+        cp xdesk/install.sh out/install.sh
+        (cd out && sha256sum xdesk.apk xdesk-receiver.apk loader.apk xdesk install.sh > SHA256SUMS)
         rm -f "$XDESK_KEYSTORE"
     - name: Upload (manual runs)
       if: github.event_name == 'workflow_dispatch'
@@ -82,7 +84,7 @@ jobs:
         NOTES=release-notes/${TAG#v}.md
         if [ -f "$NOTES" ]; then NOTE_ARGS=(--notes-file "$NOTES"); else NOTE_ARGS=(--generate-notes); fi
         gh release create "$TAG" $PRE --title "XDesk $TAG" "${NOTE_ARGS[@]}" \
-          out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/SHA256SUMS
+          out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/install.sh out/SHA256SUMS
 
   mac:
     # The phone's files are out by then, whatever happens here

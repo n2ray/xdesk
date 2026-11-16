@@ -2,12 +2,18 @@
 # One command install, run inside Termux:
 #   curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 # Safe to repeat. Installs the xdesk command and its loader, and downloads the app.
-# XDESK_VERSION=v0.1.0 picks a version, the newest release (pre-releases included) is the default.
+# XDESK_VERSION=v0.1.0 picks a version, XDESK_VERSION=beta the newest of all (pre-releases included); the newest
+# release (no pre-release) is the default. The app's install line always names its own version.
 # XDESK_CLI_ONLY=1 replaces only the xdesk command and the loader (xdesk update uses this).
 set -e
 REPO=n2ray/xdesk
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
 CLI_ONLY=${XDESK_CLI_ONLY:-}
+# A tag from xdesk update or the app: vX.Y.Z with an optional suffix. Nothing else is ever fetched or run
+case "${XDESK_VERSION:-}" in
+''|beta|stable) ;;
+*) [[ $XDESK_VERSION =~ ^v[0-9][0-9A-Za-z.+-]*$ ]] || { echo "Invalid version: $XDESK_VERSION (expected vX.Y.Z)"; exit 1; } ;;
+esac
 
 missing=
 # xfwm4 and xfsettingsd: a program opened alone needs a window manager (the app makes its window the full screen one
@@ -23,28 +29,41 @@ turnip=
 if [ -z "$CLI_ONLY" ] && [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
     turnip=1
 fi
-if [ -n "$missing$turnip" ]; then
-    # Termux does not support partial upgrades: a new package against old libraries can break both
-    pkg upgrade -y
-    pkg install -y x11-repo
-fi
-if [ -n "$missing" ]; then
-    echo "Installing:$missing"
-    # shellcheck disable=SC2086
-    pkg install -y $missing
-fi
-if [ -n "$turnip" ]; then
-    echo "Installing Turnip, the Adreno Vulkan driver"
-    # Not fatal: without it the desktop uses software rendering
-    if pkg install -y mesa mesa-vulkan-icd-freedreno; then
-        echo "If the desktop shows broken graphics, remove it again: pkg uninstall mesa-vulkan-icd-freedreno"
-    else
-        echo "Turnip was not installed; the desktop will use software rendering."
+if [ -n "$CLI_ONLY" ]; then
+    # xdesk update runs from the app, without a tty: pkg could wait for an answer and hang it. Only say what is missing
+    if [ -n "$missing" ]; then
+        echo "Missing commands. Install them with: pkg install${missing}"
+    fi
+else
+    if [ -n "$missing$turnip" ]; then
+        # Termux does not support partial upgrades: a new package against old libraries can break both
+        pkg upgrade -y
+        pkg install -y x11-repo
+    fi
+    if [ -n "$missing" ]; then
+        echo "Installing:$missing"
+        # shellcheck disable=SC2086
+        pkg install -y $missing
+    fi
+    if [ -n "$turnip" ]; then
+        echo "Installing Turnip, the Adreno Vulkan driver"
+        # Not fatal: without it the desktop uses software rendering
+        if pkg install -y mesa mesa-vulkan-icd-freedreno; then
+            echo "If the desktop shows broken graphics, remove it again: pkg uninstall mesa-vulkan-icd-freedreno"
+        else
+            echo "Turnip was not installed; the desktop will use software rendering."
+        fi
     fi
 fi
 
-TAG=${XDESK_VERSION:-$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}
+# A line: stable is GitHub's latest release (never a pre-release), beta the newest of all
+case "${XDESK_VERSION:-stable}" in
+stable) TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1) ;;
+beta) TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1) ;;
+*) TAG=$XDESK_VERSION ;;
+esac
 [ -n "$TAG" ] || { echo "Could not find a release of $REPO"; exit 1; }
+[[ $TAG =~ ^v[0-9][0-9A-Za-z.+-]*$ ]] || { echo "Invalid release tag: $TAG"; exit 1; }
 if [ -z "$CLI_ONLY" ]; then echo "Installing XDesk $TAG"; fi
 
 TMP=$(mktemp -d)
@@ -69,9 +88,11 @@ done
 
 install -m 755 "$TMP/xdesk" "$PREFIX/bin/xdesk"
 mkdir -p "$(dirname "$LOADER")"
-[ ! -e "$LOADER" ] || rm -f "${LOADER:?}"
-cp "$TMP/loader.apk" "$LOADER"
-chmod 400 "$LOADER"   # Android refuses to load a writable dex
+# Replaced by a rename: the old loader stays until the new one is complete and has its mode
+rm -f "${LOADER:?}.new"
+cp "$TMP/loader.apk" "$LOADER.new"
+chmod 400 "$LOADER.new"   # Android refuses to load a writable dex
+mv -f "$LOADER.new" "$LOADER"
 
 # xdesk update prints one short line and changes nothing else
 if [ -n "$CLI_ONLY" ]; then
