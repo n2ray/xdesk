@@ -148,7 +148,7 @@ unsafe impl Send for VtDecoder {}
 
 impl VtDecoder {
     pub fn new(latest: Arc<Latest>) -> Self {
-        println!("硬件 H.264 解码：{}", if unsafe { VTIsHardwareDecodeSupported(CODEC_H264) } { "支持" } else { "不支持" });
+        println!("hardware H.264 decoding: {}", if unsafe { VTIsHardwareDecodeSupported(CODEC_H264) } { "yes" } else { "no" });
         VtDecoder { latest, session: null_mut(), format: null_mut(), sps: Vec::new(), pps: Vec::new(), frame: Vec::new() }
     }
 
@@ -200,7 +200,7 @@ impl VtDecoder {
             }
             VTSessionSetProperty(self.session, kVTDecompressionPropertyKey_RealTime, kCFBooleanTrue);
         }
-        println!("VideoToolbox 解码已启动");
+        println!("VideoToolbox decoding started");
         Ok(())
     }
 

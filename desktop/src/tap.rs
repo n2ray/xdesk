@@ -19,6 +19,7 @@ extern "C" {
     fn CGEventTapCreate(tap: u32, place: u32, options: u32, mask: u64, callback: Callback, info: Ref) -> Ref;
     fn CGEventTapEnable(tap: Ref, enable: bool);
     fn CGEventGetIntegerValueField(event: Ref, field: u32) -> i64;
+    fn CGEventGetDoubleValueField(event: Ref, field: u32) -> f64;
     fn CGEventGetFlags(event: Ref) -> u64;
     fn CGEventKeyboardGetUnicodeString(event: Ref, max: c_ulong, actual: *mut c_ulong, chars: *mut u16);
 }
@@ -49,6 +50,22 @@ const SESSION_TAP: u32 = 1;
 const KEY_DOWN: u32 = 10;
 const KEY_UP: u32 = 11;
 const FLAGS_CHANGED: u32 = 12;
+const SCROLL_WHEEL: u32 = 22;
+// The scroll event's fields: lines as fractions (16.16 fixed point, read as a double), whether it is a trackpad, and
+// its gesture and coast phases
+const FIELD_SCROLL_Y: u32 = 93;
+const FIELD_SCROLL_X: u32 = 94;
+const FIELD_SCROLL_CONTINUOUS: u32 = 88;
+const FIELD_SCROLL_PHASE: u32 = 99;
+const FIELD_MOMENTUM_PHASE: u32 = 123;
+// input-core's phases, as SCROLL_FINE carries them
+const PHASE_WHEEL: u8 = 0;
+const PHASE_BEGIN: u8 = 1;
+const PHASE_CHANGE: u8 = 2;
+const PHASE_END: u8 = 3;
+const PHASE_MOMENTUM_BEGIN: u8 = 4;
+const PHASE_MOMENTUM: u8 = 5;
+const PHASE_MOMENTUM_END: u8 = 6;
 const DISABLED_TIMEOUT: u32 = 0xFFFF_FFFE;
 const DISABLED_INPUT: u32 = 0xFFFF_FFFF;
 const FIELD_AUTOREPEAT: u32 = 8;
@@ -67,6 +84,9 @@ pub const ACT_FULLSCREEN: u8 = 3;
 pub const ACT_PANEL: u8 = 2;
 pub const ACT_LOW_LATENCY: u8 = 37;
 pub const ACT_DISCONNECT: u8 = 200;
+/// Only in the menu: about this app, looking for updates.
+pub const ACT_ABOUT: u8 = 202;
+pub const ACT_UPDATE: u8 = 203;
 const CHORD_KEYS: [u8; 6] = [ACT_BACK, ACT_HOME, ACT_RECENTS, ACT_FULLSCREEN, ACT_PANEL, ACT_LOW_LATENCY];
 /// Linux codes of Ctrl and Alt, and of Command where FEATURES bit 1 sends it as Meta: what made a character must not
 /// stay held on the other side.
@@ -81,6 +101,8 @@ pub static DESKTOP: AtomicBool = AtomicBool::new(false);
 pub static COMPOSING: AtomicBool = AtomicBool::new(false);
 pub static INSIDE: AtomicBool = AtomicBool::new(false);
 pub static RELEASED: AtomicBool = AtomicBool::new(false);
+/// The window's own list of apps is open: the wheel is not the phone's then.
+pub static LIST_OPEN: AtomicBool = AtomicBool::new(false);
 static ACTIONS: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 pub fn request(action: u8) {
@@ -138,6 +160,8 @@ fn linux_code(mac: i64) -> u16 {
         85 => 81, 86 => 75, 87 => 76, 88 => 77, 89 => 71, 91 => 72, 92 => 73,
         96 => 63, 97 => 64, 98 => 65, 99 => 61, 100 => 66, 101 => 67, 103 => 87, 109 => 68, 111 => 88,
         118 => 62, 120 => 60, 122 => 59,
+        // F13 to F20, the keypad comma of a Japanese keyboard
+        105 => 183, 107 => 184, 113 => 185, 106 => 186, 64 => 187, 79 => 188, 80 => 189, 90 => 190, 95 => 121, 81 => 117,
         114 => 110, 115 => 102, 116 => 104, 117 => 111, 119 => 107, 121 => 109,
         123 => 105, 124 => 106, 125 => 108, 126 => 103,
         _ => 0,
@@ -195,6 +219,11 @@ fn input_method_on() -> bool {
 /// commits is sent as TEXT (INPUT.md §5.1). A plain layout such as ABC types as before, letter by letter.
 fn for_the_mac(event: Ref, mac: i64, flags: u64) -> bool {
     if mac == KEY_SPACE && flags & CONTROL != 0 && flags & COMMAND == 0 {
+        return true;
+    }
+    // Keys the phone has no code for and that type nothing: a Japanese keyboard's 英数 and かな switch the Mac's input
+    // method, the rest is the Mac's too (swallowed, they reached nobody)
+    if linux_code(mac) == 0 && (flags & (COMMAND | CONTROL) != 0 || !printable(&typed_text(event))) {
         return true;
     }
     if flags & (COMMAND | CONTROL) != 0 || !input_method_on() {
@@ -274,6 +303,63 @@ fn flags_changed(mac: i64, flags: u64) {
     }
 }
 
+/// Lines scrolled and not yet sent: SCROLL_FINE carries 1/120 of a step, the rest waits for the next event.
+static SCROLL_LEFT: Mutex<(f64, f64)> = Mutex::new((0.0, 0.0));
+
+fn send_scroll(dy: f64, dx: f64, phase: u8) {
+    let mut left = SCROLL_LEFT.lock().unwrap();
+    let (y, x) = (left.0 + dy * 120.0, left.1 + dx * 120.0);
+    let (sy, sx) = (y.trunc().clamp(-32768.0, 32767.0), x.trunc().clamp(-32768.0, 32767.0));
+    *left = (y - sy, x - sx);
+    if sy != 0.0 || sx != 0.0 || (phase != PHASE_CHANGE && phase != PHASE_MOMENTUM) {
+        out(Out::ScrollFine(sy as i16, sx as i16, phase));
+    }
+}
+
+/// A wheel or trackpad over the picture, for a phone with FEATURES bit 4 (MACAPP.md §2): the fractions and phases the
+/// Mac has, so X scrolls smoothly and another Mac sees a trackpad gesture. True when it went to the phone.
+fn scrolled(event: Ref) -> bool {
+    if !crate::net::scroll_fine() || LIST_OPEN.load(Ordering::Relaxed) {
+        return false;
+    }
+    let field = |f: u32| unsafe { CGEventGetIntegerValueField(event, f) };
+    // macOS has applied its own natural direction; the phone's setting turns it around, as for the wheel (main.rs)
+    let sign = if crate::net::NATURAL_SCROLL.load(Ordering::Relaxed) { -1.0 } else { 1.0 };
+    let speed = crate::net::scroll_speed() as f64;
+    let dy = sign * speed * unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_Y) };
+    let dx = sign * speed * unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_X) };
+    if field(FIELD_SCROLL_CONTINUOUS) == 0 {
+        send_scroll(dy, dx, PHASE_WHEEL);
+        return true;
+    }
+    let phase = field(FIELD_SCROLL_PHASE);
+    let momentum = field(FIELD_MOMENTUM_PHASE);
+    let (start, during, end) = match momentum {
+        1 => (Some(PHASE_MOMENTUM_BEGIN), PHASE_MOMENTUM, None),
+        2 => (None, PHASE_MOMENTUM, None),
+        3 => (None, PHASE_MOMENTUM, Some(PHASE_MOMENTUM_END)),
+        _ => match phase {
+            1 => (Some(PHASE_BEGIN), PHASE_CHANGE, None),
+            2 => (None, PHASE_CHANGE, None),
+            4 | 8 => (None, PHASE_CHANGE, Some(PHASE_END)),
+            // May begin (fingers rest on the trackpad): nothing to scroll yet
+            128 => return true,
+            _ => (None, PHASE_CHANGE, None),
+        },
+    };
+    if let Some(p) = start {
+        *SCROLL_LEFT.lock().unwrap() = (0.0, 0.0);
+        send_scroll(0.0, 0.0, p);
+    }
+    if dy != 0.0 || dx != 0.0 {
+        send_scroll(dy, dx, during);
+    }
+    if let Some(p) = end {
+        send_scroll(0.0, 0.0, p);
+    }
+    true
+}
+
 extern "C" fn callback(_proxy: Ref, kind: u32, event: Ref, _info: Ref) -> Ref {
     if kind == DISABLED_TIMEOUT || kind == DISABLED_INPUT {
         unsafe { CGEventTapEnable(TAP.load(Ordering::Relaxed), true) };
@@ -284,6 +370,9 @@ extern "C" fn callback(_proxy: Ref, kind: u32, event: Ref, _info: Ref) -> Ref {
     if kind == FLAGS_CHANGED {
         flags_changed(mac, flags);
         return event;
+    }
+    if kind == SCROLL_WHEEL {
+        return if active() && scrolled(event) { null_mut() } else { event };
     }
     if !active() {
         if kind == KEY_UP {
@@ -342,7 +431,7 @@ pub fn install() -> bool {
         if !AXIsProcessTrusted() {
             return false;
         }
-        let mask = 1u64 << KEY_DOWN | 1 << KEY_UP | 1 << FLAGS_CHANGED;
+        let mask = 1u64 << KEY_DOWN | 1 << KEY_UP | 1 << FLAGS_CHANGED | 1 << SCROLL_WHEEL;
         let tap = CGEventTapCreate(SESSION_TAP, 0, 0, mask, callback, null_mut());
         if tap.is_null() {
             return false;

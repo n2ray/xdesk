@@ -31,6 +31,8 @@ final class Control {
     static final int ANDROID_OVERVIEW = 4, ANDROID_SWITCHER = 5;
     /** FEATURES bit 0: the phone handles ANDROID 4 and 5. */
     private static final int FEATURE_ACTIONS = 1;
+    /** FEATURES bit 4: the phone takes SCROLL_FINE (33), fractions of a wheel step with their phase. */
+    private static final int FEATURE_SCROLL_FINE = 16, SCROLL_FINE = 33;
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103, SCAN_LEFT = 105,
             SCAN_RIGHT = 106, SCAN_DOWN = 108, SCAN_DELETE = 111;
     private static final int MAX_TEXT = 4096;
@@ -58,8 +60,13 @@ final class Control {
         @Override public void position(float x, float y) { Control.this.position(x, y); }
         @Override public void button(int b, boolean down) { Control.this.button(b, down); }
         @Override public void scroll(int phase, float dx, float dy) {
+            // A phone with FEATURES bit 4 takes the fractions with their phase (SCROLL_FINE): smooth over X, a
+            // trackpad gesture to a Mac. Older phones get whole wheel steps
+            if ((features & FEATURE_SCROLL_FINE) != 0) {
+                scrollFine(phase, dx, dy);
+                return;
+            }
             if (phase == Input.BEGIN) wheelSteps.clear();
-            // Protocol v2 has whole wheel steps only
             if ((dx != 0 || dy != 0) && wheelSteps.add(dx, dy)) Control.this.scroll(wheelSteps.y(), wheelSteps.x());
         }
         @Override public void action(int action, int arg) {
@@ -274,6 +281,16 @@ final class Control {
 
     void scroll(int dy, int dx) {
         r.send(SCROLL, new byte[] { (byte) (dy >> 8), (byte) dy, (byte) (dx >> 8), (byte) dx });
+    }
+
+    /** In 1/120 of a wheel step, dy > 0 down, with input-core's phase (0 a wheel). */
+    private void scrollFine(int phase, float dx, float dy) {
+        int y = clamp16(Math.round(dy * 120)), x = clamp16(Math.round(dx * 120));
+        r.send(SCROLL_FINE, new byte[] { (byte) (y >> 8), (byte) y, (byte) (x >> 8), (byte) x, (byte) phase });
+    }
+
+    private static int clamp16(int v) {
+        return Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, v));
     }
 
     /** A Linux input key code. */

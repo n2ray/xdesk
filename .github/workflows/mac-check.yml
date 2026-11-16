@@ -1,0 +1,36 @@
+name: Mac app check
+
+# Builds the Mac app (desktop/) and runs its tests, without signing or publishing: for a change to it before a release.
+on:
+  push:
+    branches-ignore:
+      - xdesk
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/mac-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: false
+        fetch-depth: 1
+    - name: Tools
+      run: |
+        command -v cargo > /dev/null || brew install rust
+        command -v cmake > /dev/null || brew install cmake
+    - name: Build and test
+      working-directory: desktop
+      env:
+        CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+        MACOSX_DEPLOYMENT_TARGET: '12.0'
+        XDESK_VERSION: 0.0.0-check
+      run: |
+        cargo build --release --no-default-features --features bundled-sdl --target-dir target/bundled --color never
+        cargo test --release --no-default-features --features bundled-sdl --target-dir target/bundled --color never

@@ -96,14 +96,19 @@ pub fn line(route: &str, picture: (u32, u32), low_latency: bool) -> String {
     let seconds = from.map_or(1.0, |t| t.elapsed().as_secs_f64()).max(0.05);
     *from = Some(Instant::now());
     let fps = SHOWN.swap(0, Ordering::Relaxed) as f64 / seconds;
+    let (fps_word, sent, decoded, shown, round) = if crate::lang::zh() {
+        ("帧/秒", "编码+传输", "解码", "到屏幕", "往返")
+    } else {
+        ("fps", "encode+send", "decode", "to screen", "round trip")
+    };
     format!(
-        "{route} {}×{} {fps:.0} 帧/秒 · 编码+传输 {} · 解码 {} · 到屏幕 {} · 往返 {} ms · {}",
+        "{route} {}×{} {fps:.0} {fps_word} · {sent} {} · {decoded} {} · {shown} {} · {round} {} ms · {}",
         picture.0,
         picture.1,
         ms(&CAPTURE),
         ms(&DECODE),
         ms(&SHOW),
         ms(&ROUND_TRIP),
-        if low_latency { "低延迟" } else { "垂直同步" }
+        if low_latency { crate::lang::tr("低延迟", "low latency") } else { crate::lang::tr("垂直同步", "vsync") }
     )
 }

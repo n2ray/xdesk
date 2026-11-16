@@ -7,8 +7,10 @@ import java.nio.charset.StandardCharsets;
 /** 把输入直接交给外屏 MainActivity 里的 LorieView。桌面没连上时丢弃。 */
 final class DesktopInput implements InputSink {
     private static final float WHEEL_STEP = 60f;
+    private static final long RESAY_HIDDEN_MS = 1000;
     private boolean cursorHidden;
     private LorieView cursorView;
+    private long cursorSaidAt;
 
     /** 桌面窗口已连上 X 时返回它的 LorieView，否则返回 null。 */
     static LorieView view() {
@@ -19,9 +21,14 @@ final class DesktopInput implements InputSink {
 
     /** The browser's pointer is on top: the X cursor stays hidden until another pointer moves, or it leaves. */
     private void setCursorHidden(LorieView v, boolean hidden) {
-        if (v == null || (hidden == cursorHidden && v == cursorView)) return;
+        if (v == null) return;
+        long now = android.os.SystemClock.uptimeMillis();
+        // The same view may be connected to a new X server by now (an app update restarts it), which shows its
+        // cursor again: a hidden one is said again once a second while placements go on (MACAPP.md §1)
+        if (hidden == cursorHidden && v == cursorView && (!hidden || now - cursorSaidAt < RESAY_HIDDEN_MS)) return;
         cursorHidden = hidden;
         cursorView = v;
+        cursorSaidAt = now;
         v.setCursorHidden(hidden);
     }
 

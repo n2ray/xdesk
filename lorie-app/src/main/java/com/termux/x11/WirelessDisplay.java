@@ -77,9 +77,9 @@ final class WirelessDisplay {
     private static final int FEATURES = 18, SETTINGS = 19;
     /** FEATURES bits: 0 the ANDROID (27) actions 4 and 5; 1 a Mac keyboard, KEYBOARD (32); 2 SETTINGS (19);
      *  3 this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide
-     *  its own pointer when it does. */
+     *  its own pointer when it does; 4 SCROLL_FINE (33). */
     private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4,
-            FEATURE_PICTURE_CURSOR = 8;
+            FEATURE_PICTURE_CURSOR = 8, FEATURE_SCROLL_FINE = 16;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -88,7 +88,7 @@ final class WirelessDisplay {
     private static final int CODECS_SENDS_INPUT = 0x80;
     /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
     private static final int CODECS_NOT_COMPUTER = 0x40;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26,
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_SCROLL_FINE = 33,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
     /** Receiver → phone (a Mac receiver): u8 the kind of its keyboard. Sent once per connection, with FEATURES bit 1. */
     private static final int KEYBOARD = 32;
@@ -510,7 +510,14 @@ final class WirelessDisplay {
 
     /** The phone's touchpad moved. Main thread: the write goes elsewhere. */
     void phonePointerMoved() {
-        if (!web || state != STREAMING || phonePointer) return;
+        if (state != STREAMING) return;
+        // The touchpad moves the X cursor, which then shows in the picture again (DesktopInput.move): a receiver's
+        // placement no longer hides it, so the receiver hides its own pointer until it places again (INPUT_MODE 3)
+        if (absolutePlacement && (web || inputReceiver)) {
+            absolutePlacement = false;
+            new Thread(this::sendInputMode, "xdesk-input-mode").start();
+        }
+        if (!web || phonePointer) return;
         phonePointer = true;
         new Thread(() -> {
             try {
@@ -583,6 +590,14 @@ final class WirelessDisplay {
                 final int sy = p.getShort(), sx = p.getShort();
                 r = () -> sink.scroll(sy, sx);
                 break;
+            case IN_SCROLL_FINE:
+                // FEATURES bit 4: i16 dy, i16 dx in 1/120 of a wheel step, u8 phase (Input: 0 a wheel, 1 to 6)
+                if (b.length < 5) return;
+                final float fineY = p.getShort() / 120f, fineX = p.getShort() / 120f;
+                final int phase = b[4] & 0xff;
+                if (phase > io.github.n2ray.xdesk.input.Input.MOMENTUM_END) return;
+                r = () -> sink.scrollFine(fineY, fineX, phase);
+                break;
             case IN_KEY:
                 if (b.length < 3) return;
                 final int scan = p.getShort() & 0xffff;
@@ -615,7 +630,8 @@ final class WirelessDisplay {
             default:
                 return;
         }
-        boolean plainInput = type == IN_MOVE || type == IN_ABS || type == IN_BUTTON || type == IN_SCROLL || type == IN_KEY || type == IN_TEXT;
+        boolean plainInput = type == IN_MOVE || type == IN_ABS || type == IN_BUTTON || type == IN_SCROLL || type == IN_SCROLL_FINE
+                || type == IN_KEY || type == IN_TEXT;
         if (plainInput && inputReceiver && sink.anyThread()) r.run();
         else ui.post(r);
     }
@@ -973,10 +989,12 @@ final class WirelessDisplay {
      * FEATURES (18), right after the session starts and again with every new connection: what this phone understands.
      * bit 0 the ANDROID actions 4 and 5, bit 1 a Mac keyboard (KEYBOARD) whose Command comes as Meta, bit 2 SETTINGS,
      * bit 3 the picture-cursor signal (INPUT_MODE 3), so a receiver hides its own pointer when the picture has one.
+     * bit 4 SCROLL_FINE (33): fractions of a wheel step with their phase, from a trackpad.
      */
     private void sendFeatures() throws IOException {
         ByteBuffer b = ByteBuffer.allocate(4)
-                .putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS | FEATURE_PICTURE_CURSOR);
+                .putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS | FEATURE_PICTURE_CURSOR
+                        | FEATURE_SCROLL_FINE);
         writeMessage(FEATURES, b.array(), 0, 4);
     }
 

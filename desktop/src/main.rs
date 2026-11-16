@@ -6,13 +6,16 @@
 //! latency. The same things are in the bar at the top edge and in the menu.
 
 mod clip;
+mod lang;
 mod menu;
 mod net;
 mod overlay;
 mod stats;
 mod tap;
+mod update;
 mod vt;
 
+use lang::tr;
 use net::{out, Out, Video, NATURAL_SCROLL};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
@@ -28,7 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tap::{ACT_BACK, ACT_DISCONNECT, ACT_FULLSCREEN, ACT_HOME, ACT_LOW_LATENCY, ACT_PANEL, ACT_RECENTS};
+use tap::{ACT_ABOUT, ACT_BACK, ACT_DISCONNECT, ACT_FULLSCREEN, ACT_HOME, ACT_LOW_LATENCY, ACT_PANEL, ACT_RECENTS, ACT_UPDATE};
 use vt::{Failure, VtDecoder};
 
 /// A window being dragged: the phone is asked for the new size once it stops.
@@ -40,7 +43,13 @@ const MAX_QUEUED: u32 = 28800;
 const MAX_QUEUED_USB: u32 = 9600;
 const PERMISSION_POLL: Duration = Duration::from_secs(1);
 const PANEL_EVERY: Duration = Duration::from_millis(500);
-const NEEDS_ACCESS: &str = "请在 系统设置 → 隐私与安全性 → 辅助功能 里打开 XDesk，键盘才能交给手机";
+/// How often to look whether the window's screen changed its scale or refresh rate.
+const SCREEN_LOOK: Duration = Duration::from_millis(500);
+/// A hidden pointer is hidden again this often: macOS shows it again on its own now and then.
+const CURSOR_AGAIN: Duration = Duration::from_secs(1);
+fn needs_access() -> &'static str {
+    tr("请在 系统设置 → 隐私与安全性 → 辅助功能 里打开 XDesk，键盘才能交给手机", "Allow XDesk in System Settings › Privacy & Security › Accessibility, so the keyboard can go to the phone")
+}
 /// How close to the top edge, and for how long, before the bar shows. In window points.
 const BAR_EDGE: i32 = 6;
 const BAR_DWELL: Duration = Duration::from_millis(200);
@@ -50,10 +59,17 @@ const BAR_TOP_FULLSCREEN: u32 = 34;
 const BAR_HEIGHT: u32 = 36;
 const BAR_PADDING: u32 = 16;
 const BAR_TEXT: f32 = 14.0;
-/// An old phone's bar: 最近 asks for its list of apps (APPS), the panel this window draws.
-const BAR: [(&str, u8); 5] = [("返回", ACT_BACK), ("主页", ACT_HOME), ("最近", ACT_RECENTS), ("全屏", ACT_FULLSCREEN), ("断开", ACT_DISCONNECT)];
-/// With FEATURES bit 0 the phone handles ANDROID 4: the same place in the bar is 总览, which opens the switchboard.
-const BAR_ACTIONS: [(&str, u8); 5] = [("返回", ACT_BACK), ("主页", ACT_HOME), ("总览", ACT_RECENTS), ("全屏", ACT_FULLSCREEN), ("断开", ACT_DISCONNECT)];
+/// The bar on the picture. An old phone's 最近 asks for its list of apps (APPS), the panel this window draws; with
+/// FEATURES bit 0 the same place is 总览, which opens the switchboard.
+fn bar(actions: bool) -> [(&'static str, u8); 5] {
+    [
+        (tr("返回", "Back"), ACT_BACK),
+        (tr("主页", "Home"), ACT_HOME),
+        (if actions { tr("总览", "Overview") } else { tr("最近", "Recent") }, ACT_RECENTS),
+        (tr("全屏", "Full screen"), ACT_FULLSCREEN),
+        (tr("断开", "Disconnect"), ACT_DISCONNECT),
+    ]
+}
 const LIST_WIDTH: u32 = 520;
 const LIST_ROW: u32 = 44;
 const LIST_MAX_ROWS: usize = 14;
@@ -77,7 +93,7 @@ pub struct Frame {
 }
 
 pub fn say_released() {
-    net::toast("键鼠已还给 Mac，点一下画面重新接管");
+    net::toast(tr("键鼠已还给 Mac，点一下画面重新接管", "Keyboard and mouse are back with the Mac: click the picture to take them again"));
 }
 
 fn software_decode(decoder: &mut Decoder, data: &[u8], latest: &Mutex<Option<Frame>>, need_key: &AtomicBool) {
@@ -132,7 +148,7 @@ fn decode_thread(videos: std::sync::mpsc::Receiver<Video>, latest: Arc<Mutex<Opt
                     need_key.store(true, Ordering::Relaxed);
                 }
                 Err(Failure::Unavailable(e)) => {
-                    eprintln!("VideoToolbox 不可用（{e}），改用软解");
+                    eprintln!("VideoToolbox unavailable ({e}), decoding in software");
                     let mut decoder = Decoder::new().expect("H.264 decoder");
                     software_decode(&mut decoder, &hardware.config(), &latest, &need_key);
                     software_decode(&mut decoder, &data, &latest, &need_key);
@@ -232,6 +248,17 @@ fn set_vsync(canvas: &Canvas<Window>, on: bool) {
     unsafe { sdl2::sys::SDL_RenderSetVSync(canvas.raw(), on as i32) };
 }
 
+/// The density the phone counts for this window (160 a pixel per point, a Retina window 320) and its screen's refresh
+/// rate (MACAPP.md §3).
+fn screen_of(canvas: &Canvas<Window>, video: &sdl2::VideoSubsystem) -> (u32, u32) {
+    let window = canvas.window();
+    let points = window.size().0.max(1) as f32;
+    let pixels = canvas.output_size().map_or(points, |s| s.0 as f32);
+    let density = (160.0 * pixels / points).round() as u32;
+    let refresh = window.display_index().ok().and_then(|i| video.current_display_mode(i).ok()).map_or(60, |m| m.refresh_rate.max(0) as u32);
+    (density, if refresh == 0 { 60 } else { refresh })
+}
+
 fn main() -> Result<(), String> {
     let mut tap_ready = tap::install();
     if !tap_ready {
@@ -271,8 +298,15 @@ fn main() -> Result<(), String> {
     let need_key = Arc::new(AtomicBool::new(false));
     let latest = Arc::new(Mutex::new(None::<Frame>));
     decode_thread(video_rx, latest.clone(), need_key.clone());
+    let mut screen = screen_of(&canvas, &video);
+    net::set_screen(screen.0, screen.1);
     net::start(canvas.output_size()?, video_tx, audio_tx, need_key);
     clip::start();
+    update::check(false);
+    let mut newer_told = false;
+    let mut last_area = canvas.output_size()?;
+    let mut last_screen_look = Instant::now();
+    let mut cursor_said = Instant::now();
     let words = overlay::Overlay::new();
     let mut shown = (String::new(), String::new());
     let mut notice = net::Notice::default();
@@ -305,6 +339,21 @@ fn main() -> Result<(), String> {
     let mut pressed = [false; 4];
     'run: loop {
         let area = canvas.output_size()?;
+        // Another screen with another scale changes the pixels without a resize: the phone hears of it the same way
+        if area != last_area {
+            last_area = area;
+            resize_at = Some(Instant::now() + RESIZE_SETTLE);
+            dirty = true;
+        }
+        if last_screen_look.elapsed() >= SCREEN_LOOK {
+            last_screen_look = Instant::now();
+            let now = screen_of(&canvas, &video);
+            if now != screen {
+                screen = now;
+                net::set_screen(now.0, now.1);
+                resize_at = Some(Instant::now() + RESIZE_SETTLE);
+            }
+        }
         let points = canvas.window().size();
         let scale = area.0 as f32 / points.0.max(1) as f32;
         let fullscreen = canvas.window().fullscreen_state() != FullscreenType::Off;
@@ -313,9 +362,9 @@ fn main() -> Result<(), String> {
             bar_scale = scale;
             bar_actions = features_actions;
             bar_labels.clear();
-            for (name, action) in if features_actions { &BAR_ACTIONS } else { &BAR } {
+            for (name, action) in bar(features_actions) {
                 if let Some(image) = words.label(name, BAR_TEXT * scale) {
-                    bar_labels.push((*action, words_texture(&creator, &image)?));
+                    bar_labels.push((action, words_texture(&creator, &image)?));
                 }
             }
         }
@@ -346,7 +395,11 @@ fn main() -> Result<(), String> {
                     }
                 }
                 Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::FocusGained => tap::FOCUSED.store(true, Ordering::Relaxed),
+                    WindowEvent::FocusGained => {
+                        tap::FOCUSED.store(true, Ordering::Relaxed);
+                        // Coming to the front, macOS shows the pointer again whatever was asked before
+                        cursor_stale = true;
+                    }
                     WindowEvent::FocusLost => {
                         tap::FOCUSED.store(false, Ordering::Relaxed);
                         inside_changed();
@@ -419,8 +472,10 @@ fn main() -> Result<(), String> {
                     }
                 }
                 Event::MouseWheel { precise_x, precise_y, .. } if !tap::RELEASED.load(Ordering::Relaxed) && apps.is_none() => {
-                    scroll.0 += precise_y;
-                    scroll.1 += precise_x;
+                    // Only a wheel or a trackpad the event tap did not take: without FEATURES bit 4, or the window not in front
+                    let speed = net::scroll_speed();
+                    scroll.0 += precise_y * speed;
+                    scroll.1 += precise_x * speed;
                     let (dy, dx) = (scroll.0.trunc(), scroll.1.trunc());
                     if dy != 0.0 || dx != 0.0 {
                         scroll.0 -= dy;
@@ -456,9 +511,14 @@ fn main() -> Result<(), String> {
                     low_latency = !low_latency;
                     set_vsync(&canvas, !low_latency);
                     net::save("low_latency", if low_latency { "1" } else { "0" });
-                    net::toast(if low_latency { "低延迟模式：开" } else { "低延迟模式：关（垂直同步）" });
+                    net::toast(if low_latency { tr("低延迟模式：开", "Low latency: on") } else { tr("低延迟模式：关（垂直同步）", "Low latency: off (vertical sync)") });
                 }
                 ACT_DISCONNECT => net::disconnect(),
+                ACT_ABOUT => {
+                    net::toast(&format!("XDesk {}", update::version()));
+                    update::open_release(None);
+                }
+                ACT_UPDATE => update::check(true),
                 _ => {}
             }
         }
@@ -499,6 +559,14 @@ fn main() -> Result<(), String> {
             apps = None;
             dirty = true;
         }
+        tap::LIST_OPEN.store(apps.is_some(), Ordering::Relaxed);
+        if !newer_told {
+            if let Some(v) = update::newer() {
+                newer_told = true;
+                net::toast(&format!("{}{v}{}", tr("有新版本：", "A newer version is out: "), tr("（菜单 › 手机 › 检查更新）", " (menu › Phone › Check for updates)")));
+                notice_width = 0;
+            }
+        }
         // The picture contains the desktop's cursor (INPUT_MODE 3, FEATURES bit 3): this computer's own pointer
         // must not double it over the picture. Over the receiver's own bar and lists it stays visible.
         if streaming {
@@ -507,9 +575,10 @@ fn main() -> Result<(), String> {
                 mouse.0 >= px && mouse.0 < px + pw as i32 && mouse.1 >= py && mouse.1 < py + ph as i32
             };
             let hide = net::picture_cursor() && over_picture;
-            if hide != cursor_hidden || cursor_stale {
+            if hide != cursor_hidden || cursor_stale || (hide && cursor_said.elapsed() >= CURSOR_AGAIN) {
                 cursor_hidden = hide;
                 cursor_stale = false;
+                cursor_said = Instant::now();
                 unsafe { sdl2::sys::SDL_ShowCursor(if hide { 0 } else { 1 }) };
             }
         } else if cursor_hidden || cursor_stale {
@@ -519,7 +588,7 @@ fn main() -> Result<(), String> {
         }
         if let Some(found) = net::take_apps() {
             if found.is_empty() {
-                net::toast("还没有最近打开的应用");
+                net::toast(tr("还没有最近打开的应用", "No recent apps yet"));
             } else {
                 let mut rows = Vec::new();
                 for (key, name) in found.into_iter().take(LIST_MAX_ROWS) {
@@ -545,11 +614,13 @@ fn main() -> Result<(), String> {
         }
         let current = net::notice();
         let wanted = if !tap_ready {
-            (NEEDS_ACCESS.to_string(), String::new())
+            (needs_access().to_string(), String::new())
         } else if streaming {
             (net::current_toast(), String::new())
         } else {
-            (current.line.clone(), current.big.clone())
+            // A toast also shows without a picture (an update found, the version), in place of the line for a while
+            let toast = net::current_toast();
+            (if toast.is_empty() { current.line.clone() } else { toast }, current.big.clone())
         };
         if current != notice || area.0 != notice_width || streaming != was_streaming || wanted != shown {
             notice = current;
@@ -557,7 +628,10 @@ fn main() -> Result<(), String> {
             notice_width = area.0;
             was_streaming = streaming;
             dirty = true;
-            let title = if notice.line.is_empty() { "XDesk".to_string() } else { format!("XDesk: {}", notice.line) };
+            let mut title = if notice.line.is_empty() { "XDesk".to_string() } else { format!("XDesk: {}", notice.line) };
+            if let Some(v) = update::newer() {
+                title = format!("{title} — {}{v}", tr("有新版本 ", "update "));
+            }
             canvas.window_mut().set_title(&title).map_err(|e| e.to_string())?;
             notice_image = match words.render(&shown.0, &shown.1, area.0) {
                 Some(image) => Some(words_texture(&creator, &image)?),

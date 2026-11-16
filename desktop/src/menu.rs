@@ -1,6 +1,7 @@
-//! A "手机" menu in the Mac's menu bar, doing what the keyboard chords and the bar on the picture do.
+//! A "手机" (Phone) menu in the Mac's menu bar, doing what the keyboard chords and the bar on the picture do.
 
 use crate::clip::{class, selector, send0, send1, Id};
+use crate::lang::tr;
 use crate::tap;
 use std::ffi::{c_char, c_void, CString};
 use std::ptr::null_mut;
@@ -15,15 +16,20 @@ extern "C" {
     fn objc_autoreleasePoolPop(pool: Id);
 }
 
-const ITEMS: [(&str, u8); 7] = [
-    ("返回    ⌃⌥B", tap::ACT_BACK),
-    ("主页    ⌃⌥H", tap::ACT_HOME),
-    ("最近任务    ⌃⌥R", tap::ACT_RECENTS),
-    ("全屏    ⌃⌥F", tap::ACT_FULLSCREEN),
-    ("延迟面板    ⌃⌥D", tap::ACT_PANEL),
-    ("低延迟模式    ⌃⌥L", tap::ACT_LOW_LATENCY),
-    ("断开手机", tap::ACT_DISCONNECT),
-];
+fn items() -> [(&'static str, u8); 9] {
+    [
+        (tr("返回    ⌃⌥B", "Back    ⌃⌥B"), tap::ACT_BACK),
+        (tr("主页    ⌃⌥H", "Home    ⌃⌥H"), tap::ACT_HOME),
+        // A phone from before 0.6 shows its recent apps here instead
+        (tr("总览    ⌃⌥R", "Overview    ⌃⌥R"), tap::ACT_RECENTS),
+        (tr("全屏    ⌃⌥F", "Full screen    ⌃⌥F"), tap::ACT_FULLSCREEN),
+        (tr("延迟面板    ⌃⌥D", "Latency panel    ⌃⌥D"), tap::ACT_PANEL),
+        (tr("低延迟模式    ⌃⌥L", "Low latency    ⌃⌥L"), tap::ACT_LOW_LATENCY),
+        (tr("断开手机", "Disconnect the phone"), tap::ACT_DISCONNECT),
+        (tr("检查更新", "Check for updates"), tap::ACT_UPDATE),
+        (tr("关于 XDesk", "About XDesk"), tap::ACT_ABOUT),
+    ]
+}
 
 extern "C" fn clicked(_this: Id, _selector: Id, sender: Id) {
     tap::request(unsafe { send0(sender, "tag") } as usize as u8);
@@ -52,14 +58,14 @@ pub fn install() {
             let target = send0(send0(kind, "alloc"), "init");
             let new_item: extern "C" fn(Id, Id, Id, Id, Id) -> Id = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
             let empty = text("");
-            let menu = with_title("NSMenu", "initWithTitle:", "手机");
-            for (title, action) in ITEMS {
+            let menu = with_title("NSMenu", "initWithTitle:", tr("手机", "Phone"));
+            for (title, action) in items() {
                 let item = new_item(send0(class("NSMenuItem"), "alloc"), selector("initWithTitle:action:keyEquivalent:"), text(title), selector("clicked:"), empty);
                 send1(item, "setTarget:", target);
                 send1(item, "setTag:", action as usize as Id);
                 send1(menu, "addItem:", item);
             }
-            let holder = new_item(send0(class("NSMenuItem"), "alloc"), selector("initWithTitle:action:keyEquivalent:"), text("手机"), null_mut(), empty);
+            let holder = new_item(send0(class("NSMenuItem"), "alloc"), selector("initWithTitle:action:keyEquivalent:"), text(tr("手机", "Phone")), null_mut(), empty);
             send1(holder, "setSubmenu:", menu);
             send1(main, "addItem:", holder);
         }

@@ -1,0 +1,3 @@
+/* The permission questions in Chinese (Info.plist has them in English) */
+"NSLocalNetworkUsageDescription" = "XDesk 用本地网络让手机找到这台电脑并连接。";
+"NSDownloadsFolderUsageDescription" = "XDesk 把手机发来的文件保存到“下载”。";

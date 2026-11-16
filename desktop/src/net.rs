@@ -7,9 +7,11 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
+use crate::lang::tr;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const RECEIVER_PORT: u16 = 47140;
@@ -40,6 +42,8 @@ const KEYBOARD: u8 = 32;
 pub const FEATURE_ACTIONS: u32 = 1;
 pub const FEATURE_RAW_COMMAND: u32 = 2;
 pub const FEATURE_PICTURE_CURSOR: u32 = 8;
+/// FEATURES bit 4: the phone takes SCROLL_FINE (33), fractions of a wheel step with their phase (MACAPP.md §2).
+pub const FEATURE_SCROLL_FINE: u32 = 16;
 /// What the phone said in FEATURES, 0 until it does (an old phone never sends it).
 static FEATURES_BITS: AtomicU32 = AtomicU32::new(0);
 /// INPUT_MODE 3: the desktop's cursor is in the picture; this computer's own pointer must not double it.
@@ -55,8 +59,10 @@ const IN_KEY: u8 = 23;
 const IN_TEXT: u8 = 24;
 const IN_ABS: u8 = 25;
 const IN_LAYOUT: u8 = 26;
+const IN_SCROLL_FINE: u8 = 33;
 const WELCOME_OK: u8 = 0;
 const WELCOME_PAIR: u8 = 1;
+const WELCOME_BUSY: u8 = 2;
 const WELCOME_VERSION: u8 = 3;
 const WELCOME_REFUSED: u8 = 4;
 const CHALLENGE: u8 = 5;
@@ -69,6 +75,18 @@ const LOST_AFTER: Duration = Duration::from_secs(6);
 const PING_AFTER: Duration = Duration::from_secs(2);
 /// How long "connection lost" stays up before going back to how to connect.
 const RECONNECT_NOTICE: Duration = Duration::from_secs(9);
+// Pairing, as XDesk Receiver does it (PROTOCOL.md): connections that have not proved themselves, how long they get, and
+// failed pairings per address before a lockout, from anyone within a window, and in all until one succeeds
+const MAX_UNPROVEN: usize = 16;
+const MAX_UNPROVEN_PER_ADDRESS: usize = 4;
+const HELLO_WITHIN: Duration = Duration::from_secs(10);
+const PAIRING_WITHIN: Duration = Duration::from_secs(120);
+const ADDRESS_FAILURES: u32 = 3;
+const ALL_FAILURES: usize = 10;
+const TOTAL_FAILURES: u32 = 30;
+const LOCKOUT: Duration = Duration::from_secs(60);
+const ALL_WINDOW: Duration = Duration::from_secs(600);
+const ALL_LOCKOUT: Duration = Duration::from_secs(600);
 
 pub enum Out {
     Key(u16, bool),
@@ -76,6 +94,8 @@ pub enum Out {
     Abs(u16, u16),
     Button(u8, bool),
     Scroll(i16, i16),
+    /// dy, dx in 1/120 of a wheel step, and the phase (0 a wheel, 1 began, 2 changed, 3 ended, 4 to 6 the coast).
+    ScrollFine(i16, i16, u8),
     Layout(String),
     Size(u32, u32),
     Clipboard(String),
@@ -117,6 +137,141 @@ static USER_ENDED: AtomicBool = AtomicBool::new(false);
 /// The same, for the cable: no connecting over it again until it is plugged in again.
 static USB_ON_HOLD: AtomicBool = AtomicBool::new(false);
 static APPS_LIST: Mutex<Option<Vec<(String, String)>>> = Mutex::new(None);
+/// The window's density as the phone counts it, 160 per point's pixel (a Retina window is 320), and the screen's
+/// refresh rate: told in WELCOME and, the density, with every SIZE.
+static DENSITY: AtomicU32 = AtomicU32::new(160);
+static REFRESH: AtomicU32 = AtomicU32::new(60);
+/// The phone's scroll speed (SETTINGS), 1 the default, as f32 bits.
+static SCROLL_SPEED: AtomicU32 = AtomicU32::new(0x3f80_0000);
+/// The phone streaming here: only it may take over (a new cable, a new network); another one gets BUSY.
+static CURRENT_PHONE: Mutex<Option<String>> = Mutex::new(None);
+static GUARD: LazyLock<Mutex<Guard>> = LazyLock::new(|| Mutex::new(Guard::default()));
+
+/// What keeps the 4-digit code from being guessed (PROTOCOL.md, as XDesk Receiver does it).
+#[derive(Default)]
+struct Guard {
+    unproven: HashMap<IpAddr, usize>,
+    unproven_total: usize,
+    address_failures: HashMap<IpAddr, u32>,
+    locked_until: HashMap<IpAddr, Instant>,
+    all_failures: VecDeque<Instant>,
+    all_locked_until: Option<Instant>,
+    total_failures: u32,
+    closed: bool,
+    /// The same code across connections until it is entered right, or wrong 3 times.
+    code: Option<String>,
+    wrong: u32,
+}
+
+enum Code {
+    Right,
+    Wrong,
+    Refused,
+}
+
+impl Guard {
+    fn locked_out(&mut self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        if self.closed || self.all_locked_until.is_some_and(|t| t > now) {
+            return true;
+        }
+        match self.locked_until.get(&ip) {
+            Some(t) if *t > now => true,
+            _ => {
+                self.locked_until.remove(&ip);
+                false
+            }
+        }
+    }
+
+    /// A wrong code, or a pairing given up without one. True when that locks this address out.
+    fn failed(&mut self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mine = self.address_failures.get(&ip).copied().unwrap_or(0) + 1;
+        if mine >= ADDRESS_FAILURES {
+            self.address_failures.remove(&ip);
+            self.locked_until.insert(ip, now + LOCKOUT);
+        } else {
+            self.address_failures.insert(ip, mine);
+        }
+        self.all_failures.push_back(now);
+        while self.all_failures.front().is_some_and(|t| now.duration_since(*t) > ALL_WINDOW) {
+            self.all_failures.pop_front();
+        }
+        if self.all_failures.len() >= ALL_FAILURES && !self.all_locked_until.is_some_and(|t| t > now) {
+            self.all_failures.clear();
+            self.all_locked_until = Some(now + ALL_LOCKOUT);
+        }
+        self.total_failures += 1;
+        if self.total_failures >= TOTAL_FAILURES && !self.closed {
+            eprintln!("too many failed pairings: closed until XDesk is opened again");
+            self.closed = true;
+        }
+        self.locked_out(ip)
+    }
+
+    fn pairing_code(&mut self) -> String {
+        if self.code.is_none() {
+            self.code = Some(random_hex(4).bytes().take(4).map(|b| char::from(b'0' + b % 10)).collect());
+            self.wrong = 0;
+        }
+        self.code.clone().unwrap()
+    }
+
+    fn check(&mut self, typed: &str, ip: IpAddr) -> Code {
+        if self.code.as_deref() == Some(typed.trim()) {
+            self.code = None;
+            self.address_failures.remove(&ip);
+            self.total_failures = 0;
+            return Code::Right;
+        }
+        self.wrong += 1;
+        if self.failed(ip) || self.wrong >= MAX_TRIES {
+            self.code = None;
+            return Code::Refused;
+        }
+        Code::Wrong
+    }
+}
+
+/// A connection that has not proved itself yet, counted until it does or closes.
+struct Unproven {
+    ip: Option<IpAddr>,
+}
+
+impl Unproven {
+    fn admit(ip: IpAddr) -> Option<Unproven> {
+        let mut g = GUARD.lock().unwrap();
+        let mine = g.unproven.get(&ip).copied().unwrap_or(0);
+        if g.unproven_total >= MAX_UNPROVEN || mine >= MAX_UNPROVEN_PER_ADDRESS {
+            return None;
+        }
+        g.unproven.insert(ip, mine + 1);
+        g.unproven_total += 1;
+        Some(Unproven { ip: Some(ip) })
+    }
+
+    fn proven(&mut self) {
+        if let Some(ip) = self.ip.take() {
+            let mut g = GUARD.lock().unwrap();
+            g.unproven_total -= 1;
+            match g.unproven.get(&ip).copied() {
+                Some(n) if n > 1 => {
+                    g.unproven.insert(ip, n - 1);
+                }
+                _ => {
+                    g.unproven.remove(&ip);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Unproven {
+    fn drop(&mut self) {
+        self.proven();
+    }
+}
 static FILES_WAITING: AtomicUsize = AtomicUsize::new(0);
 static FILES: OnceLock<Sender<PathBuf>> = OnceLock::new();
 
@@ -140,6 +295,22 @@ pub fn raw_command() -> bool {
 /// computer's own pointer over it.
 pub fn picture_cursor() -> bool {
     PICTURE_CURSOR.load(Ordering::Relaxed) && FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_PICTURE_CURSOR != 0
+}
+
+/// FEATURES bit 4: a trackpad's scrolling goes as SCROLL_FINE, with its fractions and phases.
+pub fn scroll_fine() -> bool {
+    FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_SCROLL_FINE != 0
+}
+
+/// The phone's scroll speed (SETTINGS `scrollSpeed`), 1 the default.
+pub fn scroll_speed() -> f32 {
+    f32::from_bits(SCROLL_SPEED.load(Ordering::Relaxed))
+}
+
+/// The screen the window is on: its density as the phone counts it (160 a pixel per point) and its refresh rate.
+pub fn set_screen(density: u32, refresh: u32) {
+    REFRESH.store(refresh.clamp(24, 240), Ordering::Relaxed);
+    DENSITY.store(density.clamp(80, 640), Ordering::Relaxed);
 }
 
 pub fn notice() -> Notice {
@@ -205,12 +376,17 @@ pub fn set_layout(layout: &str) {
 /// The window's size in pixels: the phone then draws what fills it, up to what the connection carries.
 pub fn set_window_size(w: u32, h: u32) {
     let size = even(w, h);
+    let density = DENSITY.load(Ordering::Relaxed);
     let mut wanted = WANTED.lock().unwrap();
-    if *wanted != size {
+    // Also for the density alone: the window went to a screen with another scale (MACAPP.md §3)
+    if *wanted != size || SENT_DENSITY.swap(density, Ordering::Relaxed) != density {
         *wanted = size;
         out(Out::Size(size.0, size.1));
     }
 }
+
+/// The density last told the phone, in WELCOME or SIZE.
+static SENT_DENSITY: AtomicU32 = AtomicU32::new(0);
 
 fn even(w: u32, h: u32) -> (u32, u32) {
     ((w & !1).max(320), (h & !1).max(240))
@@ -224,11 +400,22 @@ fn framed(kind: u8, payload: &[u8]) -> Vec<u8> {
     b
 }
 
-/// A boolean field of the SETTINGS JSON, if it has one. The phone is the only sender: no full JSON parsing.
-fn json_bool(json: &str, name: &str) -> Option<bool> {
+/// What follows a field's name in the SETTINGS JSON. The phone is the only sender: no full JSON parsing.
+fn json_value<'a>(json: &'a str, name: &str) -> Option<&'a str> {
     let key = format!("\"{name}\"");
     let at = json.find(&key)?;
-    let value = json[at + key.len()..].trim_start().strip_prefix(':')?.trim_start();
+    Some(json[at + key.len()..].trim_start().strip_prefix(':')?.trim_start())
+}
+
+fn json_number(json: &str, name: &str) -> Option<f32> {
+    let value = json_value(json, name)?;
+    let end = value.find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))).unwrap_or(value.len());
+    value[..end].parse().ok().filter(|v: &f32| v.is_finite())
+}
+
+/// A boolean field of the SETTINGS JSON, if it has one.
+fn json_bool(json: &str, name: &str) -> Option<bool> {
+    let value = json_value(json, name)?;
     if value.starts_with("true") {
         Some(true)
     } else if value.starts_with("false") {
@@ -262,9 +449,14 @@ fn encoded(o: &Out) -> Vec<u8> {
         Out::FileData(d) => framed(FILE_DATA, d),
         Out::FileEnd => framed(FILE_END, &[]),
         Out::Bye => framed(BYE, &[]),
+        Out::ScrollFine(dy, dx, phase) => {
+            let (a, b) = (dy.to_be_bytes(), dx.to_be_bytes());
+            framed(IN_SCROLL_FINE, &[a[0], a[1], b[0], b[1], *phase])
+        }
         Out::Size(w, h) => {
             let (a, b) = ((*w as u16).to_be_bytes(), (*h as u16).to_be_bytes());
-            framed(SIZE, &[a[0], a[1], b[0], b[1], 0, 0])
+            let d = (DENSITY.load(Ordering::Relaxed) as u16).to_be_bytes();
+            framed(SIZE, &[a[0], a[1], b[0], b[1], d[0], d[1]])
         }
     }
 }
@@ -297,7 +489,7 @@ fn downloads() -> PathBuf {
 fn clean_file_name(name: &str) -> String {
     let clean = name.replace(['/', '\\', ':', '\0'], "_");
     let clean = clean.trim().trim_start_matches('.').to_string();
-    if clean.is_empty() { "文件".to_string() } else { clean }
+    if clean.is_empty() { tr("文件", "file").to_string() } else { clean }
 }
 
 /// The name in that folder, with a number when it is taken.
@@ -330,12 +522,12 @@ impl Stream {
         let part = downloads().join(format!(".{name}.{}.xdesk-part", random_hex(4)));
         match std::fs::File::create(&part) {
             Ok(file) => {
-                toast(&format!("正在接收：{name}"));
+                toast(&format!("{}{name}", tr("正在接收：", "Receiving ")));
                 self.incoming = Some(IncomingFile { file, part, name });
             }
             Err(e) => {
                 eprintln!("file: {e}");
-                toast(&format!("保存失败：{name}"));
+                toast(&format!("{}{name}", tr("保存失败：", "Could not save ")));
             }
         }
     }
@@ -343,7 +535,7 @@ impl Stream {
     fn file_data(&mut self, data: &[u8]) {
         let Some(i) = self.incoming.as_mut() else { return };
         if i.file.write_all(data).is_err() {
-            toast(&format!("保存失败：{}", i.name));
+            toast(&format!("{}{}", tr("保存失败：", "Could not save "), i.name));
             self.drop_file();
         }
     }
@@ -353,10 +545,10 @@ impl Stream {
         drop(i.file);
         let target = free_path(&downloads(), &i.name);
         match std::fs::rename(&i.part, &target) {
-            Ok(()) => toast(&format!("已收到，在“下载”里：{}", i.name)),
+            Ok(()) => toast(&format!("{}{}", tr("已收到，在“下载”里：", "Received, in Downloads: "), i.name)),
             Err(_) => {
                 let _ = std::fs::remove_file(&i.part);
-                toast(&format!("保存失败：{}", i.name));
+                toast(&format!("{}{}", tr("保存失败：", "Could not save "), i.name));
             }
         }
     }
@@ -403,8 +595,13 @@ impl Stream {
             SETTINGS => {
                 // {"naturalScroll":true,...}: the phone's input settings, every field optional (INPUT.md §12).
                 // A mouse receiver has no speeds of its own: only the wheel direction applies here
-                if let Some(natural) = json_bool(&String::from_utf8_lossy(p), "naturalScroll") {
+                let json = String::from_utf8_lossy(p);
+                if let Some(natural) = json_bool(&json, "naturalScroll") {
                     NATURAL_SCROLL.store(natural, Ordering::Relaxed);
+                }
+                // The wheel and the trackpad scroll this much faster (INPUT.md §12); the pointer is placed, not moved
+                if let Some(speed) = json_number(&json, "scrollSpeed") {
+                    SCROLL_SPEED.store(speed.clamp(0.25, 4.0).to_bits(), Ordering::Relaxed);
                 }
             }
             FILE_START => self.file_start(&String::from_utf8_lossy(p)),
@@ -421,7 +618,17 @@ impl Stream {
     }
 }
 
-fn read_string(s: &mut TcpStream) -> std::io::Result<String> {
+/// Before each read the socket gets what is left of the time this step has, so slow bytes cannot hold it longer.
+fn by(s: &TcpStream, until: Instant) -> std::io::Result<()> {
+    let left = until.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Err(ErrorKind::TimedOut.into());
+    }
+    s.set_read_timeout(Some(left))
+}
+
+fn read_string(s: &mut TcpStream, until: Instant) -> std::io::Result<String> {
+    by(s, until)?;
     let mut len = [0u8; 2];
     s.read_exact(&mut len)?;
     let n = u16::from_be_bytes(len) as usize;
@@ -429,6 +636,7 @@ fn read_string(s: &mut TcpStream) -> std::io::Result<String> {
         return Err(ErrorKind::InvalidData.into());
     }
     let mut b = vec![0u8; n];
+    by(s, until)?;
     s.read_exact(&mut b)?;
     Ok(String::from_utf8_lossy(&b).into_owned())
 }
@@ -444,14 +652,21 @@ fn proof(token: &str, label: &str, phone: &str, receiver: &str, phone_nonce: &st
     mac.finalize().into_bytes().iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Compared in the same time whatever the bytes, so the answer cannot be found a byte at a time.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
+}
+
 fn welcome_ok(s: &mut TcpStream, id: &str, name: &str, token: &str) -> std::io::Result<()> {
     let (w, h) = *WANTED.lock().unwrap();
+    let density = DENSITY.load(Ordering::Relaxed);
+    SENT_DENSITY.store(density, Ordering::Relaxed);
     let mut b = vec![WELCOME_OK];
     put_string(&mut b, id);
     put_string(&mut b, name);
     put_string(&mut b, token);
-    for v in [w as u16, h as u16, 160, 60] {
-        b.extend_from_slice(&v.to_be_bytes());
+    for v in [w, h, density, REFRESH.load(Ordering::Relaxed)] {
+        b.extend_from_slice(&(v as u16).to_be_bytes());
     }
     b.push(CODECS);
     s.write_all(&b)
@@ -464,23 +679,34 @@ fn welcome(s: &mut TcpStream, status: u8, id: &str, name: &str) -> std::io::Resu
     s.write_all(&b)
 }
 
-/// True when the phone may stream to this computer.
-fn handshake(s: &mut TcpStream, id: &str, name: &str) -> std::io::Result<bool> {
+/// The phone streaming here may come again on a new connection (another cable, another network); a phone that is not
+/// streaming here may come when none is.
+fn may_take(phone: &str, proven: bool) -> bool {
+    match CURRENT_PHONE.lock().unwrap().as_deref() {
+        None => true,
+        Some(current) => proven && current == phone,
+    }
+}
+
+/// The phone's id when it may stream to this computer.
+fn handshake(s: &mut TcpStream, id: &str, name: &str, ip: IpAddr, unproven: &mut Unproven) -> std::io::Result<Option<String>> {
+    let hello_until = Instant::now() + HELLO_WITHIN;
     let mut head = [0u8; 5];
+    by(s, hello_until)?;
     s.read_exact(&mut head)?;
     if &head[..4] != b"XDSK" {
-        return Ok(false);
+        return Ok(None);
     }
     if head[4] != PROTOCOL_VERSION {
         welcome(s, WELCOME_VERSION, id, name)?;
-        say("手机上的 XDesk 版本和这个程序不匹配，请更新", "");
-        return Ok(false);
+        say(tr("手机上的 XDesk 版本和这个程序不匹配，请把两边都更新到最新", "XDesk on the phone and this app do not match: update both"), "");
+        return Ok(None);
     }
-    let phone = read_string(s)?;
-    let phone_name = read_string(s)?;
-    let phone_nonce = read_string(s)?;
+    let phone = read_string(s, hello_until)?;
+    let phone_name = read_string(s, hello_until)?;
+    let phone_nonce = read_string(s, hello_until)?;
     if !phone.chars().all(|c| c.is_ascii_hexdigit()) || phone.len() != 32 {
-        return Ok(false);
+        return Ok(None);
     }
     let token_file = format!("phone_{phone}");
     let token = load(&token_file);
@@ -491,25 +717,59 @@ fn handshake(s: &mut TcpStream, id: &str, name: &str) -> std::io::Result<bool> {
     put_string(&mut b, &nonce);
     put_string(&mut b, &if token.is_empty() { String::new() } else { proof(&token, "receiver", &phone, id, &phone_nonce, &nonce) });
     s.write_all(&b)?;
-    let answer = read_string(s)?;
-    if !token.is_empty() && answer == proof(&token, "phone", &phone, id, &phone_nonce, &nonce) {
-        welcome_ok(s, id, name, "")?;
-        return Ok(true);
+    let answer = read_string(s, hello_until)?;
+    let proven = !token.is_empty() && same(&answer, &proof(&token, "phone", &phone, id, &phone_nonce, &nonce));
+    if !proven && GUARD.lock().unwrap().locked_out(ip) {
+        welcome(s, WELCOME_REFUSED, id, name)?;
+        return Ok(None);
     }
-    let code: String = random_hex(4).bytes().take(4).map(|b| char::from(b'0' + b % 10)).collect();
-    say(&format!("在 {phone_name} 上输入这个配对码"), &code);
-    for _ in 0..MAX_TRIES {
-        welcome(s, WELCOME_PAIR, id, name)?;
-        if read_string(s)? == code {
-            let new_token = random_hex(32);
-            save(&token_file, &new_token);
-            welcome_ok(s, id, name, &new_token)?;
-            return Ok(true);
+    if !may_take(&phone, proven) {
+        welcome(s, WELCOME_BUSY, id, name)?;
+        return Ok(None);
+    }
+    if proven {
+        unproven.proven();
+        welcome_ok(s, id, name, "")?;
+        return Ok(Some(phone));
+    }
+    let code = GUARD.lock().unwrap().pairing_code();
+    let shown = format!("{} {phone_name} {}", tr("在", "Type this code on"), tr("上输入这个配对码", ""));
+    say(shown.trim(), &code);
+    let pair_until = Instant::now() + PAIRING_WITHIN;
+    let mut typed_any = false;
+    let result = (|| -> std::io::Result<Option<String>> {
+        loop {
+            welcome(s, WELCOME_PAIR, id, name)?;
+            let typed = read_string(s, pair_until)?;
+            typed_any = true;
+            let verdict = GUARD.lock().unwrap().check(&typed, ip);
+            match verdict {
+                Code::Right => {
+                    let new_token = random_hex(32);
+                    save(&token_file, &new_token);
+                    unproven.proven();
+                    welcome_ok(s, id, name, &new_token)?;
+                    return Ok(Some(phone.clone()));
+                }
+                Code::Wrong => {}
+                Code::Refused => {
+                    welcome(s, WELCOME_REFUSED, id, name)?;
+                    say(tr("配对码错太多次，请稍后重新连接", "Too many wrong codes: connect again later"), "");
+                    return Ok(None);
+                }
+            }
+        }
+    })();
+    if !matches!(result, Ok(Some(_))) {
+        // Given up without a code counts as a failed pairing too; the code goes from the window either way
+        if !typed_any {
+            GUARD.lock().unwrap().failed(ip);
+        }
+        if notice().big == code {
+            say(how_to_connect(), "");
         }
     }
-    welcome(s, WELCOME_REFUSED, id, name)?;
-    say("配对码错太多次，请重新连接", "");
-    Ok(false)
+    result
 }
 
 /// This computer's other addresses, for when the phone loses the one in use.
@@ -541,7 +801,8 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
     KEEP_PICTURE.store(true, Ordering::Relaxed);
     // A phone that never sends SETTINGS gets the defaults, not the last phone's
     NATURAL_SCROLL.store(true, Ordering::Relaxed);
-    say(if usb { "已通过 USB 连接" } else { "已通过 Wi-Fi 连接" }, "");
+    SCROLL_SPEED.store(1f32.to_bits(), Ordering::Relaxed);
+    say(if usb { tr("已通过 USB 连接", "Connected over USB") } else { tr("已通过 Wi-Fi 连接", "Connected over Wi-Fi") }, "");
     while rx.try_recv().is_ok() {}
     crate::clip::baseline();
     let layout = LAYOUT.lock().unwrap().clone();
@@ -616,15 +877,21 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
 
 fn connection(mut s: TcpStream, id: &str, name: &str, rx: &Mutex<Receiver<Out>>, sinks: &Sinks) {
     let _ = s.set_nodelay(true);
-    if s.set_read_timeout(Some(Duration::from_secs(120))).is_err() || !matches!(handshake(&mut s, id, name), Ok(true)) {
-        return;
-    }
+    let Ok(ip) = s.peer_addr().map(|a| a.ip()) else { return };
+    // Connections that have not proved themselves are few, and each gets 10 seconds, a pairing 2 minutes
+    let Some(mut unproven) = Unproven::admit(ip) else { return };
+    let phone = match handshake(&mut s, id, name, ip, &mut unproven) {
+        Ok(Some(phone)) => phone,
+        _ => return,
+    };
+    drop(unproven);
     // The phone is back or has moved to another cable: this one replaces whatever it had before
     if let Some(old) = CURRENT.lock().unwrap().take() {
         let _ = old.shutdown(Shutdown::Both);
     }
     let mine = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     *CURRENT.lock().unwrap() = s.try_clone().ok();
+    *CURRENT_PHONE.lock().unwrap() = Some(phone);
     let rx = rx.lock().unwrap();
     let ended = stream_until_end(s, &rx, sinks).unwrap_or_else(|e| {
         eprintln!("connection ended: {e}");
@@ -635,15 +902,16 @@ fn connection(mut s: TcpStream, id: &str, name: &str, rx: &Mutex<Receiver<Out>>,
         return;
     }
     *CURRENT.lock().unwrap() = None;
+    *CURRENT_PHONE.lock().unwrap() = None;
     crate::tap::DESKTOP.store(false, Ordering::Relaxed);
     STREAMING.store(false, Ordering::Relaxed);
     VIA_USB.store(false, Ordering::Relaxed);
     if ended || USER_ENDED.swap(false, Ordering::Relaxed) {
         KEEP_PICTURE.store(false, Ordering::Relaxed);
         *LOST_AT.lock().unwrap() = None;
-        say(HOW_TO_CONNECT, "");
+        say(how_to_connect(), "");
     } else {
-        say("连接断开，正在等手机重新连接", "");
+        say(tr("连接断开，正在等手机重新连接", "Connection lost, waiting for the phone to come back"), "");
         *LOST_AT.lock().unwrap() = Some(Instant::now());
     }
 }
@@ -683,18 +951,18 @@ pub fn send_file(path: PathBuf) {
 fn send_one_file(path: &std::path::Path) {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if !STREAMING.load(Ordering::Relaxed) {
-        toast("连上手机后才能传文件");
+        toast(tr("连上手机后才能传文件", "Connect the phone first to send files"));
         return;
     }
     let size = match std::fs::metadata(path) {
         Ok(m) if m.is_file() => m.len(),
         _ => {
-            toast(&format!("只能传文件，不能传文件夹：{name}"));
+            toast(&format!("{}{name}", tr("只能传文件，不能传文件夹：", "Only files, not folders: ")));
             return;
         }
     };
     let Ok(mut file) = std::fs::File::open(path) else {
-        toast(&format!("打不开：{name}"));
+        toast(&format!("{}{name}", tr("打不开：", "Cannot open ")));
         return;
     };
     let session = GENERATION.load(Ordering::Relaxed);
@@ -706,14 +974,14 @@ fn send_one_file(path: &std::path::Path) {
             std::thread::sleep(Duration::from_millis(3));
         }
         if !STREAMING.load(Ordering::Relaxed) || GENERATION.load(Ordering::Relaxed) != session {
-            toast(&format!("连接断了，没传完：{name}"));
+            toast(&format!("{}{name}", tr("连接断了，没传完：", "Connection lost before the end of ")));
             return;
         }
         let n = match file.read(&mut buffer) {
             Ok(n) => n,
             Err(_) => {
                 out(Out::FileStart(String::new()));
-                toast(&format!("读取失败：{name}"));
+                toast(&format!("{}{name}", tr("读取失败：", "Could not read ")));
                 return;
             }
         };
@@ -725,11 +993,11 @@ fn send_one_file(path: &std::path::Path) {
         sent += n as u64;
         if said.elapsed() > Duration::from_secs(1) && size > 0 {
             said = Instant::now();
-            toast(&format!("正在传 {name}：{}%", sent * 100 / size));
+            toast(&format!("{} {name}: {}%", tr("正在传", "Sending"), sent * 100 / size));
         }
     }
     out(Out::FileEnd);
-    toast(&format!("已传到手机的“下载”：{name}"));
+    toast(&format!("{}{name}", tr("已传到手机的“下载”：", "Sent to the phone's Downloads: ")));
 }
 
 /// In the phone's list of wireless displays for as long as this runs.
@@ -759,7 +1027,7 @@ pub fn goodbye() {
 
 fn listen(rx: Arc<Mutex<Receiver<Out>>>, sinks: Sinks, id: String, name: String) {
     let Ok(listener) = TcpListener::bind(("0.0.0.0", RECEIVER_PORT)) else {
-        say("端口被占用，可能已经开着另一个 XDesk", "");
+        say(tr("端口被占用，可能已经开着另一个 XDesk", "The port is in use: another XDesk may be open"), "");
         return;
     };
     *DAEMON.lock().unwrap() = announce(&id, &name);
@@ -786,23 +1054,26 @@ fn adb(path: &str, args: &[&str]) -> Option<String> {
 }
 
 /// Forwards the port to the phone and asks XDesk to connect here, opening it first if it is not running.
-fn connect_over_usb(path: &str, name: &str) {
+/// For one device by its serial: without it adb refuses as soon as two are plugged in.
+fn connect_over_usb(path: &str, serial: &str, name: &str) {
     let port = format!("tcp:{RECEIVER_PORT}");
-    if adb(path, &["reverse", &port, &port]).is_none() {
+    if adb(path, &["-s", serial, "reverse", &port, &port]).is_none() {
         return;
     }
-    let running = adb(path, &["shell", "pidof", PACKAGE]).is_some_and(|s| !s.trim().is_empty());
+    let running = adb(path, &["-s", serial, "shell", "pidof", PACKAGE]).is_some_and(|s| !s.trim().is_empty());
     if !running {
         let activity = format!("{PACKAGE}/com.termux.x11.XDeskActivity");
-        let _ = adb(path, &["shell", "am", "start", "-n", &activity]);
+        let _ = adb(path, &["-s", serial, "shell", "am", "start", "-n", &activity]);
         std::thread::sleep(Duration::from_millis(1500));
     }
     let receiver = format!("{PACKAGE}/com.termux.x11.ConnectReceiver");
     let quoted = format!("'{}'", name.replace('\'', ""));
-    let _ = adb(path, &["shell", "am", "broadcast", "-n", &receiver, "--es", "host", "127.0.0.1", "--ei", "port", &RECEIVER_PORT.to_string(), "--es", "name", &quoted]);
+    let _ = adb(path, &["-s", serial, "shell", "am", "broadcast", "-n", &receiver, "--es", "host", "127.0.0.1", "--ei", "port", &RECEIVER_PORT.to_string(), "--es", "name", &quoted]);
 }
 
-const HOW_TO_CONNECT: &str = "插上手机（打开 USB 调试），或者在手机的 XDesk 里选“连接接收器”";
+fn how_to_connect() -> &'static str {
+    tr("插上手机（打开 USB 调试），或者在手机的 XDesk 里选“连接接收器”", "Plug in the phone (with USB debugging on), or choose this computer in XDesk on the phone")
+}
 
 fn watch_usb(path: Option<String>, name: String) {
     let mut tries = 0;
@@ -810,7 +1081,8 @@ fn watch_usb(path: Option<String>, name: String) {
     loop {
         let devices = path.as_deref().and_then(|p| adb(p, &["devices"])).unwrap_or_default();
         let lines: Vec<&str> = devices.lines().skip(1).collect();
-        let up = lines.iter().any(|l| l.ends_with("\tdevice"));
+        let ready: Vec<&str> = lines.iter().filter_map(|l| l.strip_suffix("\tdevice")).collect();
+        let up = !ready.is_empty();
         let unauthorized = lines.iter().any(|l| l.ends_with("\tunauthorized"));
         if up && !was_up {
             tries = USB_TRIES;
@@ -824,9 +1096,11 @@ fn watch_usb(path: Option<String>, name: String) {
             tries -= 1;
             if let Some(p) = &path {
                 if !streaming {
-                    say("已插线，正在连接手机", "");
+                    say(tr("已插线，正在连接手机", "Cable in, connecting to the phone"), "");
                 }
-                connect_over_usb(p, &name);
+                for serial in &ready {
+                    connect_over_usb(p, serial, &name);
+                }
             }
         } else if !streaming {
             let lost = LOST_AT.lock().unwrap().is_some_and(|t| t.elapsed() < RECONNECT_NOTICE);
@@ -836,11 +1110,11 @@ fn watch_usb(path: Option<String>, name: String) {
             }
             if !lost && !pairing {
                 if unauthorized {
-                    say("在手机上点“允许”这台电脑的 USB 调试", "");
+                    say(tr("在手机上点“允许”这台电脑的 USB 调试", "On the phone, allow USB debugging for this computer"), "");
                 } else if up {
-                    say("已插线，在手机的 XDesk 里连接这台电脑，或者重新插一次线", "");
+                    say(tr("已插线，在手机的 XDesk 里连接这台电脑，或者重新插一次线", "Cable in: connect to this computer in XDesk on the phone, or plug the cable in again"), "");
                 } else {
-                    say(HOW_TO_CONNECT, "");
+                    say(how_to_connect(), "");
                 }
             }
         }
@@ -862,7 +1136,7 @@ pub fn start(size: (u32, u32), video: SyncSender<Video>, audio: Sender<Vec<i16>>
     *WANTED.lock().unwrap() = even(size.0, size.1);
     let saved = load("layout");
     *LAYOUT.lock().unwrap() = if saved.is_empty() { "us".into() } else { saved };
-    say(HOW_TO_CONNECT, "");
+    say(how_to_connect(), "");
     let (id, name) = (stored_id("receiver_id"), computer_name());
     let sinks = Sinks { video, audio, keyframe };
     let rx = Arc::new(Mutex::new(rx));

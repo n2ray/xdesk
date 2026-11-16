@@ -8,6 +8,8 @@ identity=${2:--}
 cd "$(dirname "$0")/.."
 export CMAKE_POLICY_VERSION_MINIMUM=3.5
 export MACOSX_DEPLOYMENT_TARGET=12.0
+# The app shows and compares its own version (update.rs)
+export XDESK_VERSION="$version"
 cargo build --release --no-default-features --features bundled-sdl --target-dir target/bundled --color never
 rm -rf target/package
 app=target/package/XDesk.app
@@ -15,6 +17,9 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/bundled/release/xdesk-desktop "$app/Contents/MacOS/"
 sed "s/@VERSION@/$version/g" packaging/Info.plist > "$app/Contents/Info.plist"
 cp packaging/XDesk.icns "$app/Contents/Resources/"
+# The permission questions in the Mac's language: English in Info.plist, Chinese here
+mkdir -p "$app/Contents/Resources/zh-Hans.lproj" "$app/Contents/Resources/en.lproj"
+cp packaging/zh-Hans.lproj/InfoPlist.strings "$app/Contents/Resources/zh-Hans.lproj/"
 tools=$(mktemp -d)
 curl -fsSL -o "$tools/tools.zip" https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
 unzip -q "$tools/tools.zip" -d "$tools"

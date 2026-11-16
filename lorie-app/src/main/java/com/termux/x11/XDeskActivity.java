@@ -959,6 +959,11 @@ public class XDeskActivity extends Activity {
             if (receiverOverDrawn() && dockPointer.scroll(dy, dx)) return;
             remoteIn.scroll(dy, dx);
         }
+        @Override public boolean scrollFine(float dy, float dx, int phase) {
+            // A receiver's trackpad (SCROLL_FINE): smooth over X, a gesture to a Mac, whole steps to the rest (Router)
+            if (receiverOverDrawn() && dockPointer.scroll(dy, dx)) return true;
+            return remoteIn.scrollFine(dy, dx, phase);
+        }
         @Override public void key(int scan, boolean down) {
             // The receiver said what its keyboard is (KEYBOARD): tell the Router, which translates per target
             int kind = wireless.keyboardKind();
