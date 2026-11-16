@@ -619,6 +619,50 @@ check "install.sh rejects an invalid XDESK_VERSION" test "$rc" -ne 0
 check "install.sh names the invalid version" has_text "$out" "Invalid version"
 check "install.sh still ran no pkg for an invalid version" test ! -e "$TMP/pkg.log"
 
+# --- Release lines (CLI.md §1): which tag update asks for, without the network ---
+mkdir -p "$TMP/relbin"
+cat >"$TMP/relbin/curl" <<CURL
+#!/bin/sh
+for a; do u=\$a; done
+echo "\$u" >>"$TMP/curl.log"
+case "\$u" in
+*/releases/latest) echo '{"tag_name": "v0.5.1"}' ;;
+*'/releases?per_page=1') echo '{"tag_name": "v0.6.0-beta.5"}' ;;
+*) echo 404 ;;
+esac
+CURL
+chmod +x "$TMP/relbin/curl"
+rel() { PATH="$TMP/relbin:$PATH" bash "$@" 2>&1; }
+sed 's/^XDESK_CLI_VERSION=.*/XDESK_CLI_VERSION=0.6.0/' "$XDESK" >"$TMP/xdesk-stable"
+sed 's/^XDESK_CLI_VERSION=.*/XDESK_CLI_VERSION=0.6.0-beta.4/' "$XDESK" >"$TMP/xdesk-beta"
+out=$(rel "$TMP/xdesk-stable" update)
+check "update on a release stays on releases" has_text "$out" "Newest stable: v0.5.1"
+out=$(rel "$TMP/xdesk-beta" update)
+check "update on a beta takes the newest of all" has_text "$out" "Newest beta: v0.6.0-beta.5"
+out=$(rel "$TMP/xdesk-stable" update beta)
+check "update beta switches to the newest of all" has_text "$out" "Newest beta: v0.6.0-beta.5"
+out=$(rel "$TMP/xdesk-beta" update stable)
+check "update stable switches back to releases" has_text "$out" "Newest stable: v0.5.1"
+: >"$TMP/curl.log"
+out=$(rel "$TMP/xdesk-beta" update 0.6.0-beta.3)
+check "update VERSION asks for that tag only" has_text "$(cat "$TMP/curl.log")" "/releases/download/v0.6.0-beta.3/install.sh"
+check "update VERSION looks up no line" lacks_text "$(cat "$TMP/curl.log")" "api.github.com"
+check "update of a release without install.sh says it is too old" has_text "$out" "older than xdesk update supports"
+
+# --- A pid file from an older xdesk (no start time beside it) still counts for the process it names ---
+sleep 300 &
+old=$!
+printf '%s\n' "$old" >"$PREFIX/tmp/xdesk/session.pid"
+printf 'termux-xfce\n' >"$PREFIX/tmp/xdesk/session.name"
+rm -f "$PREFIX/tmp/xdesk/session.started"
+out=$(bash "$XDESK" status 2>/dev/null)
+check "a session from an older xdesk is still seen as running" has_line "$out" "Session: termux-xfce"
+touch -d '-1 hour' "$PREFIX/tmp/xdesk/session.pid"
+out=$(bash "$XDESK" status 2>/dev/null)
+check "a pid file older than its process is not trusted" has_line "$out" "Session: none"
+kill "$old" 2>/dev/null; wait "$old" 2>/dev/null
+rm -f "$PREFIX/tmp/xdesk/session.pid" "$PREFIX/tmp/xdesk/session.name"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

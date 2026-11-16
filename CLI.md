@@ -11,7 +11,8 @@
 
 - **版本号写进脚本。** 脚本里 `XDESK_CLI_VERSION=dev`；CI 发版时把 `out/xdesk` 里这一行改成发版的版本号（如 `0.6.0-beta.5`）。自己从仓库拷的脚本是 `dev`，App 不对 `dev` 提示。
 - **`xdesk version`**（也认 `--version`、`-V`）：打印 `xdesk 0.6.0-beta.5`。`xdesk status` 多一行 `xdesk: 0.6.0-beta.5`。
-- **`xdesk update [VERSION]`**：重新运行安装脚本，只更新命令（`XDESK_CLI_ONLY=1`：不下载 APK、不问 allow-external-apps、不跑 setup 以外的东西；loader 也换，便宜且无害）。不给版本就装最新的 Release（含测试版），给了就装 `vVERSION`。没网、校验不过时什么都不换，退出码非 0。
+- **版本线**（用户 2026-11-16 定，免得抓乱）：`xdesk update` 不带参数时跟着现在这条线走：命令是测试版（版本号带 `-`，或 `dev`）就装最新的一个（测试版或正式版谁新装谁，所以正式版发布后测试用户自然升上去），是正式版就装最新的正式版（GitHub 的 latest，永远不是测试版）。`xdesk update beta`、`xdesk update stable` 换线，`xdesk update 0.6.0-beta.5` 装这一个（App 用的就是这种）。安装脚本不带 `XDESK_VERSION` 时装最新正式版，`XDESK_VERSION=beta` 装最新的一个；App 复制的安装命令总是带 App 自己的版本。
+- **`xdesk update [beta|stable|VERSION]`**（以下为最初的说明，以上面的版本线为准）：重新运行安装脚本，只更新命令（`XDESK_CLI_ONLY=1`：不下载 APK、不问 allow-external-apps、不跑 setup 以外的东西；loader 也换，便宜且无害）。不给版本就装最新的 Release（含测试版），给了就装 `vVERSION`。没网、校验不过时什么都不换，退出码非 0。
 - **App 这边：**
   - 读到的命令版本比 App 的 `versionName` 旧（不是 `dev`；比 App 新的不提示，否则「更新」会把它降回去），或者命令太旧报不出版本：Termux 那一栏显示「xdesk 命令是 X，App 是 Y」和一个「更新命令」按钮。
   - 按钮：命令认 `update` 就经 RUN_COMMAND 后台跑 `xdesk update Y`，完了重新读状态；不认（太旧）就走现在的「复制安装命令、打开 Termux」，安装命令带 `XDESK_VERSION=vY`。

@@ -4,7 +4,7 @@
 
 **手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。外接屏首页和手机上的启动器是同一个，把光标向屏幕底边推会升起 Dock，用起来很像一台电脑。想要更多的话，还可以用 Termux 跑 Linux 桌面，把 Mac 的窗口和桌面搬到大屏上，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。配上手柄或键鼠，再开 GeForce NOW 这类云游戏，手机就是大屏上的一台[游戏主机](#游戏手机就是一台游戏主机)。
 
-> **0.6.0 是测试版（beta）。** 这一版重做了 XDesk 的内容和设备模型——手机、外接屏和 Dock 共用一个交换台，设备按需添加，支持 Mac，等等——测试得不如正式版充分。v0.5.1 仍是正式版。测试版都在[发布页](https://github.com/n2ray/xdesk/releases)上（最新的是 `v0.6.0-beta.4`），可以直接装到 0.5.1 上。
+> **0.6.0 是测试版（beta）。** 这一版重做了 XDesk 的内容和设备模型——手机、外接屏和 Dock 共用一个交换台，设备按需添加，支持 Mac，等等——测试得不如正式版充分。v0.5.1 仍是正式版。测试版都在[发布页](https://github.com/n2ray/xdesk/releases)上（最新的是 `v0.6.0-beta.5`），可以直接装到 0.5.1 上。
 
 | 屏幕 | 连接方式 |
 |---|---|
@@ -24,7 +24,7 @@
 
 ### 1 安装 App
 
-到[发布页](https://github.com/n2ray/xdesk/releases)下载 `xdesk.apk`（最新正式版，或 `v0.6.0-beta.1` 标签下的测试版），装上就行。如果文件管理器提示“未安装应用”，就用 `adb install -r xdesk.apk`；小米手机要先在开发者选项里打开 **USB 安装**。
+到[发布页](https://github.com/n2ray/xdesk/releases)下载 `xdesk.apk`（最新正式版，或最新的 `v0.6.0-beta` 标签下的测试版），装上就行。如果文件管理器提示“未安装应用”，就用 `adb install -r xdesk.apk`；小米手机要先在开发者选项里打开 **USB 安装**。
 
 v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测试签名，安卓不让直接升级，要先卸载旧版。
 
@@ -121,7 +121,15 @@ v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-安装脚本会先说明再询问，不会自己打开 `allow-external-apps`（Termux 里允许别的应用运行命令的开关），回答 `y` 才设置。然后它安装 `xdesk` 命令和加载器，找出你已有的桌面，还会下载 App，已经装过的话不用管。还没装桌面的话，可以运行 `pkg install xfce4 xfce4-terminal && xdesk setup`。
+安装脚本会先说明再询问，不会自己打开 `allow-external-apps`（Termux 里允许别的应用运行命令的开关），回答 `y` 才设置。然后它安装 `xdesk` 命令、加载器和窗口管理器（xfwm4），找出你已有的桌面和 proot-distro 容器，还会下载 App，已经装过的话不用管。
+
+它装的是最新的正式版。要装测试版：`curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | XDESK_VERSION=beta bash`。XDesk 帮你复制的安装命令总是带着 App 自己的版本，所以 App 和命令一定对得上。
+
+不装桌面也能用：你装的程序（`pkg install firefox`，或者装在 proot 容器里的）可以一个一个单独打开。之后再装的容器或桌面，XDesk 会自己发现。想要整个桌面的话，可以运行 `pkg install xfce4 xfce4-terminal`。
+
+- `xdesk doctor` 检查整套设置，发现问题会说怎么修：缺的包、声音、GPU（每个环境是硬件加速还是软件渲染）、字体。
+- `xdesk update` 沿着当前这条线更新命令（测试版一直跟测试版，直到下一个正式版）；`xdesk update beta`、`xdesk update stable` 换线。命令比 App 旧时，XDesk 自己会给出「更新命令」。
+- 程序打不开时，XDesk 会说原因：没装好、缺少库、崩溃、连不上显示，或者 GPU 出错（这时会自动用软件渲染再试一次）。
 
 > 运行之前建议先看看脚本：[install.sh](xdesk/install.sh)。
 

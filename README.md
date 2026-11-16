@@ -4,7 +4,7 @@
 
 **Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and a push of the pointer against the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
 
-> **0.6.0 is a beta.** It reworks how XDesk handles content and devices — one switchboard for the phone, the display and the docks, devices added on demand, Mac support, and more — and it has been tested less than the stable releases. v0.5.1 stays the stable version. The betas are published on the [releases](https://github.com/n2ray/xdesk/releases) page (the newest is `v0.6.0-beta.4`) and install over 0.5.1.
+> **0.6.0 is a beta.** It reworks how XDesk handles content and devices — one switchboard for the phone, the display and the docks, devices added on demand, Mac support, and more — and it has been tested less than the stable releases. v0.5.1 stays the stable version. The betas are published on the [releases](https://github.com/n2ray/xdesk/releases) page (the newest is `v0.6.0-beta.5`) and install over 0.5.1.
 
 | Screen | How it connects |
 |---|---|
@@ -24,7 +24,7 @@ Android 11 or newer (only tested on Android 16). No root, no computer and no oth
 
 ### 1 Install the app
 
-Download `xdesk.apk` from the [releases](https://github.com/n2ray/xdesk/releases) page (the latest stable, or the v0.6.0-beta.1 tag for the beta) and install it. If your file manager reports "app not installed", use `adb install -r xdesk.apk`; on Xiaomi phones, first turn on **USB install** in Developer options.
+Download `xdesk.apk` from the [releases](https://github.com/n2ray/xdesk/releases) page (the latest stable, or the newest v0.6.0-beta tag for the beta) and install it. If your file manager reports "app not installed", use `adb install -r xdesk.apk`; on Xiaomi phones, first turn on **USB install** in Developer options.
 
 From v0.2.0 the APK is signed with XDesk's own release key. v0.1.x used upstream's public test key, so Android refuses to update it: uninstall the old XDesk first.
 
@@ -101,7 +101,15 @@ This part needs [Termux](https://github.com/termux/termux-app). Run this in Term
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-The installer asks before it turns on `allow-external-apps` (Termux's switch that lets other apps run commands): it explains, and waits for a `y`. Then it installs the `xdesk` command and its loader, looks for desktops you already have, and downloads the app, which you can ignore if it is already installed. No desktop yet? For example: `pkg install xfce4 xfce4-terminal && xdesk setup`.
+The installer asks before it turns on `allow-external-apps` (Termux's switch that lets other apps run commands): it explains, and waits for a `y`. Then it installs the `xdesk` command, its loader and a window manager (xfwm4), looks for desktops and proot-distro containers you already have, and downloads the app, which you can ignore if it is already installed.
+
+It installs the newest stable release. For the beta: `curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | XDESK_VERSION=beta bash`. The install line XDesk copies for you always names the app's own version, so app and command match.
+
+No desktop is needed: the programs you install (`pkg install firefox`, or inside a proot container) open one by one. A container or desktop you install later shows up in XDesk by itself. Want a whole desktop too? For example: `pkg install xfce4 xfce4-terminal`.
+
+- `xdesk doctor` checks the setup and says how to fix what it finds: missing packages, sound, GPU (hardware or software rendering, per environment), fonts.
+- `xdesk update` updates the command along its line (a beta stays on betas until the next release); `xdesk update beta` or `xdesk update stable` switches lines. When the command is older than the app, XDesk offers **Update command** itself.
+- When a program does not open, XDesk says why: not installed, a missing library, a crash, no display, or a GPU failure (it then tries once more with software rendering).
 
 > Please read scripts before piping them to a shell: [install.sh](xdesk/install.sh).
 
