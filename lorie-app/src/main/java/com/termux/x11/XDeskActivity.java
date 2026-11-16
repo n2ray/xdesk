@@ -1377,6 +1377,7 @@ public class XDeskActivity extends Activity {
         updateReceiverSettings();
         externalDock = new ExternalDock(this, () -> apps.raiseCursor(), id -> apps.imeTop(id));
         apps.setBottomEdgeListener(externalDock);
+        apps.setPointerUseListener(() -> { ExternalDock d = externalDock; if (d != null) d.pointerUsed(); });
         notify = Notify.get(this);
         notify.attachActivity(this);
         notify.setRaiseAppCursor(() -> apps.raiseCursor());  // over an Android app its cursor stays above the centre

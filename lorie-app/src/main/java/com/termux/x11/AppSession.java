@@ -145,6 +145,7 @@ final class AppSession {
 
     private final IInjectorListener.Stub fromInjector = new IInjectorListener.Stub() {
         @Override public void onCursor(final int x, final int y) {
+            usedPointer();
             ui.post(() -> {
                 if (!active) return;
                 lastCursorX = x;
@@ -275,6 +276,7 @@ final class AppSession {
             webPointer = false;
         }
         @Override public void moveToFraction(float x, float y) {
+            usedPointer();
             // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice
             pointerAtHeight(y * cursorPolicy.height(), false);
             final int px = Math.round(x * (pointerWidth - 1)), py = Math.round(y * (cursorPolicy.height() - 1));
@@ -305,6 +307,7 @@ final class AppSession {
             } catch (RemoteException ignored) { }
         }
         @Override public void move(int dx, int dy) {
+            usedPointer();
             webPointer = false;
             IInjector i = injector;
             try {
@@ -322,6 +325,7 @@ final class AppSession {
             button(button, false);
         }
         @Override public void scroll(int dy, int dx) {
+            usedPointer();
             IInjector i = injector;
             try {
                 if (i != null) i.scroll(dy, dx);
@@ -480,6 +484,18 @@ final class AppSession {
 
     void setBottomEdgeListener(EdgeListener l) {
         bottomEdge = l;
+    }
+
+    private volatile Runnable pointerUse;
+
+    /** Told of every move and scroll of the pointer over the apps, on whatever thread it comes (ExternalDock.pointerUsed). */
+    void setPointerUseListener(Runnable r) {
+        pointerUse = r;
+    }
+
+    private void usedPointer() {
+        Runnable r = pointerUse;
+        if (r != null) r.run();
     }
 
     /** The notification centre's corner over an Android app (NOTIFY.md §4.1): the injector reports its pushes. */

@@ -70,6 +70,12 @@ final class ExternalDock implements AppSession.EdgeListener {
     private Context dc;
     private WindowManager windows;
     private View strip;
+    private WindowManager.LayoutParams stripParams;
+    /** The display's fastest mode (fastestMode), 0 without one; asked for only while the pointer is in use. */
+    private int fastMode;
+    private boolean fast;
+    private volatile long pointerUsedAt;
+    private volatile boolean fastWanted;
     private Panel panel;
     private boolean closing;
     /** Driven: opened by DockPointer, with the dock's own pointer (arrow) at px, py of a screen width by height. */
@@ -321,7 +327,9 @@ final class ExternalDock implements AppSession.EdgeListener {
             return true;
         });
         WindowManager.LayoutParams p = params(WindowManager.LayoutParams.MATCH_PARENT, Math.max(MIN_EDGE_PX, dp(EDGE_DP)), "XDesk dock edge");
-        p.preferredDisplayModeId = fastestMode(d);
+        fastMode = fastestMode(d);
+        fast = false;
+        stripParams = p;
         try {
             windows.addView(strip, p);
         } catch (RuntimeException e) {
@@ -330,13 +338,51 @@ final class ExternalDock implements AppSession.EdgeListener {
         }
     }
 
+    /** How long after the pointer's last move or scroll the fast mode is still asked for. */
+    private static final long FAST_HOLD_MS = 2000;
+
     /**
-     * The external display's fastest mode at the resolution it has. Android starts a monitor in the mode its EDID
-     * prefers, often 60 Hz on one that can do 120 or 144, and nothing on the display asks for more: the dock's edge is
-     * there as long as XDesk shows anything on that display, and its wish makes the system take that mode. An app
-     * below it that wants a lower rate for a video still gets its frames shown in time, only at a higher refresh.
-     * 0 when the display has no faster mode.
+     * The pointer moved or scrolled over the external display (any thread). Android starts a monitor in the mode its
+     * EDID prefers, often 60 Hz on one that can do 120 or 144: while the pointer is in use the dock's edge, there as
+     * long as Android apps are on that display, asks for the fastest mode, so the arrow and what it drags or scrolls
+     * move smoothly. FAST_HOLD_MS after the last use it asks for nothing again: a video, reading, typing get the mode
+     * the system and the app choose, and the phone does not draw and send frames at the higher rate for nothing.
      */
+    void pointerUsed() {
+        pointerUsedAt = android.os.SystemClock.uptimeMillis();
+        if (fastWanted) return;
+        fastWanted = true;
+        ui.post(() -> setFast(true));
+    }
+
+    private final Runnable maybeSlow = new Runnable() {
+        @Override public void run() {
+            long idle = android.os.SystemClock.uptimeMillis() - pointerUsedAt;
+            if (idle < FAST_HOLD_MS) {
+                ui.postDelayed(this, FAST_HOLD_MS - idle);
+                return;
+            }
+            fastWanted = false;
+            setFast(false);
+        }
+    };
+
+    private void setFast(boolean on) {
+        if (on) {
+            ui.removeCallbacks(maybeSlow);
+            ui.postDelayed(maybeSlow, FAST_HOLD_MS);
+        }
+        if (on == fast || strip == null || stripParams == null || fastMode == 0) return;
+        fast = on;
+        stripParams.preferredDisplayModeId = on ? fastMode : 0;
+        try {
+            windows.updateViewLayout(strip, stripParams);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "dock edge: no refresh change", e);
+        }
+    }
+
+    /** The external display's fastest mode at the resolution it has, 0 when it has no faster one. */
     static int fastestMode(Display d) {
         Display.Mode now = d.getMode(), best = null;
         for (Display.Mode m : d.getSupportedModes())
@@ -345,7 +391,7 @@ final class ExternalDock implements AppSession.EdgeListener {
                 best = m;
         if (best == null || best.getRefreshRate() <= now.getRefreshRate() + 1) return 0;
         Log.i(TAG, "external display " + d.getDisplayId() + ": " + Math.round(now.getRefreshRate()) + " Hz, asking for "
-            + Math.round(best.getRefreshRate()) + " Hz");
+            + Math.round(best.getRefreshRate()) + " Hz while the pointer is in use");
         return best.getModeId();
     }
 
@@ -421,6 +467,9 @@ final class ExternalDock implements AppSession.EdgeListener {
         arrow = null;
         if (strip != null) remove(strip);
         strip = null;
+        stripParams = null;
+        fast = fastWanted = false;
+        fastMode = 0;
         windows = null;
     }
 
