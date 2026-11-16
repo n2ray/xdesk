@@ -2437,7 +2437,6 @@ public class XDeskActivity extends Activity {
         getWindow().setAttributes(p);
     }
 
-
     // --- 设置 ---
 
     private void updateAudioChip() {
