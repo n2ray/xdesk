@@ -613,7 +613,16 @@ chmod +x "$TMP/pkgbin/pkg" "$TMP/pkgbin/curl"
 out=$(XDESK_CLI_ONLY=1 XDESK_VERSION=v0.1.0 PATH="$TMP/pkgbin:$PATH" bash "$here/install.sh" 2>&1); rc=$?
 check "install.sh in CLI-only mode fails when the download fails" test "$rc" -ne 0
 check "install.sh in CLI-only mode never runs pkg" test ! -e "$TMP/pkg.log"
-check "install.sh in CLI-only mode says what to install" has_text "$out" "pkg install"
+# Only when something is missing on this PATH (a full Termux has it all, and then there is nothing to say)
+need=""
+for c in xrandr pulseaudio flock setsid sha256sum pgrep xfwm4 xfsettingsd; do
+    PATH="$TMP/pkgbin:$PATH" command -v "$c" >/dev/null 2>&1 || need=1
+done
+if [ -n "$need" ]; then
+    check "install.sh in CLI-only mode says what to install" has_text "$out" "pkg install"
+else
+    check "install.sh in CLI-only mode says nothing to install when nothing is missing" lacks_text "$out" "pkg install"
+fi
 out=$(XDESK_CLI_ONLY=1 XDESK_VERSION=nope PATH="$TMP/pkgbin:$PATH" bash "$here/install.sh" 2>&1); rc=$?
 check "install.sh rejects an invalid XDESK_VERSION" test "$rc" -ne 0
 check "install.sh names the invalid version" has_text "$out" "Invalid version"

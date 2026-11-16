@@ -71,30 +71,41 @@ say() { echo "$*"; log "$*"; }
 x_up() { DISPLAY=$DPY timeout 2 xrandr >/dev/null 2>&1; }
 x_pid() { pgrep -f '^xdesk-x11 ' | head -1; }
 
-# When the X server started, in Unix seconds: the boot time plus the process's starttime from /proc/PID/stat
-# (field 22, in clock ticks; pid and comm with its possible spaces are skipped first). Fails when it is not ours
+# A process's start, in clock ticks since boot: field 22 of /proc/PID/stat (pid and comm, which may hold spaces, are
+# skipped first). Exact, and readable for Termux's own processes
+proc_ticks() {  # pid
+    local t
+    [ -n "${1:-}" ] || return 1
+    t=$(sed 's/^[0-9]* (.*) //' "/proc/$1/stat" 2>/dev/null | awk '{ print $20 }')
+    [[ $t =~ ^[0-9]+$ ]] && echo "$t"
+}
+
+# When a process started, in Unix seconds. Android keeps /proc/stat (btime) and /proc/uptime from apps, so the boot
+# time comes from this shell itself where it must: now minus its own start, which is a moment ago. Ticks are 100 a
+# second on Android (USER_HZ); getconf is not in Termux
 x_started() {  # pid
-    local p=${1:-} btime ticks hz
+    local p=${1:-} btime ticks hz=100 me
     [ -n "$p" ] || return 1
+    ticks=$(proc_ticks "$p") || return 1
+    command -v getconf >/dev/null 2>&1 && hz=$(getconf CLK_TCK 2>/dev/null) && [[ $hz =~ ^[0-9]+$ ]] || hz=100
     btime=$(awk '/^btime / { print $2; exit }' /proc/stat 2>/dev/null)
-    ticks=$(sed 's/^[0-9]* (.*) //' "/proc/$p/stat" 2>/dev/null | awk '{ print $20 }')
-    [ -n "$btime" ] && [ -n "$ticks" ] || return 1
-    hz=$(getconf CLK_TCK 2>/dev/null) || hz=100
-    [[ $hz =~ ^[0-9]+$ ]] || hz=100
+    if [ -z "$btime" ]; then
+        me=$(proc_ticks "$BASHPID") || return 1
+        btime=$(( $(date +%s) - me / hz ))
+    fi
     echo $(( btime + ticks / hz ))
 }
 
-# A pid from one of our pid files is ours only when its start time is the one written when we started it: after a
-# restart the same number can belong to another program, which must not be killed
+# A pid from one of our pid files is ours only when its start (in ticks) is the one written when we started it: after
+# a restart the same number can belong to another program, which must not be killed
 pid_ours() {  # pid, start-time file
-    local p=${1:-} s
+    local p=${1:-} t s w
     [[ $p =~ ^[0-9]+$ ]] || return 1
+    t=$(proc_ticks "$p") || return 1
+    [ -f "$2" ] && { [ "$t" = "$(cat "$2" 2>/dev/null)" ]; return; }
+    # A pid file from an older xdesk has no start beside it: the process it names started when that file was written,
+    # a later owner of the same pid only after. Otherwise a desktop running across an update could not be stopped
     s=$(x_started "$p") || return 1
-    [ -n "$s" ] || return 1
-    [ -f "$2" ] && { [ "$s" = "$(cat "$2" 2>/dev/null)" ]; return; }
-    # A pid file from an older xdesk has no start time beside it: the process it names started when that file was
-    # written, a later owner of the same pid only after. Otherwise a desktop running across an update could not be stopped
-    local w
     w=$(stat -c %Y "${2%.started}.pid" 2>/dev/null) || return 1
     [ $(( s - w )) -le 10 ] && [ $(( w - s )) -le 10 ]
 }
@@ -456,7 +467,7 @@ start_session() {
     p=$!
     echo "$p" >"$RUN/session.pid"
     # Its start time: a reused pid later is not this session, and is never killed
-    x_started "$p" >"$RUN/session.started" 2>/dev/null
+    proc_ticks "$p" >"$RUN/session.started" 2>/dev/null
     echo "$name" >"$RUN/session.name"
     say "Started session $name"
     ime_later
@@ -722,7 +733,7 @@ apps_bus() {
     a=$(printf '%s\n' "$out" | sed -n 1p); p=$(printf '%s\n' "$out" | sed -n 2p)
     if [ -z "$a" ] || ! [[ $p =~ ^[0-9]+$ ]]; then ime_unlock; return 1; fi
     echo "$a" >"$RUN/bus.address"; echo "$p" >"$RUN/bus.pid"
-    x_started "$p" >"$RUN/bus.started" 2>/dev/null
+    proc_ticks "$p" >"$RUN/bus.started" 2>/dev/null
     log "D-Bus for apps only: pid $p"
     ime_unlock
     echo "$a"
@@ -878,7 +889,7 @@ ime_panel() {  # the address of fcitx5's bus
     DBUS_SESSION_BUS_ADDRESS=$1 setsid nohup dbus-test-tool echo --session --name=$IME_VK_NAME </dev/null >/dev/null 2>&1 8>&- 9>&- &
     p=$!
     echo "$p" >"$RUN/ime-panel.pid"
-    x_started "$p" >"$RUN/ime-panel.started" 2>/dev/null
+    proc_ticks "$p" >"$RUN/ime-panel.started" 2>/dev/null
 }
 
 stop_ime_panel() {
@@ -1057,7 +1068,7 @@ start_ime_locked() {
         setsid nohup fcitx5 -D </dev/null >>"$LOG" 2>&1 8>&- 9>&- &
         p=$!
         echo "$p" >"$RUN/ime.pid"
-        x_started "$p" >"$RUN/ime.started" 2>/dev/null
+        proc_ticks "$p" >"$RUN/ime.started" 2>/dev/null
     )
     if [ -n "$bus" ]; then p="on the session bus $bus"; else p="without a session bus (XIM only)"; fi
     log "Input method: fcitx5 started, pid $(cat "$RUN/ime.pid" 2>/dev/null), $p"
