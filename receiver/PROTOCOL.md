@@ -49,7 +49,7 @@ bytes are an error.
      - string token: a new token when this connection just paired, otherwise empty (keep the old one)
      - u16 width, u16 height: the size the receiver wants, in pixels, landscape or portrait as its screen is now,
        already capped to what its decoder handles (see below), both even
-     - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`
+     - u16 density: the receiver screen's density in dpi, as `DisplayMetrics.densityDpi`; a computer says 160 for each pixel per point of its window (a Retina window 320), and 160 alone tells the phone nothing
      - u16 refresh rate in frames per second, rounded
      - u8 codecs: bit 0 H.264 (always set), bit 1 H.265, bit 2 with bit 1: takes a Mac passed through (see below), bit 6 with bit 7: not a computer (see below), bit 7 this receiver sends keyboard and mouse input as the web display does (XDesk for a computer)
 4. While the status is PAIR, the phone sends `CODE`: a string with the 4 digits the user typed. The receiver answers
@@ -87,7 +87,7 @@ Phone → receiver:
 | 4 | AUDIO_DATA | u64 presentation time in µs, then PCM |
 | 5 | PING | empty |
 | 6 | BYE | empty: the phone stops on purpose; the receiver goes back to its idle screen at once |
-| 18 | FEATURES | u32 bitmask of what this phone understands, sent right after the session starts, and again whenever the stream starts over on a new connection (a receiver came back, a browser returned). bit 0: the ANDROID (27) actions 4 and 5; bit 1: a Mac keyboard, told in KEYBOARD (32), whose Command arrives as KEY_LEFTMETA/RIGHTMETA (125/126), untranslated; bit 2: SETTINGS (19); bit 3: this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide its own pointer when it does. A receiver that never gets it assumes 0 |
+| 18 | FEATURES | u32 bitmask of what this phone understands, sent right after the session starts, and again whenever the stream starts over on a new connection (a receiver came back, a browser returned). bit 0: the ANDROID (27) actions 4 and 5; bit 1: a Mac keyboard, told in KEYBOARD (32), whose Command arrives as KEY_LEFTMETA/RIGHTMETA (125/126), untranslated; bit 2: SETTINGS (19); bit 3: this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide its own pointer when it does. bit 4: SCROLL_FINE (33). A receiver that never gets it assumes 0 |
 | 19 | SETTINGS | UTF-8 JSON object, every field optional. Only to a receiver that said FEATURES bit 2 |
 | 16 | CURSOR_SHAPE | Only to a receiver with codecs bit 2. u16 width, u16 height, u16 hot spot x, u16 hot spot y, each 0 to 65535 of the picture's **width**, then the cursor as PNG (at most 1 MiB): draw it over the picture |
 | 17 | CURSOR_POSITION | Only to a receiver with codecs bit 2. u16 x, u16 y (0 to 65535 across and down the picture), u8 shown: where that cursor's hot spot is; 0 hides it |
@@ -99,7 +99,7 @@ Receiver → phone:
 |---|---|---|
 | 5 | PING | empty |
 | 6 | BYE | empty: the user closed the receiver |
-| 7 | SIZE | u16 width, u16 height, u16 density: the receiver's screen changed (rotation, resolution). The phone may follow with a new VIDEO_FORMAT |
+| 7 | SIZE | u16 width, u16 height, u16 density: the receiver's screen changed (rotation, resolution) or its density (a window moved to a screen with another scale). The phone may follow with a new VIDEO_FORMAT |
 | 8 | KEY_FRAME | empty: the receiver lost sync (decoder reset, dropped data) and needs a key frame |
 
 Each side sends a PING after 2 seconds without sending anything, and treats 6 seconds without receiving anything as a
@@ -154,6 +154,7 @@ display sends:
 | 25 | POSITION | u16 x, u16 y: where the pointer is, 0 to 65535 across and down the picture |
 | 21 | BUTTON | u8 button (1 left, 2 middle, 3 right), u8 down |
 | 22 | SCROLL | i16 dy, i16 dx in wheel steps, dy > 0 down |
+| 33 | SCROLL_FINE | Only to a phone that said FEATURES bit 4, in place of SCROLL. i16 dy, i16 dx in 1/120 of a wheel step, dy > 0 down, then u8 phase: 0 a wheel (bare steps), 1 a trackpad gesture began, 2 it moved, 3 it ended, 4 the coast after the lift began, 5 it moved, 6 it ended. The phone scrolls X smoothly, passes the gesture to a Mac as a trackpad's, and gives an Android app whole steps |
 | 23 | KEY | u16 Linux input key code, u8 down |
 | 24 | TEXT | UTF-8 text from an input method, at most 4096 bytes |
 | 27 | ANDROID | u8: 1 Back, 2 Home, 4 the switchboard (only when FEATURES bit 0 is set) |
