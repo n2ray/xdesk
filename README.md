@@ -325,6 +325,8 @@ XDesk relies on upstream's manifest, class names under `com.termux.x11` and the 
 
 I'm [n2ray](https://github.com/n2ray), and I build XDesk together with Claude, an AI. I decide what XDesk should do and test it on real phones, monitors, projectors, cars and Macs. Claude wrote most of the code and documentation, including this README.
 
+If XDesk is useful to you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/n2ray).
+
 ## License
 
 GPL-3.0, same as Termux:X11. All credit for the X server and rendering goes to the [Termux:X11 authors](https://github.com/termux/termux-x11).
