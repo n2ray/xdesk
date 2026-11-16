@@ -279,10 +279,15 @@ final class NotifyPanel {
 
     // --- open, refresh, close ---
 
-    void open() {
+    /**
+     * Shows the scrim, then the panel. betweenScrimAndPanel runs in between: the bell goes there, above the scrim it
+     * closes the panel through, and under the panel, which overlaps it in the corner.
+     */
+    void open(Runnable betweenScrimAndPanel) {
         closing = false;
         try {
             windows.addView(scrim, scrimParams);
+            betweenScrimAndPanel.run();
             windows.addView(root, params);
         } catch (RuntimeException e) {
             try {

@@ -190,7 +190,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         }
     }
 
-    /** The bell stays above the panel's scrim: it is the switch that closes it. */
+    /** The bell stays above the panel's scrim, as the switch that closes it, and under the panel (NotifyPanel.open). */
     private void raiseBell() {
         if (bell == null || windows == null) return;
         try {
@@ -395,8 +395,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         closeBanners();  // the centre takes their place; the bell still counts
         if (panel != null) return;
         panel = new NotifyPanel(dc, density, this, windows);
-        panel.open();
-        raiseBell();
+        panel.open(this::raiseBell);
         raiseArrows();  // the panel came after the pointer: the pointer over it, not under
         ui.removeCallbacks(panelLeave);
     }
