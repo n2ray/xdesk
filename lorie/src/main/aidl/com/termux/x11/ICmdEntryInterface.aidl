@@ -26,4 +26,10 @@ interface ICmdEntryInterface {
     oneway void setScale(int dpi);
     /** XDesk: the build the X server runs (CmdEntryPoint.buildId). Last: an older X server answers null. */
     String serverBuild();
+    /**
+     * XDesk: how a launch of pid ended, and its log (CLI.md §5.4): the "reason=…" status lines, a "--" line, then
+     * the last 20 lines of the program's log; null while it runs or when xdesk wrote no status. Last: an older X
+     * server answers null.
+     */
+    String launchStatus(int pid);
 }

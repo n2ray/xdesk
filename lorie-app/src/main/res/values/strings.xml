@@ -186,6 +186,17 @@
     <string name="xd_linux_window_gone">This window was closed</string>
     <string name="xd_linux_no_window">%1$s did not open a window within 15 seconds. See $PREFIX/tmp/xdesk.log</string>
     <string name="xd_linux_launch_failed">%1$s did not start: %2$s</string>
+    <!-- Why a launched program did not come up (CLI.md §5.4): %1$s is the program, %2$s the detail -->
+    <string name="xd_linux_launch_not_found">%1$s is not installed properly: %2$s was not found</string>
+    <string name="xd_linux_launch_missing_lib">%1$s is missing the library %2$s. Try reinstalling the program</string>
+    <string name="xd_linux_launch_no_display">%1$s cannot connect to the display. End the desktop and start it again</string>
+    <string name="xd_linux_launch_gpu">%1$s could not initialize graphics, even with software rendering</string>
+    <string name="xd_linux_launch_crash">%1$s crashed (%2$s)</string>
+    <string name="xd_linux_launch_error">%1$s exited: %2$s</string>
+    <string name="xd_linux_launch_ok_no_window">%1$s exited without opening a window</string>
+    <string name="xd_linux_launch_retried">%1$s cannot use the GPU, so it was opened with software rendering</string>
+    <string name="xd_linux_launch_no_terminal">%1$s must run in a terminal, but this environment has no terminal program (install xfce4-terminal or xterm)</string>
+    <string name="xd_linux_launch_no_env">Cannot enter the environment of %1$s: %2$s</string>
     <string name="xd_chooser_default">Default</string>
     <string name="xd_chooser_reattach_x">Reattach the running X display</string>
     <string name="xd_chooser_attach_x">Attach an X display</string>

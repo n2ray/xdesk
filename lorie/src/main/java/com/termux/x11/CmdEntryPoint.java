@@ -205,6 +205,7 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     @Override public void windowCommand(int window, int command) { XWindows.command(window, command); }
     @Override public void setScale(int dpi) { XWindows.scale(dpi); }
     @Override public String serverBuild() { return buildId(); }
+    @Override public String launchStatus(int pid) { return XWindows.launchStatus(pid); }
 
     /**
      * This build's code: the app compares the X server's with its own (XServerBuild). An X server started before XDesk

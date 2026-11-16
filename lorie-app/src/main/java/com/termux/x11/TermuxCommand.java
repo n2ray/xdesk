@@ -33,6 +33,19 @@ final class TermuxCommand {
     private static final String INSTALL_SCRIPT = "curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh";
     private static final String INSTALL = INSTALL_SCRIPT + " | bash";
 
+    /**
+     * The install line for this app: always its own version (CLI.md §1), so a beta app never gets the newest stable
+     * command and a stable one never a beta; a build without a release version gets the default (the newest stable).
+     * The assignment goes on the bash side of the pipe: in front of curl it would not reach the install script.
+     */
+    static String installLine(String version) {
+        if (version == null) {
+            String v = BuildConfig.VERSION_NAME;
+            if (v != null && !v.isEmpty() && Character.isDigit(v.charAt(0)) && !v.contains("dev")) version = "v" + v;
+        }
+        return version == null ? INSTALL : INSTALL_SCRIPT + " | XDESK_VERSION=" + version + " bash";
+    }
+
     private static final SparseArray<Callback> PENDING = new SparseArray<>();
     private static int nextId = 1;
 
@@ -51,7 +64,7 @@ final class TermuxCommand {
      *     It goes on the bash side of the pipe; a leading assignment would only reach curl, not the install script.
      */
     static void copyInstallAndOpen(Context c, String version) {
-        String line = version == null ? INSTALL : INSTALL_SCRIPT + " | XDESK_VERSION=" + version + " bash";
+        String line = installLine(version);
         ClipboardManager cm = c.getSystemService(ClipboardManager.class);
         if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("xdesk", line));
         Toast.makeText(c, R.string.xd_termux_install_copied, Toast.LENGTH_LONG).show();
@@ -119,7 +132,7 @@ final class TermuxCommand {
         }
         // 输出里还会有命令之间的 echo，所以先看是不是没装
         int exit = r.getInt(RESULT_EXIT, 0);
-        if (exit == EXIT_NOT_FOUND || stderr.contains("xdesk: No such file")) return c.getString(R.string.xd_termux_no_xdesk, INSTALL);
+        if (exit == EXIT_NOT_FOUND || stderr.contains("xdesk: No such file")) return c.getString(R.string.xd_termux_no_xdesk, installLine(null));
         if (!stdout.trim().isEmpty()) return null;
         if (exit != 0 || !stderr.trim().isEmpty()) return c.getString(R.string.xd_termux_failed, exit, firstLine(stderr));
         return null;
