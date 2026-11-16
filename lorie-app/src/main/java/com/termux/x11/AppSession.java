@@ -221,7 +221,8 @@ final class AppSession {
                 cursorPolicy.buttonUp(SystemClock.uptimeMillis());
                 updateCursor();
                 // 点按时让人看到点在哪
-                if (active && app != null && touchModeFor(app)) {
+                // Not while a computer places the pointer and shows its own (webPointer), nor in game passthrough
+                if (active && app != null && touchModeFor(app) && !webPointer && !gameMode) {
                     cursor.moveTo(lastCursorX, lastCursorY);
                     scheduleCursorHide();
                 }
@@ -642,6 +643,9 @@ final class AppSession {
     }
 
     private void attachOverlays(Display d) {
+        // A new display starts with the pointer at no edge: a placed pointer resting at the bottom again must be news
+        pointerAtBottom = false;
+        pointerAtCorner = 0;
         cursorPolicy.setHeight(logicalSize(d)[1]);
         pointerWidth = logicalSize(d)[0];
         cursor.attach(d);
@@ -893,6 +897,7 @@ final class AppSession {
     /** The service died: Shizuku or the built-in server was stopped or the process was killed. Grabs ended with it. */
     private void lostInjector() {
         injector = null;
+        gameMode = false;  // a new injector starts without it and would never report the end
         audioRoute.detachInjector();
         forgetDensity(-1);
         forwarding = false;
@@ -1002,6 +1007,9 @@ final class AppSession {
                     error = launchFromApp(a, d);
                 }
                 if (error == null) {
+                    // The profile first, on the main thread: the injector may report the new app in session at once after
+                    // setApp, and a profile set after that report would clear it for good
+                    ui.post(() -> cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName)));
                     i.setApp(a.packageName);
                     i.setTouchMode(touchModeFor(a));
                 } else {
@@ -1018,7 +1026,6 @@ final class AppSession {
                 }
                 if (!active) return;
                 app = a;
-                cursorPolicy.setProfile(AppInputProfile.forPackage(a.packageName));
                 updateCursor();
                 context.startForegroundService(new Intent(context, DesktopService.class)
                     .putExtra(DesktopService.EXTRA_TITLE, text(R.string.xd_app_running_title, a.label)));
@@ -1577,12 +1584,14 @@ final class AppSession {
     void displayChanged(int id) {
         Display d = display;
         IInjector i = injector;
-        if (d == null || i == null || d.getDisplayId() != id) return;
+        if (d == null || d.getDisplayId() != id) return;
+        // The edges and the cursor follow the size even while the injector is away: nothing would set them later
         int[] size = logicalSize(d);
         cursorPolicy.setHeight(size[1]);
         pointerWidth = size[0];
         cursor.displayChanged(d);
         touchDots.displayChanged(d);
+        if (i == null) return;
         try {
             i.setDisplay(id, size[0], size[1]);
         } catch (RemoteException ignored) { }
@@ -1606,6 +1615,7 @@ final class AppSession {
 
     private void stop(final int moveFrom, final Runnable done) {
         ui.removeCallbacks(bindTimeout);
+        gameMode = false;
         ui.removeCallbacks(cursorTimer);
         ui.removeCallbacks(rebind);
         forwardOnReturn = false;

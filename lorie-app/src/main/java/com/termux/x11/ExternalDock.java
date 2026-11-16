@@ -372,7 +372,10 @@ final class ExternalDock implements AppSession.EdgeListener {
             ui.removeCallbacks(maybeSlow);
             ui.postDelayed(maybeSlow, FAST_HOLD_MS);
         }
-        if (on == fast || strip == null || stripParams == null || fastMode == 0) return;
+        if (on == fast || strip == null || stripParams == null || display == null) return;
+        // Worked out again each time: the display may have changed its resolution since, and the old fastest mode
+        // would switch it back
+        if (on && (fastMode = fastestMode(display)) == 0) return;
         fast = on;
         stripParams.preferredDisplayModeId = on ? fastMode : 0;
         try {

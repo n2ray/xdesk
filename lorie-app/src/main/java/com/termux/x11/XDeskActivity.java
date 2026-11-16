@@ -1531,6 +1531,10 @@ public class XDeskActivity extends Activity {
         ui.removeCallbacksAndMessages(null);
         session.setListener(null);
         apps.setListener(null);
+        // AppSession outlives the activity: nothing of this one may stay in it
+        apps.setBottomEdgeListener(null);
+        apps.setCornerEdgeListener(null);
+        apps.setPointerUseListener(null);
         audioRoute.setListener(null);
         wireless.setListener(null);
         wireless.setDockDriven(null);
@@ -2113,7 +2117,8 @@ public class XDeskActivity extends Activity {
         // it the keyboard would type into the phone, not into the app. Until its search line is touched
         boolean list = chooser.getVisibility() == View.VISIBLE;
         boolean listNeedsFocus = list && !(launcherIsDefault() && !chooserTyping);
-        boolean passive = (apps.isActive() || (desktopTaken && session.isActive())) && !listNeedsFocus
+        // An app session whose display was unplugged has nowhere to send the keys: the phone takes them (and focus) back
+        boolean passive = (apps.isActive() && apps.hasDisplay() || (desktopTaken && session.isActive())) && !listNeedsFocus
             && setupScreen.getVisibility() != View.VISIBLE;
         if (passive == phonePassive) return;
         phonePassive = passive;

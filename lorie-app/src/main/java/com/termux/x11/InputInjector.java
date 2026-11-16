@@ -473,6 +473,8 @@ final class InputInjector {
 
     /** A pointer placed from a computer has that computer's own cursor on it: only the others need ours. */
     private boolean placedFromComputer;
+    /** The pointer's last move was a computer's placing: take() then shows no arrow of ours beside that computer's cursor. */
+    private boolean lastFromComputer;
 
     /** The edge the pointer is being pushed against, 0 when at none; the pointer has not been told it left. */
     private int pushingEdge;
@@ -512,12 +514,15 @@ final class InputInjector {
     }
 
     private void reportCursor() throws ReflectiveOperationException {
-        if (!placedFromComputer) cursor.onCursor((int) x, (int) y);
+        if (placedFromComputer) return;
+        lastFromComputer = false;
+        cursor.onCursor((int) x, (int) y);
     }
 
     /** To this place, 0 to 1 across and down. */
     void moveTo(float fx, float fy) throws ReflectiveOperationException, InterruptedException {
         placedFromComputer = true;
+        lastFromComputer = true;
         try {
             moveBy(fx * (width - 1) - x, fy * (height - 1) - y);
         } finally {
@@ -856,7 +861,7 @@ final class InputInjector {
             if (!profile.hoverButtons) mouse(MotionEvent.ACTION_HOVER_ENTER, 0, 0, 0);
             mouse(MotionEvent.ACTION_HOVER_MOVE, 0, 0, 0);
         }
-        cursor.onCursor((int) x, (int) y);
+        if (!lastFromComputer) cursor.onCursor((int) x, (int) y);
     }
 
     /** Release every held key and button. Runs when physical input goes back to the phone and when stopping. */
