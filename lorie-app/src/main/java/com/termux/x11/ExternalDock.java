@@ -321,12 +321,32 @@ final class ExternalDock implements AppSession.EdgeListener {
             return true;
         });
         WindowManager.LayoutParams p = params(WindowManager.LayoutParams.MATCH_PARENT, Math.max(MIN_EDGE_PX, dp(EDGE_DP)), "XDesk dock edge");
+        p.preferredDisplayModeId = fastestMode(d);
         try {
             windows.addView(strip, p);
         } catch (RuntimeException e) {
             Log.w(TAG, "no dock edge", e);
             strip = null;
         }
+    }
+
+    /**
+     * The external display's fastest mode at the resolution it has. Android starts a monitor in the mode its EDID
+     * prefers, often 60 Hz on one that can do 120 or 144, and nothing on the display asks for more: the dock's edge is
+     * there as long as XDesk shows anything on that display, and its wish makes the system take that mode. An app
+     * below it that wants a lower rate for a video still gets its frames shown in time, only at a higher refresh.
+     * 0 when the display has no faster mode.
+     */
+    static int fastestMode(Display d) {
+        Display.Mode now = d.getMode(), best = null;
+        for (Display.Mode m : d.getSupportedModes())
+            if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
+                    && (best == null || m.getRefreshRate() > best.getRefreshRate()))
+                best = m;
+        if (best == null || best.getRefreshRate() <= now.getRefreshRate() + 1) return 0;
+        Log.i(TAG, "external display " + d.getDisplayId() + ": " + Math.round(now.getRefreshRate()) + " Hz, asking for "
+            + Math.round(best.getRefreshRate()) + " Hz");
+        return best.getModeId();
     }
 
     private void later(Runnable r, long ms) {

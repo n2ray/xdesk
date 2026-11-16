@@ -2433,7 +2433,24 @@ public class XDeskActivity extends Activity {
         dimmed = d;
         WindowManager.LayoutParams p = getWindow().getAttributes();
         p.screenBrightness = d ? DIM_BRIGHTNESS : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+        p.preferredDisplayModeId = d ? slowestMode() : 0;
         getWindow().setAttributes(p);
+    }
+
+    /**
+     * While the phone's screen is dimmed nothing on it moves: the slowest mode of its resolution (24 Hz on the 15
+     * Ultra, against 60 to 120) costs less power and heat, which an external display in use for hours feels. A touch
+     * undims it and gives the mode back to the system at once. 0 (no preference) when there is no slower mode.
+     */
+    private int slowestMode() {
+        Display d = getWindow().getDecorView().getDisplay();
+        if (d == null) return 0;
+        Display.Mode now = d.getMode(), best = null;
+        for (Display.Mode m : d.getSupportedModes())
+            if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
+                    && (best == null || m.getRefreshRate() < best.getRefreshRate()))
+                best = m;
+        return best != null && best.getRefreshRate() < now.getRefreshRate() - 1 ? best.getModeId() : 0;
     }
 
     // --- 设置 ---

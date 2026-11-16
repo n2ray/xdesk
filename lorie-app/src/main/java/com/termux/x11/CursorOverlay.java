@@ -7,10 +7,14 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
+import android.graphics.PorterDuff;
+import android.os.Build;
 import android.util.Log;
 import android.view.Choreographer;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.Surface;
+import android.view.SurfaceControl;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -48,6 +52,16 @@ final class CursorOverlay {
     private boolean shown, framePending, moved, faint, touchStyle;
     private int x, y, margin, attachedWidth, attachedHeight;
     private float attachedFactor;
+    /**
+     * The arrow as a layer of its own under the cursor's window (Android 13 and later): a move is one transaction
+     * straight to SurfaceFlinger, where moving the window went through the window manager's layout on every frame.
+     * The window then stays where it was and draws nothing. Null until the window has its surface, and on older
+     * Android or when the layer could not be made (layerFailed): the window moves as before.
+     */
+    private SurfaceControl layer;
+    private Surface layerSurface;
+    private boolean layerFailed;
+    private int windowX, windowY;
 
     CursorOverlay(Context c) {
         context = c;
@@ -58,14 +72,28 @@ final class CursorOverlay {
             framePending = false;
             if (!shown || !moved) return;
             moved = false;
-            place();
-            windows.updateViewLayout(view, params);
+            if (!useLayer()) moveWindow();
         }
     };
 
+    private int left() {
+        return x - margin;
+    }
+
+    private int top() {
+        return touchStyle ? y - margin : y + HOTSPOT_OFFSET_Y;
+    }
+
     private void place() {
-        params.x = x - margin;
-        params.y = touchStyle ? y - margin : y + HOTSPOT_OFFSET_Y;
+        params.x = left();
+        params.y = top();
+    }
+
+    private void moveWindow() {
+        place();
+        windows.updateViewLayout(view, params);
+        windowX = params.x;
+        windowY = params.y;
     }
 
     /** Build it again from a fresh context if the display's size or the shell's factor changed. It stays where it was. */
@@ -109,6 +137,7 @@ final class CursorOverlay {
     /** Above a window that was added after the cursor's. */
     void raise() {
         if (!shown || view == null) return;
+        dropLayer();
         try {
             windows.removeViewImmediate(view);
             windows.addView(view, params);
@@ -124,16 +153,19 @@ final class CursorOverlay {
         touchStyle = on;
         if (view == null) return;
         view.setTouchStyle(on);
-        if (shown) {
-            place();
-            windows.updateViewLayout(view, params);
+        if (!shown) return;
+        if (layer != null) {
+            drawLayer();
+            if (useLayer()) return;
         }
+        moveWindow();
     }
 
     /** See CursorPolicy. */
     void setFaint(boolean f) {
         faint = f;
         if (view != null) view.setFaint(f);
+        if (layer != null) drawLayer();
     }
 
     void moveTo(int newX, int newY) {
@@ -145,6 +177,8 @@ final class CursorOverlay {
             try {
                 windows.addView(view, params);
                 shown = true;
+                windowX = params.x;
+                windowY = params.y;
             } catch (RuntimeException e) {
                 Log.w(TAG, "cannot show cursor", e);
             }
@@ -154,8 +188,7 @@ final class CursorOverlay {
         // felt like drag. Further moves in that frame wait for it, one window update per frame is enough
         if (!framePending) {
             framePending = true;
-            place();
-            windows.updateViewLayout(view, params);
+            if (!useLayer()) moveWindow();
             Choreographer.getInstance().postFrameCallback(frame);
         } else {
             moved = true;
@@ -165,6 +198,7 @@ final class CursorOverlay {
     void hide() {
         if (!shown) return;
         shown = false;
+        dropLayer();
         try {
             windows.removeViewImmediate(view);
         } catch (RuntimeException e) {
@@ -175,6 +209,77 @@ final class CursorOverlay {
     void remove() {
         hide();
         view = null;
+    }
+
+    /**
+     * Puts the arrow's layer where the cursor is, making the layer first if it can. False when there is no layer: the
+     * caller moves the window. The layer's place is relative to the window, which stays at windowX, windowY.
+     */
+    private boolean useLayer() {
+        if (layer == null && !makeLayer()) return false;
+        try {
+            new SurfaceControl.Transaction().setPosition(layer, left() - windowX, top() - windowY).apply();
+            return true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "cursor layer gone, moving the window", e);
+            layerFailed = true;
+            dropLayer();
+            return false;
+        }
+    }
+
+    private boolean makeLayer() {
+        if (layerFailed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || view == null) return false;
+        android.view.AttachedSurfaceControl root = view.getRootSurfaceControl();
+        if (root == null) return false;
+        SurfaceControl made = null;
+        try {
+            made = new SurfaceControl.Builder().setName("XDesk cursor arrow").setBufferSize(params.width, params.height)
+                .setFormat(PixelFormat.TRANSLUCENT).build();
+            SurfaceControl.Transaction t = root.buildReparentTransaction(made);
+            if (t == null) {  // the window has no surface yet: it moves itself this time
+                made.release();
+                return false;
+            }
+            layer = made;
+            layerSurface = new Surface(made);
+            drawLayer();
+            t.setLayer(made, 1).setVisibility(made, true).setPosition(made, left() - windowX, top() - windowY).apply();
+            view.setBlank(true);
+            Log.i(TAG, "cursor moves as a layer");
+            return true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no cursor layer, the window moves", e);
+            layerFailed = true;
+            if (made != null && layer == null) made.release();
+            dropLayer();
+            return false;
+        }
+    }
+
+    private void drawLayer() {
+        if (layerSurface == null) return;
+        // Software, as the window draws it: the outline's shadow needs that
+        Canvas c = layerSurface.lockCanvas(null);
+        try {
+            c.drawColor(0, PorterDuff.Mode.CLEAR);
+            view.paint(c);
+        } finally {
+            layerSurface.unlockCanvasAndPost(c);
+        }
+    }
+
+    /** The window draws the arrow again. Its layer would go with the window's surface anyway, but not at once. */
+    private void dropLayer() {
+        if (view != null) view.setBlank(false);
+        if (layerSurface != null) layerSurface.release();
+        layerSurface = null;
+        if (layer == null) return;
+        try {
+            new SurfaceControl.Transaction().reparent(layer, null).apply();
+        } catch (RuntimeException ignored) { }
+        layer.release();
+        layer = null;
     }
 
     /**
@@ -222,7 +327,7 @@ final class CursorOverlay {
         private final float size, tipX;
         private final Path touchArrow = new Path();
         private final Paint touchOutline = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private boolean faint, touchStyle;
+        private boolean faint, touchStyle, blank;
 
         ArrowView(Context c, int size, int margin) {
             super(c);
@@ -287,7 +392,18 @@ final class CursorOverlay {
             invalidate();
         }
 
+        /** While the arrow is a layer of its own, the window shows nothing. */
+        void setBlank(boolean b) {
+            if (blank == b) return;
+            blank = b;
+            invalidate();
+        }
+
         @Override protected void onDraw(Canvas c) {
+            if (!blank) paint(c);
+        }
+
+        void paint(Canvas c) {
             if (faint) {
                 float r = size * FAINT_DOT_OF_SIZE / 2;
                 c.drawCircle(tipX + r, r, r, dot);
