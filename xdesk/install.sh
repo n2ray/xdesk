@@ -3,9 +3,11 @@
 #   curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 # Safe to repeat. Installs the xdesk command and its loader, and downloads the app.
 # XDESK_VERSION=v0.1.0 picks a version, the newest release (pre-releases included) is the default.
+# XDESK_CLI_ONLY=1 replaces only the xdesk command and the loader (xdesk update uses this).
 set -e
 REPO=n2ray/xdesk
 LOADER=$HOME/.local/libexec/xdesk/loader.apk
+CLI_ONLY=${XDESK_CLI_ONLY:-}
 
 missing=
 for pair in xrandr:xorg-xrandr pulseaudio:pulseaudio flock:util-linux setsid:util-linux sha256sum:coreutils pgrep:procps; do
@@ -15,7 +17,7 @@ done
 # through zink. Mesa picks this by itself and falls back to software rendering when the GPU is too old
 # for Turnip, so installing it is safe on every Adreno.
 turnip=
-if [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
+if [ -z "$CLI_ONLY" ] && [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
     turnip=1
 fi
 if [ -n "$missing$turnip" ]; then
@@ -40,21 +42,39 @@ fi
 
 TAG=${XDESK_VERSION:-$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)}
 [ -n "$TAG" ] || { echo "Could not find a release of $REPO"; exit 1; }
-echo "Installing XDesk $TAG"
+if [ -z "$CLI_ONLY" ]; then echo "Installing XDesk $TAG"; fi
 
 TMP=$(mktemp -d)
 trap 'rm -r "${TMP:?}"' EXIT
-for f in xdesk loader.apk xdesk.apk SHA256SUMS; do
-    curl -fL --progress-bar -o "$TMP/$f" "https://github.com/$REPO/releases/download/$TAG/$f"
+# With XDESK_CLI_ONLY the app is left alone: only what is replaced is downloaded and checked
+if [ -n "$CLI_ONLY" ]; then
+    files=(xdesk loader.apk SHA256SUMS)
+    wanted_re='  (xdesk|loader\.apk)$'
+    wanted_n=2
+    curl_opts=(-fsSL)
+else
+    files=(xdesk loader.apk xdesk.apk SHA256SUMS)
+    wanted_re='  (xdesk|loader\.apk|xdesk\.apk)$'
+    wanted_n=3
+    curl_opts=(-fL --progress-bar)
+fi
+for f in "${files[@]}"; do
+    curl "${curl_opts[@]}" -o "$TMP/$f" "https://github.com/$REPO/releases/download/$TAG/$f"
 done
-# The list also has files this script does not download; all three of these must be in it
-(cd "$TMP" && grep -E '  (xdesk|loader\.apk|xdesk\.apk)$' SHA256SUMS > wanted && [ "$(wc -l < wanted)" -eq 3 ] && sha256sum -c --quiet wanted)
+# The list also has files this script does not download; all of these must be in it
+(cd "$TMP" && grep -E "$wanted_re" SHA256SUMS > wanted && [ "$(wc -l < wanted)" -eq "$wanted_n" ] && sha256sum -c --quiet wanted)
 
 install -m 755 "$TMP/xdesk" "$PREFIX/bin/xdesk"
 mkdir -p "$(dirname "$LOADER")"
 [ ! -e "$LOADER" ] || rm -f "${LOADER:?}"
 cp "$TMP/loader.apk" "$LOADER"
 chmod 400 "$LOADER"   # Android refuses to load a writable dex
+
+# xdesk update prints one short line and changes nothing else
+if [ -n "$CLI_ONLY" ]; then
+    echo "xdesk updated to $TAG"
+    exit 0
+fi
 
 APK=$HOME/xdesk.apk
 if touch /sdcard/Download/.xdesk-test 2>/dev/null; then
