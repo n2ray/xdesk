@@ -86,3 +86,47 @@ chroot 要 root 才看得到，Andronix、AnLinux 和自己写的 proot 脚本�
 
 ## 4. 测试
 `xdesk/test/cli-test.sh`：假的 `$HOME`、`$PREFIX`、proot-distro 容器（只建目录和 `.desktop` 文件），不起 X，查 `setup`、`envs`、`apps`、`app state`（用 jq 校验 JSON）、`version`、`help`、`doctor` 的输出。
+
+## 5. 单开程序：声音、GPU、启动前检查、说清楚为什么起不来（beta.5）
+
+用户 2026-11-16 定：单开程序要处理好声音、GPU、冲突和退路，起不来时给出清楚的原因。
+
+### 5.1 启动前检查
+`xdesk launch` 在打印 `pid N` 之前，先看 `Exec=` 的程序在不在那个环境里：
+- 去掉开头的 `env`、`VAR=值`，取第一个词；
+- 绝对路径就查 `根目录 + 路径`；否则在那个环境的 PATH 目录里找，容器是 `/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin /usr/games`，Termux 是 `$PREFIX/bin`；
+- 是 shell 内建或者找不到根目录（如读不了的 chroot）就跳过检查。
+
+找不到就不启动，输出一行 `xdesk-error not-installed 命令` 后退出 1。App 把 `xdesk-error 代码 说明` 翻成本地化的话（§5.4）；旧 App 照原样显示这一行。
+
+### 5.2 GPU
+- **Termux**：照旧，有 Vulkan 驱动（Turnip）就设 zink 相关变量，没有时 Mesa 自己用软件渲染。
+- **容器**：根目录里有 freedreno 的 Vulkan ICD（`usr/share/vulkan/icd.d/*freedreno*`）就设和 Termux 一样的变量；没有就什么都不设（软件渲染）。`doctor` 每个环境报一行「GPU：硬件（Turnip）/ 软件渲染」，软件渲染时提示可以装 Turnip（Debian/Ubuntu 一类给出包名提示即可，不替用户装）。
+- **退路**：程序启动后 10 秒内退出、退出码非 0，且输出里有 GPU 初始化失败的特征（`EGL`、`GLX`、`glXCreateContext`、`Failed to create .*context`、`zink`、`vkCreateInstance`、`MESA.*error`、`kgsl` 一类），又不是已经在用软件渲染：用 `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe` 再起一次，状态里记下 `retried=software`。只重试一次。
+
+### 5.3 声音
+已有：Termux 里接本机 PulseAudio，容器和 chroot 经 127.0.0.1 带 cookie。补：`doctor` 查每个容器里有没有 PulseAudio 客户端库（`libpulse.so.0`，在 `usr/lib`、`usr/lib/*-linux-gnu`、`usr/lib64` 下找）。没有就提示装哪个包，按容器 `etc/os-release` 的 `ID`：debian/ubuntu `apt install libpulse0`，arch `pacman -S libpulse`，fedora `dnf install pulseaudio-libs`，alpine `apk add libpulse`，其他只说「装 PulseAudio 的客户端库」。
+
+### 5.4 说清楚为什么起不来
+现在程序起来以后自己退出了（找不到、缺库、闪退），App 要等 15 秒才说「没有打开窗口，日志见 xdesk.log」。改成：
+
+- **每次启动一个外壳**：`xdesk launch` 不再直接 `exec` 程序，而是起一个外壳进程（打印的就是它的 pid，程序是它的子进程，App 按进程树认窗口照样成立）。外壳把程序的输出写到 `$RUN/launch/PID.log`（同时照旧追加到 `xdesk.log`），程序退出后写 `$RUN/launch/PID.status`：
+  ```
+  exit=127
+  reason=not-found
+  detail=firefox
+  retried=software        （只在 §5.2 重试过时有）
+  ```
+  `reason` 由外壳按退出码和输出最后几行判断：`not-found`（127，或 `command not found`、`No such file or directory`）、`missing-lib`（`error while loading shared libraries: 库名`，detail 是库名）、`no-display`（`cannot open display`、`Can't open display`）、`gpu`（§5.2 的特征，重试后仍失败）、`crash`（被信号杀掉，128+N，detail 是信号名如 SIGSEGV）、`error`（其他非 0，detail 是输出最后一行有内容的话，截到 200 字）、`ok`（退出码 0）。`$RUN/launch` 只留最近 20 次。
+- **X 服务器多一个接口**：`ICmdEntryInterface.launchStatus(int pid)`，加在最后（旧 X 服务器回 null）。返回 `PID.status` 的内容，后面接一行 `--` 和日志最后 20 行；程序还在跑或没有记录就回 null。
+- **App**：开程序后每秒问一次，直到窗口出现或 15 秒超时。问到程序已退出且 `reason` 不是 `ok`，就马上结束等待，按 `reason` 说人话：
+  - `not-found`：「%1$s 没装好：找不到 %2$s」
+  - `missing-lib`：「%1$s 缺少库 %2$s，重装这个程序试试」
+  - `no-display`：「%1$s 连不上显示，停掉桌面再开一次试试」
+  - `gpu`：「%1$s 的图形初始化失败（换成软件渲染也不行）」
+  - `crash`：「%1$s 崩溃了（%2$s）」
+  - `error`：「%1$s 退出了：%2$s」
+  - `ok` 且没有窗口：「%1$s 运行完就退出了，没有打开窗口」（命令行程序或者已经在别处运行的单实例程序）
+  - `retried=software` 且窗口出来了：提示一次「%1$s 用软件渲染打开了（GPU 不可用）」。
+  - 日志最后几行写进 logcat（`XDeskLinux`），方便查。
+- `xdesk launch` 启动前就失败的（§5.1、找不到程序、进不了环境），照旧打印一行原因后退出；`xdesk-error 代码 说明` 的代码同样按上面翻译（`not-installed` 用 `not-found` 的说法）。
