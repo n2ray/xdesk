@@ -13,7 +13,7 @@
 - **`xdesk version`**（也认 `--version`、`-V`）：打印 `xdesk 0.6.0-beta.5`。`xdesk status` 多一行 `xdesk: 0.6.0-beta.5`。
 - **`xdesk update [VERSION]`**：重新运行安装脚本，只更新命令（`XDESK_CLI_ONLY=1`：不下载 APK、不问 allow-external-apps、不跑 setup 以外的东西；loader 也换，便宜且无害）。不给版本就装最新的 Release（含测试版），给了就装 `vVERSION`。没网、校验不过时什么都不换，退出码非 0。
 - **App 这边：**
-  - 读到的命令版本和 App 的 `versionName` 不同（且不是 `dev`），或者命令太旧报不出版本：Termux 那一栏显示「xdesk 命令是 X，App 是 Y」和一个「更新命令」按钮。
+  - 读到的命令版本比 App 的 `versionName` 旧（不是 `dev`；比 App 新的不提示，否则「更新」会把它降回去），或者命令太旧报不出版本：Termux 那一栏显示「xdesk 命令是 X，App 是 Y」和一个「更新命令」按钮。
   - 按钮：命令认 `update` 就经 RUN_COMMAND 后台跑 `xdesk update Y`，完了重新读状态；不认（太旧）就走现在的「复制安装命令、打开 Termux」，安装命令带 `XDESK_VERSION=vY`。
   - **X 服务器是 App 更新前启动的**（状态里 X 的启动时间早于 App 的 `lastUpdateTime`）：提示「X 服务器还在跑更新前的代码，停掉桌面再开一次生效」。只提示，不替用户重启。
 
@@ -55,6 +55,7 @@
 现在 `setup` 只在 proot 容器里找到 XFCE、LXQt、MATE 时才记下它，只装了 Firefox 的容器根本不出现。改成：
 - 每个 proot-distro 容器都是一个环境（`proot-<distro>`），有没有桌面都在 `xdesk envs`、`xdesk apps` 里，能单独开程序。没有桌面的环境，单开程序时用 Termux 的 xfwm4 管窗口（已有的退路）；Termux 也没有 xfwm4 就不带窗口管理器开，记日志，`doctor` 提示装 `xfwm4`。
 - 记在 `~/.config/xdesk/envs/NAME.root`（根目录）和 `NAME.launch`（进入环境运行一条命令的前缀），和 `xdesk add --root/--launch` 写的一样；会话（`sessions/*.sh`）是环境里的桌面，可以没有。
+- 有桌面的容器照旧按会话列（`proot-debian-xfce` 一行），为了和旧 App 兼容；`envs/` 里同一个根目录的条目不再另列一行。没有桌面的才以 `proot-debian` 出现。
 - `xdesk add NAME --root DIR --launch 'PREFIX'` 不给命令（没有 `'CMD'`）时只登记环境。
 
 ### 3.2 认更多桌面
@@ -65,9 +66,9 @@ Termux 和容器里都找：XFCE、LXQt、MATE，加上 LXDE（`startlxde`）、
 - 命令版本、loader 在不在；
 - `allow-external-apps`（没开 App 就用不了 Termux）；
 - 必要的命令（`need_tools` 那些）、pulseaudio；
-- X：在不在跑、socket 在不在、是不是 App 更新前启动的（看不到 App 的时间就只报启动时间）；
+- X：在不在跑、socket 在不在、是不是 App 更新前启动的（看 X 进程映射的 `base.apk` 是否已被删掉：App 更新会换掉它；不用 `pm`，Termux 身份跑它会卡住）；
 - 窗口管理器：Termux 里有没有 xfwm4；
-- 中文字体（`fc-list :lang=zh`，没有就提示 `pkg install noto-fonts-cjk` 一类）；
+- 中文字体：有 `fc-list`（在 `fontconfig-utils` 里，很少有人装）就用 `fc-list :lang=zh`，没有就按常见中文字体的文件名找；都没有就提示 `pkg install otf-noto-sans-cjk`；
 - 光标主题（已有的 `cursor_installed`）；
 - 每个环境：根目录在不在、进入命令能不能用（`proot-distro` 装没装）、有几个程序、有几个桌面；
 - 输入法 fcitx5（只报状态，不算错）。
