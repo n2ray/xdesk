@@ -1075,15 +1075,29 @@ fn how_to_connect() -> &'static str {
     tr("插上手机（打开 USB 调试），或者在手机的 XDesk 里选“连接接收器”", "Plug in the phone (with USB debugging on), or choose this computer in XDesk on the phone")
 }
 
+/// The devices on a cable in `adb devices -l`, with their state. adb also lists phones it reached over the network
+/// (wireless debugging, which it connects to by itself once paired): those are not a cable, and the phone reaches this
+/// computer over Wi-Fi without adb anyway.
+fn cabled(list: &str) -> Vec<(&str, &str)> {
+    list.lines()
+        .skip(1)
+        .filter_map(|l| {
+            let mut words = l.split_whitespace();
+            let (serial, state) = (words.next()?, words.next()?);
+            words.any(|w| w.starts_with("usb:")).then_some((serial, state))
+        })
+        .collect()
+}
+
 fn watch_usb(path: Option<String>, name: String) {
     let mut tries = 0;
     let mut was_up = false;
     loop {
-        let devices = path.as_deref().and_then(|p| adb(p, &["devices"])).unwrap_or_default();
-        let lines: Vec<&str> = devices.lines().skip(1).collect();
-        let ready: Vec<&str> = lines.iter().filter_map(|l| l.strip_suffix("\tdevice")).collect();
+        let devices = path.as_deref().and_then(|p| adb(p, &["devices", "-l"])).unwrap_or_default();
+        let plugged = cabled(&devices);
+        let ready: Vec<&str> = plugged.iter().filter(|(_, state)| *state == "device").map(|(serial, _)| *serial).collect();
         let up = !ready.is_empty();
-        let unauthorized = lines.iter().any(|l| l.ends_with("\tunauthorized"));
+        let unauthorized = plugged.iter().any(|(_, state)| *state == "unauthorized");
         if up && !was_up {
             tries = USB_TRIES;
         }
@@ -1143,4 +1157,19 @@ pub fn start(size: (u32, u32), video: SyncSender<Video>, audio: Sender<Vec<i16>>
     let listen_name = name.clone();
     std::thread::spawn(move || listen(rx, sinks, id, listen_name));
     std::thread::spawn(move || watch_usb(adb_path(), name));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cabled;
+
+    #[test]
+    fn only_cables() {
+        let list = "List of devices attached\n\
+            192.168.128.176:38591  device product:xuanyuan_eea model:25010PN30G device:xuanyuan transport_id:4\n\
+            adb-c20521e9-8Iwwwh._adb-tls-connect._tcp device product:x model:y device:z transport_id:5\n\
+            c20521e9               device usb:34603008X product:xuanyuan_eea model:25010PN30G device:xuanyuan transport_id:6\n\
+            0123456789ABCDEF       unauthorized usb:1-1 transport_id:7\n";
+        assert_eq!(cabled(list), vec![("c20521e9", "device"), ("0123456789ABCDEF", "unauthorized")]);
+    }
 }
