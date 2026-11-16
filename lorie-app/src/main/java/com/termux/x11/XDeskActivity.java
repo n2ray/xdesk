@@ -542,6 +542,14 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onDisplayChanged(int id) {
             if (apps.isActive()) apps.displayChanged(id);
+            // A resized display (a receiver moving to the cable, a window resized) relaunches the app on it, and Android
+            // hands the focus to the phone's screen meanwhile, where this window takes none: keys then wait for a window
+            // that never comes (an ANR). The focus goes back once the app is there again
+            if (phonePassive && id != Display.DEFAULT_DISPLAY) {
+                ui.removeCallbacks(refocusAfterResize);
+                ui.postDelayed(refocusAfterResize, REFOCUS_AFTER_RESIZE_MS);
+                ui.postDelayed(refocusAfterResize, REFOCUS_AFTER_RESIZE_MS * 4);
+            }
             // The X desktop follows its display too (a receiver window resized, a tablet turned), once the size has
             // settled: DISPLAY.md §4.3. Same size again changes nothing (the preference stays equal).
             Display shown = desktopDisplay();
@@ -2117,6 +2125,11 @@ public class XDeskActivity extends Activity {
     }
 
     /** 焦点放回外接屏：应用模式给应用，桌面接管时给桌面窗口。 */
+    private static final long REFOCUS_AFTER_RESIZE_MS = 400;
+    private final Runnable refocusAfterResize = () -> {
+        if (phonePassive) refocusExternal();
+    };
+
     private void refocusExternal() {
         if (apps.isActive()) {
             apps.focusExternal();
