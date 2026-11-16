@@ -1,0 +1,15 @@
+XDesk: glamor on OpenGL ES 3.2 without the OES name for border clamp. ES 3.2 has GL_CLAMP_TO_BORDER in core,
+and the Adreno 830 driver (V@0800.71) does not list GL_OES_texture_border_clamp.
+--- a/glamor/glamor.c
++++ b/glamor/glamor.c
+@@ -752,7 +752,9 @@
+             goto fail;
+         }
+ 
+-        if (!epoxy_has_gl_extension("GL_OES_texture_border_clamp")) {
++        if (gl_version < 32 &&
++            !epoxy_has_gl_extension("GL_OES_texture_border_clamp") &&
++            !epoxy_has_gl_extension("GL_EXT_texture_border_clamp")) {
+             ErrorF("GL_OES_texture_border_clamp required\n");
+             goto fail;
+         }
