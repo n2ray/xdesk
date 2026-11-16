@@ -30,7 +30,8 @@ final class TermuxCommand {
         RESULT_EXIT = "exitCode", RESULT_ERR = "err", RESULT_ERRMSG = "errmsg";
     /** bash 找不到命令。 */
     private static final int EXIT_NOT_FOUND = 127;
-    private static final String INSTALL = "curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash";
+    private static final String INSTALL_SCRIPT = "curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh";
+    private static final String INSTALL = INSTALL_SCRIPT + " | bash";
 
     private static final SparseArray<Callback> PENDING = new SparseArray<>();
     private static int nextId = 1;
@@ -42,8 +43,17 @@ final class TermuxCommand {
      * set in it, which the install line does. So the line goes to the clipboard and Termux opens, to paste it there.
      */
     static void copyInstallAndOpen(Context c) {
+        copyInstallAndOpen(c, null);
+    }
+
+    /**
+     * @param version a tag such as "v0.6.0-beta.5" (CLI.md §1): install.sh installs that release instead of the newest.
+     *     It goes on the bash side of the pipe; a leading assignment would only reach curl, not the install script.
+     */
+    static void copyInstallAndOpen(Context c, String version) {
+        String line = version == null ? INSTALL : INSTALL_SCRIPT + " | XDESK_VERSION=" + version + " bash";
         ClipboardManager cm = c.getSystemService(ClipboardManager.class);
-        if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("xdesk", INSTALL));
+        if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("xdesk", line));
         Toast.makeText(c, R.string.xd_termux_install_copied, Toast.LENGTH_LONG).show();
         Intent open = c.getPackageManager().getLaunchIntentForPackage("com.termux");
         if (open == null) return;

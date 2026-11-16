@@ -345,9 +345,14 @@ final class ChooserView extends LinearLayout {
         if (ime != null) ime.showSoftInput(search, 0);
     }
 
-    /** @param hint 列不出环境时的说明，点按见 Host.onTermuxHint；null 表示正常 */
-    void setTermux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
-        devices.setLinux(sessionNames, defaultName, running, x, hint);  // its listeners (the Switchboard) rebuild
+    /**
+     * @param hint 列不出环境时的说明，点按见 Host.onTermuxHint；null 表示正常
+     * @param versionHint the xdesk command is not this app's version, or too old to say one (CLI.md §1); null when fine
+     * @param xOldHint X runs code from before this app was updated; null when fine or unknown
+     */
+    void setTermux(List<String> sessionNames, String defaultName, String running, boolean x, String hint,
+            String versionHint, String xOldHint) {
+        devices.setLinux(sessionNames, defaultName, running, x, hint, versionHint, xOldHint);  // its listeners (the Switchboard) rebuild
     }
 
     void setStopping(String name) {

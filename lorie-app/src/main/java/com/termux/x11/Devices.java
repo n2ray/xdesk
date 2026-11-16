@@ -146,7 +146,7 @@ final class Devices {
     private String xLayout;
 
     private List<String> sessions = new ArrayList<>();
-    private String defaultSession, runningSession, stoppingSession, termuxHint;
+    private String defaultSession, runningSession, stoppingSession, termuxHint, termuxVersionHint, termuxXOldHint;
     private boolean xRunning;
     /** The Linux device X is being started for and since when (uptime), or null. */
     private String linuxStarting;
@@ -195,7 +195,8 @@ final class Devices {
 
     // --- what the launcher hears about Termux (ChooserView.setTermux, setStopping) ---
 
-    void setLinux(List<String> sessionNames, String defaultName, String running, boolean x, String hint) {
+    void setLinux(List<String> sessionNames, String defaultName, String running, boolean x, String hint,
+            String versionHint, String xOldHint) {
         sessions = new ArrayList<>(sessionNames);
         // The list is first shown from what was saved, without the default, until Termux answers: the one known stays,
         // or a Linux program opened in that moment would start the whole default desktop instead of apps only
@@ -203,6 +204,8 @@ final class Devices {
         runningSession = running;
         xRunning = x;
         termuxHint = hint;
+        termuxVersionHint = versionHint;
+        termuxXOldHint = xOldHint;
         rebuildEnvs();
         if (running != null) linuxStarting = null;
         changed();
@@ -395,6 +398,10 @@ final class Devices {
     String runningSession() { return runningSession; }
     String stoppingSession() { return stoppingSession; }
     String termuxHint() { return termuxHint; }
+    /** The Termux section's line about the xdesk command's version (CLI.md §1), or null when it matches. */
+    String termuxVersionHint() { return termuxVersionHint; }
+    /** The Termux section's line about X running code from before the app's update, or null. */
+    String termuxXOldHint() { return termuxXOldHint; }
     boolean xRunning() { return xRunning; }
 
     // --- keys to devices ---
@@ -506,7 +513,7 @@ final class Devices {
         linuxPhoneIme.clear();
         reportedEnvs = new ArrayList<>();
         sessions = new ArrayList<>();
-        defaultSession = runningSession = stoppingSession = termuxHint = null;
+        defaultSession = runningSession = stoppingSession = termuxHint = termuxVersionHint = termuxXOldHint = null;
         xRunning = false;
         linuxStarting = null;
         boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX));

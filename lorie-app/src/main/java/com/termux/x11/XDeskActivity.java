@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -50,6 +51,9 @@ import com.termux.x11.mac.MacStore;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /** 打开后先选外接屏上运行什么（Termux 桌面或安卓应用），手机屏做触摸板和键盘。流程见 PLAN.md。 */
 public class XDeskActivity extends Activity {
@@ -58,9 +62,12 @@ public class XDeskActivity extends Activity {
     private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3;
     private static final String PKG_TERMUX = "com.termux";
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
-    private static final String TERMUX_STATE_COMMAND = DesktopSession.nonceEnv() + SCRIPT + " list; echo ---; " + SCRIPT + " status; echo ---; "
-        // The environments (one device each, DEVICES.md §1). An xdesk without the command prints its usage here: no line of it has a tab
-        + SCRIPT + " envs";
+    /**
+     * One read of Termux: xdesk app state, one line of JSON (CLI.md §2). A script that does not know it exits
+     * non-zero, and the same command falls back to the three it does know, whose text this app still parses.
+     */
+    private static final String TERMUX_STATE_COMMAND = DesktopSession.nonceEnv() + SCRIPT + " app state 2>/dev/null || { "
+        + SCRIPT + " list; echo ---; " + SCRIPT + " status; echo ---; " + SCRIPT + " envs; }";
     private static final String SHIZUKU_HOME = "https://shizuku.rikka.app/";
     private static final int NO_DISPLAY = R.string.xd_no_display;
     private static final String TERMUX_DOWNLOAD = "https://f-droid.org/packages/com.termux/";
@@ -180,6 +187,7 @@ public class XDeskActivity extends Activity {
         @Override public Context phone() { return isFinishing() || isDestroyed() ? null : XDeskActivity.this; }
         @Override public boolean stopAsks() { return XDeskActivity.this.stopAsks(); }
         @Override public void termuxHint() { chooserHost.onTermuxHint(); }
+        @Override public void updateCommand() { updateXdeskCommand(); }
         @Override public void attachX() { chooserHost.onAttachChosen(); }
     };
     private Dialog outputDialog;
@@ -221,9 +229,13 @@ public class XDeskActivity extends Activity {
     private boolean pendingReplace;
     /** 最近一次知道的 Termux 状态：运行中的环境。 */
     private String runningSession;
+    /** The xdesk command's own version (CLI.md §1); null when the script is too old to report one. */
+    private String cliVersion;
+    /** What the Termux section says of the command's version and of X running code from before the update. */
+    private String termuxVersionHint, termuxXOldHint;
     private final Runnable termuxNoReply = new Runnable() {
         @Override public void run() {
-            setChooserTermux(savedSessions(), null, runningSession, false, getString(R.string.xd_termux_no_reply));
+            setChooserTermux(savedSessions(), null, runningSession, false, getString(R.string.xd_termux_no_reply), null, null);
         }
     };
     private int keyEvents, mouseEvents;
@@ -4173,9 +4185,12 @@ public class XDeskActivity extends Activity {
         refreshDocks();
     }
 
-    private void setChooserTermux(List<String> sessions, String defaultName, String running, boolean x, String hint) {
+    private void setChooserTermux(List<String> sessions, String defaultName, String running, boolean x, String hint,
+            String versionHint, String xOldHint) {
         runningSession = running;
-        chooser.setTermux(sessions, defaultName, running, x, hint);
+        termuxVersionHint = versionHint;
+        termuxXOldHint = xOldHint;
+        chooser.setTermux(sessions, defaultName, running, x, hint, versionHint, xOldHint);
     }
 
     /** 列出环境和正在运行的东西。列不出时用上次的结果，并说明原因。 */
@@ -4183,14 +4198,15 @@ public class XDeskActivity extends Activity {
         ui.removeCallbacks(termuxNoReply);
         forgetGoneTermux();
         if (!installed(PKG_TERMUX)) {
-            setChooserTermux(new ArrayList<String>(), null, null, false, getString(R.string.xd_termux_not_installed));
+            setChooserTermux(new ArrayList<String>(), null, null, false, getString(R.string.xd_termux_not_installed), null, null);
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            setChooserTermux(savedSessions(), null, null, false, getString(R.string.xd_termux_permission));
+            setChooserTermux(savedSessions(), null, null, false, getString(R.string.xd_termux_permission), null, null);
             return;
         }
-        setChooserTermux(savedSessions(), null, runningSession, false, null);
+        // The last read's version notices stay until the new one replaces them
+        setChooserTermux(savedSessions(), null, runningSession, false, null, termuxVersionHint, termuxXOldHint);
         boolean sent = TermuxCommand.run(this, TERMUX_STATE_COMMAND, new TermuxCommand.Callback() {
             @Override public void onOutput(String stdout) { parseTermuxState(stdout); }
             @Override public void onFailure(String message) { termuxFailed(message); }
@@ -4202,55 +4218,140 @@ public class XDeskActivity extends Activity {
     /** Termux 回了话但没列出来：不用再等超时，直接说为什么。环境用上次的。 */
     private void termuxFailed(String message) {
         ui.removeCallbacks(termuxNoReply);
-        setChooserTermux(savedSessions(), null, runningSession, false, message);
+        setChooserTermux(savedSessions(), null, runningSession, false, message, termuxVersionHint, termuxXOldHint);
     }
 
-    /** 解析 xdesk list 和 xdesk status 的输出。 */
+    /** What one read of xdesk told, the same fields for both outputs: the old three commands and the JSON of CLI.md §2. */
+    private static final class TermuxState {
+        final List<String> sessions = new ArrayList<String>();
+        /** xdesk envs lines: name, kind, apps or -, the sessions joined by "/", tab separated (Devices.setEnvironments). */
+        final List<String> envLines = new ArrayList<String>();
+        String defaultName, running, xLayout;
+        boolean x, xIme;
+        /** The command's own version (CLI.md §1); null when it is too old to report one. */
+        String cliVersion;
+        /** When X started, Unix seconds; -1 when not known or not running (the old output does not say). */
+        long xStarted = -1;
+    }
+
+    /** 解析 xdesk app state 的 JSON（CLI.md §2），旧脚本退回三段文字的输出。 */
     private void parseTermuxState(String stdout) {
         ui.removeCallbacks(termuxNoReply);
-        List<String> sessions = new ArrayList<String>();
-        String defaultName = null, running = null, xLayout = null;
-        boolean status = false, x = false, xIme = false;
+        TermuxState state;
+        if (stdout.trim().startsWith("{")) {
+            try {
+                state = parseTermuxStateJson(stdout.trim());
+            } catch (JSONException e) {
+                Log.w(TAG, "xdesk app state is not JSON; reading it as the old output", e);
+                state = parseTermuxStateText(stdout);
+            }
+        } else {
+            state = parseTermuxStateText(stdout);
+        }
+        applyTermuxState(state);
+    }
+
+    /** 旧输出：xdesk list、status 和 envs。New scripts add an "xdesk: VERSION" line to status (CLI.md §1). */
+    private static TermuxState parseTermuxStateText(String stdout) {
+        TermuxState s = new TermuxState();
+        boolean status = false;
         // After a second "---": xdesk envs, a tab separated line per environment
         boolean envs = false;
-        List<String> envLines = new ArrayList<String>();
         for (String line : stdout.split("\n")) {
             if (line.equals("---")) {
                 envs = status;
                 status = true;
             } else if (envs) {
-                if (line.indexOf('\t') > 0) envLines.add(line);
+                if (line.indexOf('\t') > 0) s.envLines.add(line);
             } else if (!status) {
                 if (line.startsWith("* ") || line.startsWith("  ")) {
                     String name = line.substring(2).trim();
                     if (name.isEmpty()) continue;
-                    sessions.add(name);
-                    if (line.startsWith("* ")) defaultName = name;
+                    s.sessions.add(name);
+                    if (line.startsWith("* ")) s.defaultName = name;
                 }
             } else if (line.startsWith("X server: running")) {
-                x = true;
+                s.x = true;
             } else if (line.startsWith("Session: ") && !line.equals("Session: none")) {
-                running = line.substring("Session: ".length()).trim();
+                s.running = line.substring("Session: ".length()).trim();
             } else if (line.startsWith("Input method: ")) {
                 // An input method on the X side (fcitx5): an xdesk that knows none prints no such line
-                xIme = !line.startsWith("Input method: none");
+                s.xIme = !line.startsWith("Input method: none");
             } else if (line.startsWith("Keyboard layout: ")) {
                 // The remembered X side layout (INPUT.md §5.2): "from X" means none is set. An xdesk that knows
                 // none prints no such line
-                xLayout = line.substring("Keyboard layout: ".length()).trim();
-                if (xLayout.equals("from X")) xLayout = null;
+                s.xLayout = line.substring("Keyboard layout: ".length()).trim();
+                if (s.xLayout.equals("from X")) s.xLayout = null;
+            } else if (line.startsWith("xdesk: ")) {
+                // A script new enough to say its version, but too old for app state (CLI.md §1)
+                s.cliVersion = line.substring("xdesk: ".length()).trim();
+                if (s.cliVersion.isEmpty()) s.cliVersion = null;
             }
         }
+        return s;
+    }
+
+    /** xdesk app state: one line of JSON with everything the three commands printed (CLI.md §2). */
+    private static TermuxState parseTermuxStateJson(String stdout) throws JSONException {
+        JSONObject o = new JSONObject(stdout);
+        int format = o.getInt("format");
+        // A newer format only adds to this one (CLI.md §2): read what is here
+        if (format > 1) Log.w(TAG, "xdesk app state format " + format + " is newer than this app; reading what it knows");
+        TermuxState s = new TermuxState();
+        s.cliVersion = string(o, "version");
+        JSONArray sessions = o.optJSONArray("sessions");
+        if (sessions != null) for (int i = 0; i < sessions.length(); i++) {
+            String name = sessions.getString(i).trim();
+            if (!name.isEmpty()) s.sessions.add(name);
+        }
+        s.defaultName = string(o, "default");
+        s.running = string(o, "running");
+        JSONObject x = o.optJSONObject("x");
+        s.x = x != null && x.optBoolean("running", false);
+        if (x != null && !x.isNull("started")) s.xStarted = x.getLong("started");
+        s.xIme = o.optBoolean("ime", false);
+        s.xLayout = string(o, "layout");
+        JSONArray envs = o.optJSONArray("envs");
+        if (envs != null) for (int i = 0; i < envs.length(); i++) {
+            JSONObject e = envs.getJSONObject(i);
+            String name = string(e, "name");
+            if (name == null || name.isEmpty()) continue;
+            String kind = string(e, "kind");
+            JSONArray names = e.optJSONArray("sessions");
+            ArrayList<String> sess = new ArrayList<String>();
+            if (names != null) for (int j = 0; j < names.length(); j++) {
+                String n = names.getString(j);
+                if (!n.isEmpty()) sess.add(n);
+            }
+            // The line xdesk envs prints: name, kind, apps or -, the sessions joined by "/"
+            s.envLines.add(name + "\t" + (kind != null ? kind : "") + "\t" + (e.optBoolean("apps", false) ? "apps" : "-")
+                + "\t" + String.join("/", sess));
+        }
+        return s;
+    }
+
+    /** A JSON string that may be null; a missing one counts as null. */
+    private static String string(JSONObject o, String key) throws JSONException {
+        return o.isNull(key) ? null : o.getString(key);
+    }
+
+    /** 两种输出最后都到这里：xdesk 说的东西放到 App 别处读的地方。 */
+    private void applyTermuxState(TermuxState s) {
         // Its listener sets the key mode (keyModeFollows)
-        Devices.get(this).setXIme(x && xIme);
-        Devices.get(this).setXLayout(xLayout);
-        prefs.edit().putString(PREF_SESSIONS, String.join("\n", sessions)).apply();
+        Devices.get(this).setXIme(s.x && s.xIme);
+        Devices.get(this).setXLayout(s.xLayout);
+        prefs.edit().putString(PREF_SESSIONS, String.join("\n", s.sessions)).apply();
         // Just after XDesk started or switched a session xdesk may still report none, or the one being replaced
+        String running = s.running;
         if (android.os.SystemClock.uptimeMillis() < launchGuardUntil && runningSession != null
                 && (running == null || running.equals(launchedFrom))) running = runningSession;
         String before = runningSession;
-        Devices.get(this).setEnvironments(envLines);
-        setChooserTermux(sessions, defaultName, running, x, sessions.isEmpty() ? getString(R.string.xd_termux_no_sessions) : null);
+        Devices.get(this).setEnvironments(s.envLines);
+        cliVersion = s.cliVersion;
+        String versionHint = versionHint(s);
+        String xOldHint = xOldHint(s);
+        setChooserTermux(s.sessions, s.defaultName, running, s.x,
+            s.sessions.isEmpty() ? getString(R.string.xd_termux_no_sessions) : null, versionHint, xOldHint);
         // What the screen shows is what runs: a window recreated does not know the name; "NAME+apps" of a session
         // without an apps-only variant is started whole (xdesk start_session)
         boolean sameSession = running != null && desktopName != null && !running.equals(desktopName)
@@ -4260,6 +4361,91 @@ public class XDeskActivity extends Activity {
         refreshDocks();
         updateStatus();
         updateCapture();
+    }
+
+    /**
+     * CLI.md §1: the command must be this app's version, and a script too old to say one is not. A non-release app
+     * ("dev-…") is never compared, and neither is a script copied from the repository ("dev").
+     */
+    private String versionHint(TermuxState s) {
+        String app = BuildConfig.VERSION_NAME;
+        if (app == null || app.isEmpty() || app.contains("dev") || !Character.isDigit(app.charAt(0))) return null;
+        String cli = s.cliVersion;
+        if (cli == null) return getString(R.string.xd_termux_cli_mismatch, getString(R.string.xd_termux_cli_old), app);
+        // Only an older command: updating a newer one to this version would take it back
+        if (cli.equals("dev") || compareVersions(withoutV(cli), withoutV(app)) >= 0) return null;
+        return getString(R.string.xd_termux_cli_mismatch, cli, app);
+    }
+
+    /**
+     * Release versions such as 0.6.0, 0.6.0-beta.4: the numbers first, then a release before its betas are newer
+     * than none of them ("0.6.0" &gt; "0.6.0-beta.9"), betas by their number. Unknown parts compare as text.
+     */
+    static int compareVersions(String a, String b) {
+        String[] pa = a.split("-", 2), pb = b.split("-", 2);
+        int c = compareDotted(pa[0], pb[0]);
+        if (c != 0) return c;
+        if (pa.length == 1 || pb.length == 1) return pb.length - pa.length;
+        return compareDotted(pa[1], pb[1]);
+    }
+
+    private static int compareDotted(String a, String b) {
+        String[] x = a.split("\\."), y = b.split("\\.");
+        for (int i = 0; i < Math.max(x.length, y.length); i++) {
+            String p = i < x.length ? x[i] : "", q = i < y.length ? y[i] : "";
+            int c;
+            if (p.matches("\\d+") && q.matches("\\d+")) c = Long.compare(Long.parseLong(p), Long.parseLong(q));
+            else c = p.compareTo(q);
+            if (c != 0) return c;
+        }
+        return 0;
+    }
+
+    /** The X server XDesk updated over starts its code from the APK: one started earlier runs the old code (CLI.md §1). */
+    private String xOldHint(TermuxState s) {
+        if (s.xStarted <= 0) return null;
+        long updated;
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            updated = info.lastUpdateTime;
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
+        return updated > 0 && s.xStarted * 1000 < updated ? getString(R.string.xd_termux_x_before_update) : null;
+    }
+
+    private static String withoutV(String version) {
+        return version.startsWith("v") ? version.substring(1) : version;
+    }
+
+    /** The version mismatch's action: xdesk update, or for a script too old for it, its install line with this version. */
+    private void updateXdeskCommand() {
+        final String appVersion = withoutV(BuildConfig.VERSION_NAME);
+        if (cliVersion == null) {
+            TermuxCommand.copyInstallAndOpen(this, "v" + appVersion);
+            return;
+        }
+        // It downloads, and installs missing Termux packages first: it can take a while
+        Toast.makeText(this, R.string.xd_termux_cli_updating, Toast.LENGTH_SHORT).show();
+        boolean sent = TermuxCommand.run(this, SCRIPT + " update " + appVersion, new TermuxCommand.Callback() {
+            @Override public void onOutput(String stdout) {
+                toastLastLine(stdout);
+                refreshTermux();
+            }
+            @Override public void onFailure(String message) {
+                Toast.makeText(XDeskActivity.this, message, Toast.LENGTH_LONG).show();
+                refreshTermux();
+            }
+        });
+        if (!sent) Toast.makeText(this, R.string.xd_termux_not_installed, Toast.LENGTH_LONG).show();
+    }
+
+    /** The install script ends with what it did ("xdesk updated to v…"); package installs come before it. */
+    private void toastLastLine(String stdout) {
+        String line = stdout.trim();
+        int start = line.lastIndexOf('\n');
+        if (start >= 0) line = line.substring(start + 1);
+        if (!line.isEmpty()) Toast.makeText(this, line, Toast.LENGTH_LONG).show();
     }
 
     private static String stripAppsOnly(String session) {
