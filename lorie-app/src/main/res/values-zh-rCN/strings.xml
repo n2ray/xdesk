@@ -178,6 +178,17 @@
     <string name="xd_linux_window_gone">这个窗口已经关了</string>
     <string name="xd_linux_no_window">%1$s 15 秒内没有打开窗口，日志见 $PREFIX/tmp/xdesk.log</string>
     <string name="xd_linux_launch_failed">%1$s 没能启动：%2$s</string>
+    <!-- 启动后没起来的原因（CLI.md §5.4）：%1$s 是程序，%2$s 是说明 -->
+    <string name="xd_linux_launch_not_found">%1$s 没装好：找不到 %2$s</string>
+    <string name="xd_linux_launch_missing_lib">%1$s 缺少库 %2$s，重装这个程序试试</string>
+    <string name="xd_linux_launch_no_display">%1$s 连不上显示，停掉桌面再开一次试试</string>
+    <string name="xd_linux_launch_gpu">%1$s 的图形初始化失败，换成软件渲染也不行</string>
+    <string name="xd_linux_launch_crash">%1$s 崩溃了（%2$s）</string>
+    <string name="xd_linux_launch_error">%1$s 退出了：%2$s</string>
+    <string name="xd_linux_launch_ok_no_window">%1$s 运行完就退出了，没有打开窗口</string>
+    <string name="xd_linux_launch_retried">%1$s 的 GPU 不能用，已经用软件渲染打开</string>
+    <string name="xd_linux_launch_no_terminal">%1$s 要在终端里运行，但这个环境里没有终端程序（装 xfce4-terminal 或 xterm）</string>
+    <string name="xd_linux_launch_no_env">%1$s 所在的环境进不去：%2$s</string>
     <string name="xd_chooser_default">默认</string>
     <string name="xd_chooser_reattach_x">接回正在运行的 X 显示</string>
     <string name="xd_chooser_attach_x">接上 X 显示</string>

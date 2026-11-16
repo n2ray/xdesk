@@ -11,6 +11,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.regex.Pattern;
@@ -25,6 +26,11 @@ final class XWindows {
     private static final String TAG = "XDeskWindows";
     static final int ACTIVATE = 1, FULLSCREEN_ON = 2, FULLSCREEN_OFF = 3, CLOSE = 4, MAXIMIZE_ON = 5, MAXIMIZE_OFF = 6;
     private static final String PREFIX = env("PREFIX", "/data/data/com.termux/files/usr");
+    /** Where xdesk keeps per-launch status and logs (CLI.md §5.4): $PREFIX/tmp/xdesk/launch. */
+    private static final String LAUNCH = PREFIX + "/tmp/xdesk/launch";
+    private static final int LOG_TAIL_LINES = 20;
+    /** Only the end of a log is read: a program may write a lot, and only the last lines are asked for. */
+    private static final int LOG_TAIL_BYTES = 64 * 1024;
     private static final Pattern KEY = Pattern.compile("[A-Za-z0-9._+@-]{1,100}(/[A-Za-z0-9._+@-]{1,200})?");
     private static final Pattern STARTUP_ID = Pattern.compile("[A-Za-z0-9._+@-]{0,200}");
 
@@ -130,6 +136,51 @@ final class XWindows {
             return "!" + (last.isEmpty() ? "xdesk launch failed" : last);
         } catch (IOException | RuntimeException e) {
             return "!" + e.getMessage();
+        }
+    }
+
+    /**
+     * The launch's status and log tail (CLI.md §5.4), or null while it runs, when xdesk wrote no status, or for a pid
+     * that cannot be one. Never throws: the app polls this, and an old xdesk or a half-written file is no reason to
+     * break the call.
+     */
+    static String launchStatus(int pid) {
+        if (pid <= 0) return null;
+        try {
+            File status = new File(LAUNCH, pid + ".status");
+            if (!status.isFile()) return null;
+            String text = new String(Files.readAllBytes(status.toPath()), StandardCharsets.UTF_8).trim();
+            return text + "\n--\n" + tail(new File(LAUNCH, pid + ".log"));
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "launchStatus " + pid, e);
+            return null;
+        }
+    }
+
+    /** The last 20 lines of a file, reading only its end; "" when it does not exist. */
+    private static String tail(File f) {
+        try (RandomAccessFile raf = new RandomAccessFile(f, "r")) {
+            long end = raf.length();
+            long from = Math.max(0, end - LOG_TAIL_BYTES);
+            byte[] buf = new byte[(int) (end - from)];
+            raf.seek(from);
+            raf.readFully(buf);
+            String[] lines = new String(buf, StandardCharsets.UTF_8).split("\n", -1);
+            // When the read starts in the middle of the file its first line is cut; it is not one of the last 20
+            int first = from > 0 ? 1 : 0;
+            int last = lines.length;
+            while (last > first && lines[last - 1].isEmpty()) last--;  // the newline that ends the file
+            first = Math.max(first, last - LOG_TAIL_LINES);
+            StringBuilder out = new StringBuilder();
+            for (int i = first; i < last; i++) {
+                String line = lines[i];
+                if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                if (out.length() > 0) out.append('\n');
+                out.append(line);
+            }
+            return out.toString();
+        } catch (IOException | RuntimeException e) {
+            return "";
         }
     }
 

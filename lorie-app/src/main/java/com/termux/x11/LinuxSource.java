@@ -9,9 +9,11 @@ import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.termux.x11.app.R;
 
@@ -110,6 +112,12 @@ final class LinuxSource implements ContentSource {
         long since = SystemClock.uptimeMillis();
         /** Windows already asked about (isDescendant), so each is asked once. */
         final Set<Integer> asked = new HashSet<>();
+        /** The window it got (0: none). A status that arrives once it is there only reports a software retry. */
+        int window;
+        /** launchStatus said retried=software (CLI.md §5.2): say it once, when the window is there. */
+        boolean softwareRetried, retriedNoticed;
+        /** No more launchStatus calls: the window came, the wait ended, or the X server cannot answer it. */
+        volatile boolean stopped;
     }
 
     private final Context context;
@@ -343,6 +351,7 @@ final class LinuxSource implements ContentSource {
         p.startupId = "xdesk-" + scopeToken(scopeOfApp(a)) + "--" + a.shortStem.replaceAll("[^A-Za-z0-9._-]", "") + "-" + SystemClock.uptimeMillis() + "_TIME0";
         p.timeout = () -> {
             if (pending != p) return;
+            p.stopped = true;
             pending = null;
             ui.removeCallbacks(auxNow);
             Log.i(TAG, "No window from " + a.key);
@@ -366,11 +375,13 @@ final class LinuxSource implements ContentSource {
                 if (reply == null) {
                     failPending(p, context.getString(R.string.xd_linux_old_x));
                 } else if (reply.startsWith("!")) {
-                    failPending(p, context.getString(R.string.xd_linux_launch_failed, a.name, reply.substring(1)));
+                    failPending(p, launchError(a, reply.substring(1)));
                 } else {
                     try { p.pid = Integer.parseInt(reply.trim()); } catch (NumberFormatException e) { p.pid = -1; }
                     Log.i(TAG, a.key + " started as pid " + p.pid);
                     matchPending();
+                    // How it went, once a second, until the window comes or the 15 seconds are over (CLI.md §5.4)
+                    if (pending == p) ui.postDelayed(() -> pollStatus(p), 1000);
                 }
             });
         });
@@ -378,6 +389,7 @@ final class LinuxSource implements ContentSource {
 
     private void failPending(Pending p, String reason) {
         ui.removeCallbacks(p.timeout);
+        p.stopped = true;
         if (pending == p) pending = null;
         Log.i(TAG, "Launch failed: " + reason);
         p.result.failed(p.key, reason);
@@ -385,9 +397,164 @@ final class LinuxSource implements ContentSource {
 
     private void cancelPending() {
         if (pending == null) return;
+        pending.stopped = true;
         ui.removeCallbacks(pending.timeout);
         ui.removeCallbacks(auxNow);
         pending = null;
+    }
+
+    // --- why a launched program did not come up (CLI.md §5.4) ---
+
+    /** The status xdesk wrote when the program exited: key=value lines, "--", then the log's last lines. */
+    private static final class LaunchStatus {
+        String reason = "", detail = "", retried = "";
+        /** running=1: written when the wrapper retries with software rendering, before the program has ended. */
+        boolean running;
+        final List<String> tail = new ArrayList<>();
+    }
+
+    /** Asks the X server how the launch went, on the background thread: it reads files in Termux. UI thread. */
+    private void pollStatus(final Pending p) {
+        if (p.stopped || pending != p) return;
+        final ICmdEntryInterface s = server;
+        if (s == null) return;
+        bg.execute(() -> {
+            if (p.stopped) return;
+            String status;
+            try {
+                status = s.launchStatus(p.pid);
+            } catch (RemoteException | AbstractMethodError | SecurityException e) {
+                // An X server from before this call: it will never have a status for this launch
+                Log.i(TAG, "No launchStatus from the X server: " + e);
+                p.stopped = true;
+                return;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "launchStatus", e);
+                status = null;
+            }
+            final String answer = status;
+            ui.post(() -> statusArrived(p, answer));
+        });
+    }
+
+    /** UI thread. A null answer means the program is still running (or has no status yet): keep waiting. */
+    private void statusArrived(final Pending p, String status) {
+        if (status == null) {
+            if (!p.stopped && pending == p) ui.postDelayed(() -> pollStatus(p), 1000);
+            return;
+        }
+        final LaunchStatus st = parseStatus(status);
+        if (st.running) {
+            // Not the end: the retry with software rendering runs now, its window is still to come (CLI.md §5.2)
+            if ("software".equals(st.retried)) p.softwareRetried = true;
+            if (!p.stopped && pending == p) ui.postDelayed(() -> pollStatus(p), 1000);
+            else showRetried(p);
+            return;
+        }
+        p.stopped = true;
+        p.softwareRetried = "software".equals(st.retried);
+        final boolean failed = !"ok".equals(st.reason);
+        if (failed) logLaunchTail(p.app, st);
+        if (pending != p) {
+            // The window came while this answer was on its way: only the software note can still be due
+            showRetried(p);
+            return;
+        }
+        if (failed) {
+            failPending(p, launchStatusText(p.app, st));
+            return;
+        }
+        // Exit code 0 and no window: a command-line program, or a single-instance one already running elsewhere
+        failPending(p, context.getString(R.string.xd_linux_launch_ok_no_window, p.app.name));
+    }
+
+    private static LaunchStatus parseStatus(String text) {
+        LaunchStatus st = new LaunchStatus();
+        boolean log = false;
+        for (String line : text.split("\n", -1)) {
+            if (!log) {
+                if (line.trim().equals("--")) {
+                    log = true;
+                    continue;
+                }
+                int eq = line.indexOf('=');
+                if (eq <= 0) continue;
+                String k = line.substring(0, eq).trim(), v = line.substring(eq + 1).trim();
+                if (k.equals("reason")) st.reason = v;
+                else if (k.equals("detail")) st.detail = v;
+                else if (k.equals("retried")) st.retried = v;
+                else if (k.equals("running")) st.running = "1".equals(v);
+            } else {
+                st.tail.add(line);
+            }
+        }
+        return st;
+    }
+
+    /** The reason in the user's words; a detail the shell left out is the log's last line. */
+    private String launchStatusText(App a, LaunchStatus st) {
+        String detail = st.detail;
+        if (detail.isEmpty()) {
+            for (int i = st.tail.size() - 1; i >= 0; i--) {
+                if (!st.tail.get(i).trim().isEmpty()) {
+                    detail = st.tail.get(i).trim();
+                    break;
+                }
+            }
+        }
+        switch (st.reason) {
+            case "not-found": return context.getString(R.string.xd_linux_launch_not_found, a.name, detail);
+            case "missing-lib": return context.getString(R.string.xd_linux_launch_missing_lib, a.name, detail);
+            case "no-display": return context.getString(R.string.xd_linux_launch_no_display, a.name);
+            case "gpu": return context.getString(R.string.xd_linux_launch_gpu, a.name);
+            case "crash": return context.getString(R.string.xd_linux_launch_crash, a.name, detail);
+            case "error": return context.getString(R.string.xd_linux_launch_error, a.name, detail);
+            default: return context.getString(R.string.xd_linux_launch_failed, a.name, detail.isEmpty() ? st.reason : detail);
+        }
+    }
+
+    /** The log's last lines in logcat, so the message the user saw can be checked (CLI.md §5.4). */
+    private static void logLaunchTail(App a, LaunchStatus st) {
+        StringBuilder out = new StringBuilder();
+        for (String line : st.tail) {
+            if (out.length() > 0) out.append('\n');
+            out.append(line);
+        }
+        if (out.length() > 0) Log.w(TAG, "Launch of " + a.key + " ended (" + st.reason + "):\n" + out);
+    }
+
+    /** The window is there: the software rendering note, once (CLI.md §5.2). UI thread. */
+    private void showRetried(Pending p) {
+        if (!p.softwareRetried || p.retriedNoticed || p.window == 0 || !windows.containsKey(p.window)) return;
+        p.retriedNoticed = true;
+        Toast.makeText(context, context.getString(R.string.xd_linux_launch_retried, p.app.name), Toast.LENGTH_LONG).show();
+    }
+
+    /**
+     * "xdesk-error CODE DETAIL" from xdesk before it started anything (CLI.md §5.1, §5.4), in the user's words; other
+     * text is shown as it came.
+     */
+    private String launchError(App a, String why) {
+        String text = why.trim();
+        String prefix = "xdesk-error ";
+        if (!text.startsWith(prefix)) return context.getString(R.string.xd_linux_launch_failed, a.name, text);
+        String rest = text.substring(prefix.length()).trim();
+        int space = rest.indexOf(' ');
+        String code = space < 0 ? rest : rest.substring(0, space);
+        String detail = space < 0 ? "" : rest.substring(space + 1).trim();
+        switch (code) {
+            case "not-installed": {
+                // The command, then possibly more from the shell; the user only needs the command
+                int end = detail.indexOf(' ');
+                if (end > 0) detail = detail.substring(0, end);
+                return context.getString(R.string.xd_linux_launch_not_found, a.name, detail);
+            }
+            case "no-terminal": return context.getString(R.string.xd_linux_launch_no_terminal, a.name);
+            case "no-env": return context.getString(R.string.xd_linux_launch_no_env, a.name, detail);
+            case "no-app": return context.getString(R.string.xd_linux_not_found);
+            case "bad-key": return context.getString(R.string.xd_linux_launch_failed, a.name, detail);
+            default: return context.getString(R.string.xd_linux_launch_failed, a.name, detail.isEmpty() ? text : detail);
+        }
     }
 
     /** The launch has waited long enough for a main window: a dialog or splash of the program will do now. */
@@ -444,11 +611,14 @@ final class LinuxSource implements ContentSource {
     private void matched(Pending p, int window) {
         ui.removeCallbacks(p.timeout);
         ui.removeCallbacks(auxNow);
+        p.stopped = true;
+        p.window = window;
         pending = null;
         settleApp = p.app;
         settleKey = p.key;
         settleUntil = SystemClock.uptimeMillis() + SETTLE_MS;
         Log.i(TAG, p.app.key + " has window " + window);
+        showRetried(p);
         // Its windows are the app's from now on, whatever their class: Chromium's are chromium-browser, its id chromium
         Win w = windows.get(window);
         // Launched by xdesk in that app's environment, whatever the window says about itself
