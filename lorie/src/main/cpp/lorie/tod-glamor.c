@@ -466,13 +466,19 @@ void todGlamorLiberaRadice(void *radice) {
     free(m);
 }
 
+// XDesk: on unless TERMUX_X11_GLAMOR=0 (from 0.6.0-beta.7; the X server's environment is ~/.config/xdesk/x11-env),
+// and off again when it can not start (todGlamorSpegni): the screen is then EXA's, as before.
+static int todAttivo = -1;
 Bool todGlamorAttivo(void) {
-    static int attivo = -1;
-    if (attivo < 0) {
+    if (todAttivo < 0) {
         const char *e = getenv("TERMUX_X11_GLAMOR");
-        attivo = e && !strcmp(e, "1");
+        todAttivo = !(e && !strcmp(e, "0"));
     }
-    return attivo;
+    return todAttivo;
+}
+
+void todGlamorSpegni(void) {
+    todAttivo = 0;
 }
 
 static void todMakeCurrent(struct glamor_context *c) {

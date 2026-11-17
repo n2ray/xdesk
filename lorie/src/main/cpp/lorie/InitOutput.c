@@ -45,6 +45,7 @@
 
 Bool todGlamorAttivo(void);   // tod-glamor.c
 Bool todGlamorPrepara(ScreenPtr screen);
+void todGlamorSpegni(void);
 void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona);
 PixmapPtr todGlamorCreaRadice(ScreenPtr screen, int width, int height, int depth);
 struct LorieBuffer *todGlamorRadice(void);
@@ -1020,6 +1021,13 @@ void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
     }
 }
 
+// XDesk: glamor is on by default and EXA was the screen before: when glamor can not start, the screen is EXA's
+static Bool lorieWithoutGlamor(ScreenPtr pScreen) {
+    log(ERROR, "tod-glamor: glamor could not start, drawing with EXA (the CPU) as before");
+    todGlamorSpegni();
+    return exaDriverInit(pScreen, &lorieExa);
+}
+
 static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **argv) {
     static int eventFd = -1;
     pScreenPtr = pScreen;
@@ -1049,7 +1057,7 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
           || !(pScreen->CreateScreenResources = lorieCreateScreenResources) // Simply replace unneeded function
           || !(!pvfb->dri3 || dri3_screen_init(pScreen, &lorieDri3Info))
           || !fbPictureInit(pScreen, 0, 0)
-          || !(todGlamorAttivo() ? todGlamorPrepara(pScreen) : exaDriverInit(pScreen, &lorieExa))   // tod
+          || !(todGlamorAttivo() ? todGlamorPrepara(pScreen) || lorieWithoutGlamor(pScreen) : exaDriverInit(pScreen, &lorieExa))   // tod
           || !lorieRandRInit(pScreen)
           || !miPointerInitialize(pScreen, &loriePointerSpriteFuncs, &loriePointerCursorFuncs, TRUE)
           || !fbCreateDefColormap(pScreen)
