@@ -1476,6 +1476,13 @@ final class WirelessDisplay {
             i.asBinder().linkToDeath(death, 0);
             // Linked to XDesk: if XDesk dies, the display and the recording end with it
             i.attach(NO_EVENTS, context.getPackageName());
+            // The phone's copies for the shared clipboard also while no app session has an injector (audit: a
+            // receiver alone got none unless XDesk had the focus); the hub drops what it heard already
+            try {
+                if (i.watchClipboard(true)) ShareHub.get(context).phone(i.clipboardText());
+            } catch (RemoteException | RuntimeException e) {
+                Log.i(TAG, "clipboard watch: " + e);
+            }
             i.setEnabled(false);
             boolean encoderWired = wired();
             encoder = encoder(width, height, encoderWired);
@@ -1812,7 +1819,10 @@ final class WirelessDisplay {
         @Override public void onFingers(float[] x, float[] y) { }
         @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) { } // empty on purpose: this injector never moves a pointer, only the app session's does
         @Override public void onGameMode(boolean on) { }  // game passthrough belongs to the app session
-        @Override public void onClipboard(String text) { }  // the app session's injector watches it (ShareHub)
+        @Override public void onClipboard(String text) {
+            ShareHub h = ShareHub.peek();
+            if (h != null) h.phone(text);
+        }
     };
 
     private static void closeQuietly(java.io.Closeable c) {

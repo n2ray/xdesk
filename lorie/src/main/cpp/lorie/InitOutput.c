@@ -48,6 +48,7 @@ Bool todGlamorPrepara(ScreenPtr screen);
 void todGlamorSpegni(void);
 void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona);
 PixmapPtr todGlamorCreaRadice(ScreenPtr screen, int width, int height, int depth);
+int todGlamorMaxLato(void);
 struct LorieBuffer *todGlamorRadice(void);
 void todGlamorPubblica(PixmapPtr radice, RegionPtr zona);
 void *todGlamorStaccaRadice(PixmapPtr pixmap);
@@ -973,7 +974,8 @@ static Bool lorieRandRInit(ScreenPtr pScreen) {
     pScrPriv->rrCrtcSet = lorieRRCrtcSet;
     pScrPriv->rrScreenSetSize = lorieRRScreenSetSize;
 
-    RRScreenSetSizeRange(pScreen, 1, 1, 32767, 32767);
+    // glamor's root must fit a texture: a bigger size (xrandr --fb) was a FatalError (audit, 17 November)
+    RRScreenSetSizeRange(pScreen, 1, 1, todGlamorMaxLato(), todGlamorMaxLato());
 
     if (FALSE
         || !(mode = lorieCvt(pScreen->width, pScreen->height, pvfb->root.framerate))

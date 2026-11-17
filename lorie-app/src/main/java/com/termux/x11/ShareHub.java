@@ -37,6 +37,11 @@ public final class ShareHub {
 
     private static ShareHub instance;
 
+    /** The hub if it was made (XDeskActivity makes it at the start), for a listener with no Context at hand. */
+    static synchronized ShareHub peek() {
+        return instance;
+    }
+
     public static synchronized ShareHub get(Context c) {
         if (instance == null) instance = new ShareHub(c.getApplicationContext());
         return instance;

@@ -59,6 +59,14 @@ void todGlamorMisura(uint64_t muro) {
 
 static EGLDisplay todDpy = EGL_NO_DISPLAY;
 static EGLContext todCtx = EGL_NO_CONTEXT;
+/** Il lato più grande che glamor può disegnare in un fbo: oltre, la radice non si crea (FatalError). */
+static GLint todMaxLato = 0;
+
+Bool todGlamorAttivo(void);
+
+int todGlamorMaxLato(void) {
+    return todGlamorAttivo() && todMaxLato > 0 ? todMaxLato : 32767;
+}
 
 // DRI3: ogni immagine importata (dma-buf lineare di Turnip) è mappata in memoria. Con glamor:
 //  - via AHardwareBuffer (predefinita): la GPU legge una copia dell'immagine in un AHardwareBuffer lineare
@@ -470,6 +478,7 @@ void todGlamorLiberaRadice(void *radice) {
     if (m->lorie) {
         if (todRadiceBuf == m->lorie)
             todRadiceBuf = NULL;
+        lorieUnregisterBuffer(m->lorie);  // anche la radice dell'ultima generazione: l'app la lascia (audit)
         LorieBuffer_release(m->lorie);
     }
     free(m);
@@ -571,12 +580,24 @@ Bool todGlamorPrepara(ScreenPtr screen) {
         log(ERROR, "tod-glamor: manca EGL_KHR_surfaceless_context");
         return FALSE;
     }
-    if ((todCtx = todCreaContesto(todDpy)) == EGL_NO_CONTEXT ||
+    // Lo stesso contesto per ogni generazione del server: uno nuovo a ogni reset restava lì (audit)
+    if ((todCtx == EGL_NO_CONTEXT && (todCtx = todCreaContesto(todDpy)) == EGL_NO_CONTEXT) ||
         !eglMakeCurrent(todDpy, EGL_NO_SURFACE, EGL_NO_SURFACE, todCtx)) {
         log(ERROR, "tod-glamor: contesto GLES 3 non creato (0x%x)", eglGetError());
         return FALSE;
     }
     log(INFO, "tod-glamor: EGL %d.%d, %s, %s", maj, min, glGetString(GL_RENDERER), glGetString(GL_VERSION));
+    // XDesk 0.6.0: di serie solo su Adreno, l'unica GPU su cui è stato provato. Mali e PowerVR: le immagini DRI3 via
+    // socket AHB (il wrapper Vulkan), la coerenza CPU/GPU degli AHB tenuti bloccati, i compilatori di shader più
+    // severi sono rischi non verificati (audit). TERMUX_X11_GLAMOR=1 lo accende lo stesso
+    {
+        const char *e = getenv("TERMUX_X11_GLAMOR"), *r = (const char *) glGetString(GL_RENDERER);
+        if (!(e && !strcmp(e, "1")) && !(r && strstr(r, "Adreno"))) {
+            log(INFO, "tod-glamor: GPU %s non Adreno, EXA (TERMUX_X11_GLAMOR=1 per glamor)", r ? r : "?");
+            return FALSE;
+        }
+    }
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &todMaxLato);
     {
         static const char *egl[] = { "EGL_EXT_image_dma_buf_import", "EGL_EXT_image_dma_buf_import_modifiers",
                                      "EGL_ANDROID_image_native_buffer", "EGL_ANDROID_get_native_client_buffer",

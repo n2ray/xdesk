@@ -116,8 +116,12 @@ final class PanelFit {
             t = timer;
         }
         if (t == null) return;
-        t.schedule(this::reapply, 50, TimeUnit.MILLISECONDS);
-        t.schedule(this::reapply, 400, TimeUnit.MILLISECONDS);
+        try {
+            t.schedule(this::reapply, 50, TimeUnit.MILLISECONDS);
+            t.schedule(this::reapply, 400, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // The session ended in between (clearOurs): nothing to reapply, and not thrown into the binder call
+        }
     }
 
     /** Every display fitted gets its own size back, when the session ends. */
