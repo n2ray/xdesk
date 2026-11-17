@@ -1395,6 +1395,7 @@ public class XDeskActivity extends Activity {
         notify = Notify.get(this);
         notify.attachActivity(this);
         notify.setRaiseAppCursor(() -> apps.raiseCursor());  // over an Android app its cursor stays above the centre
+        notify.setActions(sideActions);
         apps.setCornerEdgeListener(notify);
         menus = MacMenus.get(this);
         if (prefs.contains(PREF_OUTPUT)) audioRoute.migrateOldChoice(prefs.getInt(PREF_OUTPUT, 0));
@@ -1527,6 +1528,7 @@ public class XDeskActivity extends Activity {
             notify.setDisplay(null);
             notify.attachActivity(null);
             notify.setRaiseAppCursor(null);
+            notify.setActions(null);
         }
         if (menus != null) menus.setDisplay(null);
         if (Switchboard.get(this).host() == boardHost) Switchboard.get(this).setHost(null);
@@ -2957,7 +2959,6 @@ public class XDeskActivity extends Activity {
         LinearLayout per = s.card(c);
         s.valueRow(per, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), "", this::showNotifyApps);
         LinearLayout more = s.card(c);
-        s.switchRow(more, getString(R.string.xd_notify_bell), getString(R.string.xd_notify_bell_note), center.bellShown(), center::setBellShown);
         s.switchRow(more, getString(R.string.xd_notify_battery_banner), getString(R.string.xd_notify_battery_banner_note),
             center.lowBatteryBanners(), center::setLowBatteryBanners);
         settingsPage(getString(R.string.xd_section_notifications), c, null);
@@ -3389,6 +3390,34 @@ public class XDeskActivity extends Activity {
         cycleQuality(client);
         return true;
     }
+
+    /** The side panel's switches (NOTIFY.md §4): what they do here. */
+    private final Notify.Actions sideActions = new Notify.Actions() {
+        @Override public void launchpad() { showSwitcher(false); }
+        @Override public void keysToPhone() {
+            ownership.toggle();
+            updateStatus();
+        }
+        @Override public boolean soundOnPhone() { return !audioRoute.selectedKey().isEmpty(); }
+        @Override public void toggleSound() {
+            // The screen's sound is the system default (it follows the display); the phone's is its speaker
+            audioRoute.select(soundOnPhone() ? AudioRoute.KEY_SYSTEM : android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER + "|");
+        }
+        @Override public Boolean gameMode() { return apps.isActive() && apps.isForwarding() ? apps.isGameMode() : null; }
+        @Override public void toggleGameMode() { apps.setGameMode(!apps.isGameMode()); }
+        @Override public String macQuality() {
+            MacClient client = macOnScreen();
+            if (client == null) return null;
+            HostSettings h = client.settings();
+            if (h == null) h = HostSettings.saved(MacStore.stream(XDeskActivity.this, client.mac().id).host);
+            if (h == null) return null;
+            return getResources().getStringArray(R.array.xd_mac_mode_names)[AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed)];
+        }
+        @Override public void nextMacQuality() {
+            MacClient client = macOnScreen();
+            if (client != null) cycleQuality(client);
+        }
+    };
 
     /** The Mac whose content is on the external screen now, or null. */
     private MacClient macOnScreen() {

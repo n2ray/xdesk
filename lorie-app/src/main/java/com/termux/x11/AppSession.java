@@ -484,6 +484,10 @@ final class AppSession {
         /** Whether anything is on the screen that needs to know where the pointer is. */
         boolean wantsPlace();
         void placed(int x, int y);
+        /** The pointer came into the top-right corner's rest box, or left it (Notify.REST_BOX_DP). */
+        default void cornerRest(boolean in) { }
+        /** Whether a place in pixels of the screen is in that box. */
+        default boolean inRestBox(int x, int y) { return false; }
     }
 
     private static final int BOTTOM_EDGE_PX = 4;
@@ -492,6 +496,7 @@ final class AppSession {
     private volatile EdgeListener bottomEdge, cornerEdge;
     private volatile boolean pointerAtBottom;
     private volatile int pointerAtCorner;
+    private boolean pointerResting;
     private volatile int pointerWidth;
 
     private void pointerPlaced(int x, int y) {
@@ -536,10 +541,16 @@ final class AppSession {
         final boolean push = pushable;
         // From any thread (the injector's, a browser's): the corner and the shell's factor are read on the main one
         ui.post(() -> {
+            EdgeListener l = cornerEdge;
+            // Resting in the very corner opens the side panel (Notify.cornerRest), a mouse's or the touchpad's pointer
+            boolean rest = push && l != null && l.inRestBox(x, y);
+            if (rest != pointerResting) {
+                pointerResting = rest;
+                if (l != null) l.cornerRest(rest);
+            }
             int edge = cornerEdgeAt(x, y);
             if (edge == pointerAtCorner) return;
             pointerAtCorner = edge;
-            EdgeListener l = cornerEdge;
             if (l != null) l.atEdge(edge, edge != 0, push);
         });
     }
@@ -663,6 +674,7 @@ final class AppSession {
         // A new display starts with the pointer at no edge: a placed pointer resting at the bottom again must be news
         pointerAtBottom = false;
         pointerAtCorner = 0;
+        pointerResting = false;
         cursorPolicy.setHeight(logicalSize(d)[1]);
         pointerWidth = logicalSize(d)[0];
         cursor.attach(d);

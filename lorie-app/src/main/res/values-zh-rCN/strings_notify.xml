@@ -51,4 +51,10 @@
     <string name="xd_notify_restricted">开关是灰的，或提示「受限设置」？</string>
     <string name="xd_notify_restricted_note">Android 13 起，不是从应用商店装的应用要先放行：在 XDesk 的应用详情页点右上角 ⋮ →「允许受限制的设置」，再回来开通知使用权。⋮ 里没有这一项时，先去点一次开关让系统弹出提示，再回到详情页找。</string>
     <string name="xd_notify_restricted_open">应用详情</string>
+    <string name="xd_side_launchpad">启动台</string>
+    <string name="xd_side_keys_to_phone">键鼠交还手机</string>
+    <string name="xd_side_sound_screen">声音：外屏</string>
+    <string name="xd_side_sound_phone">声音：手机</string>
+    <string name="xd_side_game">游戏直通</string>
+    <string name="xd_side_quality">画质：%1$s</string>
 </resources>

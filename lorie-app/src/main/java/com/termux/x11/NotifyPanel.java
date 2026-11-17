@@ -70,6 +70,24 @@ final class NotifyPanel {
         /** The pointer's place for the bell's fade and the reply field's keys. */
         void replyFocus(boolean on);
         void close();
+        /** The side panel's switches above the notifications (NOTIFY.md §4), as they are now. */
+        List<Tile> tiles();
+    }
+
+    /** A switch of the side panel's: what it says, whether it is on, what a click does. */
+    static final class Tile {
+        final String label;
+        final boolean on;
+        final Runnable click;
+        /** The panel stays open after the click (a switch whose new state is worth seeing). */
+        final boolean stay;
+
+        Tile(String label, boolean on, Runnable click, boolean stay) {
+            this.label = label;
+            this.on = on;
+            this.click = click;
+            this.stay = stay;
+        }
     }
 
     private final Host host;
@@ -83,7 +101,10 @@ final class NotifyPanel {
     private final WindowManager.LayoutParams scrimParams;
     private final LinearLayout root;
     private final WindowManager.LayoutParams params;
-    private final TextView time, date, dnd, clearAll;
+    private final TextView time, date, clearAll;
+    /** The switches (Tile), in rows of TILES_PER_ROW, made again by refreshHeader. */
+    private final LinearLayout tiles;
+    private static final int TILES_PER_ROW = 3;
     private final View batteryView;
     private final TextView batteryText;
     private final LinearLayout list;
@@ -168,12 +189,17 @@ final class NotifyPanel {
         header.addView(batteryText, new LinearLayout.LayoutParams(-2, -2));
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
+        // The switches, as the side panel of Android TV has them (user, 2026-11-17): the Launchpad, the keys and mouse
+        // to the phone, the sound, Do not disturb, and what the content on the screen has (game passthrough, a
+        // Mac's quick quality)
+        tiles = new LinearLayout(dc);
+        tiles.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tilesAt = new LinearLayout.LayoutParams(-1, -2);
+        tilesAt.topMargin = dp(12);
+        root.addView(tiles, tilesAt);
+
         LinearLayout tools = new LinearLayout(dc);
         tools.setGravity(Gravity.CENTER_VERTICAL);
-        dnd = pill(dc.getString(R.string.xd_notify_dnd), false);
-        // Toggle the phone's Do not disturb: on when the filter is NONE now
-        dnd.setOnClickListener(v -> host.dnd(center.interruptionFilter() != NotificationManager.INTERRUPTION_FILTER_NONE));
-        tools.addView(dnd);
         clearAll = pill(dc.getString(R.string.xd_notify_clear_all), false);
         clearAll.setOnClickListener(v -> host.clearAll());
         tools.addView(clearAll);
@@ -253,8 +279,49 @@ final class NotifyPanel {
         return b;
     }
 
-    private String dndLabel(boolean on) {
-        return on ? dc.getString(R.string.xd_notify_dnd_on) : dc.getString(R.string.xd_notify_dnd);
+    /** The switches again, as the host has them now: rows of TILES_PER_ROW equal squares-ish. */
+    private void fillTiles() {
+        tiles.removeAllViews();
+        List<Tile> all = host.tiles();
+        LinearLayout row = null;
+        for (int i = 0; i < all.size(); i++) {
+            if (i % TILES_PER_ROW == 0) {
+                row = new LinearLayout(dc);
+                LinearLayout.LayoutParams rowAt = new LinearLayout.LayoutParams(-1, -2);
+                if (i > 0) rowAt.topMargin = dp(8);
+                tiles.addView(row, rowAt);
+            }
+            final Tile t = all.get(i);
+            TextView b = new TextView(dc);
+            b.setText(t.label);
+            b.setTextColor(Style.TEXT);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
+            b.setGravity(Gravity.CENTER);
+            b.setMaxLines(2);
+            b.setMinHeight(dp(52));
+            b.setPadding(dp(6), dp(8), dp(6), dp(8));
+            GradientDrawable back = new GradientDrawable();
+            back.setColor(t.on ? Style.ACCENT : 0x1AFFFFFF);
+            back.setCornerRadius(dp(12));
+            b.setBackground(back);
+            b.setOnClickListener(v -> {
+                t.click.run();
+                if (t.stay) fillTiles();
+                else host.close();
+            });
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, -2, 1);
+            if (i % TILES_PER_ROW > 0) at.leftMargin = dp(8);
+            row.addView(b, at);
+        }
+        // A last row not full keeps its squares the same width
+        if (row != null) {
+            for (int k = all.size() % TILES_PER_ROW; k > 0 && k < TILES_PER_ROW; k++) {
+                View pad = new View(dc);
+                LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, 1, 1);
+                at.leftMargin = dp(8);
+                row.addView(pad, at);
+            }
+        }
     }
 
     View scrim() {
@@ -336,10 +403,7 @@ final class NotifyPanel {
         time.setText(DateFormat.getTimeInstance(DateFormat.SHORT).format(now));
         date.setText(DateFormat.getDateInstance(DateFormat.FULL).format(now));
         int level = center.batteryLevel();
-        int filter = center.interruptionFilter();
-        boolean on = filter == NotificationManager.INTERRUPTION_FILTER_NONE;
-        dnd.setText(dndLabel(on));
-        dnd.setAlpha(on ? 1f : 0.75f);
+        fillTiles();
         if (level >= 0) {
             batteryText.setText(level + "%");  // charging is the icon's bolt, not a second one in the text
             batteryView.setVisibility(View.VISIBLE);

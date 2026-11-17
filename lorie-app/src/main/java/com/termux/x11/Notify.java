@@ -123,6 +123,86 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     };
     private final Runnable panelLeave = this::closePanel;
 
+    /**
+     * Resting in the very corner opens the side panel too (user, 2026-11-17), not only a push out through it: the
+     * pointer inside REST_BOX_DP of the top-right corner for REST_MS, DESKTOP_REST_MS over a whole desktop (XFCE's
+     * panel and a Mac's menu bar have things up there that a pointer stops at).
+     */
+    static final float REST_BOX_DP = 6;
+    private static final long REST_MS = 500, DESKTOP_REST_MS = 800;
+    private boolean restingDriven;
+
+    /** Whether a place (0 to 1 of the screen) is in the corner's rest box. */
+    boolean inRestBox(float fx, float fy) {
+        if (width <= 0 || height <= 0) return false;
+        int box = Math.max(2, dp(REST_BOX_DP));
+        return fx * (width - 1) >= width - box && fy * (height - 1) < box;
+    }
+
+    /** The same in pixels of the screen, for the injector's pointer (AppSession). */
+    @Override public boolean inRestBox(int x, int y) {
+        return width > 0 && inRestBox((float) x / Math.max(1, width - 1), (float) y / Math.max(1, height - 1));
+    }
+
+    /** Over an Android app: the pointer came into the rest box or left it (AppSession). */
+    @Override public void cornerRest(boolean in) {
+        if (windows == null) return;
+        if (in && panel == null) later(openFromRest, REST_MS);
+        else if (!in) ui.removeCallbacks(openFromRest);
+    }
+
+    /** Over X and a Mac: the content's pointer is here (DockPointer), opening the panel with ours after a rest. */
+    void restAt(float fx, float fy, boolean desktop) {
+        boolean in = windows != null && inRestBox(fx, fy);
+        if (in == restingDriven) return;
+        restingDriven = in;
+        if (in && panel == null) later(openDrivenFromRest, desktop ? DESKTOP_REST_MS : REST_MS);
+        else ui.removeCallbacks(openDrivenFromRest);
+    }
+
+    /**
+     * What the side panel's switches do: XDeskActivity's (NOTIFY.md §4). Null for what is not there now: the game
+     * passthrough only over an Android app with the keys on the screen, the quick quality only over a Mac.
+     */
+    interface Actions {
+        void launchpad();
+        void keysToPhone();
+        boolean soundOnPhone();
+        void toggleSound();
+        Boolean gameMode();
+        void toggleGameMode();
+        String macQuality();
+        void nextMacQuality();
+    }
+
+    private Actions actions;
+
+    void setActions(Actions a) {
+        actions = a;
+    }
+
+    @Override public java.util.List<NotifyPanel.Tile> tiles() {
+        java.util.List<NotifyPanel.Tile> t = new ArrayList<>();
+        Actions a = actions;
+        if (a != null) {
+            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_launchpad), false, () -> ui.post(a::launchpad), false));
+            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_keys_to_phone), false, a::keysToPhone, false));
+            boolean phone = a.soundOnPhone();
+            t.add(new NotifyPanel.Tile(context.getString(phone ? R.string.xd_side_sound_phone : R.string.xd_side_sound_screen), phone,
+                a::toggleSound, true));
+        }
+        boolean dndOn = center.interruptionFilter() == NotificationManager.INTERRUPTION_FILTER_NONE;
+        t.add(new NotifyPanel.Tile(context.getString(dndOn ? R.string.xd_notify_dnd_on : R.string.xd_notify_dnd), dndOn,
+            () -> dnd(!dndOn), true));
+        if (a != null) {
+            Boolean game = a.gameMode();
+            if (game != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_game), game, a::toggleGameMode, false));
+            String q = a.macQuality();
+            if (q != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_quality, q), false, a::nextMacQuality, true));
+        }
+        return t;
+    }
+
     private final Runnable modelChanged = this::onModelChanged;
 
     private Notify(Context c) {
@@ -163,7 +243,8 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         width = b.width();
         height = b.height();
         Log.i(TAG, "notifications on display " + id + " (" + width + "x" + height + ", shell " + density + ")");
-        if (center.bellShown()) showBell();
+        // No bell any more (user, 2026-11-17: it covered apps' own buttons in their top-right corner): a banner says a
+        // notification came, the corner opens the side panel
         onModelChanged();
     }
 
@@ -204,6 +285,8 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
 
     private void detach() {
         endDriven();
+        restingDriven = false;
+        ui.removeCallbacks(openDrivenFromRest);
         ui.removeCallbacks(openFromRest);
         ui.removeCallbacks(panelLeave);
         cornerRule.forget();
@@ -300,7 +383,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     private void relayout() {
         ui.post(() -> {
             if (windows == null) return;
-            int y = dp(NotifyBell.SIZE_DP + NotifyBanner.MARGIN_DP + 6);
+            int y = dp(NotifyBanner.MARGIN_DP);
             for (NotifyBanner b : banners) {
                 b.params().y = y;
                 try {

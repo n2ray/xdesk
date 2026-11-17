@@ -162,6 +162,9 @@ final class DockPointer {
             corner.forget();
             return;
         }
+        Caps rc = t.caps();
+        // Resting in the very corner opens it too, with the longer rest over a whole desktop (Notify.restAt)
+        notify.restAt(place[0], place[1], rc != null && rc.scope == Caps.DESKTOP);
         int edge = notify.cornerEdge(place[0], place[1]);
         if (edge != 0) {
             Caps caps = t.caps();

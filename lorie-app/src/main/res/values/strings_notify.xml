@@ -51,4 +51,10 @@
     <string name="xd_notify_restricted">Switch greyed out, or \"Restricted setting\"?</string>
     <string name="xd_notify_restricted_note">Since Android 13 an app not installed from a store must be let through first: on XDesk\'s app info page, tap ⋮ (top right) → Allow restricted settings, then come back and turn the access on. If ⋮ has no such item, tap the switch once so the system shows its notice, then look again.</string>
     <string name="xd_notify_restricted_open">App info</string>
+    <string name="xd_side_launchpad">Launchpad</string>
+    <string name="xd_side_keys_to_phone">Keys and mouse to the phone</string>
+    <string name="xd_side_sound_screen">Sound: screen</string>
+    <string name="xd_side_sound_phone">Sound: phone</string>
+    <string name="xd_side_game">Game passthrough</string>
+    <string name="xd_side_quality">Quality: %1$s</string>
 </resources>
