@@ -125,8 +125,6 @@ static LAYOUT: Mutex<String> = Mutex::new(String::new());
 static WANTED: Mutex<(u32, u32)> = Mutex::new((1280, 720));
 static CURRENT: Mutex<Option<TcpStream>> = Mutex::new(None);
 pub static STREAMING: AtomicBool = AtomicBool::new(false);
-/// The phone's natural scrolling (SETTINGS, INPUT.md §12): true is the direction macOS sends its wheel in.
-pub static NATURAL_SCROLL: AtomicBool = AtomicBool::new(true);
 /// False once there is no point showing the last picture any more.
 pub static KEEP_PICTURE: AtomicBool = AtomicBool::new(false);
 /// Which connection is the current one: the newest to finish its handshake.
@@ -141,8 +139,6 @@ static APPS_LIST: Mutex<Option<Vec<(String, String)>>> = Mutex::new(None);
 /// refresh rate: told in WELCOME and, the density, with every SIZE.
 static DENSITY: AtomicU32 = AtomicU32::new(160);
 static REFRESH: AtomicU32 = AtomicU32::new(60);
-/// The phone's scroll speed (SETTINGS), 1 the default, as f32 bits.
-static SCROLL_SPEED: AtomicU32 = AtomicU32::new(0x3f80_0000);
 /// The phone streaming here: only it may take over (a new cable, a new network); another one gets BUSY.
 static CURRENT_PHONE: Mutex<Option<String>> = Mutex::new(None);
 static GUARD: LazyLock<Mutex<Guard>> = LazyLock::new(|| Mutex::new(Guard::default()));
@@ -302,11 +298,6 @@ pub fn scroll_fine() -> bool {
     FEATURES_BITS.load(Ordering::Relaxed) & FEATURE_SCROLL_FINE != 0
 }
 
-/// The phone's scroll speed (SETTINGS `scrollSpeed`), 1 the default.
-pub fn scroll_speed() -> f32 {
-    f32::from_bits(SCROLL_SPEED.load(Ordering::Relaxed))
-}
-
 /// The screen the window is on: its density as the phone counts it (160 a pixel per point) and its refresh rate.
 pub fn set_screen(density: u32, refresh: u32) {
     REFRESH.store(refresh.clamp(24, 240), Ordering::Relaxed);
@@ -398,31 +389,6 @@ fn framed(kind: u8, payload: &[u8]) -> Vec<u8> {
     b.extend_from_slice(&(payload.len() as u32).to_be_bytes());
     b.extend_from_slice(payload);
     b
-}
-
-/// What follows a field's name in the SETTINGS JSON. The phone is the only sender: no full JSON parsing.
-fn json_value<'a>(json: &'a str, name: &str) -> Option<&'a str> {
-    let key = format!("\"{name}\"");
-    let at = json.find(&key)?;
-    Some(json[at + key.len()..].trim_start().strip_prefix(':')?.trim_start())
-}
-
-fn json_number(json: &str, name: &str) -> Option<f32> {
-    let value = json_value(json, name)?;
-    let end = value.find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))).unwrap_or(value.len());
-    value[..end].parse().ok().filter(|v: &f32| v.is_finite())
-}
-
-/// A boolean field of the SETTINGS JSON, if it has one.
-fn json_bool(json: &str, name: &str) -> Option<bool> {
-    let value = json_value(json, name)?;
-    if value.starts_with("true") {
-        Some(true)
-    } else if value.starts_with("false") {
-        Some(false)
-    } else {
-        None
-    }
 }
 
 fn encoded(o: &Out) -> Vec<u8> {
@@ -592,18 +558,9 @@ impl Stream {
             FEATURES if p.len() >= 4 => {
                 FEATURES_BITS.store(u32::from_be_bytes([p[0], p[1], p[2], p[3]]), Ordering::Relaxed);
             }
-            SETTINGS => {
-                // {"naturalScroll":true,...}: the phone's input settings, every field optional (INPUT.md §12).
-                // A mouse receiver has no speeds of its own: only the wheel direction applies here
-                let json = String::from_utf8_lossy(p);
-                if let Some(natural) = json_bool(&json, "naturalScroll") {
-                    NATURAL_SCROLL.store(natural, Ordering::Relaxed);
-                }
-                // The wheel and the trackpad scroll this much faster (INPUT.md §12); the pointer is placed, not moved
-                if let Some(speed) = json_number(&json, "scrollSpeed") {
-                    SCROLL_SPEED.store(speed.clamp(0.25, 4.0).to_bits(), Ordering::Relaxed);
-                }
-            }
+            // The phone's input settings (INPUT.md §12) are for its own touchpad and wheel: the Mac's scrolling goes as
+            // macOS made it, so nothing here takes them
+            SETTINGS => {}
             FILE_START => self.file_start(&String::from_utf8_lossy(p)),
             FILE_DATA => self.file_data(p),
             FILE_END => self.file_end(),
@@ -799,9 +756,6 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
     crate::stats::reset();
     STREAMING.store(true, Ordering::Relaxed);
     KEEP_PICTURE.store(true, Ordering::Relaxed);
-    // A phone that never sends SETTINGS gets the defaults, not the last phone's
-    NATURAL_SCROLL.store(true, Ordering::Relaxed);
-    SCROLL_SPEED.store(1f32.to_bits(), Ordering::Relaxed);
     say(if usb { tr("已通过 USB 连接", "Connected over USB") } else { tr("已通过 Wi-Fi 连接", "Connected over Wi-Fi") }, "");
     while rx.try_recv().is_ok() {}
     crate::clip::baseline();

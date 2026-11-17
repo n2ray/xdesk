@@ -16,7 +16,7 @@ mod update;
 mod vt;
 
 use lang::tr;
-use net::{out, Out, Video, NATURAL_SCROLL};
+use net::{out, Out, Video};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
 use overlay::Image;
@@ -473,16 +473,16 @@ fn main() -> Result<(), String> {
                 }
                 Event::MouseWheel { precise_x, precise_y, .. } if !tap::RELEASED.load(Ordering::Relaxed) && apps.is_none() => {
                     // Only a wheel or a trackpad the event tap did not take: without FEATURES bit 4, or the window not in front
-                    let speed = net::scroll_speed();
-                    scroll.0 += precise_y * speed;
-                    scroll.1 += precise_x * speed;
+                    // As macOS made it, its speed and natural direction (INPUT.md §12): the phone's settings are for the
+                    // phone's own touchpad and wheel
+                    scroll.0 += precise_y;
+                    scroll.1 += precise_x;
                     let (dy, dx) = (scroll.0.trunc(), scroll.1.trunc());
                     if dy != 0.0 || dx != 0.0 {
                         scroll.0 -= dy;
                         scroll.1 -= dx;
-                        // macOS already applies its own natural direction; the phone's off setting (SETTINGS) turns it around
-                        let sign = if NATURAL_SCROLL.load(Ordering::Relaxed) { -1.0 } else { 1.0 };
-                        out(Out::Scroll((sign * dy) as i16, (-sign * dx) as i16));
+                        // macOS up is the protocol's down
+                        out(Out::Scroll(-dy as i16, dx as i16));
                     }
                 }
                 _ => {}

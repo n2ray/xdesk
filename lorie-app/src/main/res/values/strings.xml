@@ -398,7 +398,7 @@
     <string name="xd_dim_note">After 1 minute without a touch. The display is not affected</string>
     <string name="xd_pad_speed">Touchpad sensitivity</string>
     <string name="xd_scroll_speed">Two-finger scroll speed</string>
-    <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode</string>
+    <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode and a mouse wheel on the phone; scrolling from a computer keeps its own settings</string>
     <string name="xd_natural_scroll">Natural scrolling</string>
     <string name="xd_natural_scroll_note">Content follows the fingers, on every touchpad</string>
     <string name="xd_keys_via_ime">Keyboard through the phone\'s input method</string>

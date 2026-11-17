@@ -241,6 +241,8 @@ public class XDeskActivity extends Activity {
     private float mouseRestX, mouseRestY;
     /** PREF_MOUSE_SPEED, for the captured mouse. */
     private float mouseSpeed = 1f;
+    /** PREF_SCROLL_SPEED for the wheel of a mouse on the phone, as for the touchpad (INPUT.md §12). */
+    private float wheelSpeed = 1f;
     private final List<Latch> latches = new ArrayList<Latch>();
 
     private static final class Latch {
@@ -470,7 +472,7 @@ public class XDeskActivity extends Activity {
             if (client == null || (v == 0 && h == 0) || dockPointer.scroll(-v, h)) return;
             // A wheel turned up is a positive AXIS_VSCROLL. High resolution wheels give fractions: fine scrolling
             // keeps them, the Router makes whole steps for a target that takes only those
-            mouseIn.scrollFine(-v, h, io.github.n2ray.xdesk.input.Input.WHEEL);
+            mouseIn.scrollFine(-v * wheelSpeed, h * wheelSpeed, io.github.n2ray.xdesk.input.Input.WHEEL);
         }
     };
 
@@ -1945,6 +1947,7 @@ public class XDeskActivity extends Activity {
         touchpad = new TouchpadView(this, output);
         touchpad.setSpeed(prefs.getFloat(PREF_SPEED, 1f));
         touchpad.setScrollSpeed(prefs.getFloat(PREF_SCROLL_SPEED, 1f));
+        wheelSpeed = prefs.getFloat(PREF_SCROLL_SPEED, 1f);
         // 自然滚动：所有设备共用一个设置（INPUT.md §12），默认开
         touchpad.setNaturalScroll(prefs.getBoolean(PREF_NATURAL_SCROLL, true));
         frame.addView(touchpad, new FrameLayout.LayoutParams(-1, -1));
@@ -2773,6 +2776,7 @@ public class XDeskActivity extends Activity {
         s.percentRow(input, getString(R.string.xd_scroll_speed), getString(R.string.xd_scroll_speed_note), Math.round(prefs.getFloat(PREF_SCROLL_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setScrollSpeed(v);
+            wheelSpeed = v;
             prefs.edit().putFloat(PREF_SCROLL_SPEED, v).apply();
             updateReceiverSettings();
         });

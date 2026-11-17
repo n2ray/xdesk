@@ -323,11 +323,9 @@ fn scrolled(event: Ref) -> bool {
         return false;
     }
     let field = |f: u32| unsafe { CGEventGetIntegerValueField(event, f) };
-    // macOS has applied its own natural direction; the phone's setting turns it around, as for the wheel (main.rs)
-    let sign = if crate::net::NATURAL_SCROLL.load(Ordering::Relaxed) { -1.0 } else { 1.0 };
-    let speed = crate::net::scroll_speed() as f64;
-    let dy = sign * speed * unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_Y) };
-    let dx = sign * speed * unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_X) };
+    // As macOS made it, its speed and natural direction, as for the wheel (main.rs); macOS up is the protocol's down
+    let dy = -unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_Y) };
+    let dx = -unsafe { CGEventGetDoubleValueField(event, FIELD_SCROLL_X) };
     if field(FIELD_SCROLL_CONTINUOUS) == 0 {
         send_scroll(dy, dx, PHASE_WHEEL);
         return true;
