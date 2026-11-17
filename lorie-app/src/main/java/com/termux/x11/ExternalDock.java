@@ -116,7 +116,10 @@ final class ExternalDock implements AppSession.EdgeListener {
     @Override public void atEdge(int edge, boolean at, boolean pushable) {
         if (edge != EdgePush.BOTTOM) return;  // the top and right edges are the notification centre's corner
         atEdge = at;
-        if (!at) rule.forget();
+        if (!at) {
+            rule.forget();
+            pushProgress(0);
+        }
         if (windows == null) return;
         if (at) {
             ui.removeCallbacks(close);
@@ -139,9 +142,49 @@ final class ExternalDock implements AppSession.EdgeListener {
         }
         if (windows == null || panel != null || held) {
             rule.forget();
+            pushProgress(0);
             return;
         }
-        if (rule.pushed(dx, dy, false)) openFromEdge();
+        boolean open = rule.pushed(dx, dy, false);
+        pushProgress(open ? 0 : rule.progress(false));
+        if (open) openFromEdge();
+    }
+
+    /**
+     * How far a push at the bottom edge is towards opening the dock (EdgePush.progress), shown as a bar growing from
+     * the middle of the edge, so a push is seen to count and how much is left. 0 hides it; it also goes by itself
+     * when no push comes for a while.
+     */
+    void pushProgress(float f) {
+        if (strip instanceof PushBar) ((PushBar) strip).set(f);
+    }
+
+    /** The edge strip, drawing the push's progress (pushProgress). */
+    private final class PushBar extends View {
+        private static final long FADE_MS = 300;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private float progress;
+        private final Runnable fade = () -> set(0);
+
+        PushBar(Context c) {
+            super(c);
+            paint.setColor(0xccffffff);
+        }
+
+        void set(float f) {
+            removeCallbacks(fade);
+            if (f > 0) postDelayed(fade, FADE_MS);
+            if (f == progress) return;
+            progress = f;
+            invalidate();
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            if (progress <= 0) return;
+            float full = Math.min(getWidth() * 0.4f, dp(240)), w = Math.max(getHeight(), full * progress);
+            float x = (getWidth() - w) / 2f, h = getHeight();
+            c.drawRoundRect(x, 0, x + w, h, h / 2f, h / 2f, paint);
+        }
     }
 
     @Override public boolean wantsPlace() {
@@ -309,7 +352,7 @@ final class ExternalDock implements AppSession.EdgeListener {
         dc = context.createDisplayContext(d);
         density = Sizing.shell(context, d).density;
         windows = dc.getSystemService(WindowManager.class);
-        strip = new View(dc);
+        strip = new PushBar(dc);
         strip.setOnHoverListener((v, e) -> {
             int action = e.getActionMasked();
             // What XDesk injects comes from no input device; that pointer opens the dock by its push (pushed). A

@@ -7,7 +7,10 @@ import android.os.SystemClock;
  * (DISPLAY.md §7, NOTIFY.md §4.1, MACMENU.md §3): the pointer is at the edge of the screen and is pushed further
  * out. Only what goes beyond the edge counts, so each move is given here as it was asked for, not as it was clamped.
  * The push has to last (DWELL_MS) and
- * to be far enough (PUSH), without a pause longer than GAP_MS and more sideways than outwards. Resting on the edge
+ * to be far enough (PUSH), without a pause longer than GAP_MS. Only the outward part of a move counts, and a move
+ * more than SIDE_DEGREES from straight out counts for nothing: a push need not be straight (a finger on a phone's
+ * slippery glass rarely is, 17 November: the Dock seemed to open only when pushed exactly down), and sliding along
+ * the edge, along a taskbar, still opens nothing. Resting on the edge
  * does not open anything, nor does a flick that lands there: a taskbar, a tab or a navigation bar at the bottom of
  * the picture is clicked exactly so.
  *
@@ -27,17 +30,27 @@ final class EdgePush {
      *  a push at the bottom: no Dock over Android apps (2026-11-15). */
     static final int NONE = 0, BOTTOM = 4, TOP = 1, RIGHT = 2, LEFT = 3;
 
-    private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 700, GAP_MS = 250;
-    /** In units of pointer movement, about pixels of the content. */
-    private static final int PUSH = 60, DESKTOP_PUSH = 240, SIDE_SLACK = 12;
+    private static final long DWELL_MS = 350, DESKTOP_DWELL_MS = 500, GAP_MS = 250;
+    /** In units of pointer movement, about pixels of the content. Over a desktop 240 and 700 ms until 17 November. */
+    private static final int PUSH = 60, DESKTOP_PUSH = 150;
+    /** tan 60°: a move whose sideways part is more than this times its outward part is along the edge. */
+    private static final float SIDE_RATIO = 1.73f;
 
     private long edgeSince, lastPush;
-    private int push, side;
+    private int push;
 
     /** The pointer left the edge, moved away, a button is held: whatever was counted is void. */
     void forget() {
         edgeSince = 0;
-        push = side = 0;
+        push = 0;
+    }
+
+    /** How far the push is towards opening, 0 to 1, for showing it (ExternalDock.pushProgress). */
+    float progress(boolean desktop) {
+        if (edgeSince == 0 || SystemClock.uptimeMillis() - lastPush > GAP_MS) return 0;
+        float t = (float) (SystemClock.uptimeMillis() - edgeSince) / (desktop ? DESKTOP_DWELL_MS : DWELL_MS);
+        float p = (float) push / (desktop ? DESKTOP_PUSH : PUSH);
+        return Math.max(0, Math.min(1, Math.min(t, p)));
     }
 
     /** The Dock's rule, unchanged: {@code pushed(BOTTOM, dx, dy, desktop)}. */
@@ -59,20 +72,15 @@ final class EdgePush {
             forget();
             return false;
         }
+        // Along the edge more than against it: not part of a push, and no reason to forget one either
+        if (Math.abs(sideways) > along * SIDE_RATIO) return false;
         long now = SystemClock.uptimeMillis();
         if (edgeSince == 0 || now - lastPush > GAP_MS) {
             edgeSince = lastPush = now;
-            push = side = 0;
+            push = 0;
         }
         if (along > 0) lastPush = now;
         push += along;
-        side += Math.abs(sideways);
-        if (side > push + SIDE_SLACK) {
-            // Along the edge, not against it: start again
-            edgeSince = now;
-            push = side = 0;
-            return false;
-        }
         if (now - edgeSince < (desktop ? DESKTOP_DWELL_MS : DWELL_MS) || push < (desktop ? DESKTOP_PUSH : PUSH)) return false;
         forget();
         return true;

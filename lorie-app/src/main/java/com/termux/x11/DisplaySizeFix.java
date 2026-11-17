@@ -60,13 +60,30 @@ final class DisplaySizeFix {
         return Math.abs(a - b) <= 0.01f * b;
     }
 
+    /**
+     * Back to the display's own size. HyperOS gives an external display the phone's size when it is cleared (`wm size
+     * reset -d 4` left a 2560x1440 monitor at 1440x3200, 17 November), as it gives it the phone's density
+     * (DensityOverride.keepOwnDensity): then its own size is forced, which is what clearing means.
+     */
     private static String clear(Object wm, int display) {
+        String error = null;
         try {
             wm.getClass().getMethod("clearForcedDisplaySize", int.class).invoke(wm, display);
-            return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.i(TAG, "clearForcedDisplaySize failed, trying wm: " + e);
-            return runWm("reset", "-d", String.valueOf(display));
+            error = runWm("reset", "-d", String.valueOf(display));
+        }
+        if (error != null) return error;
+        Point initial = new Point(), base = new Point();
+        try {
+            wm.getClass().getMethod("getInitialDisplaySize", int.class, Point.class).invoke(wm, display, initial);
+            wm.getClass().getMethod("getBaseDisplaySize", int.class, Point.class).invoke(wm, display, base);
+            if (initial.x <= 0 || base.equals(initial)) return null;
+            Log.i(TAG, "display " + display + " fell back to " + base.x + "x" + base.y + " after clearing, setting its own " + initial.x + "x" + initial.y);
+            wm.getClass().getMethod("setForcedDisplaySize", int.class, int.class, int.class).invoke(wm, display, initial.x, initial.y);
+            return null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return runWm(initial.x + "x" + initial.y, "-d", String.valueOf(display));
         }
     }
 

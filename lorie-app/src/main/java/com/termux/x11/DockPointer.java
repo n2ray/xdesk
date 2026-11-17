@@ -135,10 +135,14 @@ final class DockPointer {
         ExternalDock dock = host.dock();
         if (dy < 0 || t == null || dock == null || !dock.attached() || holding() || !t.pointerPlace(place) || place[1] < 1f) {
             rule.forget();
+            if (dock != null) dock.pushProgress(0);
             return;
         }
         Caps caps = t.caps();
-        if (rule.pushed(dx, dy, caps != null && caps.scope == Caps.DESKTOP) && dock.openDriven(place[0])) {
+        boolean desktop = caps != null && caps.scope == Caps.DESKTOP;
+        boolean open = rule.pushed(dx, dy, desktop);
+        dock.pushProgress(open ? 0 : rule.progress(desktop));
+        if (open && dock.openDriven(place[0])) {
             over = t;
             surface = SURFACE_DOCK;
         }
