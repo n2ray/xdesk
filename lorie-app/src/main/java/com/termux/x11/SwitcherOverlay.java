@@ -64,6 +64,12 @@ final class SwitcherOverlay {
         default boolean pointerPlace(float[] out) { return false; }
         /** Where the Launchpad's arrow was when it closed, 0 to 1 of the screen: the content's pointer goes on from there. */
         default void pointerLeftAt(float x, float y) { }
+        /**
+         * True over an Android app: Android gives a physical keyboard's keys to the window with the focus, the app's,
+         * so the Launchpad takes the focus while it is open and its search gets them (17 November: typing went to the
+         * app under it). Elsewhere XDesk hands the keys over itself (INPUT).
+         */
+        default boolean takesKeys() { return false; }
     }
 
     private static Panel panel;
@@ -143,10 +149,14 @@ final class SwitcherOverlay {
         // The overview is the running tab; it does not become the tab to come back to
         if (onlySystem) p.board.setTab(Switchboard.TAB_RUNNING, false);
         p.build();
+        boolean keys = host != null && host.takesKeys();
+        // Taking the keys, it still keeps the input method away (ALT_FOCUSABLE_IM): the keys are typed as they come
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+            (keys ? WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        if (keys) p.takeKeys();
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         lp.setTitle("XDesk switcher");
         try {
@@ -158,6 +168,7 @@ final class SwitcherOverlay {
         panel = p;
         p.board.addListener(p.changed);
         if (home) p.clock.run();
+        p.caret.run();
         // Over X and a Mac the arrow starts where the content's pointer was, and shows at once (17 November: it
         // jumped to the middle, and the first move could not be found)
         float[] at = new float[2];
@@ -180,6 +191,7 @@ final class SwitcherOverlay {
         UI.removeCallbacks(p.refresh);
         UI.removeCallbacks(p.noticeGone);
         UI.removeCallbacks(p.clock);
+        UI.removeCallbacks(p.caret);
         // A search is for finding one thing: it does not wait for the next time (the home's stays, it is not closed)
         if (!p.home) p.board.setQuery("");
         try {
@@ -468,6 +480,8 @@ final class SwitcherOverlay {
             while (deviceBar.getChildCount() > 1) deviceBar.removeViewAt(1);
             Switchboard.Bar bar = board.bar();
             deviceState.setText(bar != null ? bar.text : "");
+            // A tab with no device bar (Running, Favourites) takes the last device's dot away too
+            if (bar == null || bar.dot == 0) deviceState.setCompoundDrawablesRelative(null, null, null, null);
             if (bar == null) return;
             if (bar.dot != 0) {
                 GradientDrawable dot = Style.dot(bar.dot);
@@ -519,12 +533,50 @@ final class SwitcherOverlay {
             }
         }
 
+        /** The search line's caret blinks: typing goes there at once, no click needed (17 November: nothing said so). */
+        private boolean caretShown = true;
+        final Runnable caret = new Runnable() {
+            @Override public void run() {
+                caretShown = !caretShown;
+                showSearch();
+                UI.postDelayed(this, 530);
+            }
+        };
+
         void showSearch() {
             String query = board.query();
             String hint = notice != null ? notice : "⌕  " + c.getString(R.string.xd_sw_search);
+            String bar = caretShown ? "▏" : " ";
             // A notice is about what was just clicked: it shows also over a search, which comes back after it
-            searchText.setText(notice != null ? notice : query.isEmpty() ? hint : query + "▏");
-            searchText.setTextColor(query.isEmpty() && notice == null ? Style.TEXT_DIM : Color.WHITE);
+            if (notice != null) {
+                searchText.setText(notice);
+                searchText.setTextColor(Color.WHITE);
+            } else if (query.isEmpty()) {
+                // The caret where typing begins, white, before the dim hint
+                android.text.SpannableString s = new android.text.SpannableString(bar + hint);
+                s.setSpan(new android.text.style.ForegroundColorSpan(Color.WHITE), 0, 1, 0);
+                searchText.setText(s);
+                searchText.setTextColor(Style.TEXT_DIM);
+            } else {
+                searchText.setText(query + bar);
+                searchText.setTextColor(Color.WHITE);
+            }
+        }
+
+        /** The window has the focus (takesKeys): a physical keyboard's keys come to the search, typed in its layout. */
+        void takeKeys() {
+            root.setFocusable(true);
+            root.setFocusableInTouchMode(true);
+            root.setOnKeyListener((v, code, e) -> {
+                int scan = e.getScanCode();
+                if (scan <= 0 || code == android.view.KeyEvent.KEYCODE_VOLUME_UP || code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) return false;
+                boolean down = e.getAction() == android.view.KeyEvent.ACTION_DOWN;
+                int ch = down && !e.isCtrlPressed() && !e.isAltPressed() && !e.isMetaPressed() ? e.getUnicodeChar() : 0;
+                if (ch >= 0x20 && !Character.isISOControl(ch)) type(String.valueOf((char) ch));
+                else key(scan, down);
+                return true;
+            });
+            root.post(root::requestFocus);
         }
 
         /** A line in place of the search for a moment: where to look for what a click here opened. */

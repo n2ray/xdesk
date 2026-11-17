@@ -3851,6 +3851,9 @@ public class XDeskActivity extends Activity {
             InputSink c = client;
             return c != null && c != SwitcherOverlay.INPUT && !apps.isActive() && c.screenPlace(out);
         }
+        @Override public boolean takesKeys() {
+            return apps.isActive();
+        }
         @Override public void pointerLeftAt(float x, float y) {
             // The content the Launchpad was over takes its pointer from there (17 November: it came back where it
             // had been, a jump the other way); over an Android app Android's pointer was the one anyway
