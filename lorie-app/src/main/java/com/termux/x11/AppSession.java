@@ -60,6 +60,21 @@ final class AppSession {
 
     private static AppSession instance;
 
+    /**
+     * The phone's clipboard text as the injector (the shell user) reads it, or null without one: Android lets only
+     * the focused app read it, and while an Android app is in front that is not XDesk (MacClient's clipboard).
+     * Blocking: off the UI thread.
+     */
+    String clipboardText() {
+        IInjector i = injector;
+        if (i == null) return null;
+        try {
+            return i.clipboardText();
+        } catch (RemoteException | RuntimeException e) {
+            return null;
+        }
+    }
+
     static synchronized AppSession get(Context c) {
         if (instance == null) instance = new AppSession(c.getApplicationContext());
         return instance;
