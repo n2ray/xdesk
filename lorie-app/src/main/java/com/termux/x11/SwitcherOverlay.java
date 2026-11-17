@@ -168,7 +168,6 @@ final class SwitcherOverlay {
         panel = p;
         p.board.addListener(p.changed);
         if (home) p.clock.run();
-        p.caret.run();
         // Over X and a Mac the arrow starts where the content's pointer was, and shows at once (17 November: it
         // jumped to the middle, and the first move could not be found)
         float[] at = new float[2];
@@ -316,6 +315,7 @@ final class SwitcherOverlay {
             searchText.setPadding(dp(16), 0, dp(16), 0);
             searchText.setBackground(round(FIELD, dp(20)));
             searchText.setClickable(true);
+            searchText.setOnClickListener(v -> focusSearch());  // Android's own pointer, over an Android app
             column.addView(searchText, new LinearLayout.LayoutParams(Math.min(dp(420), Math.round(width * 0.5f)), dp(40)));
 
             tabRow = new LinearLayout(c);
@@ -436,7 +436,7 @@ final class SwitcherOverlay {
             selected = -1;
             showSearch();
             // Clicks on the search line and the device line do nothing (elsewhere on the scrim closes)
-            targets.add(new Target(searchText, () -> { }, -1));
+            targets.add(new Target(searchText, this::focusSearch, -1));
             targets.add(new Target(deviceBar, () -> { }, -1));
             renderTabs();
             renderDeviceBar();
@@ -533,34 +533,51 @@ final class SwitcherOverlay {
             }
         }
 
-        /** The search line's caret blinks: typing goes there at once, no click needed (17 November: nothing said so). */
-        private boolean caretShown = true;
+        /**
+         * As a computer's search field: no caret until it is clicked or typed into (typing goes there anyway); then a
+         * caret that blinks while nothing is typed and stays lit while typing. The caret is always there once focused,
+         * only its colour blinks, so the text never moves (17 November: it jumped with each blink).
+         */
+        private boolean searchFocused, caretShown = true;
+        private static final long CARET_MS = 530;
         final Runnable caret = new Runnable() {
             @Override public void run() {
+                if (!searchFocused) return;
                 caretShown = !caretShown;
                 showSearch();
-                UI.postDelayed(this, 530);
+                UI.postDelayed(this, CARET_MS);
             }
         };
 
+        void focusSearch() {
+            searchFocused = true;
+            caretShown = true;
+            UI.removeCallbacks(caret);
+            showSearch();
+            UI.postDelayed(caret, CARET_MS);
+        }
+
         void showSearch() {
             String query = board.query();
-            String hint = notice != null ? notice : "⌕  " + c.getString(R.string.xd_sw_search);
-            String bar = caretShown ? "▏" : " ";
+            String hint = "⌕  " + c.getString(R.string.xd_sw_search);
             // A notice is about what was just clicked: it shows also over a search, which comes back after it
             if (notice != null) {
                 searchText.setText(notice);
                 searchText.setTextColor(Color.WHITE);
-            } else if (query.isEmpty()) {
-                // The caret where typing begins, white, before the dim hint
-                android.text.SpannableString s = new android.text.SpannableString(bar + hint);
-                s.setSpan(new android.text.style.ForegroundColorSpan(Color.WHITE), 0, 1, 0);
-                searchText.setText(s);
-                searchText.setTextColor(Style.TEXT_DIM);
-            } else {
-                searchText.setText(query + bar);
-                searchText.setTextColor(Color.WHITE);
+                return;
             }
+            if (!searchFocused) {
+                searchText.setText(query.isEmpty() ? hint : query);
+                searchText.setTextColor(query.isEmpty() ? Style.TEXT_DIM : Color.WHITE);
+                return;
+            }
+            String line = query.isEmpty() ? hint : query;
+            // Empty: the caret before the hint; with text: after it
+            android.text.SpannableString s = new android.text.SpannableString(query.isEmpty() ? "▏" + line : line + "▏");
+            int at = query.isEmpty() ? 0 : line.length();
+            s.setSpan(new android.text.style.ForegroundColorSpan(caretShown ? Color.WHITE : Color.TRANSPARENT), at, at + 1, 0);
+            searchText.setText(s);
+            searchText.setTextColor(query.isEmpty() ? Style.TEXT_DIM : Color.WHITE);
         }
 
         /** The window has the focus (takesKeys): a physical keyboard's keys come to the search, typed in its layout. */
@@ -853,6 +870,8 @@ final class SwitcherOverlay {
         }
 
         void setQuery(String q) {
+            // Typing focuses the field, and the caret stays lit while it goes on
+            focusSearch();
             board.setQuery(q);
             page = 0;
             build();
