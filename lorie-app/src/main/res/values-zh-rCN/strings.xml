@@ -279,14 +279,16 @@
     <string name="xd_output_title">声音从哪里播放</string>
     <string name="xd_output_missing">现在没有这个输出设备，暂时走系统默认</string>
 
-    <string name="xd_width_native">清晰（显示器原生）</string>
-    <string name="xd_width_1920">均衡（1920 宽）</string>
-    <string name="xd_width_1280">省电和游戏（1280 宽）</string>
+    <string name="xd_res_auto">自动（推荐）</string>
+    <string name="xd_res_native">原生</string>
+    <string name="xd_res_1080">1080p</string>
+    <string name="xd_res_720">720p</string>
+    <string name="xd_res_with_size">%1$s · %2$d×%3$d</string>
     <string name="xd_orientation_system">跟随系统</string>
     <string name="xd_orientation_portrait">竖屏</string>
     <string name="xd_orientation_landscape">横屏</string>
     <string name="xd_resolution">桌面分辨率</string>
-    <string name="xd_resolution_note">Termux 桌面的 X 分辨率</string>
+    <string name="xd_resolution_note">Termux 桌面的分辨率。自动：1600 高以内用屏幕原生，4K 屏用一半，清晰又不白费电</string>
     <string name="xd_density">安卓应用界面大小</string>
     <string name="xd_language">语言</string>
     <string name="xd_language_system">跟随系统</string>

@@ -34,8 +34,8 @@
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
 
 // XDesk: where a Present of a client's image spends its time (TERMUX_X11_MISURA=1, written with tod-misura):
-// wall time of each step of todCopia, and of todGlamorPubblica, summed over 5 s
-enum { TOD_FINISH, TOD_LOCK, TOD_SYNC, TOD_MEMCPY, TOD_UNLOCK, TOD_COPIA_CPU, TOD_PUBBLICA, TOD_PASSI };
+// wall time of each step of todGlamorAggiorna, and of todGlamorPubblica, summed over 5 s
+enum { TOD_ATTESA, TOD_SYNC, TOD_MEMCPY, TOD_FINE, TOD_COPIA_CPU, TOD_PUBBLICA, TOD_PASSI };
 static uint64_t todPassoNs[TOD_PASSI], todPassoN[TOD_PASSI];
 static uint64_t todAdesso(clockid_t c) {
     struct timespec t;
@@ -44,30 +44,9 @@ static uint64_t todAdesso(clockid_t c) {
 }
 #define TOD_PASSO(i, da) do { uint64_t _a = todAdesso(CLOCK_MONOTONIC); todPassoNs[i] += _a - (da); todPassoN[i]++; (da) = _a; } while (0)
 
-// XDesk, for measuring only: how a client image's copy is done, read every 5 s (with TERMUX_X11_MISURA=1) from
-// $TMPDIR/xdesk-glamor-knobs, words in any order: nofinish (no glFinish before the copy), persist (the image's
-// AHardwareBuffer stays locked, no lock and unlock each frame), rarely (new images get a CPU_WRITE_RARELY
-// AHardwareBuffer, uncached), nosync (no dma-buf sync around reading the client's buffer)
-static int todNoFinish, todPersist, todRarely, todNoSync;
-static void todLeggiManopole(void) {
-    char path[512], buf[256] = "";
-    const char *tmp = getenv("TMPDIR");
-    FILE *f;
-    snprintf(path, sizeof path, "%s/xdesk-glamor-knobs", tmp ? tmp : "/data/data/com.termux/files/usr/tmp");
-    if ((f = fopen(path, "r"))) {
-        buf[fread(buf, 1, sizeof buf - 1, f)] = 0;
-        fclose(f);
-    }
-    int a = !!strstr(buf, "nofinish"), b = !!strstr(buf, "persist"), c = !!strstr(buf, "rarely"), d = !!strstr(buf, "nosync");
-    if (a != todNoFinish || b != todPersist || c != todRarely || d != todNoSync)
-        log(INFO, "tod-misura: knobs nofinish %d persist %d rarely %d nosync %d", a, b, c, d);
-    todNoFinish = a; todPersist = b; todRarely = c; todNoSync = d;
-}
-
 void todGlamorMisura(uint64_t muro) {
-    todLeggiManopole();
-    static const char *nomi[TOD_PASSI] = { "glFinish before the copy", "AHardwareBuffer_lock", "dma-buf sync start",
-                                           "memcpy", "sync end + unlock", "the copy, CPU time", "root to the shown buffer (blit + glFinish)" };
+    static const char *nomi[TOD_PASSI] = { "waiting for the GPU to be done with the copy", "dma-buf sync start", "memcpy",
+                                           "sync end + swap", "the whole step, CPU time", "root to the shown buffer (blit + glFinish)" };
     for (int i = 0; i < TOD_PASSI; i++) {
         if (todPassoN[i])
             log(INFO, "tod-misura:   present step %s: %.1f%% of the time, %llu times, %.0f us each", nomi[i],
@@ -80,20 +59,35 @@ static EGLDisplay todDpy = EGL_NO_DISPLAY;
 static EGLContext todCtx = EGL_NO_CONTEXT;
 
 // DRI3: ogni immagine importata (dma-buf lineare di Turnip) è mappata in memoria. Con glamor:
-//  - via AHardwareBuffer (predefinita): un AHardwareBuffer lineare della stessa misura, che la GPU legge come
-//    texture (EGLImage); a ogni Present ci si copiano solo le zone cambiate (todGlamorAggiorna, memcpy);
+//  - via AHardwareBuffer (predefinita): la GPU legge una copia dell'immagine in un AHardwareBuffer lineare
+//    (EGLImage), aggiornata a ogni Present (todGlamorAggiorna, memcpy);
 //  - ripiego, o con TERMUX_X11_GLAMOR_COPIA=1: immagine in memoria, che glamor carica da sé a ogni uso.
 // (Android non ha EGL_EXT_image_dma_buf_import, e Adreno rifiuta texture su memoria di Turnip importata con
-// GL_EXT_memory_object_fd: provato il 29 ottobre.)
+// GL_EXT_memory_object_fd: provato il 29 ottobre, and again by XDesk on 17 November.)
+// XDesk: the copy is in two AHardwareBuffers, written in turn. They are uncached (CPU_WRITE_RARELY) and stay
+// locked from allocation to the end, so a Present costs no lock, unlock or cache maintenance; the GPU may
+// still be reading the buffer about to be written, so each one gets a fence when the image moves to the
+// other, and the next write into it waits for that fence, not for the whole GPU (glFinish). Measured on
+// 17 November, glmark2 in a window: 316 with lock, unlock and glFinish each frame, EXA 381, about 650 like
+// this. One buffer, if the second can not be had: written after a glFinish.
+typedef struct {
+    AHardwareBuffer *ahb;
+    EGLImageKHR img;
+    GLuint tex;             // owned by glamor's fbo while this copy is the one shown, by us otherwise
+    char *dati;             // the AHardwareBuffer, locked for writing all its life
+    uint32_t passo;         // its pixels per row
+    EGLSyncKHR fine;        // signalled when the GPU is done with what was queued while this copy was shown
+} TodCopia;
+
 typedef struct {
     void *mappa;
     size_t lunghezza;
     char *dati;             // inizio dell'immagine nella mappa
     CARD32 passo;           // byte per riga nel dma-buf
     int fd;                 // il dma-buf (per DMA_BUF_IOCTL_SYNC), -1 se non c'è
-    AHardwareBuffer *ahb;
-    char *bloccato;         // XDesk: where the AHardwareBuffer is mapped while it stays locked (knob persist)
-    int raro;               // XDesk: allocated CPU_WRITE_RARELY (knob rarely), locked the same way
+    TodCopia copia[2];      // XDesk: the GPU's copies of a client's image
+    int copie, mostrata;    // how many copies (0: none, the image is in memory), which one glamor uses
+    AHardwareBuffer *ahb;   // the root's shown buffer (with lorie)
     EGLImageKHR img;
     LorieBuffer *lorie;     // solo la radice: la vetrina, possiede il suo AHardwareBuffer
     GLuint vtex, vfb;       // texture e framebuffer della vetrina
@@ -106,6 +100,23 @@ static TodMappa *todMappa(PixmapPtr pixmap) {
     return dixGetPrivateAddr(&pixmap->devPrivates, &todMappaKey);
 }
 
+// Frees a copy; its texture too unless glamor has it (conTex 0)
+static void todLiberaCopia(TodCopia *c, int conTex) {
+    if (c->fine != EGL_NO_SYNC_KHR)
+        eglDestroySyncKHR(todDpy, c->fine);
+    if (conTex && c->tex)
+        glDeleteTextures(1, &c->tex);
+    if (c->img)
+        eglDestroyImageKHR(todDpy, c->img);
+    if (c->ahb) {
+        if (c->dati)
+            AHardwareBuffer_unlock(c->ahb, NULL);
+        AHardwareBuffer_release(c->ahb);
+    }
+    memset(c, 0, sizeof(*c));
+    c->fine = EGL_NO_SYNC_KHR;
+}
+
 static Bool todDestroyPixmap(PixmapPtr pixmap) {
     ScreenPtr screen = pixmap->drawable.pScreen;
     TodMappa m = *todMappa(pixmap);
@@ -116,22 +127,24 @@ static Bool todDestroyPixmap(PixmapPtr pixmap) {
     screen->DestroyPixmap = todDestroyPixmap;
     if (!ultima)
         return r;
-    if (m.vfb || m.vtex) {
+    if (m.vfb || m.vtex || m.copie) {
         glamor_make_current(glamor_get_screen_private(screen));
-        glDeleteFramebuffers(1, &m.vfb);
-        glDeleteTextures(1, &m.vtex);
+        if (m.vfb)
+            glDeleteFramebuffers(1, &m.vfb);
+        if (m.vtex)
+            glDeleteTextures(1, &m.vtex);
     }
+    // glamor has just deleted the shown copy's texture with its fbo
+    for (int i = 0; i < m.copie; i++)
+        todLiberaCopia(&m.copia[i], i != m.mostrata);
     if (m.img)
         eglDestroyImageKHR(todDpy, m.img);
     if (m.lorie) {
         if (todRadiceBuf == m.lorie)
             todRadiceBuf = NULL;
         LorieBuffer_release(m.lorie);
-    } else if (m.ahb) {
-        if (m.bloccato)
-            AHardwareBuffer_unlock(m.ahb, NULL);
+    } else if (m.ahb)
         AHardwareBuffer_release(m.ahb);
-    }
     if (m.mappa)
         munmap(m.mappa, m.lunghezza);
     if (m.fd > 0)
@@ -139,109 +152,38 @@ static Bool todDestroyPixmap(PixmapPtr pixmap) {
     return r;
 }
 
-// copia nel suo AHardwareBuffer le zone indicate (coordinate dell'immagine), tutte se n == 0
-static void todCopia(TodMappa *m, int larghezza, int altezza, const BoxRec *box, int n) {
-    AHardwareBuffer_Desc d;
-    BoxRec tutto = { 0, 0, (short) larghezza, (short) altezza };
-    char *dst = NULL;
-
-    struct dma_buf_sync s = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ };
-    uint64_t t = todAdesso(CLOCK_MONOTONIC), cpu = todAdesso(CLOCK_THREAD_CPUTIME_ID);
-
-    // 1) la GPU del server potrebbe ancora leggere il fotogramma precedente da questo AHardwareBuffer
-    static int senzaFinish = -1;
-    if (senzaFinish < 0) {
-        const char *e = getenv("TERMUX_X11_GLAMOR_NOFINISH");
-        senzaFinish = e && !strcmp(e, "1");
-    }
-    glamor_make_current(glamor_get_screen_private(screenInfo.screens[0]));
-    // XDesk, for measuring only: TERMUX_X11_GLAMOR_NOFINISH=1 or the knob nofinish skip the wait (the picture may tear)
-    if (!senzaFinish && !todNoFinish)
-        glFinish();
-    TOD_PASSO(TOD_FINISH, t);
-    if (m->bloccato)
-        dst = m->bloccato;
-    else if (AHardwareBuffer_lock(m->ahb, m->raro ? AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY : AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
-                                  -1, NULL, (void **) &dst) || !dst)
-        return;
-    TOD_PASSO(TOD_LOCK, t);
-    // 2) la GPU del client potrebbe non aver finito di disegnare nel dma-buf: si aspetta (sincronizzazione implicita)
-    if (m->fd > 0 && !todNoSync)
-        ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
-    TOD_PASSO(TOD_SYNC, t);
-    AHardwareBuffer_describe(m->ahb, &d);
-    if (n == 0) {
-        box = &tutto;
-        n = 1;
-    }
-    for (int i = 0; i < n; i++) {
-        int x1 = max(box[i].x1, 0), y1 = max(box[i].y1, 0), x2 = min(box[i].x2, larghezza), y2 = min(box[i].y2, altezza);
-        if (x2 <= x1)
-            continue;
-        for (int y = y1; y < y2; y++)
-            memcpy(dst + ((size_t) y * d.stride + x1) * 4, m->dati + (size_t) y * m->passo + x1 * 4, (size_t) (x2 - x1) * 4);
-    }
-    TOD_PASSO(TOD_MEMCPY, t);
-    if (m->fd > 0 && !todNoSync) {
-        s.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
-        ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
-    }
-    if (todPersist)
-        m->bloccato = dst;
-    else {
-        AHardwareBuffer_unlock(m->ahb, NULL);
-        m->bloccato = NULL;
-    }
-    TOD_PASSO(TOD_UNLOCK, t);
-    todPassoNs[TOD_COPIA_CPU] += todAdesso(CLOCK_THREAD_CPUTIME_ID) - cpu;
-    todPassoN[TOD_COPIA_CPU]++;
-}
-
-// Dal gancio di Present (lorieTryScheduleGpuCopy), prima che il contenuto dell'immagine venga usato.
-// Si copia sempre l'immagine intera, non solo la zona dichiarata nel Present: i client (Chromium/Electron,
-// Mesa) usano 2-3 buffer a turno e in ognuno ridisegnano ciò che è cambiato dall'ultima volta che hanno usato
-// QUEL buffer, più di quanto dichiarano (29 ottobre: in un'app Electron ricomparivano pezzi di fotogrammi vecchi).
-void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona) {
-    TodMappa *m = todMappa(pixmap);
-    (void) zona;
-    if (!m->ahb)
-        return;
-    todCopia(m, pixmap->drawable.width, pixmap->drawable.height, NULL, 0);
-}
-
-static PixmapPtr todImportaAhb(ScreenPtr screen, TodMappa *m, CARD16 width, CARD16 height, CARD8 depth) {
-    static int stato = -1;   // -1 da provare, 0 non va, 1 va
+// An uncached AHardwareBuffer the size of the image, locked for writing, with its texture
+static Bool todNuovaCopia(TodCopia *c, int larghezza, int altezza) {
     static const EGLint attr[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
-    const char *e = getenv("TERMUX_X11_GLAMOR_COPIA");
-    AHardwareBuffer_Desc d = { .width = width, .height = height, .layers = 1,
+    AHardwareBuffer_Desc d = { .width = larghezza, .height = altezza, .layers = 1,
                                .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-                               .usage = (todRarely ? AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY : AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN)
-                                        | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE };
-    PixmapPtr pixmap = NullPixmap;
-    glamor_pixmap_fbo *fbo;
-    GLuint tex = 0;
+                               .usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE };
     GLint err;
 
-    if (stato == 0 || (e && !strcmp(e, "1")))
-        return NullPixmap;
+    memset(c, 0, sizeof(*c));
+    c->fine = EGL_NO_SYNC_KHR;
     // l'immagine del client è BGRA in memoria: AHardwareBuffer RGBA8 e canali B/R scambiati in lettura
-    m->raro = todRarely;
-    if (AHardwareBuffer_allocate(&d, &m->ahb) || !m->ahb) {
-        log(ERROR, "tod-glamor: AHardwareBuffer %ux%u non allocato", width, height);
-        m->ahb = NULL;
+    if (AHardwareBuffer_allocate(&d, &c->ahb) || !c->ahb) {
+        log(ERROR, "tod-glamor: AHardwareBuffer %ux%u non allocato", larghezza, altezza);
+        c->ahb = NULL;
+        return FALSE;
+    }
+    AHardwareBuffer_describe(c->ahb, &d);
+    c->passo = d.stride;
+    if (AHardwareBuffer_lock(c->ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY, -1, NULL, (void **) &c->dati) || !c->dati) {
+        log(ERROR, "tod-glamor: AHardwareBuffer %ux%u non bloccato", larghezza, altezza);
+        c->dati = NULL;
         goto fallito;
     }
-    glamor_make_current(glamor_get_screen_private(screen));
     while (glGetError() != GL_NO_ERROR) ;
-    m->img = eglCreateImageKHR(todDpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID,
-                               eglGetNativeClientBufferANDROID(m->ahb), attr);
-    if (!m->img) {
+    c->img = eglCreateImageKHR(todDpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, eglGetNativeClientBufferANDROID(c->ahb), attr);
+    if (!c->img) {
         log(ERROR, "tod-glamor: EGLImage non creata (0x%x)", eglGetError());
         goto fallito;
     }
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, m->img);
+    glGenTextures(1, &c->tex);
+    glBindTexture(GL_TEXTURE_2D, c->tex);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, c->img);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -250,37 +192,116 @@ static PixmapPtr todImportaAhb(ScreenPtr screen, TodMappa *m, CARD16 width, CARD
         log(ERROR, "tod-glamor: texture sull'AHardwareBuffer non riuscita (0x%x)", err);
         goto fallito;
     }
-    todCopia(m, width, height, NULL, 0);
+    return TRUE;
+
+fallito:
+    todLiberaCopia(c, 1);
+    return FALSE;
+}
+
+// The client's image into a copy, all of it (see todGlamorAggiorna)
+static void todScrivi(TodMappa *m, TodCopia *c, int larghezza, int altezza, uint64_t *t) {
+    struct dma_buf_sync s = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ };
+    // la GPU del client potrebbe non aver finito di disegnare nel dma-buf: si aspetta (sincronizzazione implicita)
+    if (m->fd > 0)
+        ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
+    TOD_PASSO(TOD_SYNC, *t);
+    for (int y = 0; y < altezza; y++)
+        memcpy(c->dati + (size_t) y * c->passo * 4, m->dati + (size_t) y * m->passo, (size_t) larghezza * 4);
+    TOD_PASSO(TOD_MEMCPY, *t);
+    if (m->fd > 0) {
+        s.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
+        ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
+    }
+}
+
+// Dal gancio di Present (lorieTryScheduleGpuCopy), prima che il contenuto dell'immagine venga usato.
+// Si copia sempre l'immagine intera, non solo la zona dichiarata nel Present: i client (Chromium/Electron,
+// Mesa) usano 2-3 buffer a turno e in ognuno ridisegnano ciò che è cambiato dall'ultima volta che hanno usato
+// QUEL buffer, più di quanto dichiarano (29 ottobre: in un'app Electron ricomparivano pezzi di fotogrammi vecchi).
+// XDesk: written into the copy glamor is not using, which then becomes the one it uses.
+void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona) {
+    TodMappa *m = todMappa(pixmap);
+    glamor_pixmap_private *priv = glamor_get_pixmap_private(pixmap);
+    int w = pixmap->drawable.width, h = pixmap->drawable.height;
+    uint64_t t = todAdesso(CLOCK_MONOTONIC), cpu = todAdesso(CLOCK_THREAD_CPUTIME_ID);
+    TodCopia *vecchia, *nuova;
+    (void) zona;
+
+    if (!m->copie || !priv || !priv->fbo)
+        return;
+    glamor_make_current(glamor_get_screen_private(pixmap->drawable.pScreen));
+    vecchia = &m->copia[m->mostrata];
+    if (m->copie == 1) {
+        // one copy: the GPU may still be reading it
+        glFinish();
+        TOD_PASSO(TOD_ATTESA, t);
+        todScrivi(m, vecchia, w, h, &t);
+        TOD_PASSO(TOD_FINE, t);
+    } else {
+        nuova = &m->copia[1 - m->mostrata];
+        if (nuova->fine != EGL_NO_SYNC_KHR) {
+            eglClientWaitSyncKHR(todDpy, nuova->fine, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, EGL_FOREVER_KHR);
+            eglDestroySyncKHR(todDpy, nuova->fine);
+            nuova->fine = EGL_NO_SYNC_KHR;
+        } else
+            glFinish();   // no fence was had: the old way
+        TOD_PASSO(TOD_ATTESA, t);
+        todScrivi(m, nuova, w, h, &t);
+        // what glamor queued so far may read the old copy: a fence for it, before it is written again
+        vecchia->fine = eglCreateSyncKHR(todDpy, EGL_SYNC_FENCE_KHR, NULL);
+        glFlush();
+        priv->fbo->tex = nuova->tex;
+        if (priv->fbo->fb) {
+            glBindFramebuffer(GL_FRAMEBUFFER, priv->fbo->fb);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, nuova->tex, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        m->mostrata = 1 - m->mostrata;
+        TOD_PASSO(TOD_FINE, t);
+    }
+    todPassoNs[TOD_COPIA_CPU] += todAdesso(CLOCK_THREAD_CPUTIME_ID) - cpu;
+    todPassoN[TOD_COPIA_CPU]++;
+}
+
+static PixmapPtr todImportaAhb(ScreenPtr screen, TodMappa *m, CARD16 width, CARD16 height, CARD8 depth) {
+    static int stato = -1;   // -1 da provare, 0 non va, 1 va
+    const char *e = getenv("TERMUX_X11_GLAMOR_COPIA");
+    PixmapPtr pixmap = NullPixmap;
+    glamor_pixmap_fbo *fbo;
+    uint64_t t = 0;
+
+    if (stato == 0 || (e && !strcmp(e, "1")))
+        return NullPixmap;
+    glamor_make_current(glamor_get_screen_private(screen));
+    if (!todNuovaCopia(&m->copia[0], width, height))
+        goto fallito;
+    m->copie = 1;
+    if (todNuovaCopia(&m->copia[1], width, height))
+        m->copie = 2;
+    m->mostrata = 0;
+    todScrivi(m, &m->copia[0], width, height, &t);
     pixmap = glamor_create_pixmap(screen, width, height, depth, GLAMOR_CREATE_PIXMAP_NO_TEXTURE);
     if (!pixmap)
         goto fallito;
     glamor_set_pixmap_type(pixmap, GLAMOR_TEXTURE_DRM);
-    if (!(fbo = glamor_create_fbo_from_tex(glamor_get_screen_private(screen), pixmap, width, height, tex, 0))) {
+    if (!(fbo = glamor_create_fbo_from_tex(glamor_get_screen_private(screen), pixmap, width, height, m->copia[0].tex, 0))) {
         log(ERROR, "tod-glamor: glamor non accetta la texture");
         goto fallito;
     }
-    tex = 0;   // ora è di glamor
-    glamor_pixmap_attach_fbo(pixmap, fbo);
+    glamor_pixmap_attach_fbo(pixmap, fbo);   // copia[0].tex is now glamor's, as mostrata says
     *todMappa(pixmap) = *m;
     if (stato < 0)
-        log(INFO, "tod-glamor: DRI3 via AHardwareBuffer attivo (%ux%u)", width, height);
+        log(INFO, "tod-glamor: DRI3 via AHardwareBuffer attivo (%ux%u, %d copie)", width, height, m->copie);
     stato = 1;
     return pixmap;
 
 fallito:
     if (pixmap)
         screen->DestroyPixmap(pixmap);   // la mappa resta al chiamante: qui m non è ancora dell'immagine
-    if (tex)
-        glDeleteTextures(1, &tex);
-    if (m->img)
-        eglDestroyImageKHR(todDpy, m->img);
-    if (m->ahb && m->bloccato)
-        AHardwareBuffer_unlock(m->ahb, NULL);
-    if (m->ahb)
-        AHardwareBuffer_release(m->ahb);
-    m->bloccato = NULL;
-    m->img = NULL;
-    m->ahb = NULL;
+    for (int i = 0; i < 2; i++)
+        todLiberaCopia(&m->copia[i], 1);
+    m->copie = 0;
     if (stato < 0)
         stato = 0;
     return NullPixmap;

@@ -89,9 +89,14 @@ public class XDeskActivity extends Activity {
     /** 切换时等 Termux 说哪个环境在运行，等不到就按上次知道的。 */
     private static final long TERMUX_SWITCH_WAIT_MS = 3000;
     /** xdesk stop 要等桌面退出，过一会再看状态。 */
-    private static final int[] WIDTH_LABELS = {R.string.xd_width_native, R.string.xd_width_1920, R.string.xd_width_1280};
-    private static final int[] WIDTHS = {0, 1920, 1280};  // 0 = 原生
-    private static final int DEFAULT_WIDTH = 1920;
+    /**
+     * The desktop's resolution (17 November): auto (native up to AUTO_MAX_HEIGHT, a whole fraction of a taller panel,
+     * so a 4K screen gets 1920x1080 at exactly 2x: sharp, and a quarter of the pixels to draw), native, 1080p, 720p;
+     * by height, the width following the screen's shape. Before it was a width, PREF_WIDTH, read once to carry it over.
+     */
+    private static final String PREF_RESOLUTION = "desktop_resolution";
+    private static final int RES_AUTO = 0, RES_NATIVE = 1, RES_1080 = 2, RES_720 = 3, AUTO_MAX_HEIGHT = 1600;
+    private static final int[] RES_LABELS = {R.string.xd_res_auto, R.string.xd_res_native, R.string.xd_res_1080, R.string.xd_res_720};
     private static final int[] ORIENTATION_LABELS = {R.string.xd_orientation_system, R.string.xd_orientation_portrait, R.string.xd_orientation_landscape};
     /** 存的值，顺序同上。没选过就跟随系统；以前明确选过的不变。 */
     private static final int[] ORIENTATION_VALUES = {2, 1, 0};
@@ -482,6 +487,8 @@ public class XDeskActivity extends Activity {
             Display added = displays.getDisplay(id);
             if (!TargetDisplay.isReal(added)) return;
             realDisplays.add(id);
+            // Its size in Android may have another shape than its panel: the injector corrects it, if it is there
+            apps.checkDisplaySizes();
             ui.removeCallbacks(displayGone);
             DesktopScale.askKindOnce(XDeskActivity.this, ui(), added, XDeskActivity.this::screenSizingChanged);
             // 桌面在车机上：外接屏后来接上也不挪
@@ -2504,18 +2511,38 @@ public class XDeskActivity extends Activity {
         setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT)]);
     }
 
-    private int widthIndex() {
-        int w = prefs.getInt(PREF_WIDTH, DEFAULT_WIDTH);
-        for (int i = 0; i < WIDTHS.length; i++) if (WIDTHS[i] == w) return i;
-        return 1;
+    private int resolutionMode() {
+        int m = prefs.getInt(PREF_RESOLUTION, -1);
+        if (m >= RES_AUTO && m <= RES_720) return m;
+        // Carried over: never chosen is auto (the old default 1920 blurred a 1440p screen); a width chosen is its height
+        if (!prefs.contains(PREF_WIDTH)) return RES_AUTO;
+        int w = prefs.getInt(PREF_WIDTH, 1920);
+        return w == 0 ? RES_NATIVE : w <= 1280 ? RES_720 : RES_1080;
+    }
+
+    /** "Auto · 2560×1440": a mode's label, with the size it gives on d when there is one. */
+    private String resolutionLabel(int mode, Display d) {
+        String label = getString(RES_LABELS[mode]);
+        if (d == null) return label;
+        Point p = desktopSize(d, mode);
+        return getString(R.string.xd_res_with_size, label, p.x, p.y);
     }
 
     private void chooseResolution(final TextView value) {
-        ui().choice(getString(R.string.xd_resolution), null, strings(WIDTH_LABELS), widthIndex(), which -> {
-            prefs.edit().putInt(PREF_WIDTH, WIDTHS[which]).apply();
-            Display d = externalDisplay();
+        final Display d = externalDisplay();
+        // 1080p and 720p only where they are less than the screen has
+        final java.util.List<Integer> modes = new java.util.ArrayList<>();
+        Point full = d != null ? desktopSize(d, RES_NATIVE) : null;
+        for (int m = RES_AUTO; m <= RES_720; m++) {
+            if (m >= RES_1080 && full != null && desktopSize(d, m).y >= full.y) continue;
+            modes.add(m);
+        }
+        String[] labels = new String[modes.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = resolutionLabel(modes.get(i), d);
+        ui().choice(getString(R.string.xd_resolution), null, labels, Math.max(0, modes.indexOf(resolutionMode())), which -> {
+            prefs.edit().putInt(PREF_RESOLUTION, modes.get(which)).apply();
             if (d != null) applySize(d);
-            value.setText(WIDTH_LABELS[which]);
+            value.setText(resolutionLabel(modes.get(which), d));
         });
     }
 
@@ -2853,7 +2880,7 @@ public class XDeskActivity extends Activity {
         });
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
-            resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), getString(WIDTH_LABELS[widthIndex()]), () -> chooseResolution(resolution[0]));
+            resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
         }
         settingsPage(getString(R.string.xd_section_display), c, null);
     }
@@ -4982,16 +5009,24 @@ public class XDeskActivity extends Activity {
 
     /** 分辨率的宽高比要和系统认定的外屏尺寸一致才能铺满（这台显示器系统认定 2560x1508）。 */
     private String desktopSize(Display d) {
+        Point p = desktopSize(d, resolutionMode());
+        return p.x + "x" + p.y;
+    }
+
+    /** The desktop's size on d in a resolution mode: by height, the width in the shape the window has. */
+    private static Point desktopSize(Display d, int mode) {
         Point p = new Point();
         d.getRealSize(p);
         if (p.y > p.x) {
             Display.Mode m = d.getMode();
             p.set(m.getPhysicalWidth(), m.getPhysicalHeight());
         }
-        int w = prefs.getInt(PREF_WIDTH, DEFAULT_WIDTH);
-        if (w <= 0 || w > p.x) w = p.x;
-        int h = Math.round((float) w * p.y / p.x) & ~1;
-        return w + "x" + h;
+        int h = p.y;
+        if (mode == RES_AUTO && p.y > AUTO_MAX_HEIGHT) h = p.y / ((p.y + AUTO_MAX_HEIGHT - 1) / AUTO_MAX_HEIGHT);
+        else if (mode == RES_1080) h = Math.min(1080, p.y);
+        else if (mode == RES_720) h = Math.min(720, p.y);
+        if (h == p.y) return p;
+        return new Point(Math.round((float) h * p.x / p.y) & ~1, h & ~1);
     }
 
     /** 这个 App 的设置和官方 Termux:X11 是分开的，手机上的 xfce 不受影响。改了 X 会自动跟上。 */

@@ -448,6 +448,11 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    @Override public String fixDisplaySize(int display, int width, int height, boolean ours) {
+        if (sessionOver) return OVER;
+        return DisplaySizeFix.fix(display, width, height, ours);
+    }
+
     @Override public int displayDefaultDensity(int display) {
         return DensityOverride.defaultDensity(display);
     }

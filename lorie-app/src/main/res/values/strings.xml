@@ -297,15 +297,17 @@
     <string name="xd_output_missing">This output is not connected. Using the system default for now</string>
 
     <!-- Settings -->
-    <string name="xd_width_native">Sharp (monitor\'s native)</string>
-    <string name="xd_width_1920">Balanced (1920 wide)</string>
-    <string name="xd_width_1280">Battery and games (1280 wide)</string>
+    <string name="xd_res_auto">Auto (recommended)</string>
+    <string name="xd_res_native">Native</string>
+    <string name="xd_res_1080">1080p</string>
+    <string name="xd_res_720">720p</string>
+    <string name="xd_res_with_size">%1$s · %2$d×%3$d</string>
     <!-- Three segments in one row: one short word each -->
     <string name="xd_orientation_system">System</string>
     <string name="xd_orientation_portrait">Portrait</string>
     <string name="xd_orientation_landscape">Landscape</string>
     <string name="xd_resolution">Desktop resolution</string>
-    <string name="xd_resolution_note">X resolution of the Termux desktop</string>
+    <string name="xd_resolution_note">Of the Termux desktop. Auto is the screen\'s own up to 1600 high, half of a 4K one: sharp, and not drawing more than it shows</string>
     <string name="xd_density">Android apps\' interface size</string>
     <string name="xd_language">Language</string>
     <string name="xd_language_system">System</string>
