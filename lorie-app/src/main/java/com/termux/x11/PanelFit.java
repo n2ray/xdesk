@@ -43,7 +43,6 @@ final class PanelFit {
     private final Map<Integer, int[]> fitted = new HashMap<>();
     /** Display id: what its info was when last projected (infoKey). */
     private final Map<Integer, String> seen = new HashMap<>();
-    private final Map<Long, IBinder> tokens = new HashMap<>();
     private ScheduledExecutorService timer;
     private long lastReapply;
     private static Method getToken;
@@ -220,11 +219,9 @@ final class PanelFit {
         } catch (NumberFormatException e) {
             return null;
         }
-        IBinder t = tokens.get(physical);
-        if (t != null && t.isBinderAlive()) return t;
-        t = (IBinder) tokenMethod().invoke(null, physical);
-        if (t != null) tokens.put(physical, t);
-        return t;
+        // Asked each time (a fit, or a reapply every 10 s): SurfaceFlinger makes a new token at each hotplug, and an
+        // old one held here stays "alive", so a projection sent to it after a replug did nothing (audit, 17 November)
+        return (IBinder) tokenMethod().invoke(null, physical);
     }
 
     /**

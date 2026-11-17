@@ -188,6 +188,11 @@ final class ExternalDock implements AppSession.EdgeListener {
             stopDwell();
             return;
         }
+        // Sliding along the edge (a tab bar, the app's own bottom row) is no rest: it starts again (audit)
+        if (Math.abs(dx) > 2 && Math.abs(dx) > 2 * Math.max(dy, 0)) {
+            dwellStart = 0;
+            ui.removeCallbacks(dwellTick);
+        }
         if (windows != null && panel == null && atEdge && !dwellHeld) startDwell(ANDROID_DWELL_MS);
     }
 
@@ -197,6 +202,9 @@ final class ExternalDock implements AppSession.EdgeListener {
      * when no push comes for a while.
      */
     void pushProgress(float f) {
+        // Over an Android app the rest draws the bar (dwellTick): a move there that is no push does not clear it
+        // (audit: it flickered between 0 and the rest's progress at the input's rate)
+        if (f == 0 && dwellStart != 0) return;
         if (strip instanceof PushBar) ((PushBar) strip).set(f);
     }
 
@@ -471,11 +479,17 @@ final class ExternalDock implements AppSession.EdgeListener {
 
     /** The external display's fastest mode at the resolution it has, 0 when it has no faster one. */
     static int fastestMode(Display d) {
+        // Only a rate the panel switches to seamlessly (the mode's alternative refresh rates): elsewhere a refresh change
+        // at the same resolution is a full mode set, black for a second or more, at every move and stop (audit)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return 0;
         Display.Mode now = d.getMode(), best = null;
-        for (Display.Mode m : d.getSupportedModes())
-            if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
-                    && (best == null || m.getRefreshRate() > best.getRefreshRate()))
-                best = m;
+        float[] seamless = now.getAlternativeRefreshRates();
+        for (Display.Mode m : d.getSupportedModes()) {
+            if (m.getPhysicalWidth() != now.getPhysicalWidth() || m.getPhysicalHeight() != now.getPhysicalHeight()) continue;
+            boolean smooth = false;
+            for (float r : seamless) smooth |= Math.abs(r - m.getRefreshRate()) < 0.5f;
+            if (smooth && (best == null || m.getRefreshRate() > best.getRefreshRate())) best = m;
+        }
         if (best == null || best.getRefreshRate() <= now.getRefreshRate() + 1) return 0;
         Log.i(TAG, "external display " + d.getDisplayId() + ": " + Math.round(now.getRefreshRate()) + " Hz, asking for "
             + Math.round(best.getRefreshRate()) + " Hz while the pointer is in use");
@@ -544,6 +558,9 @@ final class ExternalDock implements AppSession.EdgeListener {
 
     private void detach() {
         ui.removeCallbacksAndMessages(null);
+        // The rest went with the tick: a dwell still marked as running kept the next one from starting (audit)
+        dwellStart = 0;
+        dwellHeld = false;
         rule.forget();
         if (panel != null) remove(panel);
         panel = null;

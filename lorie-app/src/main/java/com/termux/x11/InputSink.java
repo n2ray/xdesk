@@ -35,6 +35,9 @@ interface InputSink {
      * own or its place is not known.
      */
     default boolean pointerPlace(float[] out) { return false; }
+    /** As pointerPlace, but both 0 to 1 of the whole screen (the Launchpad's arrow); a picture narrower or shorter
+     * than the screen says where in the picture otherwise (MacInput). */
+    default boolean screenPlace(float[] out) { return pointerPlace(out); }
     /** That pointer is gone: the display's own cursor comes back. */
     default void pointerGone() { }
     /** A browser is here, with a keyboard of this layout: de, fr, it, es, gb or us. Again when it finds out better. */

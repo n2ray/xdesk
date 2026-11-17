@@ -41,7 +41,21 @@ public final class ShareHub {
     private final Context context;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "share-hub"));
-    private final CopyOnWriteArrayList<Endpoint> endpoints = new CopyOnWriteArrayList<>();
+    /** A device taking part, and its lasting name ("mac:<id>", a receiver's): what it last had outlives its endpoint. */
+    private static final class Joined {
+        final Endpoint e;
+        final String key;
+        Joined(Endpoint e, String key) {
+            this.e = e;
+            this.key = key;
+        }
+    }
+
+    private final CopyOnWriteArrayList<Joined> endpoints = new CopyOnWriteArrayList<>();
+    /** Each device's name: the number of the last text it was given or gave (seq), so a device that comes back is given
+     * only what is newer than what it had, never an old text over one it copied while away (audit, 17 November). */
+    private final java.util.HashMap<String, Long> had = new java.util.HashMap<>();
+    private long seq;
     private volatile String current;
     /** Where the current text came from; null for the phone. */
     private volatile Endpoint from;
@@ -55,7 +69,7 @@ public final class ShareHub {
 
     private ShareHub(Context c) {
         context = c;
-        endpoints.add(x);
+        endpoints.add(new Joined(x, "x"));
         // X copied: LorieView has put it on the phone already
         LorieView.onClipboardFromX = text -> take(text, x, false);
         ui.post(this::listen);
@@ -77,16 +91,22 @@ public final class ShareHub {
         if (text != null && from != x && on()) x.clipboard(text);
     }
 
-    /** A device takes part from now on: it gets what is there, unless that came from it. */
-    public void join(final Endpoint e) {
-        if (endpoints.addIfAbsent(e)) {
-            final String text = current;
-            if (text != null && from != e && on()) worker.execute(() -> e.clipboard(text));
-        }
+    /**
+     * A device takes part from now on, under its lasting name: it gets what is there if that is newer than what it
+     * last had or gave (a device seen for the first time gets it: one clipboard).
+     */
+    public synchronized void join(final Endpoint e, String key) {
+        for (Joined j : endpoints) if (j.e == e) return;
+        endpoints.add(new Joined(e, key));
+        final String text = current;
+        Long last = had.get(key);
+        if (text == null || !on() || last != null && last >= seq) return;
+        had.put(key, seq);
+        worker.execute(() -> e.clipboard(text));
     }
 
-    public void leave(Endpoint e) {
-        endpoints.remove(e);
+    public synchronized void leave(Endpoint e) {
+        for (Joined j : endpoints) if (j.e == e) endpoints.remove(j);
         if (from == e) from = null;
     }
 
@@ -100,16 +120,23 @@ public final class ShareHub {
         take(text, null, false);
     }
 
-    private void take(String text, Endpoint origin, boolean toPhone) {
+    /** One at a time, so what current says and the order the devices are told in are the same (callers: binder,
+     * JNI, network and UI threads). */
+    private synchronized void take(String text, Endpoint origin, boolean toPhone) {
         if (text == null || text.isEmpty() || text.length() > MAX_TEXT || !on()) return;
         // The same text again: the phone's echo of what a device put there, or a device sending it back
         if (text.equals(current)) return;
+        seq++;
         current = text;
         from = origin;
+        final java.util.ArrayList<Endpoint> to = new java.util.ArrayList<>();
+        for (Joined j : endpoints) {
+            had.put(j.key, seq);  // the origin has it, the others are given it now
+            if (j.e != origin) to.add(j.e);
+        }
         if (toPhone) writePhone(text);
         worker.execute(() -> {
-            for (Endpoint e : endpoints) {
-                if (e == origin) continue;
+            for (Endpoint e : to) {
                 try {
                     e.clipboard(text);
                 } catch (RuntimeException ex) {
@@ -143,7 +170,7 @@ public final class ShareHub {
                 ClipData d = cm.getPrimaryClip();
                 if (d == null || d.getItemCount() == 0) return;
                 CharSequence t = d.getItemAt(0).getText();
-                if (t != null) phone(t.toString());
+                if (t != null && !ShellClipboard.sensitive(d)) phone(t.toString());
             } catch (RuntimeException e) {
                 Log.d(TAG, "clipboard", e);
             }

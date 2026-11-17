@@ -45,10 +45,19 @@ final class ShellClipboard {
         return values;
     }
 
-    /** Null when the clipboard holds no text. */
+    /**
+     * A password manager's copy (ClipDescription.EXTRA_IS_SENSITIVE, Android 13): not for the other devices. Before the
+     * injector's watch they got the phone's copies only while XDesk had the focus (audit, 17 November).
+     */
+    static boolean sensitive(ClipData clip) {
+        android.os.PersistableBundle extras = clip.getDescription() != null ? clip.getDescription().getExtras() : null;
+        return extras != null && extras.getBoolean("android.content.extra.IS_SENSITIVE", false);
+    }
+
+    /** Null when the clipboard holds no text, or text marked sensitive. */
     String text() throws ReflectiveOperationException {
         ClipData clip = (ClipData) get.invoke(service, arguments(get, null));
-        if (clip == null || clip.getItemCount() == 0 || clip.getItemAt(0).getText() == null) return null;
+        if (clip == null || clip.getItemCount() == 0 || clip.getItemAt(0).getText() == null || sensitive(clip)) return null;
         return clip.getItemAt(0).getText().toString();
     }
 

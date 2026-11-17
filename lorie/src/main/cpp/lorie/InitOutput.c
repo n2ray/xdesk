@@ -1021,10 +1021,18 @@ void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
     }
 }
 
-// XDesk: glamor is on by default and EXA was the screen before: when glamor can not start, the screen is EXA's
+static PixmapPtr loriePixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds, CARD16 width, CARD16 height,
+                                    const CARD32 *strides, const CARD32 *offsets, CARD8 depth, CARD8 bpp, CARD64 modifier);
+/** What gpuPresentDisabled was before glamor took Present's copies over: EXA gets it back. */
+static Bool lorieGpuPresentWasDisabled;
+
+// XDesk: glamor is on by default and EXA was the screen before: when glamor can not start, the screen is EXA's,
+// with EXA's DRI3 import and Present copies again (audit, 17 November: glamor's import was left, and crashed)
 static Bool lorieWithoutGlamor(ScreenPtr pScreen) {
     log(ERROR, "tod-glamor: glamor could not start, drawing with EXA (the CPU) as before");
     todGlamorSpegni();
+    lorieDri3Info.pixmap_from_fds = loriePixmapFromFds;
+    pvfb->gpuPresentDisabled = lorieGpuPresentWasDisabled;
     return exaDriverInit(pScreen, &lorieExa);
 }
 
@@ -1032,7 +1040,13 @@ static Bool lorieScreenInit(ScreenPtr pScreen, unused int argc, unused char **ar
     static int eventFd = -1;
     pScreenPtr = pScreen;
 
+    // Legacy drawing (chosen, or the renderer found no AHardwareBuffer root) is EXA's: glamor's root is always one
+    if (pvfb->root.legacyDrawing && todGlamorAttivo()) {
+        log(INFO, "tod-glamor: legacy drawing, glamor off");
+        todGlamorSpegni();
+    }
     if (todGlamorAttivo()) {
+        lorieGpuPresentWasDisabled = pvfb->gpuPresentDisabled;
         // tod: con glamor niente copie Present sulla GPU dell'app (usano i dati di EXA) e DRI3 importato da glamor
         pvfb->gpuPresentDisabled = TRUE;
         lorieDri3Info.pixmap_from_fds = todGlamorPixmapFromFds;

@@ -1211,7 +1211,7 @@ public final class MacClient {
 
     private final Runnable stepAgain = this::stepToDisplay;
 
-    private void stepToDisplay() {
+    private synchronized void stepToDisplay() {
         int n = wantDisplay;
         if (n <= 0) return;
         long now = SystemClock.uptimeMillis();
@@ -2342,13 +2342,16 @@ public final class MacClient {
         ui.post(() -> {
             if (clipEndpoint != null || surface == null) return;
             enqueue(SillWire.CLIPBOARD, new byte[] {'{', '}'});
+            // The hub never gives a device back what came from it; a text this Mac sent earlier and got again from
+            // another device is a new copy there, and goes (audit: it was dropped, and the Mac kept an older one)
             clipEndpoint = text -> {
-                if (text.equals(lastClipFromMac)) return;
                 try {
-                    enqueue(SillWire.CLIPBOARD, new JSONObject().put("text", text));
+                    byte[] json = new JSONObject().put("text", text).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    // Escaped control characters can take a 256K text past what Sill's writer sends: not shared
+                    if (json.length < SillWire.MAX_OUTGOING) enqueue(SillWire.CLIPBOARD, json);
                 } catch (JSONException ignored) { }
             };
-            com.termux.x11.ShareHub.get(context).join(clipEndpoint);
+            com.termux.x11.ShareHub.get(context).join(clipEndpoint, "mac:" + mac.id);
         });
     }
 

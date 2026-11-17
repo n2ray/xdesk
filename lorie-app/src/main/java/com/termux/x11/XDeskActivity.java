@@ -3849,7 +3849,7 @@ public class XDeskActivity extends Activity {
         @Override public boolean pointerPlace(float[] out) {
             // The content still has the input while the Launchpad comes: X's or a Mac's pointer is where it starts
             InputSink c = client;
-            return c != null && c != SwitcherOverlay.INPUT && !apps.isActive() && c.pointerPlace(out);
+            return c != null && c != SwitcherOverlay.INPUT && !apps.isActive() && c.screenPlace(out);
         }
         @Override public void pointerLeftAt(float x, float y) {
             // The content the Launchpad was over takes its pointer from there (17 November: it came back where it
@@ -5065,12 +5065,13 @@ public class XDeskActivity extends Activity {
             Display.Mode m = d.getMode();
             p.set(m.getPhysicalWidth(), m.getPhysicalHeight());
         }
-        int h = p.y;
-        if (mode == RES_AUTO && p.y > AUTO_MAX_HEIGHT) h = p.y / ((p.y + AUTO_MAX_HEIGHT - 1) / AUTO_MAX_HEIGHT);
-        else if (mode == RES_1080) h = Math.min(1080, p.y);
-        else if (mode == RES_720) h = Math.min(720, p.y);
-        if (h == p.y) return p;
-        return new Point(Math.round((float) h * p.x / p.y) & ~1, h & ~1);
+        // By the short side: a portrait monitor's 1080 is its width (audit, 17 November: it was halved by its height)
+        int side = Math.min(p.x, p.y), s = side;
+        if (mode == RES_AUTO && side > AUTO_MAX_HEIGHT) s = side / ((side + AUTO_MAX_HEIGHT - 1) / AUTO_MAX_HEIGHT);
+        else if (mode == RES_1080) s = Math.min(1080, side);
+        else if (mode == RES_720) s = Math.min(720, side);
+        if (s == side) return p;
+        return new Point(Math.round((float) s * p.x / side) & ~1, Math.round((float) s * p.y / side) & ~1);
     }
 
     /** 这个 App 的设置和官方 Termux:X11 是分开的，手机上的 xfce 不受影响。改了 X 会自动跟上。 */

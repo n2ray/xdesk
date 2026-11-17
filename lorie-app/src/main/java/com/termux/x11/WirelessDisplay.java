@@ -1175,6 +1175,8 @@ final class WirelessDisplay {
 
     /** This stream's receiver in the shared clipboard, null for a browser or between streams. */
     private volatile ShareHub.Endpoint clipEndpoint;
+    /** One per stream: the input-mode thread and the clipboard writer of an older one stop. */
+    private volatile int clipGeneration;
 
     /**
      * A receiver that sends input takes part in the shared clipboard (ShareHub) for the stream; a browser does not.
@@ -1182,8 +1184,11 @@ final class WirelessDisplay {
      */
     private void startClipboardSync() {
         final boolean shares = inputReceiver;
-        final ShareHub.Endpoint endpoint = text -> {
-            if (webLost || !running) return;
+        final int generation = ++clipGeneration;
+        // Its own writer: a receiver on a weak link must not hold up the hub, which serves every device
+        final java.util.concurrent.ExecutorService writer = java.util.concurrent.Executors.newSingleThreadExecutor();
+        final ShareHub.Endpoint endpoint = text -> writer.execute(() -> {
+            if (webLost || !running || generation != clipGeneration) return;
             byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
             if (bytes.length > MAX_CLIPBOARD) return;
             try {
@@ -1191,18 +1196,21 @@ final class WirelessDisplay {
             } catch (IOException e) {
                 Log.i(TAG, "clipboard: " + e);
             }
-        };
+        });
         clipEndpoint = shares ? endpoint : null;
-        if (shares) ShareHub.get(context).join(endpoint);
+        String name = receiverId != null ? receiverId : receiverName;
+        if (shares) ShareHub.get(context).join(endpoint, "receiver:" + name);
         new Thread(() -> {
             try {
-                while (running) {
+                // Ends with this stream also when the next one starts within a sleep (running true again)
+                while (running && generation == clipGeneration) {
                     SystemClock.sleep(CLIPBOARD_POLL_MS);
                     // INPUT_MODE changes with the content and the pointer: to an input receiver and a browser alike
-                    sendInputMode();
+                    if (generation == clipGeneration) sendInputMode();
                 }
             } finally {
                 if (shares) ShareHub.get(context).leave(endpoint);
+                writer.shutdown();
             }
         }, "xdesk-input-mode").start();
     }

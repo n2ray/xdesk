@@ -152,6 +152,11 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     }
 
     /** Over X and a Mac: the content's pointer is here (DockPointer), opening the panel with ours after a rest. */
+    /** A button went down: a rest in the corner that is on its way does not open the panel. */
+    void restClicked() {
+        ui.removeCallbacks(openDrivenFromRest);
+    }
+
     void restAt(float fx, float fy, boolean desktop) {
         boolean in = windows != null && inRestBox(fx, fy);
         if (in == restingDriven) return;

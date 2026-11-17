@@ -31,6 +31,8 @@
 #include "glamor_priv.h"
 #include "buffer.h"
 
+void lorieUnregisterBuffer(LorieBuffer* buffer);
+
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
 
 // XDesk: where a Present of a client's image spends its time (TERMUX_X11_MISURA=1, written with tod-misura):
@@ -142,6 +144,8 @@ static Bool todDestroyPixmap(PixmapPtr pixmap) {
     if (m.lorie) {
         if (todRadiceBuf == m.lorie)
             todRadiceBuf = NULL;
+        // Come la distruzione di EXA: l'app lascia il buffer della radice vecchia (audit: uno per ogni ridimensionamento)
+        lorieUnregisterBuffer(m.lorie);
         LorieBuffer_release(m.lorie);
     } else if (m.ahb)
         AHardwareBuffer_release(m.ahb);
@@ -315,6 +319,11 @@ PixmapPtr todGlamorPixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds
 
     if (num_fds != 1 || (modifier != DRM_FORMAT_MOD_INVALID && modifier != DRM_FORMAT_MOD_LINEAR && modifier != RAW_MMAPPABLE_FD)) {
         log(ERROR, "tod-glamor: DRI3 rifiutato (%d fd, modifier %llu)", num_fds, (unsigned long long) modifier);
+        return NullPixmap;
+    }
+    // todScrivi copia width*4 byte per riga: un'immagine a 16 bit o un passo più corto leggerebbe oltre la mappa
+    if (bpp != 32 || strides[0] < (CARD32) width * 4) {
+        log(ERROR, "tod-glamor: DRI3 rifiutato (bpp %d, passo %u per larghezza %d)", bpp, strides[0], width);
         return NullPixmap;
     }
     m.lunghezza = (size_t) offsets[0] + (size_t) strides[0] * height;
@@ -509,6 +518,45 @@ static EGLContext todCreaContesto(EGLDisplay dpy) {
     return eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, attr);
 }
 
+// Una vetrina 64x64 come quella della radice: AHB BGRA da GPU, EGLImage, texture, framebuffer completo. Poi tutto via.
+static Bool todProvaVetrina(void) {
+    static const EGLint attr[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+    AHardwareBuffer_Desc d = { .width = 64, .height = 64, .layers = 1,
+                               .format = AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM,
+                               .usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE | AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT |
+                                        AHARDWAREBUFFER_USAGE_CPU_READ_RARELY | AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY };
+    AHardwareBuffer *ahb = NULL;
+    EGLImageKHR img;
+    GLuint tex = 0, fb = 0;
+    Bool ok;
+
+    if (!epoxy_has_egl_extension(todDpy, "EGL_ANDROID_image_native_buffer") ||
+        !epoxy_has_egl_extension(todDpy, "EGL_ANDROID_get_native_client_buffer") ||
+        !epoxy_has_egl_extension(todDpy, "EGL_KHR_image_base") || !epoxy_has_gl_extension("GL_OES_EGL_image"))
+        return FALSE;
+    if (AHardwareBuffer_allocate(&d, &ahb) || !ahb)
+        return FALSE;
+    while (glGetError() != GL_NO_ERROR) ;
+    img = eglCreateImageKHR(todDpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, eglGetNativeClientBufferANDROID(ahb), attr);
+    if (!img) {
+        AHardwareBuffer_release(ahb);
+        return FALSE;
+    }
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
+    glGenFramebuffers(1, &fb);
+    glBindFramebuffer(GL_FRAMEBUFFER, fb);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE && glGetError() == GL_NO_ERROR;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &fb);
+    glDeleteTextures(1, &tex);
+    eglDestroyImageKHR(todDpy, img);
+    AHardwareBuffer_release(ahb);
+    return ok;
+}
+
 // Al posto di exaDriverInit, dopo fbScreenInit e fbPictureInit.
 Bool todGlamorPrepara(ScreenPtr screen) {
     EGLint maj = 0, min = 0;
@@ -539,6 +587,12 @@ Bool todGlamorPrepara(ScreenPtr screen) {
             log(INFO, "tod-glamor: %s %s", egl[i], epoxy_has_egl_extension(todDpy, egl[i]) ? "sì" : "no");
         for (unsigned i = 0; i < sizeof(gl) / sizeof(*gl); i++)
             log(INFO, "tod-glamor: %s %s", gl[i], epoxy_has_gl_extension(gl[i]) ? "sì" : "no");
+    }
+    // La radice (todGlamorCreaRadice) arriva dopo il punto in cui si può ripiegare su EXA, e lì un errore è fatale:
+    // la si prova qui in piccolo, con le stesse estensioni e lo stesso AHardwareBuffer (audit, 17 novembre)
+    if (!todProvaVetrina()) {
+        log(ERROR, "tod-glamor: la vetrina AHardwareBuffer non funziona su questo dispositivo");
+        return FALSE;
     }
     if (!glamor_init(screen, GLAMOR_USE_EGL_SCREEN)) {
         log(ERROR, "tod-glamor: glamor_init non riuscito (estensioni in logcat: %s)",

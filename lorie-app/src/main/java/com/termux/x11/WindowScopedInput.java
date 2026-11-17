@@ -24,6 +24,7 @@ final class WindowScopedInput implements InputSink {
     @Override public void moveToFraction(float x, float y) { desktop.moveToFraction(x, y); }
     @Override public void warpTo(float x, float y) { desktop.warpTo(x, y); }
     @Override public boolean pointerPlace(float[] out) { return desktop.pointerPlace(out); }
+    @Override public boolean screenPlace(float[] out) { return desktop.screenPlace(out); }
     @Override public void pointerGone() { desktop.pointerGone(); }
     @Override public void browserLayout(String layout) { desktop.browserLayout(layout); }
     /** Back on a Linux window: Alt+← (Linux key codes 56, 105), as INPUT.md §3.4 says for X. */

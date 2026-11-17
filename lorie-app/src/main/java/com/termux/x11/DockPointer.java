@@ -233,6 +233,10 @@ final class DockPointer {
     void button(Router.Device d, int button, boolean down) {
         int bit = bit(button);
         if (down) {
+            // A click in the corner (a maximised window's close button) is no rest there: the side panel waits for
+            // the pointer to leave the corner and come back (audit, 17 November)
+            Notify n = host.notifyCenter();
+            if (n != null) n.restClicked();
             if (open()) {
                 taken[d.id] |= bit;
                 return;

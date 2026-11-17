@@ -103,6 +103,17 @@ final class MacInput implements InputSink {
         return true;
     }
 
+    /** The inverse of moveToFraction: the Launchpad's arrow starts here, and its place comes back through that (audit:
+     * pointerPlace's picture fraction moved the pointer on a letterboxed Mac at each open and close). */
+    @Override public boolean screenPlace(float[] out) {
+        int[] r = client.frameRect();
+        float x = client.pointerX(), y = client.pointerY();
+        boolean laid = r[2] > 0 && r[3] > 0 && r[4] > 0 && r[5] > 0;
+        out[0] = laid ? (r[0] + x * r[2]) / r[4] : x;
+        out[1] = laid ? (r[1] + y * r[3]) / r[5] : y;
+        return true;
+    }
+
     /** X numbering: 1 left, 2 middle, 3 right, 8 back, 9 forward. */
     @Override public synchronized void button(int button, boolean isDown) {
         switch (button) {
