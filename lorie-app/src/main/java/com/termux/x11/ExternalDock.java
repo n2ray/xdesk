@@ -118,16 +118,57 @@ final class ExternalDock implements AppSession.EdgeListener {
         atEdge = at;
         if (!at) {
             rule.forget();
-            pushProgress(0);
+            stopDwell();
+            dwellHeld = false;
         }
         if (windows == null) return;
         if (at) {
             ui.removeCallbacks(close);
-            if (panel == null && !pushable) later(openFromEdge, EDGE_DWELL_MS);
+            // Over an Android app the pointer cannot go past the edge, and the injector's pushes came too seldom
+            // for a push's bar to show (17 November): there resting at the edge opens it, by time, with the bar
+            // growing as it does. A placed pointer (a receiver's, a browser's) the same, sooner, as before
+            if (panel == null && !dwellHeld) startDwell(pushable ? ANDROID_DWELL_MS : EDGE_DWELL_MS);
         } else {
             ui.removeCallbacks(openFromEdge);
             if (panel != null && lift > 0) later(close, LONG_WAY_MS);
         }
+    }
+
+    /** Resting at the bottom edge over an Android app: how long until the dock opens. */
+    private static final long ANDROID_DWELL_MS = 500, DWELL_FRAME_MS = 16;
+    private long dwellStart, dwellMs;
+    /** A button was held at the edge (a drag): no rest counts until the pointer leaves the edge. */
+    private boolean dwellHeld;
+    private final Runnable dwellTick = new Runnable() {
+        @Override public void run() {
+            if (dwellStart == 0) return;
+            if (panel != null || windows == null || !atEdge) {
+                stopDwell();
+                return;
+            }
+            float f = (float) (android.os.SystemClock.uptimeMillis() - dwellStart) / dwellMs;
+            if (f >= 1) {
+                stopDwell();
+                openFromEdge();
+                return;
+            }
+            pushProgress(f);
+            ui.postDelayed(this, DWELL_FRAME_MS);
+        }
+    };
+
+    private void startDwell(long ms) {
+        if (dwellStart != 0) return;
+        dwellStart = android.os.SystemClock.uptimeMillis();
+        dwellMs = ms;
+        ui.removeCallbacks(dwellTick);
+        ui.post(dwellTick);
+    }
+
+    private void stopDwell() {
+        dwellStart = 0;
+        ui.removeCallbacks(dwellTick);
+        pushProgress(0);
     }
 
     /**
@@ -140,14 +181,14 @@ final class ExternalDock implements AppSession.EdgeListener {
             rule.forget();
             return;
         }
-        if (windows == null || panel != null || held) {
-            rule.forget();
-            pushProgress(0);
+        // The rest at the edge opens it (atEdge, dwellTick); a push only keeps it there. A button held is a drag
+        // reaching the edge: nothing opens until the pointer has left the edge
+        if (held) {
+            dwellHeld = true;
+            stopDwell();
             return;
         }
-        boolean open = rule.pushed(dx, dy, false);
-        pushProgress(open ? 0 : rule.progress(false));
-        if (open) openFromEdge();
+        if (windows != null && panel == null && atEdge && !dwellHeld) startDwell(ANDROID_DWELL_MS);
     }
 
     /**
