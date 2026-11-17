@@ -380,6 +380,15 @@ final class Control {
         r.send(ANDROID, new byte[] { (byte) which });
     }
 
+    /** FEATURES bit 6: the phone keeps 像电脑 / 像平板 per app for both sides, and this device asks it to switch. */
+    static final int FEATURE_TOUCH_MODE = 64;
+    private static final int TOUCH_MODE = 35;
+
+    /** Asks the phone to switch the app in front: true 像平板. The phone answers with INPUT_MODE, or TOUCH_MODE when it cannot. */
+    void touchMode(boolean tablet) {
+        r.send(TOUCH_MODE, new byte[] { (byte) (tablet ? 1 : 0) });
+    }
+
     /** What the phone said in FEATURES (Session): bit 0 it handles ANDROID 4 and 5. */
     void setFeatures(int bits) {
         features = bits;

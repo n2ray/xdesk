@@ -29,7 +29,7 @@ final class Session extends Thread implements Video.Listener {
     private static final int PROTOCOL = 2, NONCE_LENGTH = 64;
     // Message types
     static final int VIDEO_FORMAT = 1, VIDEO_FRAME = 2, AUDIO_FORMAT = 3, AUDIO_DATA = 4, PING = 5, BYE = 6,
-            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, IME_AREA = 15, FEATURES = 18,
+            SIZE = 7, KEY_FRAME = 8, CLIPBOARD = 12, INPUT_MODE = 14, IME_AREA = 15, FEATURES = 18, TOUCH_MODE = 35,
             FILE_START = 29, FILE_DATA = 30, FILE_END = 31;
     /** A Mac picture passed through the phone as the Mac sent it: its cursor, which is not in the picture (PROTOCOL.md) */
     static final int CURSOR_SHAPE = 16, CURSOR_POSITION = 17, MAX_CURSOR = 1 << 20;
@@ -343,6 +343,12 @@ final class Session extends Thread implements Video.Listener {
                         }
                         int mode = in.readUnsignedByte();
                         if (control && r.isActive(this)) r.ui.inputMode(mode);
+                        break;
+                    }
+                    case TOUCH_MODE: {
+                        // The phone could not switch the app in front (PROTOCOL.md TOUCH_MODE)
+                        skip(len);
+                        if (control && r.isActive(this)) r.ui.touchModeRefused();
                         break;
                     }
                     case FEATURES: {

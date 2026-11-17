@@ -86,6 +86,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private boolean phoneWantsTouch;
     /** Chosen in the toolbar: true touchpad, false direct touch, null as the phone says. Until the app changes. */
     private Boolean padOverride;
+    /** The phone said it cannot switch the app in front (TOUCH_MODE): the handle switches only here until the app changes. */
+    private boolean touchModeLocal;
     /** A Mac is passed through: the cursor is drawn here, and this device's own pointer would be a wrong second one. */
     private boolean passthrough;
     /** The last INPUT_MODE from the phone (0 Android apps, 1 desktop, 2 an app that takes touches, 3 desktop whose
@@ -235,11 +237,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         tools.setBackground(rounded(0xE61D1D1F, dp(14)));
         tools.setPadding(dp(4), dp(4), dp(4), dp(4));
         tools.addView(tool(R.string.bar_keyboard, v -> showKeyboard()));
-        // Shows the mode a tap switches to
-        modeTool = tool(R.string.bar_direct, v -> {
-            padOverride = !control.touchpad();
-            applyPadMode();
-        });
+        // Shows the mode now, as the phone's button does. Over an Android app it is the phone's one choice for
+        // that app (FEATURES bit 6): asked of the phone, which tells both sides; elsewhere only this device switches
+        modeTool = tool(R.string.bar_touchpad, v -> switchPadMode());
         tools.addView(modeTool);
         tools.addView(tool(R.string.bar_back, v -> control.android(Control.ANDROID_BACK)));
         tools.addView(tool(R.string.bar_home, v -> control.android(Control.ANDROID_HOME)));
@@ -730,6 +730,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             control.setImeTop(0xFFFF);
             padOverride = null;
             phoneWantsTouch = false;
+            touchModeLocal = false;
             applyPadMode();
             render();
         });
@@ -753,7 +754,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     public void inputMode(int mode) {
         ui.post(() -> {
             boolean touch = mode == 2;
-            if (touch != phoneWantsTouch) padOverride = null;  // another app, or its mode changed on the phone
+            if (touch != phoneWantsTouch) {
+                padOverride = null;  // another app, or its mode changed on the phone
+                touchModeLocal = false;
+            }
             phoneWantsTouch = touch;
             phoneInputMode = mode;
             applyPadMode();
@@ -772,12 +776,34 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         });
     }
 
+    /** The handle's 像电脑 / 像平板. */
+    private void switchPadMode() {
+        boolean linked = (features & Control.FEATURE_TOUCH_MODE) != 0 && !touchModeLocal
+                && (phoneInputMode == 0 || phoneInputMode == 2);
+        if (linked) {
+            control.touchMode(control.touchpad());
+            return;
+        }
+        padOverride = !control.touchpad();
+        applyPadMode();
+    }
+
+    @Override
+    public void touchModeRefused() {
+        ui.post(() -> {
+            // The app in front cannot switch on the phone (RustDesk has its own mouse): switch here, as before
+            touchModeLocal = true;
+            padOverride = !control.touchpad();
+            applyPadMode();
+        });
+    }
+
     private void applyPadMode() {
         boolean pad = padOverride != null ? padOverride : !phoneWantsTouch;
         // 像平板 on the phone: direct touch passes a finger; otherwise direct touch is the mouse-only kind (INPUT.md §3.2)
         control.setFingers(phoneWantsTouch);
         control.setTouchpad(pad);
-        modeTool.setText(pad ? R.string.bar_direct : R.string.bar_touchpad);
+        modeTool.setText(pad ? R.string.bar_touchpad : R.string.bar_direct);
     }
 
     /** Overview and Switcher in the handle only for a phone that said FEATURES bit 0. */

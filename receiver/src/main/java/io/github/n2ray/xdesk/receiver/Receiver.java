@@ -51,6 +51,9 @@ final class Receiver {
         /** What is in front on the phone's display: 1 the Linux desktop, 0 an Android app, 2 an Android app in touch mode. */
         void inputMode(int mode);
 
+        /** TOUCH_MODE (35) from the phone: the app in front cannot switch 像电脑 / 像平板, so this device switched only itself. */
+        void touchModeRefused();
+
         /** What the phone said in FEATURES: bit 0 it handles the ANDROID actions 4 (Overview) and 5 (Switcher). */
         void features(int bits);
 

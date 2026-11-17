@@ -1002,6 +1002,17 @@ public class XDeskActivity extends Activity {
             // them only in INPUT_MODE 2; without this they were dropped here and the app got nothing
             if (apps.isActive()) apps.input().touches(action, ids, x, y);
         }
+        @Override public void touchMode(boolean tablet) {
+            // TOUCH_MODE (35): the receiver's 像电脑 / 像平板 is the app's one choice, as the top button's. Saved for
+            // the app, shown here, and sent back to every receiver as INPUT_MODE. An app that cannot switch says so
+            if (!apps.canUseTouchMode()) {
+                wireless.refuseTouchMode();
+                return;
+            }
+            AppCatalog.App a = apps.app();
+            if (a != null && apps.isTouchMode(a) != tablet) apps.setTouchMode(a, tablet);
+            updateStatus();
+        }
     };
     /** What the receiver's keyboard is (WirelessDisplay KEYBOARD) as the Router last heard it. */
     private int remoteKeyboard;

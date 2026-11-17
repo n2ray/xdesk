@@ -77,9 +77,10 @@ final class WirelessDisplay {
     private static final int FEATURES = 18, SETTINGS = 19;
     /** FEATURES bits: 0 the ANDROID (27) actions 4 and 5; 1 a Mac keyboard, KEYBOARD (32); 2 SETTINGS (19);
      *  3 this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide
-     *  its own pointer when it does; 4 SCROLL_FINE (33). */
+     *  its own pointer when it does; 4 SCROLL_FINE (33); 5 TOUCH (34); 6 TOUCH_MODE (35): one 像电脑 / 像平板 per app for
+     *  the phone and the receiver, switched from either. */
     private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4,
-            FEATURE_PICTURE_CURSOR = 8, FEATURE_SCROLL_FINE = 16, FEATURE_TOUCH = 32;
+            FEATURE_PICTURE_CURSOR = 8, FEATURE_SCROLL_FINE = 16, FEATURE_TOUCH = 32, FEATURE_TOUCH_MODE = 64;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -88,7 +89,7 @@ final class WirelessDisplay {
     private static final int CODECS_SENDS_INPUT = 0x80;
     /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
     private static final int CODECS_NOT_COMPUTER = 0x40;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_SCROLL_FINE = 33, IN_TOUCH = 34,
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_SCROLL_FINE = 33, IN_TOUCH = 34, IN_TOUCH_MODE = 35,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
     /** Receiver → phone (a Mac receiver): u8 the kind of its keyboard. Sent once per connection, with FEATURES bit 1. */
     private static final int KEYBOARD = 32;
@@ -640,6 +641,12 @@ final class WirelessDisplay {
                 r = () -> sink.touches(action, ids, tx, ty);
                 break;
             }
+            case IN_TOUCH_MODE: {
+                if (b.length != 1) return;
+                final boolean tablet = b[0] != 0;
+                r = () -> sink.touchMode(tablet);
+                break;
+            }
             case IN_CHOOSE:
                 final String chosen = new String(b, StandardCharsets.UTF_8);
                 r = () -> sink.chooseApp(chosen);
@@ -1011,7 +1018,7 @@ final class WirelessDisplay {
     private void sendFeatures() throws IOException {
         ByteBuffer b = ByteBuffer.allocate(4)
                 .putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS | FEATURE_PICTURE_CURSOR
-                        | FEATURE_SCROLL_FINE | FEATURE_TOUCH);
+                        | FEATURE_SCROLL_FINE | FEATURE_TOUCH | FEATURE_TOUCH_MODE);
         writeMessage(FEATURES, b.array(), 0, 4);
     }
 
@@ -1112,7 +1119,24 @@ final class WirelessDisplay {
     private volatile boolean touchMode;
 
     void setTouchMode(boolean on) {
+        if (touchMode == on) return;
         touchMode = on;
+        // Both sides show the new mode at once, not at the next poll (and sockets are not for the main thread)
+        if (running && (web || inputReceiver)) new Thread(this::sendInputMode, "xdesk-input-mode").start();
+    }
+
+    /** TOUCH_MODE (35) back to a receiver that asked: the app in front cannot switch, the receiver switches itself. */
+    void refuseTouchMode() {
+        if (!running || !inputReceiver) return;
+        new Thread(() -> {
+            synchronized (writeLock) {
+                try {
+                    writeMessage(IN_TOUCH_MODE, new byte[]{0}, 0, 1);
+                } catch (IOException e) {
+                    Log.i(TAG, "touch mode: " + e);
+                }
+            }
+        }, "xdesk-touch-mode").start();
     }
 
     void setDesktopShown(boolean on) {

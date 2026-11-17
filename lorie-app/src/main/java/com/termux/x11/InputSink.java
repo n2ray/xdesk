@@ -29,6 +29,8 @@ interface InputSink {
      * app taking touches gets them.
      */
     default void touches(int action, int[] ids, float[] x, float[] y) { }
+    /** TOUCH_MODE (35, PROTOCOL.md): the receiver's 像电脑 / 像平板 for the app in front, true 像平板. */
+    default void touchMode(boolean tablet) { }
     /**
      * Where this target's own pointer is, for the Dock over it (DockPointer): out[0] across the screen, 0 to 1, and
      * out[1] down the way it can go, 1 at the lowest place it reaches. False when the target draws no pointer of its
