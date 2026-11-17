@@ -352,3 +352,5 @@ XDesk 依赖上游的 manifest、`com.termux.x11` 下的类名和 `LorieView` �
 GPL-3.0，和 Termux:X11 相同。X 服务器和渲染的功劳都属于 [Termux:X11 的作者们](https://github.com/termux/termux-x11)。
 
 Mac 客户端（把 Mac 窗口和 Mac 桌面放到外接屏）连接 Noah Saffer 的 [Sill](https://github.com/Saffsanity/sill)，并复用了 [Sall](https://github.com/n2ray/sall) 的代码。Sall 也是我（n2ray）写的第三方 Sill 安卓客户端，两者都不是 Sill 的官方应用。代码按 Apache License 2.0 授权（`LICENSES/Apache-2.0-Sill.txt`，应用内的 `NOTICE-Sill.txt`）。
+
+触摸板的双指滚动与缩放判定、滚动轴向锁定移植自 [libinput](https://gitlab.freedesktop.org/libinput/libinput)（MIT，`LICENSES/MIT-libinput.txt`）。X 服务器的 GPU 绘制（glamor）来自 PietroCav501 的 [termux_on_dex](https://github.com/PietroCav501/termux_on_dex)（GPL-3.0）。

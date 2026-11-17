@@ -312,6 +312,42 @@
       "expect": ["action overview 0"]
     },
     {
+      "name": "one finger resting while the other slides scrolls (libinput: a resting thumb)",
+      "events": [
+        ["down", 0, 0, [[0, 150, 300]]],
+        ["pointerDown", 5, 1, [[0, 150, 300], [1, 250, 300]]],
+        ["move", 21, 0, [[0, 150, 300], [1, 250, 292]]],
+        ["move", 37, 0, [[0, 150, 300], [1, 250, 284]]],
+        ["move", 53, 0, [[0, 150, 300], [1, 250, 276]]],
+        ["move", 69, 0, [[0, 150, 300], [1, 250, 268]]],
+        ["move", 85, 0, [[0, 150, 300], [1, 250, 260]]],
+        ["move", 101, 0, [[0, 150, 300], [1, 250, 252]]],
+        ["pointerUp", 106, 1, [[0, 150, 300], [1, 250, 252]]],
+        ["up", 111, 0, [[0, 150, 300]]]
+      ],
+      "expect": ["scroll begin", "scroll change 0.0 0.9", "scroll end", "scroll momentumBegin", "scroll momentum", "scroll momentumEnd"]
+    },
+    {
+      "name": "a vertical scroll drifting a little sideways stays vertical (libinput's axis lock)",
+      "events": [
+        ["down", 0, 0, [[0, 150, 400]]],
+        ["pointerDown", 5, 1, [[0, 150, 400], [1, 250, 400]]],
+        ["move", 21, 0, [[0, 153, 388], [1, 253, 388]]],
+        ["move", 37, 0, [[0, 156, 376], [1, 256, 376]]],
+        ["move", 53, 0, [[0, 159, 364], [1, 259, 364]]],
+        ["move", 69, 0, [[0, 162, 352], [1, 262, 352]]],
+        ["move", 85, 0, [[0, 165, 340], [1, 265, 340]]],
+        ["move", 101, 0, [[0, 168, 328], [1, 268, 328]]],
+        ["move", 117, 0, [[0, 171, 316], [1, 271, 316]]],
+        ["move", 133, 0, [[0, 174, 304], [1, 274, 304]]],
+        ["move", 149, 0, [[0, 177, 292], [1, 277, 292]]],
+        ["move", 165, 0, [[0, 180, 280], [1, 280, 280]]],
+        ["pointerUp", 170, 1, [[0, 180, 280], [1, 280, 280]]],
+        ["up", 175, 0, [[0, 180, 280]]]
+      ],
+      "expect": ["scroll begin", "scroll change 0.0 4.3", "scroll end", "scroll momentumBegin", "scroll momentum", "scroll momentumEnd"]
+    },
+    {
       "name": "three fingers up: overview",
       "events": [
         ["down", 0, 0, [[0, 100, 400]]],

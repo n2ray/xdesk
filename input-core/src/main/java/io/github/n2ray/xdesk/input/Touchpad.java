@@ -1,3 +1,7 @@
+/*
+ * Rules ported from libinput (src/evdev-mt-touchpad-gestures.c, src/libinput-private.h), Copyright © 2015 Red Hat,
+ * Inc., MIT License (LICENSES/MIT-libinput.txt). The rest is XDesk's, GPL-3.0.
+ */
 package io.github.n2ray.xdesk.input;
 
 /**
@@ -24,13 +28,19 @@ public final class Touchpad {
     /** Span change that makes two fingers a pinch, and the ratio of one zoom step. */
     private static final float PINCH_DP = 12, ZOOM_STEP = 1.25f;
     /**
-     * Two fingers are told apart by how each moves (17 November: a scroll whose fingers drew a little together or
-     * apart zoomed, as only the span change and the middle's travel were compared). Same way: within 60 degrees
-     * (cos 0.5), each finger past SAME_WAY_MIN_DP. A pinch: not the same way, and the span changing PINCH_RATIO times
-     * more than the middle travels. Neither after SCROLL_ANYWAY_SLOPS slops of the middle's travel: a scroll, by far
-     * the more common.
+     * Scroll or pinch, libinput's rules (src/evdev-mt-touchpad-gestures.c, tp_gesture_detect_motion_gestures and
+     * tp_gesture_is_pinch, MIT; 17 November: a scroll whose fingers drew a little together or apart zoomed, as only
+     * the span change and the middle's travel were compared). Its millimetres are taken at Android's 160 dp an inch.
+     * Nothing until a finger has moved UNDECIDED_MM; past SWIPE_TIMEOUT_MS two fingers close together (CLOSE_X_MM
+     * across, CLOSE_Y_MM down) scroll; one past MAX_MOVE_MM with the other under MIN_MOVE_MM scrolls (a resting
+     * finger); both past MIN_MOVE_MM: the same or neighbouring directions of the eight scroll, others pinch. A scroll
+     * still becomes a pinch within PINCH_TIMEOUT_MS if both have moved PINCH_DISAMBIGUATION_MM in directions that are
+     * not the same.
      */
-    private static final float SAME_WAY_COS = 0.5f, SAME_WAY_MIN_DP = 3, PINCH_RATIO = 2, SCROLL_ANYWAY_SLOPS = 3;
+    private static final float MM = 160f / 25.4f;
+    private static final float UNDECIDED_MM = 1, MIN_MOVE_MM = 1.5f, MAX_MOVE_MM = 4, CLOSE_X_MM = 40, CLOSE_Y_MM = 7,
+        PINCH_DISAMBIGUATION_MM = 1.5f;
+    private static final long SWIPE_TIMEOUT_MS = 150, PINCH_TIMEOUT_MS = 300;
     private static final long MOMENTUM_FRAME_MS = 16;
 
     private final Tuning tuning;
@@ -50,6 +60,7 @@ public final class Touchpad {
     // Two fingers
     private float span0, spanStep, midStartX, midStartY;
     private int twoIdA, twoIdB;
+    private long twoAt;
     private float twoAX, twoAY, twoBX, twoBY;
     // App switching
     private float switchFromX;
@@ -165,6 +176,7 @@ public final class Touchpad {
             twoAY = t.y[0];
             twoBX = t.x[1];
             twoBY = t.y[1];
+            twoAt = t.time;
             velocity.clear();
         }
         if (before == SCROLL && state != SCROLL) emitScroll(Input.END, 0, 0);
@@ -221,8 +233,18 @@ public final class Touchpad {
                 decideTwo(t);
                 break;
             case SCROLL:
+                // libinput: a pinch taken for a scroll at first is corrected in its first PINCH_TIMEOUT_MS
+                if (t.count == 2 && t.time - twoAt < PINCH_TIMEOUT_MS && isPinch(t)) {
+                    emitScroll(Input.END, 0, 0);
+                    startPinch(t);
+                    break;
+                }
                 velocity.add(t.time, x, y);
-                scrollFinger(dx, dy, Input.CHANGE);
+                // libinput's axis lock: a vertical scroll does not wander sideways, nor a horizontal one
+                lockMove[0] = dx;
+                lockMove[1] = dy;
+                axisLock.apply(t.time, dx / MM, dy / MM, lockMove);
+                scrollFinger(lockMove[0], lockMove[1], Input.CHANGE);
                 break;
             case PINCH:
                 pinch(t);
@@ -249,31 +271,98 @@ public final class Touchpad {
         return (float) Math.hypot(t.x[0] - t.x[1], t.y[0] - t.y[1]);
     }
 
-    private void decideTwo(Touches t) {
-        if (t.count != 2) return;
-        float d = tuning.density;
-        float spanChange = Math.abs(span(t) - span0) / d;
-        float mid = (float) Math.hypot(t.centroidX() - midStartX, t.centroidY() - midStartY) / d;
-        // Each finger's travel since both were down (by id: the order of the touches may change)
+    /** The two fingers' travel since both were down, in mm: out[0..1] the first's, out[2..3] the second's. Null when they are not the same two. */
+    private boolean twoTravel(Touches t, float[] out) {
+        if (t.count != 2) return false;
         int a = t.id[0] == twoIdA ? 0 : 1, b = 1 - a;
-        if (t.id[a] != twoIdA || t.id[b] != twoIdB) return;
-        float ax = (t.x[a] - twoAX) / d, ay = (t.y[a] - twoAY) / d, bx = (t.x[b] - twoBX) / d, by = (t.y[b] - twoBY) / d;
-        float la = (float) Math.hypot(ax, ay), lb = (float) Math.hypot(bx, by);
-        boolean sameWay = la >= SAME_WAY_MIN_DP && lb >= SAME_WAY_MIN_DP && ax * bx + ay * by > SAME_WAY_COS * la * lb;
-        if (!sameWay && spanChange >= PINCH_DP && spanChange > PINCH_RATIO * mid) {
-            // Zoom steps count from where the fingers landed
-            state = PINCH;
-            spanStep = span0;
-            pinch(t);
-        } else if (mid >= tuning.slopDp && (sameWay || spanChange <= mid || mid >= SCROLL_ANYWAY_SLOPS * tuning.slopDp)) {
-            state = SCROLL;
-            scrolled = true;
-            emitScroll(Input.BEGIN, 0, 0);
-            velocity.clear();
-            velocity.add(t.time, t.centroidX(), t.centroidY());
-            // The travel up to here belongs to the scroll
-            scrollFinger((t.centroidX() - midStartX) / d, (t.centroidY() - midStartY) / d, Input.CHANGE);
+        if (t.id[a] != twoIdA || t.id[b] != twoIdB) return false;
+        float k = tuning.density * MM;
+        out[0] = (t.x[a] - twoAX) / k;
+        out[1] = (t.y[a] - twoAY) / k;
+        out[2] = (t.x[b] - twoBX) / k;
+        out[3] = (t.y[b] - twoBY) / k;
+        return true;
+    }
+
+    private final float[] two = new float[4];
+    private final ScrollAxisLock axisLock = new ScrollAxisLock();
+    private final float[] lockMove = new float[2];
+
+    private void decideTwo(Touches t) {
+        if (!twoTravel(t, two)) return;
+        float am = (float) Math.hypot(two[0], two[1]), bm = (float) Math.hypot(two[2], two[3]);
+        if (am < UNDECIDED_MM && bm < UNDECIDED_MM) return;
+        float k = tuning.density * MM;
+        float apartX = Math.abs(t.x[0] - t.x[1]) / k, apartY = Math.abs(t.y[0] - t.y[1]) / k;
+        if (t.time - twoAt > SWIPE_TIMEOUT_MS && apartX < CLOSE_X_MM && apartY < CLOSE_Y_MM) {
+            startScroll(t);
+            return;
         }
+        // One finger far, the other still: a resting finger, the moving one scrolls
+        if ((am >= MAX_MOVE_MM || bm >= MAX_MOVE_MM) && Math.min(am, bm) < MIN_MOVE_MM) {
+            startScroll(t);
+            return;
+        }
+        if (am < MIN_MOVE_MM || bm < MIN_MOVE_MM) return;
+        if (sameDirections(direction(two[0], two[1]), direction(two[2], two[3]))) startScroll(t);
+        else startPinch(t);
+    }
+
+    /** tp_gesture_is_pinch: both moved enough, and not the same way. */
+    private boolean isPinch(Touches t) {
+        if (!twoTravel(t, two)) return false;
+        if (Math.hypot(two[0], two[1]) < PINCH_DISAMBIGUATION_MM || Math.hypot(two[2], two[3]) < PINCH_DISAMBIGUATION_MM) return false;
+        return !sameDirections(direction(two[0], two[1]), direction(two[2], two[3]));
+    }
+
+    private void startScroll(Touches t) {
+        float d = tuning.density;
+        state = SCROLL;
+        scrolled = true;
+        axisLock.reset();
+        emitScroll(Input.BEGIN, 0, 0);
+        velocity.clear();
+        velocity.add(t.time, t.centroidX(), t.centroidY());
+        // The travel up to here belongs to the scroll, held to its axis as the rest will be
+        lockMove[0] = (t.centroidX() - midStartX) / d;
+        lockMove[1] = (t.centroidY() - midStartY) / d;
+        axisLock.apply(t.time, lockMove[0] / MM, lockMove[1] / MM, lockMove);
+        scrollFinger(lockMove[0], lockMove[1], Input.CHANGE);
+    }
+
+    private void startPinch(Touches t) {
+        // Zoom steps count from where the fingers landed
+        state = PINCH;
+        spanStep = span0;
+        pinch(t);
+    }
+
+    /** libinput's xy_get_direction: the one or two of the eight directions (bit 0 north, clockwise) a move in mm is closest to. */
+    static int direction(float x, float y) {
+        if (Math.abs(x) < 2 && Math.abs(y) < 2) {
+            if (x > 0 && y > 0) return S | SE | E;
+            if (x > 0 && y < 0) return N | NE | E;
+            if (x < 0 && y > 0) return S | SW | W;
+            if (x < 0 && y < 0) return N | NW | W;
+            if (x > 0) return NE | E | SE;
+            if (x < 0) return NW | W | SW;
+            if (y > 0) return SE | S | SW;
+            if (y < 0) return NE | N | NW;
+            return 0xff;
+        }
+        double r = Math.atan2(y, x);
+        r = (r + 2.5 * Math.PI) % (2 * Math.PI);
+        r *= 4 / Math.PI;
+        int d1 = (int) (r + 0.9) % 8, d2 = (int) (r + 0.1) % 8;
+        return 1 << d1 | 1 << d2;
+    }
+
+    private static final int N = 1, NE = 2, E = 4, SE = 8, S = 16, SW = 32, W = 64, NW = 128;
+
+    /** libinput's tp_gesture_same_directions: overlapping or neighbouring. */
+    static boolean sameDirections(int a, int b) {
+        return ((a | (a >> 1)) & b) != 0 || ((b | (b >> 1)) & a) != 0 || ((a & 0x80) != 0 && (b & 0x01) != 0)
+            || ((b & 0x80) != 0 && (a & 0x01) != 0);
     }
 
     private void pinch(Touches t) {
@@ -310,7 +399,8 @@ public final class Touchpad {
         if (!withMomentum) return;
         velocity.compute();
         float d = tuning.density;
-        if (!momentum.start(velocity.x(), velocity.y(), d)) return;
+        // The coast keeps to the axis the scroll was held to
+        if (!momentum.start(axisLock.freeX() ? velocity.x() : 0, axisLock.freeY() ? velocity.y() : 0, d)) return;
         coasting = true;
         coastAt = scheduler.now();
         emitScroll(Input.MOMENTUM_BEGIN, 0, 0);

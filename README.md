@@ -332,3 +332,5 @@ If XDesk is useful to you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/
 GPL-3.0, same as Termux:X11. All credit for the X server and rendering goes to the [Termux:X11 authors](https://github.com/termux/termux-x11).
 
 The Mac client (Mac windows and the Mac desktop on the external screen) talks to [Sill](https://github.com/Saffsanity/sill) by Noah Saffer and reuses code from [Sall](https://github.com/n2ray/sall), a third-party Android client for Sill that I (n2ray) also wrote. Neither is an official Sill app. The code is used under the Apache License 2.0 (`LICENSES/Apache-2.0-Sill.txt`, `NOTICE-Sill.txt` in the app).
+
+The touchpad's two-finger scroll and pinch rules and its scroll axis lock are ported from [libinput](https://gitlab.freedesktop.org/libinput/libinput) (MIT, `LICENSES/MIT-libinput.txt`). GPU drawing in the X server (glamor) comes from [termux_on_dex](https://github.com/PietroCav501/termux_on_dex) by PietroCav501 (GPL-3.0).
