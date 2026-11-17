@@ -487,8 +487,6 @@ public class XDeskActivity extends Activity {
             Display added = displays.getDisplay(id);
             if (!TargetDisplay.isReal(added)) return;
             realDisplays.add(id);
-            // Its size in Android may have another shape than its panel: the injector corrects it, if it is there
-            apps.checkDisplaySizes();
             ui.removeCallbacks(displayGone);
             DesktopScale.askKindOnce(XDeskActivity.this, ui(), added, XDeskActivity.this::screenSizingChanged);
             // 桌面在车机上：外接屏后来接上也不挪
