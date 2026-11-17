@@ -169,7 +169,11 @@ final class PanelFit {
         return t;
     }
 
-    /** SurfaceControl.getPhysicalDisplayToken until Android 13, DisplayControl's (in services.jar) since 14. */
+    /**
+     * SurfaceControl.getPhysicalDisplayToken until Android 13, DisplayControl's (in services.jar) since 14. Lint's
+     * private API rule is an app's: this runs as the shell user (app_process), where it is allowed.
+     */
+    @android.annotation.SuppressLint({"BlockedPrivateApi", "DiscouragedPrivateApi", "PrivateApi"})
     private static Method tokenMethod() throws ReflectiveOperationException {
         if (getToken != null) return getToken;
         try {
