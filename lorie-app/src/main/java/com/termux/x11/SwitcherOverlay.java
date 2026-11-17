@@ -62,6 +62,8 @@ final class SwitcherOverlay {
          * works the Launchpad.
          */
         default boolean pointerPlace(float[] out) { return false; }
+        /** Where the Launchpad's arrow was when it closed, 0 to 1 of the screen: the content's pointer goes on from there. */
+        default void pointerLeftAt(float x, float y) { }
     }
 
     private static Panel panel;
@@ -183,6 +185,10 @@ final class SwitcherOverlay {
         try {
             p.wm.removeView(p.root);
         } catch (RuntimeException ignored) { }
+        // Its arrow showed (X, a Mac, or once moved): the content's pointer continues from where it was left
+        if (host != null && p.pointer.getVisibility() == View.VISIBLE && p.width > 1 && p.height > 1) {
+            host.pointerLeftAt(p.px / (p.width - 1), p.py / (p.height - 1));
+        }
         if (host != null) host.closed();
     }
 

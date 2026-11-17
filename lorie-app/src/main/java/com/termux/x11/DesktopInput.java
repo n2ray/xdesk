@@ -50,6 +50,15 @@ final class DesktopInput implements InputSink {
         if (s.x > 0 && s.y > 0) v.sendMouseEvent(x * (s.x - 1), y * (s.y - 1), InputStub.BUTTON_UNDEFINED, false, false);
     }
 
+    /** Placed as moveToFraction, but X's cursor stays shown: the user's own pointer moved there. */
+    @Override public void warpTo(float x, float y) {
+        LorieView v = view();
+        if (v == null) return;
+        setCursorHidden(v, false);
+        android.graphics.Point s = v.screenSize();
+        if (s.x > 0 && s.y > 0) v.sendMouseEvent(x * (s.x - 1), y * (s.y - 1), InputStub.BUTTON_UNDEFINED, false, false);
+    }
+
     /** The X server's own pointer, as the renderer last had it: a move just sent may not be in it yet. */
     @Override public boolean pointerPlace(float[] out) {
         LorieView v = view();

@@ -19,6 +19,11 @@ interface InputSink {
     /** To this place on the display, 0 to 1 across and down. Only for pointers that know where they are, as a browser's. */
     default void moveToFraction(float x, float y) { }
     /**
+     * The pointer put here, 0 to 1 of the screen, as a pointer XDesk drew elsewhere (the Launchpad's) left it: unlike
+     * moveToFraction (a computer placing it), nothing about how the content shows its pointer changes.
+     */
+    default void warpTo(float x, float y) { moveToFraction(x, y); }
+    /**
      * A receiver's fingers on the picture (TOUCH, PROTOCOL.md): each where it is, 0 to 1 across and down. action is a
      * MotionEvent action with its pointer index; ids, x and y name every finger down in this frame. Only an Android
      * app taking touches gets them.
