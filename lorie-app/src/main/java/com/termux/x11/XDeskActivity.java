@@ -3412,7 +3412,10 @@ public class XDeskActivity extends Activity {
             HostSettings h = client.settings();
             if (h == null) h = HostSettings.saved(MacStore.stream(XDeskActivity.this, client.mac().id).host);
             if (h == null) return null;
-            return getResources().getStringArray(R.array.xd_mac_mode_names)[AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed)];
+            // Settings none of the three modes have (chosen one by one on the Picture page): -1, said as custom
+            int mode = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
+            String[] names = getResources().getStringArray(R.array.xd_mac_mode_names);
+            return mode >= 0 && mode < names.length ? names[mode] : getString(R.string.xd_mac_quality_custom);
         }
         @Override public void nextMacQuality() {
             MacClient client = macOnScreen();

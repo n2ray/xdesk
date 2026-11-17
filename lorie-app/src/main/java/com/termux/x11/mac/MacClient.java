@@ -1209,10 +1209,14 @@ public final class MacClient {
         stepToDisplay();
     }
 
+    private final Runnable stepAgain = this::stepToDisplay;
+
     private void stepToDisplay() {
         int n = wantDisplay;
         if (n <= 0) return;
         long now = SystemClock.uptimeMillis();
+        Log.i(TAG, "display: want " + n + ", at " + desktopDisplay + " of " + desktopDisplays + ", desktop " + activeDesktop
+                + ", " + state);
         if (desktopDisplays < 2 || n > desktopDisplays || desktopDisplay == n || now - wantDisplayAt > DISPLAY_GIVE_UP_MS) {
             // There (or nothing to step: one display, a locked Mac): the Desktop as it is
             if (desktopDisplays >= 2 || now - wantDisplayAt > DISPLAY_GIVE_UP_MS) wantDisplay = 0;
@@ -1220,11 +1224,19 @@ public final class MacClient {
         }
         // Only while the Desktop streams does the Mac take the step; one at a time, the next once the list says the
         // last one moved it (or after a while, in case that list or the step was lost)
-        if (state != State.CONNECTED || !activeDesktop) return;
+        if (state != State.CONNECTED || !activeDesktop) {
+            // The Desktop not streaming yet: looked at again soon, not only when a list comes
+            ui.removeCallbacks(stepAgain);
+            ui.postDelayed(stepAgain, 500);
+            return;
+        }
         if (lastStepAt != 0 && desktopDisplay == steppedFrom && now - lastStepAt < DISPLAY_STEP_AGAIN_MS) return;
         lastStepAt = now;
         steppedFrom = desktopDisplay;
         enqueue(SillWire.NEXT_DISPLAY, new JSONObject());
+        // Looked at again also without a new list: the step or its list may not come
+        ui.removeCallbacks(stepAgain);
+        ui.postDelayed(stepAgain, DISPLAY_STEP_AGAIN_MS + 100);
     }
 
     /** Stream this window (id), DESKTOP, or nothing (NONE): the screen showing this Mac took something else. */
