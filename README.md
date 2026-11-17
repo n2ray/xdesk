@@ -4,8 +4,6 @@
 
 **Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and a push of the pointer against the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
 
-> **0.6.0 is a beta.** It reworks how XDesk handles content and devices — one switchboard for the phone, the display and the docks, devices added on demand, Mac support, and more — and it has been tested less than the stable releases. v0.5.1 stays the stable version. The betas are published on the [releases](https://github.com/n2ray/xdesk/releases) page (the newest is `v0.6.0-beta.6`) and install over 0.5.1.
-
 | Screen | How it connects |
 |---|---|
 | Monitor, portable screen or dock | USB-C video output, the lowest latency |
@@ -24,7 +22,7 @@ Android 11 or newer (only tested on Android 16). No root, no computer and no oth
 
 ### 1 Install the app
 
-Download `xdesk.apk` from the [releases](https://github.com/n2ray/xdesk/releases) page (the latest stable, or the newest v0.6.0-beta tag for the beta) and install it. If your file manager reports "app not installed", use `adb install -r xdesk.apk`; on Xiaomi phones, first turn on **USB install** in Developer options.
+Download `xdesk.apk` from the [releases](https://github.com/n2ray/xdesk/releases) page and install it. If your file manager reports "app not installed", use `adb install -r xdesk.apk`; on Xiaomi phones, first turn on **USB install** in Developer options.
 
 From v0.2.0 the APK is signed with XDesk's own release key. v0.1.x used upstream's public test key, so Android refuses to update it: uninstall the old XDesk first.
 
@@ -292,7 +290,7 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 
 ## Limitations
 
-- 0.6.0 is a beta, and the new parts have been tested less than the rest. In particular, the receiver paths (XDesk Receiver, the web display, the Mac app) were not retested on real devices in this round, and proot and chroot environments are little tested
+- XDesk is tested mainly on one phone (the European Xiaomi 15 Ultra) and the Mac app on one M4 Mac; other phones may behave differently, and proot and chroot environments are little tested
 - Android apps need activation through wireless debugging or Shizuku, and only one full screen app or desktop can use the display at a time. Split screen, several windows and multiple displays come later (phase 2), as do Windows support and receiver protocol v3
 - Mac sound plays without lip sync
 - Android Auto: only while parked. When Android Auto closes XDesk or disconnects, the desktop keeps running without its window, and Android apps keep running and come back when XDesk is opened on the car again. DRM video (some streaming apps) may be black on the car. Android apps on the car need activation, as on an external display, and go back to the phone when the session ends
