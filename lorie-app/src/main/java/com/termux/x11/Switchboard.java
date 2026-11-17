@@ -97,6 +97,8 @@ final class Switchboard {
         boolean dim;
         /** A whole desktop: drawn apart from the apps. */
         boolean desktop;
+        /** A Mac desktop on one of its displays (from 1), 0 otherwise: only the one shown is marked as a desktop is. */
+        int display;
         /** A Linux desktop session: it has a running dot in the list. */
         boolean session;
         /** Its letter in the A–Z part of a device's list, 0 outside it. */
@@ -631,6 +633,7 @@ final class Switchboard {
         if (ChooserView.isDesktopKey(e.key)) {
             i.desktop = true;
             int display = ChooserView.desktopDisplay(e.key);
+            i.display = display;
             i.label = display > 0 ? str(R.string.xd_dev_display_n, display) : str(R.string.xd_dev_whole_desktop);
             i.title = i.label + " · " + i.where;
             i.sub = detail ? e.detail : e.label;

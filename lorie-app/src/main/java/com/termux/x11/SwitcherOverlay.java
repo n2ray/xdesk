@@ -589,7 +589,8 @@ final class SwitcherOverlay {
         /** A whole desktop gets a ring, so it stands apart from the apps. */
         GradientDrawable tileBack(Switchboard.Item it, int color) {
             GradientDrawable g = round(color, dp(18));
-            if (it.desktop) g.setStroke(Math.max(2, dp(2)), Style.ACCENT);
+            // A Mac's displays: the ring on the one it shows, not on all three (17 November: they looked all chosen)
+            if (it.desktop && (it.display == 0 || it.running)) g.setStroke(Math.max(2, dp(2)), Style.ACCENT);
             return g;
         }
 

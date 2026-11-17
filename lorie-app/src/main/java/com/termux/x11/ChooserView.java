@@ -595,7 +595,7 @@ final class ChooserView extends LinearLayout {
             // What is on the external screen stands out, the same way as its tile there (Switchboard.CURRENT_TINT)
             v.setBackground(r.current ? Style.rounded(c, Switchboard.CURRENT_TINT, Style.RADIUS) : null);
             h.title.setText(r.label);
-            h.title.setTextColor(r.desktop ? Style.ACCENT : Style.TEXT);
+            h.title.setTextColor(r.desktop && (r.display == 0 || r.running) ? Style.ACCENT : Style.TEXT);
             h.subtitle.setText(r.detail);
             h.subtitle.setTextColor(r.current ? Switchboard.ACCENT_TEXT : Style.TEXT_DIM);
             h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
