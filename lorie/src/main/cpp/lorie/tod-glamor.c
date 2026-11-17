@@ -44,7 +44,28 @@ static uint64_t todAdesso(clockid_t c) {
 }
 #define TOD_PASSO(i, da) do { uint64_t _a = todAdesso(CLOCK_MONOTONIC); todPassoNs[i] += _a - (da); todPassoN[i]++; (da) = _a; } while (0)
 
+// XDesk, for measuring only: how a client image's copy is done, read every 5 s (with TERMUX_X11_MISURA=1) from
+// $TMPDIR/xdesk-glamor-knobs, words in any order: nofinish (no glFinish before the copy), persist (the image's
+// AHardwareBuffer stays locked, no lock and unlock each frame), rarely (new images get a CPU_WRITE_RARELY
+// AHardwareBuffer, uncached), nosync (no dma-buf sync around reading the client's buffer)
+static int todNoFinish, todPersist, todRarely, todNoSync;
+static void todLeggiManopole(void) {
+    char path[512], buf[256] = "";
+    const char *tmp = getenv("TMPDIR");
+    FILE *f;
+    snprintf(path, sizeof path, "%s/xdesk-glamor-knobs", tmp ? tmp : "/data/data/com.termux/files/usr/tmp");
+    if ((f = fopen(path, "r"))) {
+        buf[fread(buf, 1, sizeof buf - 1, f)] = 0;
+        fclose(f);
+    }
+    int a = !!strstr(buf, "nofinish"), b = !!strstr(buf, "persist"), c = !!strstr(buf, "rarely"), d = !!strstr(buf, "nosync");
+    if (a != todNoFinish || b != todPersist || c != todRarely || d != todNoSync)
+        log(INFO, "tod-misura: knobs nofinish %d persist %d rarely %d nosync %d", a, b, c, d);
+    todNoFinish = a; todPersist = b; todRarely = c; todNoSync = d;
+}
+
 void todGlamorMisura(uint64_t muro) {
+    todLeggiManopole();
     static const char *nomi[TOD_PASSI] = { "glFinish before the copy", "AHardwareBuffer_lock", "dma-buf sync start",
                                            "memcpy", "sync end + unlock", "the copy, CPU time", "root to the shown buffer (blit + glFinish)" };
     for (int i = 0; i < TOD_PASSI; i++) {
@@ -71,6 +92,8 @@ typedef struct {
     CARD32 passo;           // byte per riga nel dma-buf
     int fd;                 // il dma-buf (per DMA_BUF_IOCTL_SYNC), -1 se non c'è
     AHardwareBuffer *ahb;
+    char *bloccato;         // XDesk: where the AHardwareBuffer is mapped while it stays locked (knob persist)
+    int raro;               // XDesk: allocated CPU_WRITE_RARELY (knob rarely), locked the same way
     EGLImageKHR img;
     LorieBuffer *lorie;     // solo la radice: la vetrina, possiede il suo AHardwareBuffer
     GLuint vtex, vfb;       // texture e framebuffer della vetrina
@@ -104,8 +127,11 @@ static Bool todDestroyPixmap(PixmapPtr pixmap) {
         if (todRadiceBuf == m.lorie)
             todRadiceBuf = NULL;
         LorieBuffer_release(m.lorie);
-    } else if (m.ahb)
+    } else if (m.ahb) {
+        if (m.bloccato)
+            AHardwareBuffer_unlock(m.ahb, NULL);
         AHardwareBuffer_release(m.ahb);
+    }
     if (m.mappa)
         munmap(m.mappa, m.lunghezza);
     if (m.fd > 0)
@@ -129,15 +155,18 @@ static void todCopia(TodMappa *m, int larghezza, int altezza, const BoxRec *box,
         senzaFinish = e && !strcmp(e, "1");
     }
     glamor_make_current(glamor_get_screen_private(screenInfo.screens[0]));
-    // XDesk, for measuring only: TERMUX_X11_GLAMOR_NOFINISH=1 skips the wait (the picture may tear)
-    if (!senzaFinish)
+    // XDesk, for measuring only: TERMUX_X11_GLAMOR_NOFINISH=1 or the knob nofinish skip the wait (the picture may tear)
+    if (!senzaFinish && !todNoFinish)
         glFinish();
     TOD_PASSO(TOD_FINISH, t);
-    if (AHardwareBuffer_lock(m->ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, NULL, (void **) &dst) || !dst)
+    if (m->bloccato)
+        dst = m->bloccato;
+    else if (AHardwareBuffer_lock(m->ahb, m->raro ? AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY : AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN,
+                                  -1, NULL, (void **) &dst) || !dst)
         return;
     TOD_PASSO(TOD_LOCK, t);
     // 2) la GPU del client potrebbe non aver finito di disegnare nel dma-buf: si aspetta (sincronizzazione implicita)
-    if (m->fd > 0)
+    if (m->fd > 0 && !todNoSync)
         ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
     TOD_PASSO(TOD_SYNC, t);
     AHardwareBuffer_describe(m->ahb, &d);
@@ -153,11 +182,16 @@ static void todCopia(TodMappa *m, int larghezza, int altezza, const BoxRec *box,
             memcpy(dst + ((size_t) y * d.stride + x1) * 4, m->dati + (size_t) y * m->passo + x1 * 4, (size_t) (x2 - x1) * 4);
     }
     TOD_PASSO(TOD_MEMCPY, t);
-    if (m->fd > 0) {
+    if (m->fd > 0 && !todNoSync) {
         s.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
         ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
     }
-    AHardwareBuffer_unlock(m->ahb, NULL);
+    if (todPersist)
+        m->bloccato = dst;
+    else {
+        AHardwareBuffer_unlock(m->ahb, NULL);
+        m->bloccato = NULL;
+    }
     TOD_PASSO(TOD_UNLOCK, t);
     todPassoNs[TOD_COPIA_CPU] += todAdesso(CLOCK_THREAD_CPUTIME_ID) - cpu;
     todPassoN[TOD_COPIA_CPU]++;
@@ -181,7 +215,8 @@ static PixmapPtr todImportaAhb(ScreenPtr screen, TodMappa *m, CARD16 width, CARD
     const char *e = getenv("TERMUX_X11_GLAMOR_COPIA");
     AHardwareBuffer_Desc d = { .width = width, .height = height, .layers = 1,
                                .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-                               .usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE };
+                               .usage = (todRarely ? AHARDWAREBUFFER_USAGE_CPU_WRITE_RARELY : AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN)
+                                        | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE };
     PixmapPtr pixmap = NullPixmap;
     glamor_pixmap_fbo *fbo;
     GLuint tex = 0;
@@ -190,6 +225,7 @@ static PixmapPtr todImportaAhb(ScreenPtr screen, TodMappa *m, CARD16 width, CARD
     if (stato == 0 || (e && !strcmp(e, "1")))
         return NullPixmap;
     // l'immagine del client è BGRA in memoria: AHardwareBuffer RGBA8 e canali B/R scambiati in lettura
+    m->raro = todRarely;
     if (AHardwareBuffer_allocate(&d, &m->ahb) || !m->ahb) {
         log(ERROR, "tod-glamor: AHardwareBuffer %ux%u non allocato", width, height);
         m->ahb = NULL;
@@ -238,8 +274,11 @@ fallito:
         glDeleteTextures(1, &tex);
     if (m->img)
         eglDestroyImageKHR(todDpy, m->img);
+    if (m->ahb && m->bloccato)
+        AHardwareBuffer_unlock(m->ahb, NULL);
     if (m->ahb)
         AHardwareBuffer_release(m->ahb);
+    m->bloccato = NULL;
     m->img = NULL;
     m->ahb = NULL;
     if (stato < 0)
