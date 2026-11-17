@@ -33,6 +33,11 @@ final class Control {
     private static final int FEATURE_ACTIONS = 1;
     /** FEATURES bit 4: the phone takes SCROLL_FINE (33), fractions of a wheel step with their phase. */
     private static final int FEATURE_SCROLL_FINE = 16, SCROLL_FINE = 33;
+    /**
+     * FEATURES bit 5: the phone takes TOUCH (34), every finger where it is. Sent instead of the direct-touch engine
+     * while the phone's app takes touches (INPUT_MODE 2): a game gets all the fingers (17 November: it got one).
+     */
+    private static final int FEATURE_TOUCH = 32, TOUCH = 34, MAX_TOUCHES = 10;
     static final int SCAN_ESC = 1, SCAN_BACKSPACE = 14, SCAN_TAB = 15, SCAN_ENTER = 28, SCAN_UP = 103, SCAN_LEFT = 105,
             SCAN_RIGHT = 106, SCAN_DOWN = 108, SCAN_DELETE = 111;
     private static final int MAX_TEXT = 4096;
@@ -106,6 +111,10 @@ final class Control {
         // The phone's keyboard on the picture is pressed where the finger is, even when the rest is a touchpad
         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) onKeys = onKeyboard(e.getY());
         if (onKeys) return onKeys(e);
+        if (!touchpad && direct.fingers() && (features & FEATURE_TOUCH) != 0) {
+            sendTouches(e);
+            return true;
+        }
         fill(e);
         if (touchpad) pad.onTouch(touches);
         else direct.onTouch(touches);
@@ -188,6 +197,7 @@ final class Control {
 
     /** The phone's app takes fingers (像平板, input mode 2): direct touch passes a finger, not a mouse. */
     void setFingers(boolean on) {
+        if (!on) cancelTouches();
         direct.setFingers(on);
     }
 
@@ -247,7 +257,50 @@ final class Control {
     }
 
     /** Whatever is still held goes up, as when the session ends or the window loses focus. */
+    /** Fingers sent with TOUCH that are still down: a cancel names them. */
+    private byte[] lastTouches;
+
+    /** Every finger of the event, where it is on the picture (TOUCH). */
+    private void sendTouches(MotionEvent e) {
+        int action = e.getActionMasked(), index = e.getActionIndex();
+        int n = Math.min(e.getPointerCount(), MAX_TOUCHES);
+        if (index >= n) {
+            // A finger beyond the tenth went down or up: the others only moved
+            action = MotionEvent.ACTION_MOVE;
+            index = 0;
+        }
+        int w = picture.getWidth(), h = picture.getHeight();
+        if (w <= 1 || h <= 1) return;
+        byte[] b = new byte[3 + 5 * n];
+        b[0] = (byte) action;
+        b[1] = (byte) index;
+        b[2] = (byte) n;
+        for (int i = 0, o = 3; i < n; i++, o += 5) {
+            float fx = Math.max(0, Math.min(1, (e.getX(i) - picture.getLeft()) / (w - 1)));
+            float fy = Math.max(0, Math.min(1, (e.getY(i) - picture.getTop()) / (h - 1)));
+            int px = Math.round(fx * 65535), py = Math.round(fy * 65535);
+            b[o] = (byte) e.getPointerId(i);
+            b[o + 1] = (byte) (px >> 8);
+            b[o + 2] = (byte) px;
+            b[o + 3] = (byte) (py >> 8);
+            b[o + 4] = (byte) py;
+        }
+        r.send(TOUCH, b);
+        lastTouches = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL ? null : b;
+    }
+
+    /** Fingers sent with TOUCH and still down are cancelled: the mode changed, the picture went. */
+    private void cancelTouches() {
+        byte[] b = lastTouches;
+        lastTouches = null;
+        if (b == null) return;
+        b[0] = (byte) MotionEvent.ACTION_CANCEL;
+        b[1] = 0;
+        r.send(TOUCH, b);
+    }
+
     void release() {
+        cancelTouches();
         pad.cancel();
         direct.cancel();
         buttons(0);

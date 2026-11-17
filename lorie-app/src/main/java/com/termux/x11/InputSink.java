@@ -19,6 +19,12 @@ interface InputSink {
     /** To this place on the display, 0 to 1 across and down. Only for pointers that know where they are, as a browser's. */
     default void moveToFraction(float x, float y) { }
     /**
+     * A receiver's fingers on the picture (TOUCH, PROTOCOL.md): each where it is, 0 to 1 across and down. action is a
+     * MotionEvent action with its pointer index; ids, x and y name every finger down in this frame. Only an Android
+     * app taking touches gets them.
+     */
+    default void touches(int action, int[] ids, float[] x, float[] y) { }
+    /**
      * Where this target's own pointer is, for the Dock over it (DockPointer): out[0] across the screen, 0 to 1, and
      * out[1] down the way it can go, 1 at the lowest place it reaches. False when the target draws no pointer of its
      * own or its place is not known.

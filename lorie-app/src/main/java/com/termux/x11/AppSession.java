@@ -278,6 +278,20 @@ final class AppSession {
         @Override public void pointerGone() {
             webPointer = false;
         }
+        @Override public void touches(int action, int[] ids, float[] fx, float[] fy) {
+            IInjector i = injector;
+            if (!active || i == null) return;
+            // The fingers are where they are on the display, as the car's are (screenTouch): a game takes them all
+            float[] x = new float[ids.length], y = new float[ids.length];
+            for (int k = 0; k < ids.length; k++) {
+                x[k] = fx[k] * (pointerWidth - 1);
+                y[k] = fy[k] * (cursorPolicy.height() - 1);
+            }
+            try {
+                i.screenTouch(action, ids, x, y);
+            } catch (RemoteException ignored) { }
+        }
+
         @Override public void moveToFraction(float x, float y) {
             usedPointer();
             // Placed, not moved: nothing can be pushed beyond the edge, so resting there is all there is to notice

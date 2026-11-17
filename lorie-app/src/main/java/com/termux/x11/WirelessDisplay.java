@@ -79,7 +79,7 @@ final class WirelessDisplay {
      *  3 this phone says whether the picture contains a cursor (INPUT_MODE 3), and expects the receiver to hide
      *  its own pointer when it does; 4 SCROLL_FINE (33). */
     private static final int FEATURE_ACTIONS = 1, FEATURE_RAW_COMMAND = 2, FEATURE_SETTINGS = 4,
-            FEATURE_PICTURE_CURSOR = 8, FEATURE_SCROLL_FINE = 16;
+            FEATURE_PICTURE_CURSOR = 8, FEATURE_SCROLL_FINE = 16, FEATURE_TOUCH = 32;
     /** Browser → phone only (web display): relative mouse, buttons, wheel steps, Linux key codes, typed text. */
     /** Web only, for ?debug: the browser's 8 bytes come back followed by this phone's clock, in the frames' microseconds. */
     private static final int TIME = 9;
@@ -88,7 +88,7 @@ final class WirelessDisplay {
     private static final int CODECS_SENDS_INPUT = 0x80;
     /** With bit 7: a tablet or phone running XDesk Receiver, not a computer. Connected to only when chosen. */
     private static final int CODECS_NOT_COMPUTER = 0x40;
-    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_SCROLL_FINE = 33,
+    private static final int IN_MOVE = 20, IN_BUTTON = 21, IN_SCROLL = 22, IN_KEY = 23, IN_TEXT = 24, IN_ABS = 25, IN_LAYOUT = 26, IN_SCROLL_FINE = 33, IN_TOUCH = 34,
         IN_ANDROID = 27, IN_CHOOSE = 28, FILE_START = 29, FILE_DATA = 30, FILE_END = 31, APPS = 13, INPUT_MODE = 14;
     /** Receiver → phone (a Mac receiver): u8 the kind of its keyboard. Sent once per connection, with FEATURES bit 1. */
     private static final int KEYBOARD = 32;
@@ -623,6 +623,24 @@ final class WirelessDisplay {
                 final int androidButton = b[0];
                 r = () -> sink.androidButton(androidButton);
                 break;
+            case IN_TOUCH: {
+                // FEATURES bit 5: u8 action (MotionEvent's, masked), u8 its pointer index, u8 n, n times u8 id, u16 x, u16 y
+                if (b.length < 3) return;
+                int masked = b[0] & 0xff, index = b[1] & 0xff, n = b[2] & 0xff;
+                if (n == 0 || n > 10 || b.length < 3 + 5 * n || index >= n) return;
+                final int[] ids = new int[n];
+                final float[] tx = new float[n], ty = new float[n];
+                p.position(3);
+                for (int k = 0; k < n; k++) {
+                    ids[k] = p.get() & 0xff;
+                    tx[k] = (p.getShort() & 0xffff) / 65535f;
+                    ty[k] = (p.getShort() & 0xffff) / 65535f;
+                }
+                final int action = masked | index << android.view.MotionEvent.ACTION_POINTER_INDEX_SHIFT;
+                if (inputReceiver && !computer && masked == android.view.MotionEvent.ACTION_UP) imeCheckSoon();
+                r = () -> sink.touches(action, ids, tx, ty);
+                break;
+            }
             case IN_CHOOSE:
                 final String chosen = new String(b, StandardCharsets.UTF_8);
                 r = () -> sink.chooseApp(chosen);
@@ -994,7 +1012,7 @@ final class WirelessDisplay {
     private void sendFeatures() throws IOException {
         ByteBuffer b = ByteBuffer.allocate(4)
                 .putInt(FEATURE_ACTIONS | FEATURE_RAW_COMMAND | FEATURE_SETTINGS | FEATURE_PICTURE_CURSOR
-                        | FEATURE_SCROLL_FINE);
+                        | FEATURE_SCROLL_FINE | FEATURE_TOUCH);
         writeMessage(FEATURES, b.array(), 0, 4);
     }
 
