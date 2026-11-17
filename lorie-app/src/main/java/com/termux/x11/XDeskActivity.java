@@ -2181,7 +2181,9 @@ public class XDeskActivity extends Activity {
      */
     private void updateExternalDock() {
         if (externalDock == null) return;
-        boolean android = apps.isActive() && !session.isActive();
+        // An Android app in front has the screen whether or not a Termux desktop runs behind it (applyModeToTopBar
+        // ends the old takeover when an app comes)
+        boolean android = apps.isActive();
         boolean content = !apps.isActive() && (session.isActive() || contentKey != null) && !desktopTaken && !SwitcherOverlay.isHome();
         Display d = (android || content) && prefs.getBoolean(PREF_EXTERNAL_DOCK, true) && Settings.canDrawOverlays(this) ? externalDisplay() : null;
         externalDock.setDisplay(d != null && !TargetDisplay.isCar(d) ? d : null);
