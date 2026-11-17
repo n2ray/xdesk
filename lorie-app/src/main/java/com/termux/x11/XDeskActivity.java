@@ -997,6 +997,11 @@ public class XDeskActivity extends Activity {
         }
         @Override public void tapKey(int scan) { remoteIn.tapKey(scan); }
         @Override public void text(String s) { remoteIn.text(s); }
+        @Override public void touches(int action, int[] ids, float[] x, float[] y) {
+            // TOUCH (34): every finger of XDesk Receiver to the Android app that takes touches. The receiver sends
+            // them only in INPUT_MODE 2; without this they were dropped here and the app got nothing
+            if (apps.isActive()) apps.input().touches(action, ids, x, y);
+        }
     };
     /** What the receiver's keyboard is (WirelessDisplay KEYBOARD) as the Router last heard it. */
     private int remoteKeyboard;
