@@ -589,6 +589,7 @@
     <string name="xd_size_large">L</string>
     <string name="xd_size_xlarge">XL</string>
     <string name="xd_screen_none">Connect a screen to set its size</string>
+    <string name="xd_screen_guessed">The external screen is taken as a %1$s and text sized for it. You can change it in Settings, Display.</string>
     <string name="xd_screen_ask_title">What is this screen?</string>
     <string name="xd_screen_ask_note">XDesk sizes text for how far away it is seen. You can change it later in Settings, Display.</string>
 </resources>

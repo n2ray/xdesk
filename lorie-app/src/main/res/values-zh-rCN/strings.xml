@@ -565,6 +565,7 @@
     <string name="xd_size_large">大</string>
     <string name="xd_size_xlarge">特大</string>
     <string name="xd_screen_none">接上屏幕后才能设它的大小</string>
+    <string name="xd_screen_guessed">外屏按「%1$s」调好了字的大小。可以在 设置 → 外屏 里改。</string>
     <string name="xd_screen_ask_title">这块屏是什么？</string>
     <string name="xd_screen_ask_note">XDesk 按观看距离决定字的大小。之后可以在 设置 → 外屏 里改。</string>
 </resources>

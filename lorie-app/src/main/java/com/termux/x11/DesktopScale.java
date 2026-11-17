@@ -128,7 +128,10 @@ final class DesktopScale {
             });
     }
 
-    /** DISPLAY.md §4.1: a wired screen seen for the first time is asked once what it is. */
+    /**
+     * DISPLAY.md §4.1: what a wired screen seen for the first time is. Guessed from what it tells (ScreenGuess); a sure
+     * guess is taken and said once, an unsure one is asked with the guess already chosen.
+     */
     static void askKindOnce(Activity a, SettingsUi s, Display d, Runnable changed) {
         if (d == null || TargetDisplay.isCar(d) || d.getDisplayId() == WirelessDisplay.displayId() || a.isFinishing()) return;
         final ScreenProfiles profiles = ScreenProfiles.get(a);
@@ -136,12 +139,19 @@ final class DesktopScale {
         // A virtual display (the wireless one before it is known as such) is not a screen to ask about
         if (key.startsWith("w:virtual:") || profiles.known(key)) return;
         final ScreenProfiles.Profile p = profiles.of(key);
-        // Saved now as a monitor: closing the question without an answer keeps that, and it is not asked again
-        p.kind = Sizing.MONITOR;
+        ScreenGuess g = ScreenGuess.of(d);
+        // Saved now as the guess: closing the question without an answer keeps that, and it is not asked again
+        p.kind = g.kind;
         profiles.save(p);
+        if (g.kind != Sizing.MONITOR) changed.run();
+        if (g.sure) {
+            android.widget.Toast.makeText(a, a.getString(R.string.xd_screen_guessed, a.getString(KIND_LABELS[kindIndex(g.kind)])),
+                android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
         try {
             s.choice(a.getString(R.string.xd_screen_ask_title), a.getString(R.string.xd_screen_ask_note),
-                strings(a, KIND_LABELS, 3), 0, which -> {
+                strings(a, KIND_LABELS, 3), kindIndex(g.kind), which -> {
                     if (KINDS[which] == p.kind) return;
                     p.kind = KINDS[which];
                     profiles.save(p);
