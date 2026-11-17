@@ -56,6 +56,12 @@ final class SwitcherOverlay {
     interface Host {
         /** The switcher was closed (so the cursor overlay can be raised again, the dock re-armed). */
         void closed();
+        /**
+         * Where the content's pointer is, 0 to 1 of the screen, when its pointer is the one XDesk draws over the
+         * Launchpad (X, a Mac): the Launchpad's arrow starts there. False over an Android app, whose own pointer
+         * works the Launchpad.
+         */
+        default boolean pointerPlace(float[] out) { return false; }
     }
 
     private static Panel panel;
@@ -150,6 +156,13 @@ final class SwitcherOverlay {
         panel = p;
         p.board.addListener(p.changed);
         if (home) p.clock.run();
+        // Over X and a Mac the arrow starts where the content's pointer was, and shows at once (17 November: it
+        // jumped to the middle, and the first move could not be found)
+        float[] at = new float[2];
+        if (host != null && host.pointerPlace(at)) {
+            p.place(at[0] * (p.width - 1), at[1] * (p.height - 1));
+            return true;
+        }
         p.place(p.width / 2f, p.height / 2f);
         // Its own pointer shows once something moves it: over an Android app the mouse is a real Android pointer
         // with the app's cursor, and a second dot resting in the middle would be taken for it

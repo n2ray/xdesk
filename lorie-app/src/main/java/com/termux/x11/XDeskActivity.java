@@ -3842,6 +3842,11 @@ public class XDeskActivity extends Activity {
     };
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {
+        @Override public boolean pointerPlace(float[] out) {
+            // The content still has the input while the Launchpad comes: X's or a Mac's pointer is where it starts
+            InputSink c = client;
+            return c != null && c != SwitcherOverlay.INPUT && !apps.isActive() && c.pointerPlace(out);
+        }
         @Override public void closed() {
             if (client == SwitcherOverlay.INPUT) client = beforeSwitcher;
             beforeSwitcher = null;
