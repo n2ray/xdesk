@@ -25,19 +25,32 @@ import java.util.concurrent.TimeUnit;
  * panel's size, forced, projected onto the whole panel. Seen on the AOC Q3279WG5B on 17 November: full and sharp.
  *
  * The display service sets its own projection again whenever it reconfigures the display (a density, a mode, a
- * size), so ours is set again every REAPPLY_MS, and at once after XDesk changes a density (reapplySoon). When the
- * session ends the display gets its own size back, and with it the display service's projection.
+ * size), so ours is set again then: every CHECK_MS the display's info (one light binder call) is compared with what
+ * it was, and a change sets it again at once and REAPPLY_AGAIN_MS later; after XDesk changes a density too
+ * (reapplySoon); and every REAPPLY_MS whatever happened, for a reconfiguration that changes nothing in the info.
+ * Measured on 17 November with a projection every second: 0.7% of a core and a composition a second; the reflection
+ * is looked up once. The display token comes from services.jar's DisplayControl (Android 14+): that and
+ * libandroid_servers stay loaded (about 30 MB more, mostly clean mapped pages), as a library can be opened by one
+ * class loader only and a second display needs the lookup again. When the session ends the display gets its own size
+ * back, and with it the display service's projection.
  */
 final class PanelFit {
     private static final String TAG = "XDeskInjector";
-    private static final long WM_TIMEOUT_MS = 5000, REAPPLY_MS = 1000;
+    private static final long WM_TIMEOUT_MS = 5000, CHECK_MS = 1000, REAPPLY_AGAIN_MS = 300, REAPPLY_MS = 10_000;
     static final String SET = "set", CLEARED = "cleared";
 
     /** Display id: {panel width, panel height}, while fitted. */
     private final Map<Integer, int[]> fitted = new HashMap<>();
+    /** Display id: what its info was when last projected (infoKey). */
+    private final Map<Integer, String> seen = new HashMap<>();
     private final Map<Long, IBinder> tokens = new HashMap<>();
     private ScheduledExecutorService timer;
+    private long lastReapply;
     private static Method getToken;
+    // Looked up once
+    private static java.lang.reflect.Constructor<?> newTransaction;
+    private static Method setProjection, applyTransaction, getDisplayInfo;
+    private static Object displayManagerGlobal;
 
     /**
      * @param width the panel's mode, in pixels
@@ -61,6 +74,7 @@ final class PanelFit {
         if (sameShape(initial.x, initial.y, width, height)) {
             // Its own shape is right: anything of ours goes
             fitted.remove(display);
+            seen.remove(display);
             if (!ours) return null;
             if (forced) {
                 String error = clearSize(wm, display);
@@ -84,6 +98,7 @@ final class PanelFit {
         }
         fitted.put(display, new int[] {width, height});
         String error = project(display, width, height);
+        seen.put(display, infoKey(display));
         if (error != null) {
             Log.w(TAG, "display " + display + " projection: " + error);
             // Without the projection the forced size letterboxes: better the system's squeezed picture
@@ -110,6 +125,7 @@ final class PanelFit {
     synchronized void clearOurs() {
         if (timer != null) timer.shutdownNow();
         timer = null;
+        seen.clear();
         if (fitted.isEmpty()) return;
         try {
             Object wm = DensityOverride.windowManager();
@@ -124,16 +140,53 @@ final class PanelFit {
     }
 
     private synchronized void reapply() {
+        lastReapply = android.os.SystemClock.uptimeMillis();
         for (Map.Entry<Integer, int[]> e : fitted.entrySet()) {
             String error = project(e.getKey(), e.getValue()[0], e.getValue()[1]);
             if (error != null) Log.w(TAG, "display " + e.getKey() + " projection: " + error);
+            seen.put(e.getKey(), infoKey(e.getKey()));
+        }
+    }
+
+    /** Every CHECK_MS: a display whose info changed was reconfigured, and projected the display service's way. */
+    private synchronized void check() {
+        boolean changed = false;
+        for (int display : fitted.keySet()) {
+            String now = infoKey(display);
+            if (now != null && !now.equals(seen.get(display))) changed = true;
+        }
+        if (changed) {
+            reapply();
+            ScheduledExecutorService t = timer;
+            if (t != null) t.schedule(this::reapply, REAPPLY_AGAIN_MS, TimeUnit.MILLISECONDS);
+        } else if (android.os.SystemClock.uptimeMillis() - lastReapply >= REAPPLY_MS) {
+            reapply();
+        }
+    }
+
+    /** What of a display's info a reconfiguration changes: its size, density, mode, rotation and state. */
+    private static String infoKey(int display) {
+        try {
+            if (getDisplayInfo == null) {
+                Class<?> global = Class.forName("android.hardware.display.DisplayManagerGlobal");
+                displayManagerGlobal = global.getMethod("getInstance").invoke(null);
+                getDisplayInfo = global.getMethod("getDisplayInfo", int.class);
+            }
+            Object info = getDisplayInfo.invoke(displayManagerGlobal, display);
+            if (info == null) return null;
+            Class<?> c = info.getClass();
+            return c.getField("logicalWidth").get(info) + "x" + c.getField("logicalHeight").get(info) + "@"
+                + c.getField("logicalDensityDpi").get(info) + " m" + c.getField("modeId").get(info) + " r"
+                + c.getField("rotation").get(info) + " s" + c.getField("state").get(info);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            return null;
         }
     }
 
     private void startTimer() {
         if (timer != null) return;
         timer = Executors.newSingleThreadScheduledExecutor();
-        timer.scheduleWithFixedDelay(this::reapply, REAPPLY_MS, REAPPLY_MS, TimeUnit.MILLISECONDS);
+        timer.scheduleWithFixedDelay(this::check, CHECK_MS, CHECK_MS, TimeUnit.MILLISECONDS);
     }
 
     /** The panel's size projected onto the whole panel. Null, or what went wrong. */
@@ -141,11 +194,16 @@ final class PanelFit {
         try {
             IBinder token = token(display);
             if (token == null) return "no display token";
-            Class<?> tc = Class.forName("android.view.SurfaceControl$Transaction");
-            Object t = tc.getConstructor().newInstance();
+            if (newTransaction == null) {
+                Class<?> tc = Class.forName("android.view.SurfaceControl$Transaction");
+                setProjection = tc.getMethod("setDisplayProjection", IBinder.class, int.class, Rect.class, Rect.class);
+                applyTransaction = tc.getMethod("apply");
+                newTransaction = tc.getConstructor();
+            }
+            Object t = newTransaction.newInstance();
             Rect r = new Rect(0, 0, width, height);
-            tc.getMethod("setDisplayProjection", IBinder.class, int.class, Rect.class, Rect.class).invoke(t, token, 0, r, new Rect(r));
-            tc.getMethod("apply").invoke(t);
+            setProjection.invoke(t, token, 0, r, new Rect(r));
+            applyTransaction.invoke(t);
             return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             return String.valueOf(e);
