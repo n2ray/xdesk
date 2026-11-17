@@ -51,6 +51,7 @@ struct LorieBuffer *todGlamorRadice(void);
 void todGlamorPubblica(PixmapPtr radice, RegionPtr zona);
 void *todGlamorStaccaRadice(PixmapPtr pixmap);
 void todGlamorLiberaRadice(void *radice);
+void todGlamorMisura(uint64_t muro);
 PixmapPtr todGlamorPixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds, CARD16 width, CARD16 height,
                                  const CARD32 *strides, const CARD32 *offsets, CARD8 depth, CARD8 bpp, CARD64 modifier);
 
@@ -783,6 +784,8 @@ static void todMisuraTick(void) {
             todNs[bi][bj] / 1000.0 / todCnt[bi][bj]);
         todNs[bi][bj] = 0;   // già scritta: fuori dalla prossima ricerca
     }
+    if (todGlamorAttivo())
+        todGlamorMisura(muro);
     memset(todNs, 0, sizeof(todNs));
     memset(todCnt, 0, sizeof(todCnt));
     todTot = 0;

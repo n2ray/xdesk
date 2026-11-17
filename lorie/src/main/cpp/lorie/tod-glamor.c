@@ -33,6 +33,28 @@
 
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
 
+// XDesk: where a Present of a client's image spends its time (TERMUX_X11_MISURA=1, written with tod-misura):
+// wall time of each step of todCopia, and of todGlamorPubblica, summed over 5 s
+enum { TOD_FINISH, TOD_LOCK, TOD_SYNC, TOD_MEMCPY, TOD_UNLOCK, TOD_COPIA_CPU, TOD_PUBBLICA, TOD_PASSI };
+static uint64_t todPassoNs[TOD_PASSI], todPassoN[TOD_PASSI];
+static uint64_t todAdesso(clockid_t c) {
+    struct timespec t;
+    clock_gettime(c, &t);
+    return (uint64_t) t.tv_sec * 1000000000ull + t.tv_nsec;
+}
+#define TOD_PASSO(i, da) do { uint64_t _a = todAdesso(CLOCK_MONOTONIC); todPassoNs[i] += _a - (da); todPassoN[i]++; (da) = _a; } while (0)
+
+void todGlamorMisura(uint64_t muro) {
+    static const char *nomi[TOD_PASSI] = { "glFinish before the copy", "AHardwareBuffer_lock", "dma-buf sync start",
+                                           "memcpy", "sync end + unlock", "the copy, CPU time", "root to the shown buffer (blit + glFinish)" };
+    for (int i = 0; i < TOD_PASSI; i++) {
+        if (todPassoN[i])
+            log(INFO, "tod-misura:   present step %s: %.1f%% of the time, %llu times, %.0f us each", nomi[i],
+                100.0 * todPassoNs[i] / muro, (unsigned long long) todPassoN[i], todPassoNs[i] / 1000.0 / todPassoN[i]);
+        todPassoNs[i] = todPassoN[i] = 0;
+    }
+}
+
 static EGLDisplay todDpy = EGL_NO_DISPLAY;
 static EGLContext todCtx = EGL_NO_CONTEXT;
 
@@ -98,15 +120,26 @@ static void todCopia(TodMappa *m, int larghezza, int altezza, const BoxRec *box,
     char *dst = NULL;
 
     struct dma_buf_sync s = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ };
+    uint64_t t = todAdesso(CLOCK_MONOTONIC), cpu = todAdesso(CLOCK_THREAD_CPUTIME_ID);
 
     // 1) la GPU del server potrebbe ancora leggere il fotogramma precedente da questo AHardwareBuffer
+    static int senzaFinish = -1;
+    if (senzaFinish < 0) {
+        const char *e = getenv("TERMUX_X11_GLAMOR_NOFINISH");
+        senzaFinish = e && !strcmp(e, "1");
+    }
     glamor_make_current(glamor_get_screen_private(screenInfo.screens[0]));
-    glFinish();
+    // XDesk, for measuring only: TERMUX_X11_GLAMOR_NOFINISH=1 skips the wait (the picture may tear)
+    if (!senzaFinish)
+        glFinish();
+    TOD_PASSO(TOD_FINISH, t);
     if (AHardwareBuffer_lock(m->ahb, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, NULL, (void **) &dst) || !dst)
         return;
+    TOD_PASSO(TOD_LOCK, t);
     // 2) la GPU del client potrebbe non aver finito di disegnare nel dma-buf: si aspetta (sincronizzazione implicita)
     if (m->fd > 0)
         ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
+    TOD_PASSO(TOD_SYNC, t);
     AHardwareBuffer_describe(m->ahb, &d);
     if (n == 0) {
         box = &tutto;
@@ -119,11 +152,15 @@ static void todCopia(TodMappa *m, int larghezza, int altezza, const BoxRec *box,
         for (int y = y1; y < y2; y++)
             memcpy(dst + ((size_t) y * d.stride + x1) * 4, m->dati + (size_t) y * m->passo + x1 * 4, (size_t) (x2 - x1) * 4);
     }
+    TOD_PASSO(TOD_MEMCPY, t);
     if (m->fd > 0) {
         s.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
         ioctl(m->fd, DMA_BUF_IOCTL_SYNC, &s);
     }
     AHardwareBuffer_unlock(m->ahb, NULL);
+    TOD_PASSO(TOD_UNLOCK, t);
+    todPassoNs[TOD_COPIA_CPU] += todAdesso(CLOCK_THREAD_CPUTIME_ID) - cpu;
+    todPassoN[TOD_COPIA_CPU]++;
 }
 
 // Dal gancio di Present (lorieTryScheduleGpuCopy), prima che il contenuto dell'immagine venga usato.
@@ -309,6 +346,8 @@ void todGlamorPubblica(PixmapPtr radice, RegionPtr zona) {
     int n;
     GLint err;
 
+    uint64_t t = todAdesso(CLOCK_MONOTONIC);
+
     if (!radice || !(m = todMappa(radice))->vfb || !(priv = glamor_get_pixmap_private(radice)) || !priv->fbo)
         return;
     glamor_make_current(glamor_get_screen_private(radice->drawable.pScreen));
@@ -332,6 +371,7 @@ void todGlamorPubblica(PixmapPtr radice, RegionPtr zona) {
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glFinish();
+    TOD_PASSO(TOD_PUBBLICA, t);
     if ((err = glGetError()) != GL_NO_ERROR && errori++ < 5)
         log(ERROR, "tod-glamor: copia nella vetrina non riuscita (0x%x)", err);
 }
