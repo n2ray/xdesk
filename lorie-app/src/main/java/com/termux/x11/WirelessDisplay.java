@@ -1187,16 +1187,23 @@ final class WirelessDisplay {
         final int generation = ++clipGeneration;
         // Its own writer: a receiver on a weak link must not hold up the hub, which serves every device
         final java.util.concurrent.ExecutorService writer = java.util.concurrent.Executors.newSingleThreadExecutor();
-        final ShareHub.Endpoint endpoint = text -> writer.execute(() -> {
-            if (webLost || !running || generation != clipGeneration) return;
-            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-            if (bytes.length > MAX_CLIPBOARD) return;
+        final ShareHub.Endpoint endpoint = text -> {
+            final byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            if (webLost || !running || generation != clipGeneration || bytes.length > MAX_CLIPBOARD) return false;
             try {
-                writeMessage(CLIPBOARD, bytes, 0, bytes.length);
-            } catch (IOException e) {
-                Log.i(TAG, "clipboard: " + e);
+                writer.execute(() -> {
+                    if (webLost || !running || generation != clipGeneration) return;
+                    try {
+                        writeMessage(CLIPBOARD, bytes, 0, bytes.length);
+                    } catch (IOException e) {
+                        Log.i(TAG, "clipboard: " + e);
+                    }
+                });
+                return true;
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                return false;  // the stream has just ended
             }
-        });
+        };
         clipEndpoint = shares ? endpoint : null;
         String name = receiverId != null ? receiverId : receiverName;
         if (shares) ShareHub.get(context).join(endpoint, "receiver:" + name);

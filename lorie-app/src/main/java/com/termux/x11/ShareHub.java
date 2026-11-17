@@ -26,9 +26,13 @@ public final class ShareHub {
     /** As the receiver protocol's CLIPBOARD (PROTOCOL.md) and Sill's: a longer text is not shared. */
     public static final int MAX_TEXT = 256 * 1024;
 
-    /** A device that takes part. Called on the hub's own thread, never for what came from it. */
+    /**
+     * A device that takes part. Called on the hub's own thread, never for what came from it. True when the text went
+     * to a live connection: only then does the hub count it as the device's (audit: a copy queued on a dying session
+     * was counted, and the device never got it when it came back).
+     */
     public interface Endpoint {
-        void clipboard(String text);
+        boolean clipboard(String text);
     }
 
     private static ShareHub instance;
@@ -62,10 +66,13 @@ public final class ShareHub {
     private volatile boolean listening;
 
     /** The Linux desktop: X asks LorieView when a program pastes, which answers with this when it cannot read Android's. */
-    private final Endpoint x = text -> ui.post(() -> {
-        LorieView v = DesktopInput.view();
-        if (v != null) v.setComputerClipboard(text);
-    });
+    private final Endpoint x = text -> {
+        ui.post(() -> {
+            LorieView v = DesktopInput.view();
+            if (v != null) v.setComputerClipboard(text);
+        });
+        return true;  // X asks when it pastes, and desktopShown tells it again
+    };
 
     private ShareHub(Context c) {
         context = c;
@@ -101,8 +108,21 @@ public final class ShareHub {
         final String text = current;
         Long last = had.get(key);
         if (text == null || !on() || last != null && last >= seq) return;
-        had.put(key, seq);
-        worker.execute(() -> e.clipboard(text));
+        final long s = seq;
+        worker.execute(() -> deliver(e, key, text, s));
+    }
+
+    private void deliver(Endpoint e, String key, String text, long s) {
+        try {
+            if (e.clipboard(text)) gave(key, s);
+        } catch (RuntimeException ex) {
+            Log.w(TAG, "clipboard to a device", ex);
+        }
+    }
+
+    private synchronized void gave(String key, long s) {
+        Long last = had.get(key);
+        if (last == null || last < s) had.put(key, s);
     }
 
     public synchronized void leave(Endpoint e) {
@@ -129,20 +149,15 @@ public final class ShareHub {
         seq++;
         current = text;
         from = origin;
-        final java.util.ArrayList<Endpoint> to = new java.util.ArrayList<>();
+        final java.util.ArrayList<Joined> to = new java.util.ArrayList<>();
         for (Joined j : endpoints) {
-            had.put(j.key, seq);  // the origin has it, the others are given it now
-            if (j.e != origin) to.add(j.e);
+            if (j.e == origin) had.put(j.key, seq);  // the origin has it; the others once it reached them (deliver)
+            else to.add(j);
         }
         if (toPhone) writePhone(text);
+        final long s = seq;
         worker.execute(() -> {
-            for (Endpoint e : to) {
-                try {
-                    e.clipboard(text);
-                } catch (RuntimeException ex) {
-                    Log.w(TAG, "clipboard to a device", ex);
-                }
-            }
+            for (Joined j : to) deliver(j.e, j.key, text, s);
         });
     }
 

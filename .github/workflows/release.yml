@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag such as v0.2.0 to build and publish. Versions below 1.0 are marked as pre-releases.
+# Push a tag such as v0.2.0 to build and publish. A tag with a suffix (v0.6.0-beta.1) is a pre-release, one without (v0.6.0) the latest release.
 # Run it by hand (workflow_dispatch) to build the same signed release files as an artifact without publishing,
 # to test them on a phone before tagging.
 on:

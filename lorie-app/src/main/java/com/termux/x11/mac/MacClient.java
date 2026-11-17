@@ -2345,11 +2345,16 @@ public final class MacClient {
             // The hub never gives a device back what came from it; a text this Mac sent earlier and got again from
             // another device is a new copy there, and goes (audit: it was dropped, and the Mac kept an older one)
             clipEndpoint = text -> {
+                if (session == null || state != State.CONNECTED) return false;
                 try {
                     byte[] json = new JSONObject().put("text", text).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
                     // Escaped control characters can take a 256K text past what Sill's writer sends: not shared
-                    if (json.length < SillWire.MAX_OUTGOING) enqueue(SillWire.CLIPBOARD, json);
-                } catch (JSONException ignored) { }
+                    if (json.length >= SillWire.MAX_OUTGOING) return false;
+                    enqueue(SillWire.CLIPBOARD, json);
+                    return true;
+                } catch (JSONException e) {
+                    return false;
+                }
             };
             com.termux.x11.ShareHub.get(context).join(clipEndpoint, "mac:" + mac.id);
         });

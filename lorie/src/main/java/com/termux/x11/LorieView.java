@@ -663,7 +663,7 @@ public class LorieView extends SurfaceView implements InputStub {
         // with an empty string, or the request is left unresolved.
         sendClipboardEvent(mNativeContext, text.getBytes(UTF_8));
         if (!text.isEmpty())
-            Log.d("CLIP", "sending clipboard contents: " + text);
+            Log.d("CLIP", "sending clipboard contents, " + text.length() + " characters");  // never the text: every device's copies come here
     }
 
     public void handleClipboardChange() {
