@@ -148,24 +148,24 @@ final class NotifyPanel {
         scrimParams.windowAnimations = 0;
         scrimParams.setTitle("XDesk notification scrim");
 
-        root = new LinearLayout(dc);
+        // Every hover in the panel's window passes here, also over its buttons and rows, which take the hover from
+        // the panel itself: Android gives the panel a hover exit when the pointer goes onto one of them, and when a
+        // button is pressed. Only an exit outside the panel is leaving; while the pointer is anywhere on it, it stays
+        root = new LinearLayout(dc) {
+            @Override public boolean dispatchHoverEvent(MotionEvent e) {
+                boolean inside = e.getX() >= 0 && e.getY() >= 0 && e.getX() < getWidth() && e.getY() < getHeight();
+                ui.removeCallbacks(onLeave);
+                if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT && !inside) ui.postDelayed(onLeave, LEAVE_MS);
+                else host.hover(true);
+                return super.dispatchHoverEvent(e);
+            }
+        };
         root.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable surface = new GradientDrawable();
         surface.setColor(PANEL);
         surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
         root.setBackground(surface);
         root.setPadding(dp(16), dp(14), dp(16), dp(10));
-        root.setOnHoverListener((v, e) -> {
-            // On the panel itself the leaving is not leaving: the close timer stops
-            if (e.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT) {
-                ui.removeCallbacks(onLeave);
-                ui.postDelayed(onLeave, LEAVE_MS);
-            } else {
-                ui.removeCallbacks(onLeave);
-                host.hover(true);
-            }
-            return false;
-        });
 
         // The header, one line (owner, 2026-11-15): the time and the date on the left, the battery on the right; the DND
         // switch and clear all under it
