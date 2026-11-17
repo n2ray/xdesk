@@ -23,6 +23,14 @@ public final class Touchpad {
     private static final float SWITCH_START_DP = 40, SWITCH_STEP_DP = 80;
     /** Span change that makes two fingers a pinch, and the ratio of one zoom step. */
     private static final float PINCH_DP = 12, ZOOM_STEP = 1.25f;
+    /**
+     * Two fingers are told apart by how each moves (17 November: a scroll whose fingers drew a little together or
+     * apart zoomed, as only the span change and the middle's travel were compared). Same way: within 60 degrees
+     * (cos 0.5), each finger past SAME_WAY_MIN_DP. A pinch: not the same way, and the span changing PINCH_RATIO times
+     * more than the middle travels. Neither after SCROLL_ANYWAY_SLOPS slops of the middle's travel: a scroll, by far
+     * the more common.
+     */
+    private static final float SAME_WAY_COS = 0.5f, SAME_WAY_MIN_DP = 3, PINCH_RATIO = 2, SCROLL_ANYWAY_SLOPS = 3;
     private static final long MOMENTUM_FRAME_MS = 16;
 
     private final Tuning tuning;
@@ -41,6 +49,8 @@ public final class Touchpad {
     private boolean rebase, gestured, scrolled;
     // Two fingers
     private float span0, spanStep, midStartX, midStartY;
+    private int twoIdA, twoIdB;
+    private float twoAX, twoAY, twoBX, twoBY;
     // App switching
     private float switchFromX;
     // Momentum
@@ -149,6 +159,12 @@ public final class Touchpad {
             span0 = spanStep = span(t);
             midStartX = t.centroidX();
             midStartY = t.centroidY();
+            twoIdA = t.id[0];
+            twoIdB = t.id[1];
+            twoAX = t.x[0];
+            twoAY = t.y[0];
+            twoBX = t.x[1];
+            twoBY = t.y[1];
             velocity.clear();
         }
         if (before == SCROLL && state != SCROLL) emitScroll(Input.END, 0, 0);
@@ -238,12 +254,18 @@ public final class Touchpad {
         float d = tuning.density;
         float spanChange = Math.abs(span(t) - span0) / d;
         float mid = (float) Math.hypot(t.centroidX() - midStartX, t.centroidY() - midStartY) / d;
-        if ((spanChange >= PINCH_DP && spanChange > mid) || (mid >= tuning.slopDp && spanChange > mid)) {
+        // Each finger's travel since both were down (by id: the order of the touches may change)
+        int a = t.id[0] == twoIdA ? 0 : 1, b = 1 - a;
+        if (t.id[a] != twoIdA || t.id[b] != twoIdB) return;
+        float ax = (t.x[a] - twoAX) / d, ay = (t.y[a] - twoAY) / d, bx = (t.x[b] - twoBX) / d, by = (t.y[b] - twoBY) / d;
+        float la = (float) Math.hypot(ax, ay), lb = (float) Math.hypot(bx, by);
+        boolean sameWay = la >= SAME_WAY_MIN_DP && lb >= SAME_WAY_MIN_DP && ax * bx + ay * by > SAME_WAY_COS * la * lb;
+        if (!sameWay && spanChange >= PINCH_DP && spanChange > PINCH_RATIO * mid) {
             // Zoom steps count from where the fingers landed
             state = PINCH;
             spanStep = span0;
             pinch(t);
-        } else if (mid >= tuning.slopDp) {
+        } else if (mid >= tuning.slopDp && (sameWay || spanChange <= mid || mid >= SCROLL_ANYWAY_SLOPS * tuning.slopDp)) {
             state = SCROLL;
             scrolled = true;
             emitScroll(Input.BEGIN, 0, 0);
@@ -319,7 +341,8 @@ public final class Touchpad {
         if (multi.downCount() != 3 || multi.isDone()) return;
         multi.armedTravel(travel2);
         float dx = travel2[0], dy = travel2[1];
-        if (Math.abs(dx) < SWITCH_START_DP || Math.abs(dx) < 1.3f * Math.abs(dy)) return;
+        // More across than down is across (17 November: was 1.3 times, too straight for a finger on glass)
+        if (Math.abs(dx) < SWITCH_START_DP || Math.abs(dx) <= Math.abs(dy)) return;
         multi.finish();
         state = SWITCHING;
         gestured = true;

@@ -12,6 +12,13 @@ package io.github.n2ray.xdesk.input;
 final class MultiFinger {
     static final int SWIPE_LEFT = 1, SWIPE_RIGHT = 2, SWIPE_UP = 3, SWIPE_DOWN = 4, PINCH = 5, SPREAD = 6;
     private static final int MAX = Touches.MAX, SAMPLES = 64;
+    /**
+     * XDesk, 17 November, for fingers on a phone's glass rather than a trackpad: three fingers land within 250 ms
+     * (iOS 150), the stroke's direction is its larger component (iOS 1.3 times the smaller), and each armed finger
+     * goes TOGETHER of the way (iOS half).
+     */
+    private static final long LAND_TOGETHER_MS = 250;
+    private static final float AXIS_RATIO = 1f, TOGETHER = .3f;
 
     // Fingers down, by slot
     private final int[] ids = new int[MAX];
@@ -73,7 +80,7 @@ final class MultiFinger {
             order[j + 1] = v;
         }
         int first = order[n - 3];
-        if (!done && time - landedAt[first] <= 150) {
+        if (!done && time - landedAt[first] <= LAND_TOGETHER_MS) {
             for (int k = n - 3; k < n; k++) {
                 int f = order[k];
                 armed[f] = true;
@@ -209,14 +216,14 @@ final class MultiFinger {
         int fingers = Math.min(4, 3 + movers);
         if (travel >= 40 || (travel >= 20 && speed(endX, endY, time) >= 500)) {
             float major = Math.max(Math.abs(dx), Math.abs(dy)), minor = Math.min(Math.abs(dx), Math.abs(dy));
-            if (major >= 1.3f * minor) {
+            if (major > AXIS_RATIO * minor) {
                 boolean horizontal = Math.abs(dx) > Math.abs(dy);
                 float direction = Math.signum(horizontal ? dx : dy), along = horizontal ? Math.abs(dx) : Math.abs(dy);
                 boolean together = true;
                 for (int i = 0; i < MAX; i++) {
                     if (!armed[i]) continue;
                     float ax = armedX[i], ay = armedY[i], bx = used[i] ? nowX[i] : armedX[i], by = used[i] ? nowY[i] : armedY[i];
-                    if ((horizontal ? bx - ax : by - ay) * direction < .5f * along) together = false;
+                    if ((horizontal ? bx - ax : by - ay) * direction < TOGETHER * along) together = false;
                 }
                 for (int i = 0; i < MAX; i++) {
                     if (!mover(i)) continue;
