@@ -490,9 +490,20 @@ final class ChooserView extends LinearLayout {
         }
     }
 
-    /** A whole desktop of a device (a Mac's "m:<id>:desktop"; later Windows'). */
+    /** A whole desktop of a device (a Mac's "m:<id>:desktop", or "m:<id>:desktop:<n>" on its display n; later Windows'). */
     static boolean isDesktopKey(String key) {
-        return key.startsWith(MacSource.PREFIX) && key.endsWith(":desktop");
+        return key.startsWith(MacSource.PREFIX) && (key.endsWith(":desktop") || key.matches(".*:desktop:[0-9]+"));
+    }
+
+    /** The Mac display a desktop key names (from 1), or 0 for the Mac desktop as such. */
+    static int desktopDisplay(String key) {
+        int at = key.lastIndexOf(":desktop:");
+        if (at < 0) return 0;
+        try {
+            return Integer.parseInt(key.substring(at + 9));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private void jumpTo(char letter) {

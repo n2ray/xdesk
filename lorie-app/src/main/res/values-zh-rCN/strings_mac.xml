@@ -51,6 +51,7 @@
     <string name="xd_mac_remove_action">移除</string>
     <string name="xd_mac_section_one">Mac「%1$s」</string>
     <string name="xd_mac_desktop">%1$s 桌面</string>
+    <string name="xd_mac_display">%1$s 显示器 %2$d</string>
     <string name="xd_mac_offline">未连接</string>
     <string name="xd_mac_locked_short">已锁定</string>
     <string name="xd_mac_not_paired">这台 Mac 已不在配对列表里</string>

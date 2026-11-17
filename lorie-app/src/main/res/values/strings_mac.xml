@@ -52,6 +52,7 @@
     <string name="xd_mac_remove_action">Remove</string>
     <string name="xd_mac_section_one">Mac「%1$s」</string>
     <string name="xd_mac_desktop">%1$s desktop</string>
+    <string name="xd_mac_display">%1$s display %2$d</string>
     <string name="xd_mac_offline">Not connected</string>
     <string name="xd_mac_locked_short">Locked</string>
     <string name="xd_mac_not_paired">This Mac is not paired any more</string>

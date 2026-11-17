@@ -19,7 +19,8 @@ import java.util.List;
 
 /**
  * The paired Macs as one ContentSource (DISPLAY.md §1.3, §1.5 Mac column), prefix "m:":
- * - "m:<mac>:desktop" the Mac desktop (Sill's Desktop source);
+ * - "m:<mac>:desktop" the Mac desktop (Sill's Desktop source); "m:<mac>:desktop:<n>" it on the Mac's display n,
+ *   one each while a connected Mac with Sill 0.6.2 or later says it has two or more;
  * - "m:<mac>:win:<window id>" a Mac window;
  * - "m:<mac>:app:<bundle id>" an installed app: its newest window if it has one, else launched, and the host picks
  *   its first window (Sill's pendingLaunch).
@@ -177,8 +178,19 @@ final class MacSource implements ContentSource {
                     : m.state() == MacClient.State.CONNECTED ? null
                     : m.state() == MacClient.State.FAILED && m.failure() != null ? m.failure()
                     : context.getString(R.string.xd_mac_offline);
-            out.add(new Entry(macPrefix(m) + "desktop", context.getString(R.string.xd_mac_desktop, m.name()), null, state,
-                    m.state() == MacClient.State.CONNECTED));
+            int displays = m.state() == MacClient.State.CONNECTED ? m.desktopDisplays() : 0;
+            if (displays >= 2) {
+                // One per display (Sill's order: the main one, then to its right); the one the Desktop shows or comes
+                // back to is the running one. Not connected, the Mac's displays are not known: one desktop, as before
+                for (int n = 1; n <= displays; n++) {
+                    String screen = m.desktopDisplayName(n);
+                    out.add(new Entry(macPrefix(m) + "desktop:" + n, context.getString(R.string.xd_mac_display, m.name(), n),
+                            null, screen.isEmpty() ? state : screen, n == m.desktopDisplay()));
+                }
+            } else {
+                out.add(new Entry(macPrefix(m) + "desktop", context.getString(R.string.xd_mac_desktop, m.name()), null, state,
+                        m.state() == MacClient.State.CONNECTED));
+            }
             for (MacClient.Window w : m.windows())
                 out.add(new Entry(macPrefix(m) + "win:" + w.id, w.appName, m.icon(w.bundleId), w.title, true));
         }
@@ -225,7 +237,12 @@ final class MacSource implements ContentSource {
     private void place(String key, Object[] k, MacClient m, int displayId, Result result) {
         String kind = (String) k[1], rest = (String) k[2];
         if ("desktop".equals(kind)) {
-            m.show(MacClient.DESKTOP);
+            int n = 0;
+            try {
+                if (!rest.isEmpty()) n = Integer.parseInt(rest);
+            } catch (NumberFormatException ignored) { }
+            if (n > 0) m.showDesktop(n);
+            else m.show(MacClient.DESKTOP);
         } else if ("win".equals(kind)) {
             try {
                 m.show(Long.parseLong(rest));

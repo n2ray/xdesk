@@ -105,6 +105,18 @@ public final class MacClient {
     private volatile int clipboardGeneration;
     private volatile long activeWindow = -1;
     private volatile boolean activeDesktop;
+    /**
+     * The Desktop's displays (Sill 0.6.2, Switcher.swift's WindowList): how many, 2 or more, else 0 (one display, a
+     * locked Mac, an older host); which one it shows or comes back to, from 1; their names, in the same order.
+     */
+    private volatile int desktopDisplays, desktopDisplay;
+    private volatile List<String> desktopDisplayNames = Collections.emptyList();
+    /** The display asked for by showDesktop(n), stepped to by kind 47 as the lists come; 0 when none. */
+    private volatile int wantDisplay;
+    private volatile long wantDisplayAt, lastStepAt;
+    /** The display shown when the last step went: the next step waits for the list that says it moved. */
+    private volatile int steppedFrom;
+    private static final long DISPLAY_GIVE_UP_MS = 8000, DISPLAY_STEP_AGAIN_MS = 1500;
     private volatile State state = State.OFFLINE;
     private volatile String failure;
     private volatile boolean needsPairing;
@@ -244,6 +256,13 @@ public final class MacClient {
     public long want() { return want; }
     public long activeWindow() { return activeWindow; }
     public boolean activeDesktop() { return activeDesktop; }
+    public int desktopDisplays() { return desktopDisplays; }
+    public int desktopDisplay() { return desktopDisplay; }
+    /** The name of display n (from 1), or "" when the Mac gave none. */
+    public String desktopDisplayName(int n) {
+        List<String> names = desktopDisplayNames;
+        return n >= 1 && n <= names.size() ? names.get(n - 1) : "";
+    }
     public float pointerX() { return pointerX; }
     public float pointerY() { return pointerY; }
     /** quitApp is running: the Mac's stream may leave the shown window before its app's save dialog opens. */
@@ -485,6 +504,9 @@ public final class MacClient {
         windowsPending = true;
         activeWindow = -1;
         activeDesktop = false;
+        desktopDisplays = desktopDisplay = 0;
+        desktopDisplayNames = Collections.emptyList();
+        wantDisplay = 0;
         had = NONE;
         // Not connected: no window of this Mac is known to be open (the lists show them as running)
         windows = Collections.emptyList();
@@ -797,6 +819,15 @@ public final class MacClient {
         clipboardGeneration = clip;
         JSONObject active = list.optJSONObject("active");
         activeDesktop = active != null && active.has("desktop");
+        int displays = list.optInt("desktopDisplays", 0), current = list.optInt("desktopDisplay", 0);
+        if (displays < 2 || current < 1 || current > displays) displays = current = 0;
+        ArrayList<String> names = new ArrayList<>();
+        JSONArray n = displays > 0 ? list.optJSONArray("desktopDisplayNames") : null;
+        if (n != null) for (int i = 0; i < n.length(); i++) names.add(n.optString(i, ""));
+        desktopDisplays = displays;
+        desktopDisplay = current;
+        desktopDisplayNames = Collections.unmodifiableList(names);
+        stepToDisplay();
         JSONObject win = active != null ? active.optJSONObject("window") : null;
         activeWindow = win != null ? win.optLong("_0", -1) : -1;
         long streams = activeSource();
@@ -1165,9 +1196,42 @@ public final class MacClient {
         return new int[] {frameX, frameY, frameW, frameH, screenW, screenH};
     }
 
+    /**
+     * The Desktop on display n (from 1) of the Mac's: the Desktop, then kind 47 until the list says n. Sill has no
+     * pick of a display yet (kind 47's {"number": n} is kept for a later list), so it is stepped there, one step per
+     * list, and given up after a while (a locked Mac refuses the steps).
+     */
+    public void showDesktop(int n) {
+        show(DESKTOP);
+        wantDisplay = n;
+        wantDisplayAt = SystemClock.uptimeMillis();
+        lastStepAt = 0;
+        steppedFrom = 0;
+        stepToDisplay();
+    }
+
+    private void stepToDisplay() {
+        int n = wantDisplay;
+        if (n <= 0) return;
+        long now = SystemClock.uptimeMillis();
+        if (desktopDisplays < 2 || n > desktopDisplays || desktopDisplay == n || now - wantDisplayAt > DISPLAY_GIVE_UP_MS) {
+            // There (or nothing to step: one display, a locked Mac): the Desktop as it is
+            if (desktopDisplays >= 2 || now - wantDisplayAt > DISPLAY_GIVE_UP_MS) wantDisplay = 0;
+            return;
+        }
+        // Only while the Desktop streams does the Mac take the step; one at a time, the next once the list says the
+        // last one moved it (or after a while, in case that list or the step was lost)
+        if (state != State.CONNECTED || !activeDesktop) return;
+        if (lastStepAt != 0 && desktopDisplay == steppedFrom && now - lastStepAt < DISPLAY_STEP_AGAIN_MS) return;
+        lastStepAt = now;
+        steppedFrom = desktopDisplay;
+        enqueue(SillWire.NEXT_DISPLAY, new JSONObject());
+    }
+
     /** Stream this window (id), DESKTOP, or nothing (NONE): the screen showing this Mac took something else. */
     public void show(long source) {
         want = source;
+        wantDisplay = 0;
         pendingLaunch = null;
         launchFailed = false;
         if (state == State.CONNECTED && (surface != null || source == NONE)) {

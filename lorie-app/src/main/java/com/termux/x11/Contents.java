@@ -97,6 +97,18 @@ final class Contents {
         if (s == null) return null;
         for (ContentSource.Entry e : s.windows()) if (e.key.equals(key)) return e;
         for (ContentSource.Entry e : s.apps()) if (e.key.equals(key)) return e;
+        // A Mac's desktop saved as one (a favourite, what ran) while it now lists one per display, or saved on a
+        // display while it lists one desktop (not connected, one display): the desktop as it is listed now
+        if (ChooserView.isDesktopKey(key)) {
+            String base = ChooserView.desktopDisplay(key) > 0 ? key.substring(0, key.lastIndexOf(':')) : key;
+            ContentSource.Entry any = null;
+            for (ContentSource.Entry e : s.windows()) {
+                if (!e.key.equals(base) && !e.key.startsWith(base + ":")) continue;
+                if (e.running || e.key.equals(base)) return e;
+                if (any == null) any = e;
+            }
+            return any;
+        }
         return null;
     }
 }

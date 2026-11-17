@@ -205,6 +205,10 @@ final class Switchboard {
         return c.getString(id);
     }
 
+    private String str(int id, Object... args) {
+        return c.getString(id, args);
+    }
+
     // --- the selection, one for both screens ---
 
     /**
@@ -526,15 +530,18 @@ final class Switchboard {
         boolean catalog = devices.listsCatalog(d);
         ArrayList<Item> open = new ArrayList<>();
         HashSet<String> shown = new HashSet<>();
+        boolean desktopHeader = false;
         for (ContentSource.Entry e : s.windows()) {
             if (!devices.deviceOf(e.key).equals(d.id)) continue;
             shown.add(e.key);
             Item i = entryItem(e);
             if (i.desktop) {
                 // The whole desktop first, always, even locked or still connecting: opening it is how a locked Mac is
-                // unlocked, and only then does Sill send the apps (DEVICES.md §3)
+                // unlocked, and only then does Sill send the apps (DEVICES.md §3). A Mac with several displays: one
+                // each, under one header
                 if (!matches(i, q)) continue;
-                if (!searching) out.add(header(str(R.string.xd_dev_desktop_header)));
+                if (!searching && !desktopHeader) out.add(header(str(R.string.xd_dev_desktop_header)));
+                desktopHeader = true;
                 out.add(join(i));
             } else if (catalog && matches(i, q)) {
                 open.add(join(i));
@@ -623,7 +630,8 @@ final class Switchboard {
         boolean detail = e.detail != null && !e.detail.equalsIgnoreCase(e.label);
         if (ChooserView.isDesktopKey(e.key)) {
             i.desktop = true;
-            i.label = str(R.string.xd_dev_whole_desktop);
+            int display = ChooserView.desktopDisplay(e.key);
+            i.label = display > 0 ? str(R.string.xd_dev_display_n, display) : str(R.string.xd_dev_whole_desktop);
             i.title = i.label + " · " + i.where;
             i.sub = detail ? e.detail : e.label;
         } else if (detail) {

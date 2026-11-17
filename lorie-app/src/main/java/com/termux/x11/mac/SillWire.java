@@ -27,6 +27,8 @@ final class SillWire {
     /** The Mac's menus (MacMenu.swift): 24 host → device, 25 and 27 device → host, around the pointer's 26. */
     static final int MAC_MENU = 24, PRESS_MENU_ITEM = 25, FETCH_MENU = 27;
     static final int MAC_POINTER = 26, CLIPBOARD = 32, KEYFRAME_REQUEST = 44;
+    /** Device → host, empty: the Desktop to the Mac's next display, while the Desktop streams (Sill 0.6.2, StreamMessage.swift). */
+    static final int NEXT_DISPLAY = 47;
 
     static final int MAX_FRAME = 32 << 20, MAX_OTHER = 4 << 20, MAX_OUTGOING = 1 << 20;
 

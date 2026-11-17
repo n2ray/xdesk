@@ -79,6 +79,7 @@
     <string name="xd_sw_hide_hidden">Hide hidden apps again</string>
     <string name="xd_sw_on_phone">Continue on the phone</string>
     <string name="xd_dev_whole_desktop">Whole desktop</string>
+    <string name="xd_dev_display_n">Display %1$d</string>
     <string name="xd_dev_desktop_header">Desktop</string>
     <string name="xd_dev_locked_hint">Locked — open the desktop to unlock</string>
     <string name="xd_dev_state_running">Running</string>
