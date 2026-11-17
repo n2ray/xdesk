@@ -88,6 +88,8 @@ final class AppSession {
     private final android.content.SharedPreferences appDensities;
     /** Displays, by density key, where XDesk forced a density that may still be set, see clearLeftDensities. */
     private final android.content.SharedPreferences forcedDensities;
+    /** Displays, by density key, XDesk showed on their whole panel (PanelFit). */
+    private final android.content.SharedPreferences fittedPanels;
     private final android.content.SharedPreferences fullscreenPrefs;
     private final Object densityLock = new Object();
     /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
@@ -361,6 +363,7 @@ final class AppSession {
         densities = c.getSharedPreferences("display_density", Context.MODE_PRIVATE);
         appDensities = c.getSharedPreferences("app_density", Context.MODE_PRIVATE);
         forcedDensities = c.getSharedPreferences("density_forced", Context.MODE_PRIVATE);
+        fittedPanels = c.getSharedPreferences("panel_fitted", Context.MODE_PRIVATE);
         fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
         shell = ShellActivation.get(c);
         shell.setListener(this::sourceChanged);
@@ -1080,6 +1083,39 @@ final class AppSession {
     }
 
     /**
+     * Every wired external display that Android would squeeze (its size has another shape than its panel: the
+     * anisotropy correction of a wrong EDID size) is shown on its whole panel instead (PanelFit), and given back
+     * when its own shape comes right. Done wherever leftover densities are cleared, so whenever the injector is
+     * there for a display. Background thread.
+     */
+    private void fitPanels(IInjector i) throws RemoteException {
+        for (Display d : displays().getDisplays()) {
+            int id = d.getDisplayId();
+            if (id == Display.DEFAULT_DISPLAY || !TargetDisplay.isReal(d) || id == WirelessDisplay.displayId()) continue;
+            Display.Mode m = d.getMode();
+            int w = Math.max(m.getPhysicalWidth(), m.getPhysicalHeight()), h = Math.min(m.getPhysicalWidth(), m.getPhysicalHeight());
+            String key = densityKey(i, d);
+            String r = i.fitPanel(id, w, h, fittedPanels.contains(key));
+            if ("set".equals(r)) fittedPanels.edit().putBoolean(key, true).apply();
+            else if ("cleared".equals(r)) fittedPanels.edit().remove(key).apply();
+            if (r != null) Log.i(TAG, "display " + id + " panel " + w + "x" + h + ": " + r);
+        }
+    }
+
+    /** A display came: it is fitted to its panel when the injector is there (fitPanels). */
+    void checkPanels() {
+        final IInjector i = injector;
+        if (i == null) return;
+        new Thread(() -> {
+            try {
+                fitPanels(i);
+            } catch (RemoteException e) {
+                Log.w(TAG, "panels", e);
+            }
+        }, "xdesk-panel-fit").start();
+    }
+
+    /**
      * The system keeps a forced density across replugging and reboots, keyed by the display. A session that ended with
      * its display unplugged, or with its injector dead, could not clear it, so the display keeps it until XDesk sees it
      * again. Background thread.
@@ -1087,6 +1123,7 @@ final class AppSession {
      * @param skip the display the caller sets itself, or INVALID_DISPLAY
      */
     private void clearLeftDensities(IInjector i, int skip) throws RemoteException {
+        fitPanels(i);
         if (forcedDensities.getAll().isEmpty()) return;
         for (Display d : displays().getDisplays()) {
             int id = d.getDisplayId();

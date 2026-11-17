@@ -47,6 +47,11 @@ interface IInjector {
     void attach(IInjectorListener listener, String ownPackage) = 19;
     /** Interface size of a display. dpi > 0 forces it, 0 always resets it, < 0 resets it if this process set it. Returns null or the error. */
     String setDisplayDensity(int displayId, int dpi) = 22;
+    /**
+     * Shows an external display on its whole panel, pixel for pixel, when Android has it in another shape (PanelFit).
+     * ours: XDesk fitted this display before. Returns "set", "cleared", null when nothing was done, or "error: ...".
+     */
+    String fitPanel(int displayId, int width, int height, boolean ours) = 45;
     /** The display's own density, 0 when unknown. */
     int displayDefaultDensity(int displayId) = 23;
     /** Stays the same for a physical display across replugging. Null when unknown. */

@@ -60,6 +60,7 @@ public class InjectorService extends IInjector.Stub {
     private int repeatPress;
     private final AudioRouter audio = new AudioRouter();
     private final DensityOverride density = new DensityOverride();
+    private final PanelFit panels = new PanelFit();
     private final ImePlacement imes = new ImePlacement();
     /** All three on the worker: the browser's layout (null without one), whether input is taken over, and the keyboard for that. */
     private String webLayout;
@@ -221,6 +222,7 @@ public class InjectorService extends IInjector.Stub {
             audio.clear(false);
             imes.restoreAll();
             density.clearOurs();
+            panels.clearOurs();
             System.exit(1);
         });
         InputInjector i = null;
@@ -393,6 +395,7 @@ public class InjectorService extends IInjector.Stub {
                     output.stop();
                     imes.restoreAll();
                     density.clearOurs();
+                    panels.clearOurs();
                     closeWebKeyboard();
                 }
                 if (onlyUid == NO_UID) System.exit(0);
@@ -406,7 +409,15 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public String setDisplayDensity(int display, int dpi) {
         if (sessionOver) return OVER;
-        return dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
+        String r = dpi > 0 ? density.set(display, dpi) : density.clear(display, dpi == 0);
+        // A density makes the display service project the display its own way again
+        panels.reapplySoon();
+        return r;
+    }
+
+    @Override public String fitPanel(int display, int width, int height, boolean ours) {
+        if (sessionOver) return OVER;
+        return panels.fit(display, width, height, ours);
     }
 
 
@@ -868,6 +879,7 @@ public class InjectorService extends IInjector.Stub {
         output.stop();
         imes.restoreAll();
         density.clearOurs();
+        panels.clearOurs();
         closeWebKeyboard();
         enabled = false;
         listener = null;
