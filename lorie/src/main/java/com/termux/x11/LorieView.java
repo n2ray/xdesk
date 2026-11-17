@@ -627,8 +627,13 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     // It is used in native code
+    /** X copied this (it is on the phone's clipboard already): for the other devices XDesk joins (ShareHub). */
+    public static volatile java.util.function.Consumer<String> onClipboardFromX;
+
     void setClipboardText(String text) {
         clipboard.setPrimaryClip(ClipData.newPlainText("X11 clipboard", text));
+        java.util.function.Consumer<String> share = onClipboardFromX;
+        if (share != null) share.accept(text);
 
         // Android does not send PrimaryClipChanged event to the window which posted event
         // But in the case we are owning focus and clipboard is unchanged it will be replaced by the same value on X server side.

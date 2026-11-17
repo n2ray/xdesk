@@ -26,4 +26,6 @@ oneway interface IInjectorListener {
     void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) = 8;
     /** Game passthrough went on or off (GAMING.md): by Ctrl+Alt+G, by setGameMode, or left by a touch on the phone. */
     void onGameMode(boolean on) = 9;
+    /** The phone's clipboard changed (watchClipboard): its text, null when it holds none. */
+    void onClipboard(String text) = 10;
 }

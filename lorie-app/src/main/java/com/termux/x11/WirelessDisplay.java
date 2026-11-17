@@ -144,7 +144,6 @@ final class WirelessDisplay {
     private volatile String[] receiverAddresses = new String[0];
     private volatile String preferHost;
     private volatile int receiverPort;
-    private volatile String lastClipboard;
     /** The injector of the display being streamed, and its sound recording (null while the sound stays on the phone). */
     private volatile IInjector injector;
     private volatile ParcelFileDescriptor soundPipe;
@@ -1119,7 +1118,7 @@ final class WirelessDisplay {
     void setDesktopShown(boolean on) {
         if (on == desktopShown) return;
         desktopShown = on;
-        if (on) showComputerClipboard();
+        if (on) ShareHub.get(context).desktopShown();
     }
 
     /** The desktop content's cursor is in the picture (a Mac, the switchboard, the driven Dock). Set by XDeskActivity. */
@@ -1174,42 +1173,38 @@ final class WirelessDisplay {
         }
     }
 
-    private volatile String computerClipboard;
+    /** This stream's receiver in the shared clipboard, null for a browser or between streams. */
+    private volatile ShareHub.Endpoint clipEndpoint;
 
-    private void showComputerClipboard() {
-        final String text = computerClipboard;
-        if (text == null) return;
-        ui.post(() -> {
-            LorieView v = DesktopInput.view();
-            if (v != null) v.setComputerClipboard(text);
-        });
-    }
-
+    /**
+     * A receiver that sends input takes part in the shared clipboard (ShareHub) for the stream; a browser does not.
+     * The same thread keeps INPUT_MODE up to date, as before.
+     */
     private void startClipboardSync() {
-        new Thread(() -> {
-            boolean first = true;
-            while (running) {
-                SystemClock.sleep(CLIPBOARD_POLL_MS);
-                // INPUT_MODE changes with the content and the pointer: to an input receiver and a browser alike
-                sendInputMode();
-                if (!inputReceiver) continue;
-                IInjector i = injector;
-                if (i == null || webLost || !clipboardSyncOn()) continue;
-                try {
-                    String text = i.clipboardText();
-                    if (first) {
-                        lastClipboard = text;
-                        first = false;
-                    } else if (text != null && !text.equals(lastClipboard)) {
-                        lastClipboard = text;
-                        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-                        if (bytes.length <= MAX_CLIPBOARD) writeMessage(CLIPBOARD, bytes, 0, bytes.length);
-                    }
-                } catch (RemoteException | IOException e) {
-                    Log.i(TAG, "clipboard: " + e);
-                }
+        final boolean shares = inputReceiver;
+        final ShareHub.Endpoint endpoint = text -> {
+            if (webLost || !running) return;
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            if (bytes.length > MAX_CLIPBOARD) return;
+            try {
+                writeMessage(CLIPBOARD, bytes, 0, bytes.length);
+            } catch (IOException e) {
+                Log.i(TAG, "clipboard: " + e);
             }
-        }, "xdesk-clipboard").start();
+        };
+        clipEndpoint = shares ? endpoint : null;
+        if (shares) ShareHub.get(context).join(endpoint);
+        new Thread(() -> {
+            try {
+                while (running) {
+                    SystemClock.sleep(CLIPBOARD_POLL_MS);
+                    // INPUT_MODE changes with the content and the pointer: to an input receiver and a browser alike
+                    sendInputMode();
+                }
+            } finally {
+                if (shares) ShareHub.get(context).leave(endpoint);
+            }
+        }, "xdesk-input-mode").start();
     }
 
     private void notifyChanged() {
@@ -1371,16 +1366,9 @@ final class WirelessDisplay {
                         running = false;
                         break;
                     } else if (type == CLIPBOARD && size <= MAX_CLIPBOARD && clipboardSyncOn()) {
-                        String text = new String(b, StandardCharsets.UTF_8);
-                        lastClipboard = text;
-                        IInjector i = injector;
-                        if (i != null) {
-                            try {
-                                i.setClipboardText(text);
-                            } catch (RemoteException ignored) { }
-                        }
-                        computerClipboard = text;
-                        if (desktopShown) showComputerClipboard();
+                        // The computer copied: to the phone, the Linux desktop and every other device (ShareHub)
+                        ShareHub.Endpoint e = clipEndpoint;
+                        if (e != null) ShareHub.get(context).put(new String(b, StandardCharsets.UTF_8), e);
                     } else if (type == ADDRESSES) {
                         receiverAddresses = new String(b, StandardCharsets.UTF_8).split(",");
                     } else if (type == SIZE && size >= 4) {
@@ -1809,6 +1797,7 @@ final class WirelessDisplay {
         @Override public void onFingers(float[] x, float[] y) { }
         @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) { } // empty on purpose: this injector never moves a pointer, only the app session's does
         @Override public void onGameMode(boolean on) { }  // game passthrough belongs to the app session
+        @Override public void onClipboard(String text) { }  // the app session's injector watches it (ShareHub)
     };
 
     private static void closeQuietly(java.io.Closeable c) {

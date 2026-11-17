@@ -52,6 +52,11 @@ interface IInjector {
      * ours: XDesk fitted this display before. Returns "set", "cleared", null when nothing was done, or "error: ...".
      */
     String fitPanel(int displayId, int width, int height, boolean ours) = 45;
+    /**
+     * Tell the listener of every change of the phone's clipboard (IInjectorListener.onClipboard), or stop. Returns
+     * whether Android took the watch; without it XDesk sees the clipboard only while it has the focus (ShareHub).
+     */
+    boolean watchClipboard(boolean on) = 46;
     /** The display's own density, 0 when unknown. */
     int displayDefaultDensity(int displayId) = 23;
     /** Stays the same for a physical display across replugging. Null when unknown. */

@@ -415,6 +415,33 @@ public class InjectorService extends IInjector.Stub {
         return r;
     }
 
+    @Override public boolean watchClipboard(boolean on) {
+        if (sessionOver) return false;
+        try {
+            if (!on) {
+                clipboard().unwatch();
+                return true;
+            }
+            clipboard().watch(() -> {
+                IInjectorListener l = listener;
+                if (l == null) return;
+                String text;
+                try {
+                    text = clipboard().text();
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    return;
+                }
+                try {
+                    l.onClipboard(text);
+                } catch (RemoteException ignored) { }
+            });
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "clipboard watch", e);
+            return false;
+        }
+    }
+
     @Override public String fitPanel(int display, int width, int height, boolean ours) {
         if (sessionOver) return OVER;
         return panels.fit(display, width, height, ours);
@@ -883,6 +910,8 @@ public class InjectorService extends IInjector.Stub {
         closeWebKeyboard();
         enabled = false;
         listener = null;
+        ShellClipboard c = clipboard;
+        if (c != null) c.unwatch();
         stopSessionWatcher();
         if (injector == null) return;
         enqueue(injector::releaseAll);

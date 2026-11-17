@@ -1371,6 +1371,7 @@ public class XDeskActivity extends Activity {
         Contents.setHost(contentsHost);
         // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
         MacSource.start(this);
+        ShareHub.get(this);  // one clipboard for every device from the start: its listener, the Linux desktop's copies
         MacSource.switcher = prefix -> showSwitcher(true);
         LinuxSource.install(this); // "l:" Linux programs and X windows
         Devices.get(this).setActions(deviceActions); // DEVICES.md: connect/disconnect of the Linux environments

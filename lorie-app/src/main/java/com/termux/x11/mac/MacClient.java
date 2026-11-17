@@ -6,8 +6,6 @@
  */
 package com.termux.x11.mac;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -195,19 +193,9 @@ public final class MacClient {
 
     // Output queue: byte[] messages, Move pointer moves (the last one is updated in place)
     private final ArrayDeque<Object> out = new ArrayDeque<>();
-    private ClipboardManager.OnPrimaryClipChangedListener clipWatch;
     private String lastClipFromMac;
-    /**
-     * The phone's clipboard through the injector (AppSession.clipboardText), set by MacSource; null gives null. Android
-     * gives the clipboard only to the focused app, so a copy in an Android app on the external screen never reaches
-     * XDesk's listener: it is read here instead, every CLIP_POLL_MS while the Mac's clipboard is on, and when it
-     * starts, so what was copied while the Mac was not on the screen goes over when it is again (17 November).
-     */
-    public static volatile java.util.function.Supplier<String> phoneClipboard;
-    /** The phone's clipboard as last sent to a Mac, or set from one: what is not new. Null before the first look. */
-    private static volatile String lastPhoneClip;
-    private static final long CLIP_POLL_MS = 700;
-    private volatile Thread clipPoll;
+    /** This Mac in the shared clipboard (ShareHub), while its clipboard is on. */
+    private com.termux.x11.ShareHub.Endpoint clipEndpoint;
 
     public MacClient(Context c, MacStore.Mac mac) {
         context = c.getApplicationContext();
@@ -2333,76 +2321,43 @@ public final class MacClient {
         return context.getSharedPreferences("wireless", Context.MODE_PRIVATE).getBoolean("clipboard_sync", true);
     }
 
+    /**
+     * Sill's clipboard on: this Mac takes part in the shared clipboard (ShareHub), which tells it of every copy on the
+     * phone, the Linux desktop or another device, and gives it what is there now.
+     */
     private void startClipboard() {
         if (!clipboardOn()) return;
         ui.post(() -> {
-            if (clipWatch != null || surface == null) return;
-            final ClipboardManager cm = context.getSystemService(ClipboardManager.class);
+            if (clipEndpoint != null || surface == null) return;
             enqueue(SillWire.CLIPBOARD, new byte[] {'{', '}'});
-            clipWatch = () -> {
+            clipEndpoint = text -> {
+                if (text.equals(lastClipFromMac)) return;
                 try {
-                    ClipData d = cm.getPrimaryClip();
-                    if (d == null || d.getItemCount() == 0) return;
-                    CharSequence t = d.getItemAt(0).getText();
-                    if (t == null || t.length() == 0 || t.toString().equals(lastClipFromMac)) return;
-                    if (t.length() > 256 * 1024 || t.toString().equals(lastPhoneClip)) return;
-                    lastPhoneClip = t.toString();
-                    enqueue(SillWire.CLIPBOARD, new JSONObject().put("text", t.toString()));
-                } catch (RuntimeException | JSONException e) {
-                    Log.d(TAG, "clipboard", e);
-                }
+                    enqueue(SillWire.CLIPBOARD, new JSONObject().put("text", text));
+                } catch (JSONException ignored) { }
             };
-            cm.addPrimaryClipChangedListener(clipWatch);
-            pollClipboard();
+            com.termux.x11.ShareHub.get(context).join(clipEndpoint);
         });
-    }
-
-    private void pollClipboard() {
-        final java.util.function.Supplier<String> read = phoneClipboard;
-        if (read == null || clipPoll != null) return;
-        Thread t = new Thread(() -> {
-            while (clipPoll == Thread.currentThread()) {
-                String text = read.get();
-                if (text != null && !text.isEmpty() && !text.equals(lastPhoneClip)) {
-                    lastPhoneClip = text;
-                    // Also the first look: one clipboard (INPUT.md §8), so what the phone has when a Mac comes on is
-                    // what the Mac pastes, as a copy made while it was off the screen is
-                    if (!text.equals(lastClipFromMac) && text.length() <= 256 * 1024) {
-                        try {
-                            enqueue(SillWire.CLIPBOARD, new JSONObject().put("text", text));
-                        } catch (JSONException ignored) { }
-                    }
-                }
-                SystemClock.sleep(CLIP_POLL_MS);
-            }
-        }, "mac-clipboard");
-        clipPoll = t;
-        t.start();
     }
 
     private void stopClipboard() {
         ui.post(() -> {
-            if (clipWatch == null) return;
-            context.getSystemService(ClipboardManager.class).removePrimaryClipChangedListener(clipWatch);
-            clipWatch = null;
-            clipPoll = null;
+            if (clipEndpoint == null) return;
+            com.termux.x11.ShareHub.get(context).leave(clipEndpoint);
+            clipEndpoint = null;
             try {
                 enqueue(SillWire.CLIPBOARD, new JSONObject().put("stop", true));
             } catch (JSONException ignored) { }
         });
     }
 
+    /** The Mac copied: to the phone and every other device. */
     private void clipboardFromMac(final String text) {
         if (text.isEmpty() || !clipboardOn()) return;
         ui.post(() -> {
-            if (clipWatch == null) return;
+            if (clipEndpoint == null) return;
             lastClipFromMac = text;
-            lastPhoneClip = text;
-            try {
-                context.getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Mac", text));
-            } catch (RuntimeException e) {
-                Log.d(TAG, "clipboard", e);
-            }
+            com.termux.x11.ShareHub.get(context).put(text, clipEndpoint);
         });
     }
 }

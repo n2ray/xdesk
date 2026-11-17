@@ -54,8 +54,6 @@ final class MacSource implements ContentSource {
     static void start(Context c) {
         if (instance != null) return;
         instance = new MacSource(c);
-        final Context app = c.getApplicationContext();
-        MacClient.phoneClipboard = () -> AppSession.get(app).clipboardText();
         MacClients.addListener(() -> instance.ui.post(instance::watchClients));
         MacActivity.onEnded = instance::ended;
         // A Mac on the wireless display goes to a receiver that decodes HEVC without being decoded here

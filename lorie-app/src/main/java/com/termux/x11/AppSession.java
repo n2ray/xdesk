@@ -75,6 +75,18 @@ final class AppSession {
         }
     }
 
+    /** The phone's clipboard set as the shell user; false without an injector. Blocking: off the UI thread. */
+    boolean setClipboardText(String text) {
+        IInjector i = injector;
+        if (i == null) return false;
+        try {
+            i.setClipboardText(text);
+            return true;
+        } catch (RemoteException | RuntimeException e) {
+            return false;
+        }
+    }
+
     static synchronized AppSession get(Context c) {
         if (instance == null) instance = new AppSession(c.getApplicationContext());
         return instance;
@@ -194,6 +206,9 @@ final class AppSession {
                 if (corner != null && !left && cornerEdgeAt(x, y) != 0) corner.pushed(edge, dx, dy, held);
             });
         }
+        @Override public void onClipboard(String text) {
+            ShareHub.get(context).phone(text);
+        }
         @Override public void onGameMode(final boolean on) {
             ui.post(() -> {
                 gameMode = on;
@@ -255,6 +270,16 @@ final class AppSession {
             if ((!active && !audioOnly) || binder == null || !binder.pingBinder()) return;
             final IInjector i = IInjector.Stub.asInterface(binder);
             injector = i;
+            // The phone's clipboard for every device (ShareHub): told of each change, and what it holds now
+            new Thread(() -> {
+                try {
+                    boolean watched = i.watchClipboard(true);
+                    if (!watched) Log.i(TAG, "clipboard: no watch, only while XDesk has the focus");
+                    ShareHub.get(context).phone(i.clipboardText());
+                } catch (RemoteException | RuntimeException e) {
+                    Log.w(TAG, "clipboard watch", e);
+                }
+            }, "xdesk-clipboard-watch").start();
             if (audioOnly) {
                 new Thread(() -> {
                     try {

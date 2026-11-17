@@ -323,6 +323,7 @@ public final class SplitStageActivity extends Activity {
         @Override public void onFingers(float[] x, float[] y) { }
         @Override public void onEdgePush(int edge, int dx, int dy, boolean held, int x, int y, boolean left) { }
         @Override public void onGameMode(boolean on) { }  // the stage never asks for game passthrough
+        @Override public void onClipboard(String text) { }  // the app session's injector watches it (ShareHub)
     };
 
     private final IBinder.DeathRecipient injectorDead = () -> ui.post(this::injectorLost);
