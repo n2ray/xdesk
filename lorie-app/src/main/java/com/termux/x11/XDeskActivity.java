@@ -3852,7 +3852,10 @@ public class XDeskActivity extends Activity {
             return c != null && c != SwitcherOverlay.INPUT && !apps.isActive() && c.screenPlace(out);
         }
         @Override public boolean takesKeys() {
-            return apps.isActive();
+            // Over an Android app, and on the home with nothing open: there the external display has no window of
+            // its own that takes keys, and once it is the top display (a click there) a keyboard's keys went nowhere
+            // (17 November). Over X or a Mac, XDesk's own window has them and hands them over (INPUT)
+            return apps.isActive() || contentKey == null && !session.isActive();
         }
         @Override public void pointerLeftAt(float x, float y) {
             // The content the Launchpad was over takes its pointer from there (17 November: it came back where it
