@@ -434,9 +434,23 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                 lorieWakeServer();
                 break;
             case EVENT_CLIPBOARD_SEND: {
-                char *data = (char*) calloc(1, e.clipboardSend.count + 1);
-                read(conn_fd, data, e.clipboardSend.count);
-                data[e.clipboardSend.count] = 0;
+                // The app sends at most a few MB; a count near 2^32 would wrap count + 1 to an empty block
+                size_t want = e.clipboardSend.count, got = 0;
+                char *data = want <= (64u << 20) ? (char*) calloc(1, want + 1) : nullptr;
+                while (data && got < want) {
+                    ssize_t n = read(fd, data + got, want - got);
+                    if (n < 0 && errno == EINTR) continue;
+                    if (n <= 0) break;
+                    got += (size_t) n;
+                }
+                if (!data || got < want) {
+                    // Refused or cut short: what follows on the socket is no longer an event, end the connection
+                    log(ERROR, "clipboard of %zu bytes: %s", want, data ? "cut short" : "refused");
+                    free(data);
+                    handleLorieEvents(fd, X_NOTIFY_ERROR, nullptr);
+                    return;
+                }
+                data[got] = 0;
                 QueueWorkProc(+[](__unused ClientPtr pClient, void *closure) -> Bool {
                     // This must be done only on X server thread.
                     lorieHandleClipboardData((const char*) closure);
@@ -641,7 +655,8 @@ static void reportFatalError(JNIEnv *env, __unused jobject cls, jstring message)
 // Called from OsVendorInit() once the display number and "-tag" argument (if any) are resolved,
 // so the port to knock on and the tag to report back to Java are already known.
 void lorieListenForKnocks(int port, const char *tag) {
-    struct sockaddr_in address = { .sin_family = AF_INET, .sin_port = htons(port), .sin_addr = { .s_addr = INADDR_ANY } };
+    // Loopback only: the app knocks from this device (activity.cpp), nothing on the network has to
+    struct sockaddr_in address = { .sin_family = AF_INET, .sin_port = htons(port), .sin_addr = { .s_addr = htonl(INADDR_LOOPBACK) } };
     int fd, reuse = 1;
 
     serverEnv->CallVoidMethod(thiz, setDocumentTag, tag ? serverEnv->NewStringUTF(tag) : nullptr);
@@ -691,7 +706,7 @@ void lorieListenForKnocks(int port, const char *tag) {
 
         if (poll((struct pollfd[]) {{ .fd = client, .events = POLLIN }}, 1, 200) > 0 &&
             (count = recv(client, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0 &&
-            !memcmp(buffer, MAGIC, min(count, sizeof(MAGIC)))) {
+            count >= (int) sizeof(MAGIC) && !memcmp(buffer, MAGIC, sizeof(MAGIC))) {
             log(DEBUG, "New client connection!\n");
             serverEnv->CallVoidMethod(thiz, sendBroadcast);
         }

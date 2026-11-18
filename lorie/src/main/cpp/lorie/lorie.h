@@ -314,6 +314,8 @@ struct Renderer {
 
     pthread_t thread = 0;
     volatile bool stopping = false;
+    // Under stateLock: the thread has ended (EGL failed, or stopped). Nobody waits for it after that.
+    bool threadDone = false;
     volatile bool stateChanged = false, windowChanged = false, viewportChanged = false;
     struct lorie_shared_server_state* pendingState = nullptr;
     ANativeWindow* pendingWin = nullptr;
@@ -375,6 +377,7 @@ struct Renderer {
     void init(JNIEnv* env, jobject thiz);
     void destroy();
     void* initThread();
+    void* run();  // initThread once attached: EGL, then the loop
     int getWakeupCondFd() const;
     void setFiltering(jint f);
     void testCapabilities(int* legacy_drawing, int* gpu_present_disabled, int* renderer_relock);

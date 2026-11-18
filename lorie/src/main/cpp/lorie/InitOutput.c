@@ -510,9 +510,14 @@ static void lorieSetCursor(DeviceIntPtr pDev, unused ScreenPtr pScr, CursorPtr p
     if (!lorieCursorFromMouse(pDev))
         return;
 
-    if (pCurs && (pCurs->bits->width >= 512 || pCurs->bits->height >= 512))
-        // We do not have enough memory allocated for such a big cursor, let's display default "X" cursor
+    if (pCurs && (pCurs->bits->width >= 512 || pCurs->bits->height >= 512)) {
+        // We do not have enough memory allocated for such a big cursor, let's display default "X" cursor.
+        // Its size and hot spot too: the big one's would have the renderer read past the 512x512 pixels
         pCurs = rootCursor;
+        bits = pCurs ? pCurs->bits : NULL;
+    }
+    if (bits && (bits->width > 512 || bits->height > 512))
+        bits = NULL;
 
     lorie_mutex_lock(&pvfb->state->cursor.lock, &pvfb->state->cursor.lockingPid, conn_fd);
     if (pCurs && bits) {

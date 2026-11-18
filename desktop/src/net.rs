@@ -774,7 +774,13 @@ fn stream_until_end(s: TcpStream, rx: &Receiver<Out>, sinks: &Sinks) -> std::io:
         let mut head = [0u8; 5];
         while input.read_exact(&mut head).is_ok() {
             let n = u32::from_be_bytes([head[1], head[2], head[3], head[4]]) as usize;
-            let mut p = vec![0u8; n.min(1 << 24)];
+            // A longer message is no phone's (files come in pieces): reading only part of it would take the rest
+            // for the next messages' headers, so the connection ends instead
+            if n > 1 << 24 {
+                eprintln!("message of {n} bytes, type {}: ending the connection", head[0]);
+                break;
+            }
+            let mut p = vec![0u8; n];
             if input.read_exact(&mut p).is_err() {
                 break;
             }

@@ -43,6 +43,9 @@ final class MacVideo {
     private MediaCodec codec;
     private Surface codecSurface;
     private boolean needKeyframe = true;
+    /** Room asked of a decoder for one frame: 4 MB, a Retina screen's keyframe, more after a bigger one came. */
+    private int inputSize = 4 << 20;
+    private static final int MAX_INPUT = 32 << 20;
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
     private int width, height;
 
@@ -96,6 +99,28 @@ final class MacVideo {
         if (needKeyframe && !keyframe) return false;
         try {
             drain();
+            // drain found the decoder broken and let it go: the next keyframe starts the next one (fail)
+            if (codec == null) return false;
+            int needed = annexBSize(payload, length);
+            if (needed < 0) {
+                // A broken frame is the stream's fault, not the decoder's: drop it, start again from a keyframe
+                needKeyframe = true;
+                return false;
+            }
+            if (needed > MAX_INPUT) {
+                Log.w(TAG, "video frame of " + needed + " bytes is too big, dropped");
+                needKeyframe = true;
+                return false;
+            }
+            if (needed > inputSize) {
+                // A frame bigger than the decoder was given room for is not the decoder's fault: start this one again
+                // with room for it, from the next keyframe, rather than falling back to software
+                inputSize = Math.min(MAX_INPUT, Integer.highestOneBit(needed - 1) << 1);
+                Log.i(TAG, "video frame of " + needed + " bytes: decoder input now " + inputSize);
+                release();
+                needKeyframe = true;
+                return false;
+            }
             int index = codec.dequeueInputBuffer(20_000);
             if (index < 0) {
                 needKeyframe = true;
@@ -109,7 +134,13 @@ final class MacVideo {
                 int n = 0;
                 for (int i = 0; i < lengthSize; i++) n = (n << 8) | (payload[offset++] & 255);
                 if (n <= 0 || n > length - offset) throw new IllegalArgumentException("Truncated NAL unit");
-                if (4 + n > in.remaining()) throw new IllegalArgumentException("Frame larger than the decoder's buffer");
+                if (4 + n > in.remaining()) {
+                    // Less room than asked for: this decoder can not take such frames, the next one may
+                    Log.w(TAG, "video decoder " + codecName() + " takes " + in.capacity() + " bytes, the frame needs " + needed);
+                    codec.queueInputBuffer(index, 0, 0, 0, 0);
+                    fail(codecName());
+                    return false;
+                }
                 in.put(START).put(payload, offset, n);
                 offset += n;
                 written += 4 + n;
@@ -123,6 +154,20 @@ final class MacVideo {
             fail(codecName());
             return false;
         }
+    }
+
+    /** The frame's size as the decoder takes it, a start code before each NAL unit; -1 when its lengths are broken. */
+    private int annexBSize(byte[] payload, int length) {
+        int offset = 0, total = 0;
+        while (offset < length) {
+            if (lengthSize > length - offset) return -1;
+            int n = 0;
+            for (int i = 0; i < lengthSize; i++) n = (n << 8) | (payload[offset++] & 255);
+            if (n <= 0 || n > length - offset) return -1;
+            offset += n;
+            total += 4 + n;
+        }
+        return total;
     }
 
     /** Pictures the decoder has finished go to the screen at once: the stream is live, there is nothing to pace. */
@@ -183,7 +228,7 @@ final class MacVideo {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
                 format.setInteger(MediaFormat.KEY_PRIORITY, 0);
                 // Frames can be a Retina screen's worth: don't let a small default buffer refuse a keyframe
-                format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 4 << 20);
+                format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, inputSize);
                 made = requested.isEmpty() ? MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_HEVC)
                         : MediaCodec.createByCodecName(requested);
                 made.configure(format, surface, null, 0);

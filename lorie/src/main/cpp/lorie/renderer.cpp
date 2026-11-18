@@ -251,8 +251,27 @@ void* Renderer::initThread() {
     JavaVMAttachArgs attachArgs = { JNI_VERSION_1_6, "LorieRendererThread", nullptr };
     if (jvm->AttachCurrentThread(&rendererEnv, &attachArgs) != JNI_OK) {
         log("Failed to attach renderer thread to JVM");
-        return nullptr;
+        rendererEnv = nullptr;
+    } else
+        run();
+
+    // EGL failed to start, or the loop stopped: nothing answers setWindow and setSharedState any more, so they
+    // must not wait for it (the UI thread would hang there, an ANR)
+    pthread_mutex_lock(&stateLock);
+    threadDone = true;
+    windowChanged = FALSE;
+    stateChanged = false;
+    pthread_cond_broadcast(&stateChangeFinishCond);
+    pthread_mutex_unlock(&stateLock);
+    // ART aborts a thread that ends attached
+    if (rendererEnv) {
+        jvm->DetachCurrentThread();
+        rendererEnv = nullptr;
     }
+    return nullptr;
+}
+
+void* Renderer::run() {
 
     EGLint major, minor;
     EGLint numConfigs;
@@ -314,8 +333,10 @@ void* Renderer::initThread() {
 }
 
 void Renderer::init(JNIEnv* env, jobject view) {
-    if (ctx)
+    // The thread, not ctx: ctx is set on the thread, a while after this returns
+    if (thread)
         return;
+    threadDone = false;
 
     env->GetJavaVM(&jvm);
     thiz = env->NewGlobalRef(view);
@@ -347,8 +368,10 @@ void Renderer::init(JNIEnv* env, jobject view) {
 }
 
 void Renderer::destroy() {
-    if (!ctx)
-        return; // never initialized, or already destroyed
+    // Never initialized, or already destroyed. Not ctx: a destroy right after init comes before the thread has
+    // made it, and the thread must still be joined before this Renderer is freed
+    if (!thread)
+        return;
 
     pthread_mutex_lock(&stateLock);
     stopping = true;
@@ -690,7 +713,7 @@ void Renderer::setSharedState(struct lorie_shared_server_state* newState) {
     stateChanged = true;
     pthread_cond_signal(stateCond);
 
-    while(stateChanged)
+    while(stateChanged && !threadDone)
         pthread_cond_wait(&stateChangeFinishCond, &stateLock);
 
     pthread_mutex_unlock(&stateLock);
@@ -762,7 +785,7 @@ void Renderer::setWindow(JNIEnv *env, jobject jsfc) {
     // `freeAllBuffers: 1 buffers were freed while being dequeued!`
     // or
     // `query: BufferQueue has been abandoned`
-    while(windowChanged)
+    while(windowChanged && !threadDone)
         pthread_cond_wait(&stateChangeFinishCond, &stateLock);
 
     pthread_mutex_unlock(&stateLock);
@@ -980,7 +1003,9 @@ uint64_t Renderer::applyPendingGpuCopiesLocked() {
                 float v1 = (float) r.y2 / (float) srcDesc->height;
                 // Only swap channels if src/dst storage formats actually differ.
                 uint8_t needsSwizzle = LorieBuffer_isRgba(src) != LorieBuffer_isRgba(dst);
-                log("rendererApplyPendingGpuCopies: rect (%d,%d)-(%d,%d) off=(%d,%d) -> ndc=(%.3f,%.3f)-(%.3f,%.3f) uv=(%.3f,%.3f)-(%.3f,%.3f) srcTex=%u dstTex=%u swizzle=%d\n",
+                // Every rect of every copy: only with debugging on, logcat is a blocking write on the frame's path
+                if (lorieDebugEnabled)
+                    log("rendererApplyPendingGpuCopies: rect (%d,%d)-(%d,%d) off=(%d,%d) -> ndc=(%.3f,%.3f)-(%.3f,%.3f) uv=(%.3f,%.3f)-(%.3f,%.3f) srcTex=%u dstTex=%u swizzle=%d\n",
                     r.x1, r.y1, r.x2, r.y2, entry.xOff, entry.yOff, x0, y0, x1, y1, u0, v0, u1, v1,
                     LorieBuffer_getGLTextureId(src), LorieBuffer_getGLTextureId(dst), needsSwizzle);
                 drawRegion(0, x0, y0, x1, y1, u0, v0, u1, v1, needsSwizzle);

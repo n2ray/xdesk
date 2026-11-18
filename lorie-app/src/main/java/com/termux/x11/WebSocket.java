@@ -42,7 +42,18 @@ final class WebSocket {
     }
 
     WebSocket(InputStream in, OutputStream out) {
-        this.in = new DataInputStream(in);
+        // Every read of the socket checks the deadline, not only the start of a frame: a frame sent a byte at a time
+        // would otherwise keep an unpaired connection, and the one pairing attempt, past it
+        this.in = new DataInputStream(new java.io.FilterInputStream(in) {
+            @Override public int read() throws IOException {
+                beforeFrame();
+                return super.read();
+            }
+            @Override public int read(byte[] b, int off, int len) throws IOException {
+                beforeFrame();
+                return super.read(b, off, len);
+            }
+        });
         this.out = out;
     }
 
@@ -53,7 +64,7 @@ final class WebSocket {
 
     /**
      * Reads end at this wall clock time (System.currentTimeMillis), whatever arrives meanwhile: the socket's timeout is
-     * set to what is left before every frame. 0 removes it, and the caller sets its own socket timeout again.
+     * set to what is left before every read of the socket. 0 removes it, and the caller sets its own socket timeout again.
      */
     void setDeadline(java.net.Socket s, long at) {
         deadlineSocket = s;
