@@ -1,6 +1,6 @@
 # 虚拟手柄（GAMEPAD.md）
 
-状态：已实现（2026-11-18，分支 gamepad，0.6.3 测试版），待真机验收 §10。经 Codex 和 DeepSeek 审计，P0 在 15 Ultra 上实测了设备部分（§8）；焦点和 GeForce NOW 在测试版里验收。
+状态：已实现，随 0.6.3 发布（2026-11-18）。用户在 15 Ultra 上验收：外屏 GeForce NOW 里玩原神，操作正常（游戏认成手柄，按手机屏不抢焦点）。经 Codex 和 DeepSeek 审计，P0 在 15 Ultra 上实测了设备部分（§8）；焦点和 GeForce NOW 在测试版里验收。
 来源：用户想在手机屏上放一个可以自己摆布局的虚拟手柄，外屏上的安卓游戏（含 GeForce NOW）把它当成真手柄。
 相关：GAMING.md（游戏直通，键鼠给游戏）、INPUT.md §15、`UhidKeyboard.java`（同样的 uhid 做法）。布局模型借鉴 nx2android 的屏上手柄（`nxnative/dm/android/overlay_default.tsv`、`overlay_layout.h`）；设备身份和描述符同 scrcpy 3.1 的 uhid 手柄（`app/src/uhid/gamepad_uhid.c`、`app/src/hid/hid_gamepad.c`）。
 
