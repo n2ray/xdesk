@@ -32,7 +32,7 @@
 __attribute__((weak)) EGLClientBuffer eglGetNativeClientBufferANDROID(const struct AHardwareBuffer* buffer);
 
 struct LorieBuffer {
-    int16_t refcount;
+    int32_t refcount; // LorieBuffer_acquire/release use 32-bit atomics on it: keep one width
     LorieBuffer_Desc desc;
 
     int8_t locked;
@@ -203,21 +203,36 @@ int LorieBuffer_createRegion(char const* name, size_t size) {
 static LorieBuffer* allocate(int32_t width, int32_t stride, int32_t height, int8_t format, int8_t type, AHardwareBuffer *buf, int fd, size_t size, off_t offset, bool takeFd) {
     AHardwareBuffer_Desc desc = {0};
     static uint64_t id = 0;
-    bool acceptable = (format == AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM || format == AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM) && width > 0 && height > 0;
-    LorieBuffer b = { .desc = { .width = width, .stride = stride, .height = height, .format = format, .type = type, .buffer = buf, .id = id++ }, .fd = takeFd ? fd : dup(fd), .size = size, .offset = offset };
+    bool acceptable = (format == AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM || format == AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM) && width > 0 && height > 0 && stride > 0;
+    LorieBuffer b = { .desc = { .width = width, .stride = stride, .height = height, .format = format, .type = type, .buffer = buf, .id = id++ }, .fd = takeFd ? fd : -1, .size = size, .offset = offset };
 
-    if (type != LORIEBUFFER_AHARDWAREBUFFER && !acceptable)
+    // Check first, take a reference (and dup the fd) only after: a refused buffer used to leak
+    // the dup, and the caller of a takeFd buffer owns what this call was given.
+    if (type != LORIEBUFFER_AHARDWAREBUFFER && !acceptable) {
+        if (takeFd && fd >= 0)
+            close(fd);
         return NULL;
+    }
 
     __sync_fetch_and_add(&b.refcount, 1);
 
     switch (type) {
-        case LORIEBUFFER_REGULAR:
-            b.desc.data = calloc(1, stride * height * sizeof(uint32_t));
+        case LORIEBUFFER_REGULAR: {
+            size_t bytes;
+            if (__builtin_mul_overflow((size_t) stride, (size_t) height, &bytes) ||
+                __builtin_mul_overflow(bytes, sizeof(uint32_t), &bytes))
+                return NULL;
+            b.desc.data = calloc(1, bytes);
             if (!b.desc.data)
                 return NULL;
             break;
+        }
         case LORIEBUFFER_FD:
+            if (!takeFd) {
+                b.fd = fd >= 0 ? dup(fd) : -1;
+                if (b.fd < 0)
+                    return NULL;
+            }
             if (b.fd < 0)
                 return NULL;
 
@@ -273,7 +288,11 @@ __LIBC_HIDDEN__ LorieBuffer* LorieBuffer_allocate(int32_t width, int32_t height,
     AHardwareBuffer *ahardwarebuffer = NULL;
 
     if (type == LORIEBUFFER_FD) {
-        size = alignToPage(width * height * sizeof(uint32_t));
+        if (width <= 0 || height <= 0 ||
+            __builtin_mul_overflow((size_t) width, (size_t) height, &size) ||
+            __builtin_mul_overflow(size, sizeof(uint32_t), &size))
+            return NULL;
+        size = alignToPage(size);
         fd = LorieBuffer_createRegion("LorieBuffer", size);
         if (fd < 0)
             return NULL;
@@ -291,7 +310,16 @@ __LIBC_HIDDEN__ LorieBuffer* LorieBuffer_allocate(int32_t width, int32_t height,
 }
 
 __LIBC_HIDDEN__ LorieBuffer* LorieBuffer_wrapFileDescriptor(int32_t width, int32_t stride, int32_t height, int8_t format, int fd, off_t offset) {
-    return allocate(width, stride, height, format, LORIEBUFFER_FD, NULL, fd, stride * height * sizeof(uint32_t), offset, false);
+    size_t size;
+
+    // The mapping and every row the X server draws live in this multiplication: refuse a size
+    // that does not fit instead of wrapping into a short mapping.
+    if (width <= 0 || height <= 0 || stride < width || offset < 0 ||
+        __builtin_mul_overflow((size_t) stride, (size_t) height, &size) ||
+        __builtin_mul_overflow(size, sizeof(uint32_t), &size))
+        return NULL;
+
+    return allocate(width, stride, height, format, LORIEBUFFER_FD, NULL, fd, size, offset, false);
 }
 
 __LIBC_HIDDEN__ LorieBuffer* LorieBuffer_wrapAHardwareBuffer(AHardwareBuffer* buffer) {
@@ -306,8 +334,13 @@ __LIBC_HIDDEN__ void LorieBuffer_convert(LorieBuffer* buffer, int8_t type, int8_
         return;
 
     if (type == LORIEBUFFER_FD) {
-        size_t size = alignToPage(buffer->desc.stride * buffer->desc.height * sizeof(uint32_t));
-        int fd = LorieBuffer_createRegion("LorieBuffer", size);
+        size_t size;
+        int fd;
+        if (__builtin_mul_overflow((size_t) buffer->desc.stride, (size_t) buffer->desc.height, &size) ||
+            __builtin_mul_overflow(size, sizeof(uint32_t), &size))
+            return;
+        size = alignToPage(size);
+        fd = LorieBuffer_createRegion("LorieBuffer", size);
         if (fd < 0)
             return;
 
@@ -413,8 +446,20 @@ __LIBC_HIDDEN__ int LorieBuffer_lock(LorieBuffer* buffer, void** out) {
     if (buffer->desc.type == LORIEBUFFER_REGULAR || buffer->desc.type == LORIEBUFFER_FD)
         buffer->lockedData = buffer->desc.data;
     else if (buffer->desc.type == LORIEBUFFER_AHARDWAREBUFFER) {
-        if (__builtin_available(android 26, *))
-            ret = AHardwareBuffer_lock(buffer->desc.buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, NULL, &buffer->lockedData);
+        if (!__builtin_available(android 26, *)) {
+            if (out)
+                *out = NULL;
+            return ENOSYS;
+        }
+        buffer->lockedData = NULL;
+        ret = AHardwareBuffer_lock(buffer->desc.buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, NULL, &buffer->lockedData);
+        if (ret) {
+            // Do not remember a failed lock: every later lock would answer EEXIST forever.
+            buffer->lockedData = NULL;
+            if (out)
+                *out = NULL;
+            return ret;
+        }
     }
 
     if (out)
@@ -451,10 +496,23 @@ __LIBC_HIDDEN__ int LorieBuffer_unlock(LorieBuffer* buffer) {
 }
 
 __LIBC_HIDDEN__ void LorieBuffer_sendHandleToUnixSocket(LorieBuffer* _Nonnull buffer, int socketFd) {
+    const char* p;
+    size_t left;
+
     if (socketFd < 0 || !buffer)
         return;
 
-    write(socketFd, buffer, sizeof(*buffer));
+    // The receiver parses this as one struct: a short write would leave it waiting for bytes
+    // that are never going to come.
+    for (p = (const char*) buffer, left = sizeof(*buffer); left; ) {
+        ssize_t n = write(socketFd, p, left);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            return;
+        p += n;
+        left -= (size_t) n;
+    }
     if (buffer->desc.type == LORIEBUFFER_FD)
         ancil_send_fd(socketFd, buffer->fd);
     else if (buffer->desc.type == LORIEBUFFER_AHARDWAREBUFFER) {
@@ -465,24 +523,37 @@ __LIBC_HIDDEN__ void LorieBuffer_sendHandleToUnixSocket(LorieBuffer* _Nonnull bu
 
 __LIBC_HIDDEN__ void LorieBuffer_recvHandleFromUnixSocket(int socketFd, LorieBuffer** outBuffer) {
     LorieBuffer buffer = {0}, *ret = NULL;
+    size_t size = 0;
+    size_t got = 0;
     // We should read buffer from socket despite outbuffer is NULL, otherwise we will get protocol error
     if (socketFd < 0)
         return;
 
-    // Reset process-specific data;
-    buffer.refcount = 0;
-    buffer.fd = -1;
-    __sync_fetch_and_add(&buffer.refcount, 1); // refcount is the first object in the struct
+    // A stream can return a short read; a struct parsed half old, half new is worse than none.
+    while (got < sizeof(buffer)) {
+        ssize_t n = read(socketFd, (char*) &buffer + got, sizeof(buffer) - got);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0) {
+            if (outBuffer)
+                *outBuffer = NULL;
+            return;
+        }
+        got += (size_t) n;
+    }
 
-    read(socketFd, &buffer, sizeof(buffer));
+    buffer.fd = -1;
     buffer.image = NULL; // Only for process-local use
     buffer.dmaBufSyncSupport = DMA_BUF_SYNC_UNKNOWN;
     buffer.locked = false;
     buffer.lockedData = NULL;
     if (buffer.desc.type == LORIEBUFFER_FD) {
-        size_t size = buffer.desc.stride * buffer.desc.height * sizeof(uint32_t);
         buffer.fd = ancil_recv_fd(socketFd);
-        if (buffer.fd == -1) {
+        if (buffer.fd == -1 ||
+            __builtin_mul_overflow((size_t) buffer.desc.stride, (size_t) buffer.desc.height, &size) ||
+            __builtin_mul_overflow(size, sizeof(uint32_t), &size)) {
+            if (buffer.fd >= 0)
+                close(buffer.fd);
             if (outBuffer)
                 *outBuffer = NULL;
             return;
@@ -508,15 +579,20 @@ __LIBC_HIDDEN__ void LorieBuffer_recvHandleFromUnixSocket(int socketFd, LorieBuf
     if (!ret) {
         if (buffer.fd >= 0)
             close(buffer.fd);
+        if (buffer.desc.type == LORIEBUFFER_FD && buffer.desc.data != MAP_FAILED)
+            munmap(buffer.desc.data, size);
         if (buffer.desc.buffer) {
             if (__builtin_available(android 26, *))
                 AHardwareBuffer_release(buffer.desc.buffer);
         }
         if (outBuffer)
-            outBuffer = NULL;
+            *outBuffer = NULL;
         return;
     }
 
+    // The struct came over the wire with the sender's count: this copy is a new object with the
+    // caller's single reference.
+    buffer.refcount = 1;
     *ret = buffer;
     xorg_list_init(&ret->link);
     *outBuffer = ret;

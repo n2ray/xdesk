@@ -41,12 +41,15 @@ void lorieSyncLockKeysState(uint8_t state);
 void lorieWakeServer(void);
 void lorieRecheckGpuCopies(void);
 void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d);
+// Starts the vsync callback chain: it keeps itself posted while there is a connection or a
+// pending vblank, and stops otherwise (see lorieChoreographerFrameCallback).
+void lorieSetChoreographer(AChoreographer* choreographer);
 void lorieActivityConnected(void);
 void lorieSendSharedServerState(int memfd);
 void lorieRegisterBuffer(LorieBuffer* buffer);
 void lorieUnregisterBuffer(LorieBuffer* buffer);
 bool lorieConnectionAlive(int fd);
-extern bool lorieDebugEnabled; // Set in activity.cpp's startLogcat, only called when TERMUX_X11_DEBUG=1.
+extern bool lorieDebugEnabled; // Set from TERMUX_X11_DEBUG: by startLogcat in the app, by start() in the X server.
 void lorieSetRendererWakeupCond(int fd);
 void lorieSetCursorVisible(Bool visible);
 void lorieSetCursorHidden(Bool hidden);
@@ -200,6 +203,17 @@ typedef union {
         uint32_t serial;
     } sync;
 } lorieEvent;
+
+/*
+ * One event socket has more than one writer in a process (the UI thread and the renderer
+ * thread), and an event can be a header plus a payload or a file descriptor: take this lock
+ * around the whole event so no other event can land in the middle of it. The caller takes the
+ * lock and calls `lorieWriteEventLocked`, which writes the event in full, looping on short
+ * writes; the fd that belongs to an event (or its payload) is written under the same lock.
+ */
+void lorieEventWriteLock(void);
+void lorieEventWriteUnlock(void);
+bool lorieWriteEventLocked(int fd, const lorieEvent* event, const void* payload, size_t payloadSize);
 
 typedef struct { int16_t x1, y1, x2, y2; } LorieGpuCopyRect;
 
@@ -370,6 +384,11 @@ struct Renderer {
     // they are per-instance state, not per-process.
     uint64_t dstSizeLogCount = 0, srcSizeLogCount = 0;
     uint64_t lastRequestedBufferId = 0;
+    // gpuCopyQueue.writeIndex the last prefetchGpuCopyBuffers() covered (renderer thread only).
+    uint32_t prefetchedWrite = 0;
+    // Once a copy was skipped, completedSerial must never pass it: it is a high-water mark, so
+    // any later serial would acknowledge the skipped one too (renderer thread only).
+    bool gpuCopyAckBlocked = false;
 
     volatile int* connFdPtr = nullptr;
     int connFd() const { return connFdPtr ? *connFdPtr : -1; }
@@ -393,8 +412,12 @@ struct Renderer {
     void setFollowCursorPan(bool enabled);
     void releaseWinAndSurface(ANativeWindow** anw, EGLSurface* esfc);
     void refreshContext();
+    LorieBuffer* findBuffer(uint64_t id);
     LorieBuffer* findBufferWithRetry(uint64_t id);
-    uint64_t applyPendingGpuCopiesLocked();
+    void prefetchGpuCopyBuffers();
+    // Returns the highest serial actually applied (0: none, nothing to fence); ackSerial is the
+    // highest serial safe to publish as completed (skips pin everything after them).
+    uint64_t applyPendingGpuCopiesLocked(uint64_t* ackSerial);
     void applyPendingGpuCopies();
     void redrawLocked(bool* waitingForBuffers);
     bool shouldWait(bool* waitingForBuffers);

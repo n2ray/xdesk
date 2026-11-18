@@ -24,7 +24,8 @@
 #pragma ide diagnostic ignored "ConstantFunctionResult"
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
 // `r` must be a LorieViewResources* — the connection fd is per-instance state, not a process global.
-#define sendEvent(r, ...) do { if ((r) && (r)->connFd != -1) { lorieEvent e = { __VA_ARGS__ }; write((r)->connFd, &e, sizeof(e)); } } while (0)
+// The event goes through the view's sender thread, so the ordering with text being paced is kept.
+#define sendEvent(r, ...) do { lorieEvent e_ = { __VA_ARGS__ }; lorieSendEvent((r), e_, nullptr, 0); } while (0)
 
 bool lorieDebugEnabled = false;
 
@@ -59,6 +60,15 @@ static struct {
     jmethodID setLaunchWindowingMode;
 } ActivityOptions = {nullptr};
 
+// One queued event, or one text commit to parse and pace on the sender thread.
+struct PendingEvent {
+    PendingEvent* next;
+    lorieEvent event;
+    char* payload;      // owned: the event's payload, or the UTF-8 text to pace
+    size_t payloadSize;
+    bool text;
+};
+
 // Bundles the native state belonging to the current LorieView instance so it can be released
 // as a unit when that instance is torn down, instead of leaking as scattered process globals.
 struct LorieViewResources {
@@ -69,12 +79,246 @@ struct LorieViewResources {
     volatile int connFd = -1;
     bool destroyed = true;
 
+    // Events are written by one thread per view: a text commit is paced (the X server wants a
+    // little time between two synthetic characters), and the events sent after it must not
+    // overtake it. Only this thread ever waits on the pacing, never the UI thread.
+    pthread_t eventThread{};
+    pthread_mutex_t eventQueueLock{};
+    pthread_cond_t eventQueueCond{};
+    PendingEvent* eventHead = nullptr;
+    PendingEvent* eventTail = nullptr;
+    bool eventThreadRunning = false;
+    bool eventStopping = false;
+
     LorieViewResources(JNIEnv* callerEnv, jobject view);
     ~LorieViewResources();
+    void startEventThread();
+    void stopEventThread();
     void connect(jint fd);
     int xcallback(int fd, int events);
     void showServerVersionMismatch();
 };
+
+// ---- The event socket in this process -------------------------------------
+// A stream socket can return less than a whole event, and the protocol has no framing to find
+// the next event again: a short read or EOF means the connection can not be used any more.
+static bool readFully(int fd, void* data, size_t len) {
+    char* p = (char*) data;
+    while (len) {
+        ssize_t n = read(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            return false;
+        }
+        if (n == 0)
+            return false;
+        p += n;
+        len -= (size_t) n;
+    }
+    return true;
+}
+
+// The UI thread and the renderer thread (EVENT_GPU_COPY_DONE, see notifyGpuCopyDone) write to
+// the same socket: one lock around each whole event keeps them from splitting each other.
+static pthread_mutex_t eventWriteLock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool writeFully(int fd, const void* data, size_t len) {
+    const char* p = (const char*) data;
+    while (len) {
+        ssize_t n = write(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            return false;
+        }
+        if (n == 0)
+            return false;
+        p += n;
+        len -= (size_t) n;
+    }
+    return true;
+}
+
+bool lorieWriteEventLocked(int fd, const lorieEvent* event, const void* payload, size_t payloadSize) {
+    return fd >= 0 && writeFully(fd, event, sizeof(*event)) &&
+           (!payloadSize || writeFully(fd, payload, payloadSize));
+}
+
+void lorieEventWriteLock(void) { pthread_mutex_lock(&eventWriteLock); }
+void lorieEventWriteUnlock(void) { pthread_mutex_unlock(&eventWriteLock); }
+
+// Writes to whichever fd the view is connected to right now, under the event lock: connect() can
+// swap or close the fd under the same lock, so no event can go to a descriptor that is gone.
+static void writeEventToView(LorieViewResources* r, const lorieEvent& e, const void* payload, size_t payloadSize) {
+    lorieEventWriteLock();
+    if (r->connFd != -1)
+        lorieWriteEventLocked(r->connFd, &e, payload, payloadSize);
+    lorieEventWriteUnlock();
+}
+
+// The text as key/unicode events, 2.5 ms apart: the X server takes a synthetic character at a
+// time, and a whole paste fired at once lands late in the window it was typed into.
+static void sendTextNow(LorieViewResources* r, const char* text, size_t length) {
+    mbstate_t mbstate = { 0 };
+    const char* p = text;
+
+    while (length && *p) {
+        wchar_t wc;
+        size_t remaining = length - (size_t) (p - text);
+        size_t len = mbrtowc(&wc, p, remaining, &mbstate);
+
+        if (len == (size_t) -1 || len == (size_t) -2) {
+            log(ERROR, "Invalid UTF-8 sequence encountered");
+            break;
+        }
+        if (len == 0)
+            break;
+
+        if (wc == L'\n') {
+            lorieEvent down = { .key = { .t = EVENT_KEY, .key = KEY_ENTER + 8, .state = 1 } };
+            lorieEvent up = { .key = { .t = EVENT_KEY, .key = KEY_ENTER + 8, .state = 0 } };
+            writeEventToView(r, down, nullptr, 0);
+            writeEventToView(r, up, nullptr, 0);
+        } else if (wc != L'\r') {
+            lorieEvent unicode = { .unicode = { .t = EVENT_UNICODE, .code = (uint32_t) wc } };
+            writeEventToView(r, unicode, nullptr, 0);
+        }
+
+        p += len;
+        if ((size_t) (p - text) >= length)
+            break;
+        usleep(2500);
+        if (__atomic_load_n(&r->eventStopping, __ATOMIC_RELAXED))
+            break;
+    }
+}
+
+static void* eventThreadMain(void* arg) {
+    auto* r = (LorieViewResources*) arg;
+
+    pthread_mutex_lock(&r->eventQueueLock);
+    for (;;) {
+        while (!r->eventHead && !r->eventStopping)
+            pthread_cond_wait(&r->eventQueueCond, &r->eventQueueLock);
+        if (r->eventStopping)
+            break;
+
+        PendingEvent* job = r->eventHead;
+        r->eventHead = job->next;
+        if (!r->eventHead)
+            r->eventTail = nullptr;
+        pthread_mutex_unlock(&r->eventQueueLock);
+
+        if (job->text)
+            sendTextNow(r, job->payload, job->payloadSize);
+        else
+            writeEventToView(r, job->event, job->payload, job->payloadSize);
+
+        free(job->payload);
+        free(job);
+        pthread_mutex_lock(&r->eventQueueLock);
+    }
+    pthread_mutex_unlock(&r->eventQueueLock);
+    return nullptr;
+}
+
+void LorieViewResources::startEventThread() {
+    pthread_mutex_init(&eventQueueLock, nullptr);
+    pthread_cond_init(&eventQueueCond, nullptr);
+    eventThreadRunning = pthread_create(&eventThread, nullptr, eventThreadMain, this) == 0;
+    if (!eventThreadRunning)
+        log(ERROR, "Could not start the event sender thread, sending input from the caller");
+}
+
+void LorieViewResources::stopEventThread() {
+    if (eventThreadRunning) {
+        pthread_mutex_lock(&eventQueueLock);
+        __atomic_store_n(&eventStopping, true, __ATOMIC_RELAXED);
+        pthread_cond_broadcast(&eventQueueCond);
+        pthread_mutex_unlock(&eventQueueLock);
+        pthread_join(eventThread, nullptr);
+        eventThreadRunning = false;
+    }
+
+    while (eventHead) {
+        PendingEvent* job = eventHead;
+        eventHead = job->next;
+        free(job->payload);
+        free(job);
+    }
+    eventTail = nullptr;
+}
+
+// Takes ownership of the job. Events are queued in send order; a text commit stays at the head
+// while it is paced, so anything sent after it waits behind it instead of overtaking it.
+static void queueEvent(LorieViewResources* r, PendingEvent* job) {
+    pthread_mutex_lock(&r->eventQueueLock);
+    if (r->eventStopping) {
+        pthread_mutex_unlock(&r->eventQueueLock);
+        free(job->payload);
+        free(job);
+        return;
+    }
+    if (r->eventTail)
+        r->eventTail->next = job;
+    else
+        r->eventHead = job;
+    r->eventTail = job;
+    pthread_cond_signal(&r->eventQueueCond);
+    pthread_mutex_unlock(&r->eventQueueLock);
+}
+
+static void lorieSendEvent(LorieViewResources* r, const lorieEvent& e, const void* payload, size_t payloadSize) {
+    if (!r || r->connFd == -1)
+        return;
+
+    if (!r->eventThreadRunning) {
+        writeEventToView(r, e, payload, payloadSize);
+        return;
+    }
+
+    PendingEvent* job = (PendingEvent*) calloc(1, sizeof(*job));
+    if (!job) {
+        writeEventToView(r, e, payload, payloadSize); // rare: do not lose input, at the cost of order
+        return;
+    }
+    if (payloadSize) {
+        job->payload = (char*) malloc(payloadSize);
+        if (!job->payload) {
+            free(job);
+            writeEventToView(r, e, payload, payloadSize);
+            return;
+        }
+        memcpy(job->payload, payload, payloadSize);
+        job->payloadSize = payloadSize;
+    }
+    job->event = e;
+    queueEvent(r, job);
+}
+
+// Takes ownership of `text`.
+static void lorieSendText(LorieViewResources* r, char* text, size_t length) {
+    if (!r || r->connFd == -1) {
+        free(text);
+        return;
+    }
+
+    if (r->eventThreadRunning) {
+        PendingEvent* job = (PendingEvent*) calloc(1, sizeof(*job));
+        if (job) {
+            job->text = true;
+            job->payload = text;
+            job->payloadSize = length;
+            queueEvent(r, job);
+            return;
+        }
+    }
+
+    // No sender thread: pace on the caller's thread, like before.
+    sendTextNow(r, text, length);
+    free(text);
+}
 
 static jclass FindClassOrDie(JNIEnv *env, const char* name) {
     jclass clazz = env->FindClass(name);
@@ -173,16 +417,24 @@ LorieViewResources::LorieViewResources(JNIEnv *callerEnv, jobject view) {
     if (a)
         activity = env->NewGlobalRef(a);
 
+    startEventThread();
     connect(-1);
 }
 
 LorieViewResources::~LorieViewResources() {
     destroyed = true;
 
+    // Stop the sender before the fd goes: a queued event must not reach a descriptor number
+    // that connect() or a later open could reuse.
+    stopEventThread();
+
     if (connFd != -1) {
         ALooper_removeFd(ALooper_forThread(), connFd);
-        close(connFd);
+        lorieEventWriteLock();
+        int fd = connFd;
         connFd = -1;
+        close(fd);
+        lorieEventWriteUnlock();
     }
 
     renderer.destroy();
@@ -237,9 +489,20 @@ void LorieViewResources::showServerVersionMismatch() {
 
 int LorieViewResources::xcallback(int fd, int events) {
     if (events & (ALOOPER_EVENT_ERROR | ALOOPER_EVENT_HANGUP)) {
+        Bool current;
+
         ALooper_removeFd(ALooper_forThread(), fd);
-        close(connFd);
-        connFd = -1;
+        // The fd may have been replaced since this callback was queued: only tear the
+        // connection down when the one that hung up is still the current one.
+        lorieEventWriteLock();
+        current = connFd == fd;
+        if (current) {
+            connFd = -1;
+            close(fd);
+        }
+        lorieEventWriteUnlock();
+        if (!current)
+            return 1;
         renderer.setSharedState(nullptr);
         renderer.removeAllBuffers();
         log(DEBUG, "disconnected");
@@ -252,22 +515,31 @@ int LorieViewResources::xcallback(int fd, int events) {
         lorieEvent e = {0};
 
         again:
-        if (read(connFd, &e, sizeof(e)) == sizeof(e)) {
+        if (readFully(connFd, &e, sizeof(e))) {
             switch(e.type) {
                 case EVENT_CLIPBOARD_SEND: {
+                    // As on the other side: anything larger is refused, the stream can not be
+                    // resynchronised after swallowing it.
+                    const size_t maxClipboard = 64u << 20;
                     if (!e.clipboardSend.count)
                         break;
-                    size_t capacity;
-                    if (__builtin_add_overflow((size_t) e.clipboardSend.count, (size_t) 1, &capacity))
+                    if (e.clipboardSend.count > maxClipboard) {
+                        log(ERROR, "Refusing a clipboard of %u bytes", e.clipboardSend.count);
                         return xcallback(fd, ALOOPER_EVENT_HANGUP);
-                    char *clipboard = (char*) calloc(capacity, 1);
+                    }
+                    size_t count = e.clipboardSend.count;
+                    char *clipboard = (char*) calloc(count + 1, 1);
                     if (!clipboard) {
                         log(ERROR, "Could not allocate clipboard buffer");
                         return xcallback(fd, ALOOPER_EVENT_HANGUP);
                     }
-                    read(connFd, clipboard, e.clipboardSend.count);
-                    clipboard[e.clipboardSend.count] = 0;
-                    log(DEBUG, "Clipboard content (%zu symbols) is %s", strlen(clipboard), clipboard);
+                    if (!readFully(connFd, clipboard, count)) {
+                        log(ERROR, "Clipboard of %zu bytes: connection lost", count);
+                        free(clipboard);
+                        return xcallback(fd, ALOOPER_EVENT_HANGUP);
+                    }
+                    clipboard[count] = 0;
+                    log(DEBUG, "Clipboard: %zu bytes", count);
                     jmethodID id = env->GetMethodID(env->GetObjectClass(thiz), "setClipboardText","(Ljava/lang/String;)V");
                     jobject bb = env->NewDirectByteBuffer(clipboard, strlen(clipboard));
                     jobject charset = env->CallStaticObjectMethod(Charset.self, Charset.forName, env->NewStringUTF("UTF-8"));
@@ -346,6 +618,9 @@ int LorieViewResources::xcallback(int fd, int events) {
                     break;
                 }
             }
+        } else {
+            // EOF or a read error: the rest of the stream can not be parsed as events.
+            return xcallback(fd, ALOOPER_EVENT_HANGUP);
         }
 
         int n;
@@ -357,22 +632,35 @@ int LorieViewResources::xcallback(int fd, int events) {
 }
 
 void LorieViewResources::connect(jint fd) {
+    int old = -1;
+
     if (connFd != -1) {
         ALooper_removeFd(ALooper_forThread(), connFd);
-        close(connFd);
         renderer.setSharedState(nullptr);
         renderer.removeAllBuffers();
         log(DEBUG, "disconnected");
     }
 
-    if ((connFd = fd) != -1) {
+    // Swap under the event lock: the sender thread reads the fd there, so it can never write to
+    // the old descriptor after it was closed (and the number reused).
+    lorieEventWriteLock();
+    old = connFd;
+    connFd = fd;
+    lorieEventWriteUnlock();
+    if (old != -1 && old != fd)
+        close(old);
+
+    if (fd != -1) {
         ALooper_addFd(ALooper_forThread(), fd, 0, ALOOPER_EVENT_INPUT | ALOOPER_EVENT_ERROR | ALOOPER_EVENT_HANGUP,
                       +[](int fd, int events, void* data) -> int { return ((LorieViewResources*) data)->xcallback(fd, events); }, this);
 
-        // Give the X server our renderer wakeup cond var fd, resent on every reconnect.
+        // Give the X server our renderer wakeup cond var fd, resent on every reconnect. The fd
+        // belongs to the event, so it is sent while the event lock is still held.
         lorieEvent e = { .type = EVENT_RENDERER_WAKEUP_COND };
-        write(connFd, &e, sizeof(e));
-        ancil_send_fd(connFd, renderer.getWakeupCondFd());
+        lorieEventWriteLock();
+        if (lorieWriteEventLocked(connFd, &e, nullptr, 0))
+            ancil_send_fd(connFd, renderer.getWakeupCondFd());
+        lorieEventWriteUnlock();
 
         log(DEBUG, "XCB connection is successfull");
     }
@@ -404,39 +692,25 @@ static void sendTextEvent(JNIEnv *env, __unused jobject thiz, jlong ptr, jbyteAr
     if (r && r->connFd != -1 && text) {
         jsize length = env->GetArrayLength(text);
         jbyte *str = env->GetByteArrayElements(text, nullptr);
-        char *p = (char*) str;
-        mbstate_t mbstate = { 0 };
-        if (!length)
+        if (!str)
             return;
-
-        log(DEBUG, "Parsing text: %.*s", length, str);
-
-        while (*p) {
-            wchar_t wc;
-            size_t len = mbrtowc(&wc, p, MB_CUR_MAX, &mbstate);
-
-            if (len == (size_t)-1 || len == (size_t)-2) {
-                log(ERROR, "Invalid UTF-8 sequence encountered");
-                break;
-            }
-
-            if (len == 0)
-                break;
-
-            if (wc == L'\n') {
-                sendEvent(r, .key = { .t = EVENT_KEY, .key = KEY_ENTER + 8, .state = 1 });
-                sendEvent(r, .key = { .t = EVENT_KEY, .key = KEY_ENTER + 8, .state = 0 });
-            } else if (wc != L'\r') {
-                log(DEBUG, "Sending unicode event: %lc (U+%X)", wc, wc);
-                sendEvent(r, .unicode = { .t = EVENT_UNICODE, .code = (uint32_t) wc });
-            }
-            p += len;
-            if (p - (char*) str >= length)
-                break;
-            usleep(2500);
+        if (!length) {
+            env->ReleaseByteArrayElements(text, str, JNI_ABORT);
+            return;
         }
 
+        log(DEBUG, "Sending %d bytes of text", (int) length);
+
+        // The parse and the pacing are the sender thread's job; the array is only pinned for
+        // the copy.
+        char *copy = (char*) malloc((size_t) length + 1);
+        if (copy) {
+            memcpy(copy, str, (size_t) length);
+            copy[length] = 0;
+        }
         env->ReleaseByteArrayElements(text, str, JNI_ABORT);
+        if (copy)
+            lorieSendText(r, copy, (size_t) length);
     }
 }
 
@@ -542,8 +816,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __unused void *reserved) {
                 if (r && r->connFd != -1 && text) {
                     jsize length = env->GetArrayLength(text);
                     jbyte* str = env->GetByteArrayElements(text, nullptr);
-                    sendEvent(r, .clipboardSend = { .t = EVENT_CLIPBOARD_SEND, .count = (uint32_t) length });
-                    write(r->connFd, str, length);
+                    if (!str) return;
+                    lorieEvent e = { .clipboardSend = { .t = EVENT_CLIPBOARD_SEND, .count = (uint32_t) length } };
+                    lorieSendEvent(r, e, str, (size_t) length);
                     env->ReleaseByteArrayElements(text, str, JNI_ABORT);
                 }
             }},
@@ -558,11 +833,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __unused void *reserved) {
                     e.screenSize.framerate = (uint16_t) framerate;
                     e.screenSize.name_size = name ? strlen(name) : 0;
                     e.screenSize.dpi = dpi > 0 ? (uint32_t) dpi : 0;
-                    write(r->connFd, &e, sizeof(e));
-                    if (name) {
-                        write(r->connFd, name, strlen(name));
+                    lorieSendEvent(r, e, name, name ? strlen(name) : 0);
+                    if (name)
                         env->ReleaseStringUTFChars(jname, name);
-                    }
                 }
             }},
             {"setCursorHidden", "(JZ)V", (void *) +[](__unused JNIEnv* env, __unused jobject cls, jlong ptr, jboolean hidden) {

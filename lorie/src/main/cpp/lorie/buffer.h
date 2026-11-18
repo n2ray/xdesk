@@ -1,5 +1,6 @@
 #pragma once
 #include <fcntl.h>
+#include <stdint.h>
 #include <linux/ashmem.h>
 #include <android/hardware_buffer.h>
 
@@ -93,7 +94,7 @@ STATIC_INLINE void LorieBuffer_acquire(LorieBuffer* _Nullable buffer) {
     if (!buffer)
         return;
 
-    __sync_fetch_and_add((int*) buffer, 1); // refcount is the first object in the struct
+    __sync_fetch_and_add((int32_t*) buffer, 1); // refcount is the first object in the struct
 }
 
 /**
@@ -104,7 +105,7 @@ STATIC_INLINE void LorieBuffer_acquire(LorieBuffer* _Nullable buffer) {
  */
 STATIC_INLINE void LorieBuffer_release(LorieBuffer* _Nullable buffer) {
     void __LorieBuffer_free(LorieBuffer* buffer);
-    if (buffer && __sync_fetch_and_sub((int16_t*) buffer, 1) == 1) // refcount is the first object in the struct
+    if (buffer && __sync_fetch_and_sub((int32_t*) buffer, 1) == 1) // refcount is the first object in the struct
         __LorieBuffer_free(buffer);
 }
 

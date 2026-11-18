@@ -14,6 +14,8 @@
 
 #include <sys/eventfd.h>
 #include <sys/errno.h>
+#include <limits.h>
+#include <stdint.h>
 #include <libxcvt/libxcvt.h>
 #include <X11/X.h>
 #include <X11/Xmd.h>
@@ -102,6 +104,9 @@ typedef struct {
 
     uint64_t vblank_interval;
     struct xorg_list vblank_queue;
+    // Queued vblanks, for lorieFramesNeeded(): it runs on the Choreographer's thread and must not
+    // walk a list the server thread is changing.
+    volatile uint32_t vblank_pending;
     uint64_t current_msc;
 
     uint64_t gpuCopySerialCounter;
@@ -226,11 +231,44 @@ void lorieSetRendererWakeupCond(int fd) {
     lorieWakeServer();
 }
 
+// The vsync callback chain runs only while it has something to do: it re-posts itself from the
+// callback as long as there is a connection or a vblank a client is waiting for. Without one it
+// stops, instead of waking the server 60-120 times a second on an idle desktop.
+static AChoreographer* lorieChoreographer = NULL;
+static pthread_mutex_t lorieFrameLock = PTHREAD_MUTEX_INITIALIZER;
+static Bool lorieFrameScheduled = FALSE;
+
+static Bool lorieFramesNeeded(void) {
+    // A surface alone is not enough: without a connection the renderer has no server state and
+    // surfaceAvailable is a leftover of the last connection.
+    return conn_fd != -1 || __atomic_load_n(&pvfb->vblank_pending, __ATOMIC_ACQUIRE) != 0;
+}
+
+// Can be called from any thread: AChoreographer queues the callback on its own looper.
+static void lorieScheduleFrame(void) {
+    pthread_mutex_lock(&lorieFrameLock);
+    if (lorieChoreographer && !lorieFrameScheduled) {
+        lorieFrameScheduled = TRUE;
+        AChoreographer_postFrameCallback(lorieChoreographer,
+                                         (AChoreographer_frameCallback) lorieChoreographerFrameCallback,
+                                         lorieChoreographer);
+    }
+    pthread_mutex_unlock(&lorieFrameLock);
+}
+
+void lorieSetChoreographer(AChoreographer* choreographer) {
+    pthread_mutex_lock(&lorieFrameLock);
+    lorieChoreographer = choreographer;
+    pthread_mutex_unlock(&lorieFrameLock);
+    lorieScheduleFrame();
+}
+
 void lorieActivityConnected(void) {
     pvfb->state->drawRequested = pvfb->state->cursor.updated = true;
     pvfb->state->rendererRelock = pvfb->rendererRelock;
     lorieSendSharedServerState(pvfb->stateFd);
     lorieRegisterBuffer(LORIE_ROOT_BUFFER(pScreenPtr->devPrivate));
+    lorieScheduleFrame(); // the chain may have stopped while there was no connection
 }
 
 static Bool TrueNoop() { return TRUE; }
@@ -461,7 +499,14 @@ void lorieSetCursorHidden(Bool hidden) {
 }
 
 void lorieSetCursorVisible(Bool visible) {
-    pvfb->state->cursor.visible = visible && !lorieCursorHidden;
+    Bool now = visible && !lorieCursorHidden;
+
+    // Called for every touch and mouse event: only an actual visibility change needs a redraw,
+    // otherwise a finger resting on the screen keeps the renderer drawing every vsync.
+    if (pvfb->state->cursor.visible == now)
+        return;
+
+    pvfb->state->cursor.visible = now;
     pvfb->state->cursor.moved = TRUE;
     pthread_cond_signal(rendererCond);
 }
@@ -845,7 +890,17 @@ static Bool lorieCreateScreenResources(ScreenPtr pScreen) {
 }
 
 static Bool lorieCloseScreen(ScreenPtr pScreen) {
+    struct vblank *vblank, *tmp;
+
     pScreenPtr = NULL;
+    // The pending vblanks belong to this generation: without clearing them the count that keeps
+    // the vsync chain alive would never come back to zero.
+    xorg_list_for_each_entry_safe(vblank, tmp, &pvfb->vblank_queue, link) {
+        xorg_list_del(&vblank->link);
+        free(vblank);
+    }
+    __atomic_store_n(&pvfb->vblank_pending, 0, __ATOMIC_RELEASE);
+
     if (todGlamorAttivo()) {
         // tod: con glamor la radice la distrugge la chiusura stessa (glamor rimette prima i suoi DestroyPixmap;
         // distruggerla qui passava per quello di MIT-SHM, già liberato). Il suo AHardwareBuffer si libera dopo.
@@ -1010,21 +1065,34 @@ static void lorieWorkingQueueCallback(int fd, int __unused ready, void __unused 
     lorieDrainWindowsRequests();
 }
 
-void lorieChoreographerFrameCallback(__unused long t, AChoreographer* d) {
-    AChoreographer_postFrameCallback(d, (AChoreographer_frameCallback) lorieChoreographerFrameCallback, d);
-    if (pScreenPtr) {
-        // These ticks follow the phone's own screen, whatever the X display is. A display of 30 Hz or less (the car) must
-        // not get more: the reported rate alone doesn't stop Present clients from being woken on every tick.
-        // The margin is an eighth of a frame, so that vsync jitter can't push a tick into the next one.
+void lorieChoreographerFrameCallback(__unused long t, __unused AChoreographer* d) {
+    Bool more;
+
+    pthread_mutex_lock(&lorieFrameLock);
+    lorieFrameScheduled = FALSE; // this callback consumed its post
+    pthread_mutex_unlock(&lorieFrameLock);
+
+    if (!pScreenPtr) {
+        // The screen is not up yet: keep the chain alive until it is.
+        lorieScheduleFrame();
+        return;
+    }
+
+    more = lorieFramesNeeded();
+    if (more) {
+        // These ticks follow the phone's own screen, whatever the X display is. When the phone
+        // refreshes faster than the X screen's reported rate, only one tick per X frame is used
+        // (this used to be limited to 30 Hz and less); a slower phone can not be sped up here.
+        // The margin is an eighth of a frame, so that vsync jitter can't push a tick into the
+        // next one.
         static uint64_t lastTick;
-        if (pvfb->root.framerate <= 30) {
-            uint64_t now = GetTimeInMicros();
-            if (now - lastTick < pvfb->vblank_interval - pvfb->vblank_interval / 8)
-                return;
+        uint64_t now = GetTimeInMicros();
+        if (now - lastTick >= pvfb->vblank_interval - pvfb->vblank_interval / 8) {
             lastTick = now;
+            QueueWorkProc(lorieRedraw, NULL, NULL);
+            lorieWakeServer();
         }
-        QueueWorkProc(lorieRedraw, NULL, NULL);
-        lorieWakeServer();
+        lorieScheduleFrame();
     }
 }
 
@@ -1198,6 +1266,8 @@ static Bool loriePresentQueueVblank(__unused RRCrtcPtr crtc, uint64_t event_id, 
 
     *vblank = (struct vblank) { .id = event_id, .msc = msc };
     xorg_list_add(&vblank->link, &pvfb->vblank_queue);
+    __atomic_add_fetch(&pvfb->vblank_pending, 1, __ATOMIC_RELEASE);
+    lorieScheduleFrame(); // the chain may have stopped: a client is now waiting for a frame
 
     return Success;
 #pragma clang diagnostic pop
@@ -1210,6 +1280,7 @@ static void loriePresentAbortVblank(__unused RRCrtcPtr crtc, uint64_t id, __unus
         if (vblank->id == id) {
             xorg_list_del(&vblank->link);
             free (vblank);
+            __atomic_sub_fetch(&pvfb->vblank_pending, 1, __ATOMIC_RELEASE);
             break;
         }
     }
@@ -1222,6 +1293,7 @@ static void loriePerformVblanks(void) {
             present_event_notify(vblank->id, GetTimeInMicros(), pvfb->current_msc);
             xorg_list_del(&vblank->link);
             free (vblank);
+            __atomic_sub_fetch(&pvfb->vblank_pending, 1, __ATOMIC_RELEASE);
         }
     }
 }
@@ -1597,7 +1669,23 @@ static PixmapPtr loriePixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *
     priv->imported = true;
 
     if (modifier == DRM_FORMAT_MOD_INVALID || modifier == DRM_FORMAT_MOD_LINEAR || modifier == RAW_MMAPPABLE_FD) {
-        check(!(priv->buffer = LorieBuffer_wrapFileDescriptor(width, strides[0]/4, height, AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM, fds[0], offsets[0])), "DRI3: LorieBuffer_wrapAHardwareBuffer failed.");
+        struct stat st;
+        uint64_t bytes;
+
+        // The import is a mapping of the client's fd, and the server draws width x height into
+        // it: a stride that can not hold a row, or a size that wraps, lands outside the mapping.
+        check(strides[0] % 4 != 0 || strides[0] < (CARD32) width * 4,
+              "DRI3: stride %u can not hold a row of %u pixels", strides[0], width);
+        check(__builtin_mul_overflow((uint64_t) strides[0], (uint64_t) height, &bytes) || bytes > SIZE_MAX / 4,
+              "DRI3: %ux%u at stride %u is too big to map", width, height, strides[0]);
+        bytes *= 4;
+        check(fstat(fds[0], &st) != 0, "DRI3: fstat failed: %s", strerror(errno));
+        // dma-bufs usually report no size at all: only a size the kernel does report is checked.
+        check(st.st_size > 0 && (uint64_t) st.st_size < (uint64_t) offsets[0] + bytes,
+              "DRI3: fd of %lld bytes does not cover offset %u + %llu bytes",
+              (long long) st.st_size, offsets[0], (unsigned long long) bytes);
+
+        check(!(priv->buffer = LorieBuffer_wrapFileDescriptor(width, strides[0]/4, height, AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM, fds[0], offsets[0])), "DRI3: LorieBuffer_wrapFileDescriptor failed.");
         screen->ModifyPixmapHeader(pixmap, width, height, 0, 0, strides[0], NULL);
         if (lorieServerDebugEnabled)
             log(INFO, "DRI3: imported raw fd, modifier %llu, %ux%u stride %u", (unsigned long long) modifier, width, height, strides[0]);
@@ -1622,15 +1710,22 @@ static PixmapPtr loriePixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *
             && desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM
             && desc.format != AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM,
             "DRI3: AHARDWAREBUFFER_SOCKET_FD: wrong format of AHardwareBuffer. Must be one of: AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM, AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM, AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM (stands for 5).");
+        // The pixmap is created at the requested size over the buffer's rows: it has to fit
+        // inside the AHardwareBuffer, with a stride that covers a row and fits ModifyPixmapHeader.
+        check((uint32_t) width > desc.width || (uint32_t) height > desc.height ||
+              desc.stride < (uint32_t) width || desc.stride > (uint32_t) (INT_MAX / 4),
+              "DRI3: AHardwareBuffer %ux%u stride %u can not hold a %ux%u pixmap",
+              desc.width, desc.height, desc.stride, width, height);
         priv->buffer = LorieBuffer_wrapAHardwareBuffer(buffer);
         buffer = NULL;
         check(!priv->buffer, "DRI3: LorieBuffer_wrapAHardwareBuffer failed.");
 
         void *probe = NULL;
         priv->gpuOnly = LorieBuffer_lock(priv->buffer, &probe) != 0;
-        LorieBuffer_unlock(priv->buffer);
+        if (!priv->gpuOnly)
+            LorieBuffer_unlock(priv->buffer);
 
-        screen->ModifyPixmapHeader(pixmap, width, height, 0, 0, desc.stride * 4, NULL);
+        screen->ModifyPixmapHeader(pixmap, width, height, 0, 0, (int) (desc.stride * 4), NULL);
         if (lorieServerDebugEnabled)
             log(INFO, "DRI3: imported AHardwareBuffer, modifier %llu, %ux%u stride %u%s", (unsigned long long) modifier, desc.width, desc.height, desc.stride, priv->gpuOnly ? ", not lockable" : "");
     }

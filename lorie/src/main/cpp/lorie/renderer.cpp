@@ -148,12 +148,16 @@ static const char fragmentShaderSrc[] = FRAGMENT_SHADER();
 static const char fragmentShaderBgraSrc[] = FRAGMENT_SHADER(".bgra");
 
 // Notifies activity.cpp's end of the GUI<->X server socket immediately when a GPU copy batch
-// finishes, instead of it waiting for the next vblank-tick poll.
+// finishes, instead of it waiting for the next vblank-tick poll. The fd is read under the event
+// lock so connect()/teardown can not close it between the check and the write.
 void Renderer::notifyGpuCopyDone() const {
-    if (connFdPtr && *connFdPtr != -1) {
-        lorieEvent e = { .type = EVENT_GPU_COPY_DONE };
-        write(*connFdPtr, &e, sizeof(e));
-    }
+    if (!connFdPtr)
+        return;
+    lorieEvent e = { .type = EVENT_GPU_COPY_DONE };
+    lorieEventWriteLock();
+    if (*connFdPtr != -1)
+        lorieWriteEventLocked(*connFdPtr, &e, nullptr, 0);
+    lorieEventWriteUnlock();
 }
 
 void Renderer::bindTexture(GLuint id) const {
@@ -894,16 +898,11 @@ void Renderer::refreshContext() {
     log("Xlorie: new surface applied: %p\n", sfc);
 }
 
-// Drains the deferred GPU copy queue (filled by present_execute_copy) into the root texture via
-// an FBO. Assumes the caller holds state->lock and will flush/fence before unlocking - returns
-// the highest drained serial WITHOUT publishing it to completedSerial, since the caller must only
-// do that after the fence confirms the GPU actually finished (not just submitted) the draws;
-// publishing early would let the client's next write race our still-in-flight read.
-// Looks up a registered buffer by id, waiting briefly (bounded) if it hasn't arrived over the
-// async registration socket yet instead of busy-spinning the outer loop.
-LorieBuffer *Renderer::findBufferWithRetry(uint64_t id) {
+// Looks up a registered buffer by id and attaches it to GL if it was only queued by the UI
+// thread so far. The caller must be the renderer thread (GL is thread-affine). No waiting: the
+// wait is done by findBufferWithRetry() before the X server's lock is taken.
+LorieBuffer *Renderer::findBuffer(uint64_t id) {
     LorieBuffer *buf;
-    int attempt;
 
     pthread_spin_lock(&bufferLock);
     buf = LorieBufferList_findById(&buffers, id);
@@ -912,38 +911,86 @@ LorieBuffer *Renderer::findBufferWithRetry(uint64_t id) {
         LorieBuffer_addToList(buf, &buffers);
     }
     pthread_spin_unlock(&bufferLock);
+    return buf;
+}
 
-    for (attempt = 0; attempt < 20 && !buf; attempt++) {
+// A GPU copy can reach the renderer before the UI thread has received the buffer's registration
+// over the socket: wait for it (bounded) here, on the renderer thread and with no lock the X
+// server needs. Sleeping while holding state->lock (as the copy loop used to do) stalls every X
+// request behind one buffer that may never come.
+LorieBuffer *Renderer::findBufferWithRetry(uint64_t id) {
+    LorieBuffer *buf = findBuffer(id);
+
+    for (int attempt = 0; attempt < 20 && !buf; attempt++) {
         usleep(5000);
-        pthread_spin_lock(&bufferLock);
-        buf = LorieBufferList_findById(&buffers, id);
-        if (!buf && (buf = LorieBufferList_findById(&addedBuffers, id))) {
-            LorieBuffer_attachToGL(buf);
-            LorieBuffer_addToList(buf, &buffers);
-        }
-        pthread_spin_unlock(&bufferLock);
+        buf = findBuffer(id);
     }
     return buf;
 }
 
-uint64_t Renderer::applyPendingGpuCopiesLocked() {
+// Resolves every buffer the queued copies need before state->lock is taken. What is still
+// missing after this is skipped, not waited for, under the lock.
+void Renderer::prefetchGpuCopyBuffers() {
+    uint32_t read, write;
+
+    if (!state)
+        return;
+    read = state->gpuCopyQueue.readIndex;
+    write = __atomic_load_n(&state->gpuCopyQueue.writeIndex, __ATOMIC_ACQUIRE);
+    // Entries can arrive while a buffer is being waited for: keep going until the queue stops
+    // growing, so nothing reaches the locked pass without having been waited for. The queue is
+    // bounded, so this converges.
+    for (;;) {
+        for (; read != write; read++) {
+            LorieGpuCopyEntry entry = state->gpuCopyQueue.entries[read % LORIE_GPU_COPY_QUEUE_CAPACITY];
+            findBufferWithRetry(entry.srcBufferId);
+            findBufferWithRetry(entry.dstBufferId);
+        }
+        write = __atomic_load_n(&state->gpuCopyQueue.writeIndex, __ATOMIC_ACQUIRE);
+        if (write == read)
+            break;
+    }
+    prefetchedWrite = write;
+}
+
+// Drains the deferred GPU copy queue (filled by present_execute_copy) into the destination
+// textures via an FBO. Assumes the caller holds state->lock and will flush/fence before
+// unlocking - returns the highest drained serial WITHOUT publishing it to completedSerial, since
+// the caller must only do that after the fence confirms the GPU actually finished (not just
+// submitted) the draws; publishing early would let the client's next write race our still-in-flight read.
+uint64_t Renderer::applyPendingGpuCopiesLocked(uint64_t* ackSerial) {
     bool fboSetUp = false;
     uint64_t lastSerial = 0;
     uint64_t boundDstId = 0;
     GLint prevViewport[4];
 
+    if (ackSerial)
+        *ackSerial = 0;
     if (!state || state->gpuCopyQueue.readIndex == state->gpuCopyQueue.writeIndex)
         return 0;
 
+    // The buffers were already looked up (prefetchGpuCopyBuffers) before the lock: a missing one
+    // is skipped now instead of sleeping here, which would block every X request.
     while (state->gpuCopyQueue.readIndex != __atomic_load_n(&state->gpuCopyQueue.writeIndex, __ATOMIC_ACQUIRE)) {
         LorieGpuCopyEntry entry = state->gpuCopyQueue.entries[state->gpuCopyQueue.readIndex % LORIE_GPU_COPY_QUEUE_CAPACITY];
-        LorieBuffer *src = findBufferWithRetry(entry.srcBufferId);
-        LorieBuffer *dst = findBufferWithRetry(entry.dstBufferId);
+        LorieBuffer *src = findBuffer(entry.srcBufferId);
+        LorieBuffer *dst = findBuffer(entry.dstBufferId);
 
-        if (!src)
-            log("rendererApplyPendingGpuCopies: source buffer %llu not found after waiting, skipping\n", (unsigned long long) entry.srcBufferId);
-        if (!dst)
-            log("rendererApplyPendingGpuCopies: destination buffer %llu not found after waiting, skipping\n", (unsigned long long) entry.dstBufferId);
+        if (!src || !dst) {
+            if ((int32_t) (state->gpuCopyQueue.readIndex - prefetchedWrite) >= 0) {
+                // The entry was queued after the prefetch (the lock wait is not instant): leave
+                // it for the next frame, where it is waited for, instead of losing it.
+                break;
+            }
+            if (!src)
+                log("rendererApplyPendingGpuCopies: source buffer %llu not found, skipping\n", (unsigned long long) entry.srcBufferId);
+            if (!dst)
+                log("rendererApplyPendingGpuCopies: destination buffer %llu not found, skipping\n", (unsigned long long) entry.dstBufferId);
+            // A skipped serial can never be reported as presented: Present would release the
+            // client's buffer while the screen still shows the old pixels. completedSerial is a
+            // high-water mark, so it stops here for good.
+            gpuCopyAckBlocked = true;
+        }
 
         if (src && dst) {
             const LorieBuffer_Desc *srcDesc = LorieBuffer_description(src);
@@ -1012,7 +1059,8 @@ uint64_t Renderer::applyPendingGpuCopiesLocked() {
             }
         }
 
-        lastSerial = entry.serial;
+        if (src && dst)
+            lastSerial = entry.serial;
         state->gpuCopyQueue.readIndex++;
     }
 
@@ -1020,6 +1068,8 @@ uint64_t Renderer::applyPendingGpuCopiesLocked() {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
     }
+    if (ackSerial && !gpuCopyAckBlocked)
+        *ackSerial = lastSerial;
     return lastSerial;
 }
 
@@ -1046,6 +1096,8 @@ void Renderer::applyPendingGpuCopies() {
     uint64_t serial;
     if (!state || state->gpuCopyQueue.readIndex == state->gpuCopyQueue.writeIndex)
         return;
+    // Resolve buffers first: the wait for a late registration must not happen under state->lock.
+    prefetchGpuCopyBuffers();
     lockServerState(state, connFd());
     if (state->rendererRelock) {
         pthread_spin_lock(&bufferLock);
@@ -1053,15 +1105,19 @@ void Renderer::applyPendingGpuCopies() {
         pthread_spin_unlock(&bufferLock);
         syncRootForGpu(root);
     }
-    serial = applyPendingGpuCopiesLocked();
+    uint64_t ackSerial = 0;
+    serial = applyPendingGpuCopiesLocked(&ackSerial);
     if (serial) {
         EGLSync fence = eglCreateSyncKHR(egl_display, EGL_SYNC_FENCE_KHR, nullptr);
         glFlush();
         waitForFence(egl_display, fence, 0);
         // Only now that the GPU has actually finished (not just been told to start) is it safe to
-        // let present_execute_copy release/idle the source pixmap back to the client.
-        __atomic_store_n(&state->gpuCopyQueue.completedSerial, serial, __ATOMIC_RELEASE);
-        notifyGpuCopyDone();
+        // let present_execute_copy release/idle the source pixmap back to the client. A skipped
+        // copy leaves ackSerial behind: it is never reported as presented.
+        if (ackSerial) {
+            __atomic_store_n(&state->gpuCopyQueue.completedSerial, ackSerial, __ATOMIC_RELEASE);
+            notifyGpuCopyDone();
+        }
     }
     lorie_mutex_unlock(&state->lock, &state->lockingPid);
 }
@@ -1082,11 +1138,6 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
     const LorieBuffer_Desc *desc = nullptr;
     EGLSync fence;
 
-    // Early returns below skip the applyPendingGpuCopiesLocked() call further down, which would
-    // stall copies queued for windows unrelated to root while root itself isn't ready yet.
-    if (state->gpuCopyQueue.readIndex != state->gpuCopyQueue.writeIndex)
-        applyPendingGpuCopies();
-
     // The buffer will not be released until this function ends, but main thread can modify buffer list
     pthread_spin_lock(&bufferLock);
     LorieBuffer *buffer = LorieBufferList_findById(&buffers, state->rootWindowTextureID);
@@ -1098,6 +1149,9 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
     pthread_spin_unlock(&bufferLock);
     if (!buffer) {
         log("Buffer %llu not found", state->rootWindowTextureID);
+        // Nothing is going to be drawn on this tick: drain the copies queued for other windows
+        // here (the shared lock+fence path below is not reached), instead of doing it twice.
+        applyPendingGpuCopies();
         return;
     }
 
@@ -1114,6 +1168,7 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
         // retrying this same mismatch instead of waiting for the buffer of the requested size.
         state->drawRequested = FALSE;
         *waitingForBuffers = true;
+        applyPendingGpuCopies();   // as above: the shared flush below is skipped
         return;
     }
 
@@ -1202,12 +1257,16 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
     reportViewport(renderViewportX, renderViewportY, renderViewportW, renderViewportH,
                    sourceLeft, sourceTop, logicalSourceWidth, logicalSourceHeight);
 
+    // Resolve the buffers of the queued copies first: a late registration is waited for here,
+    // before state->lock (a wait under it stalls every X request).
+    prefetchGpuCopyBuffers();
     // We should signal X server to not use root window while we actively copy it
     lockServerState(state, connFd());
     if (state->rendererRelock)
         syncRootForGpu(buffer);
     // Share this draw's flush+fence below instead of a separate round trip per frame.
-    uint64_t gpuCopySerial = applyPendingGpuCopiesLocked();
+    uint64_t gpuCopyAck = 0;
+    applyPendingGpuCopiesLocked(&gpuCopyAck);
     state->drawRequested = FALSE;
 
     LorieBuffer_bindTexture(buffer);
@@ -1236,8 +1295,8 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
 
     // Wait until root window drawing is finished before giving control back to X server
     waitForFence(egl_display, fence, 0);
-    if (gpuCopySerial) {
-        __atomic_store_n(&state->gpuCopyQueue.completedSerial, gpuCopySerial, __ATOMIC_RELEASE);
+    if (gpuCopyAck) {
+        __atomic_store_n(&state->gpuCopyQueue.completedSerial, gpuCopyAck, __ATOMIC_RELEASE);
         notifyGpuCopyDone();
     }
     state->waitForNextFrame = true;

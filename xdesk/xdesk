@@ -308,7 +308,7 @@ start_x() {
     read_x11_env
     # XDESK_CLI: the X server runs this same script for the app (xdesk apps, xdesk launch), see XWindows.java
     env -u LD_PRELOAD -u LD_LIBRARY_PATH "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" XDESK_CLI="$(realpath "$0" 2>/dev/null || echo "$0")" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
-        -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac \
+        -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac -nolisten tcp -nolisten local \
         </dev/null >>"$LOG" 2>&1 9>&- &
     # 20 s at most, even when each xrandr call uses its own timeout
     deadline=$((SECONDS + 20))

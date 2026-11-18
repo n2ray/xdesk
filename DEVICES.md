@@ -86,7 +86,7 @@
 
 所有环境共用 **一个 X 服务器（:1）**，由 Termux 里的 `xdesk` 启动。
 
-- **只有应用时可以混着跑**：proot / chroot 里的程序只是这个 X 的普通客户端。`xdesk launch SCOPE/ID` 对 proot 是 `proot-distro login <发行版> --shared-tmp -- env DISPLAY=:1 … sh -c CMD`（`/tmp` 共享，所以够得着 X 的 socket；X 以 `-ac` 启动），对 chroot 是用户写的 `NAME.launch`。窗口管理器是当前会话的那一个（哪个环境的都行），它管所有窗口。
+- **只有应用时可以混着跑**：proot / chroot 里的程序只是这个 X 的普通客户端。`xdesk launch SCOPE/ID` 对 proot 是 `proot-distro login <发行版> --shared-tmp -- env DISPLAY=:1 … sh -c CMD`（`/tmp` 共享，所以够得着 X 的 socket；X 以 `-ac` 启动，只开 `/tmp/.X11-unix` 下的文件 socket，不监听 TCP，也不开任何应用都能连的抽象 socket），对 chroot 是用户写的 `NAME.launch`。窗口管理器是当前会话的那一个（哪个环境的都行），它管所有窗口。
 - **整个桌面同一时间只能有一个**：会话只有一个（`xdesk status` 的 `Session:`）。`runningSession` 就是这一个会话的名字（`NAME` 或 `NAME+apps`），和设备无关；`desktopName` 是 XDesk 自己放上屏的那个。`NAME+apps` 只是"程序跑在什么上面"：不进最近使用，Dock 和启动台「正在运行」里没有它（`currentKey` 对它返回 null，`SwitcherOverlay` 也过滤），设备状态也不把它当成"正在运行"。
 - **窗口归哪个环境**（`LinuxSource.windowScopes`）：窗口自己不说它的程序跑在哪。按顺序：XDesk 启动程序时给的启动令牌（`DESKTOP_STARTUP_ID=xdesk-<SCOPE>--…`，GTK 程序会把它写到第一个窗口上，XDesk 重启后仍认得）；和这次启动配上的窗口（按令牌、WM_CLASS、进程树）；同一个进程（`_NET_WM_PID` 或 X 连接的对端 pid；proot、chroot 都没有 pid 命名空间）的其他窗口。知道环境的窗口只会配给那个环境的程序（两个环境都装了 Firefox 时不会串）。不知道的（从桌面面板或终端里启动的）先按正在跑整个桌面的环境找，再按 Termux，最后随便哪个。
 - **D-Bus**：Termux 的 `+apps` 会话不用 `dbus-run-session`（它的总线随会话结束，`xdesk switch` 到整个桌面时所有 GTK 程序会跟着退出：GLib 在会话总线断开时退出），而是用 xdesk 自己起的一条总线（`$RUN/bus.*`，活到 `xdesk stop`）。之后起的整个桌面有它自己的总线，先开的程序留在原来那条上。proot 的 `+apps` 会话没有这个处理（见 §8）。

@@ -35,6 +35,10 @@ void lorieUnregisterBuffer(LorieBuffer* buffer);
 
 #define log(prio, ...) __android_log_print(ANDROID_LOG_ ## prio, "LorieNative", __VA_ARGS__)
 
+// Attese della GPU con un limite: girano sotto il lucchetto condiviso con l'app, una GPU che non
+// risponde non deve fermare tutto il server X (come il renderer, 100 ms e si prosegue).
+#define TOD_ATTESA_GPU_NS 100000000LL
+
 // XDesk: where a Present of a client's image spends its time (TERMUX_X11_MISURA=1, written with tod-misura):
 // wall time of each step of todGlamorAggiorna, and of todGlamorPubblica, summed over 5 s
 enum { TOD_ATTESA, TOD_SYNC, TOD_MEMCPY, TOD_FINE, TOD_COPIA_CPU, TOD_PUBBLICA, TOD_PASSI };
@@ -253,7 +257,13 @@ void todGlamorAggiorna(PixmapPtr pixmap, RegionPtr zona) {
     } else {
         nuova = &m->copia[1 - m->mostrata];
         if (nuova->fine != EGL_NO_SYNC_KHR) {
-            eglClientWaitSyncKHR(todDpy, nuova->fine, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, EGL_FOREVER_KHR);
+            // Il tempo è limitato: questa attesa avviene sotto il lucchetto del server, una GPU
+            // bloccata lo fermerebbe per sempre. Scaduto il tempo si scrive lo stesso, come fa il
+            // percorso di ripiego senza fence.
+            static int scadute;
+            if (eglClientWaitSyncKHR(todDpy, nuova->fine, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, TOD_ATTESA_GPU_NS) == EGL_TIMEOUT_EXPIRED_KHR &&
+                scadute++ < 5)
+                log(ERROR, "tod-glamor: la GPU non ha finito con la copia entro 100 ms, si scrive lo stesso");
             eglDestroySyncKHR(todDpy, nuova->fine);
             nuova->fine = EGL_NO_SYNC_KHR;
         } else
@@ -329,12 +339,15 @@ PixmapPtr todGlamorPixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds
         log(ERROR, "tod-glamor: DRI3 rifiutato (%d fd, modifier %llu)", num_fds, (unsigned long long) modifier);
         return NullPixmap;
     }
-    // todScrivi copia width*4 byte per riga: un'immagine a 16 bit o un passo più corto leggerebbe oltre la mappa
-    if (bpp != 32 || strides[0] < (CARD32) width * 4) {
-        log(ERROR, "tod-glamor: DRI3 rifiutato (bpp %d, passo %u per larghezza %d)", bpp, strides[0], width);
+    // todScrivi copia width*4 byte per riga: un'immagine a 16 bit o un passo più corto leggerebbe
+    // oltre la mappa, e una dimensione che va in overflow darebbe una mappa più corta delle righe.
+    if (bpp != 32 || strides[0] < (CARD32) width * 4 ||
+        __builtin_mul_overflow((size_t) strides[0], (size_t) height, &m.lunghezza) ||
+        __builtin_add_overflow(m.lunghezza, (size_t) offsets[0], &m.lunghezza)) {
+        log(ERROR, "tod-glamor: DRI3 rifiutato (bpp %d, passo %u per larghezza %d, %u righe, offset %u)",
+            bpp, strides[0], width, height, offsets[0]);
         return NullPixmap;
     }
-    m.lunghezza = (size_t) offsets[0] + (size_t) strides[0] * height;
     m.mappa = mmap(NULL, m.lunghezza, PROT_READ | PROT_WRITE, MAP_SHARED, fds[0], 0);
     if (m.mappa == MAP_FAILED) {
         log(ERROR, "tod-glamor: DRI3 mmap non riuscito: %s", strerror(errno));
@@ -447,7 +460,21 @@ void todGlamorPubblica(PixmapPtr radice, RegionPtr zona) {
         }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glFinish();
+    // Si aspetta la fine della copia con una fence, non con glFinish: questa funzione gira sotto
+    // il lucchetto che l'app aspetta, e una GPU bloccata fermerebbe tutto il server X. Scaduto il
+    // tempo si prosegue, come il percorso di ripiego.
+    {
+        EGLSyncKHR fine = eglCreateSyncKHR(todDpy, EGL_SYNC_FENCE_KHR, NULL);
+        static int scadute;
+        glFlush();
+        if (fine != EGL_NO_SYNC_KHR) {
+            if (eglClientWaitSyncKHR(todDpy, fine, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, TOD_ATTESA_GPU_NS) == EGL_TIMEOUT_EXPIRED_KHR &&
+                scadute++ < 5)
+                log(ERROR, "tod-glamor: la GPU non ha finito la copia nella vetrina entro 100 ms, si prosegue");
+            eglDestroySyncKHR(todDpy, fine);
+        } else if (scadute++ < 5)
+            log(ERROR, "tod-glamor: fence non creata, non si aspetta la GPU");
+    }
     TOD_PASSO(TOD_PUBBLICA, t);
     if ((err = glGetError()) != GL_NO_ERROR && errori++ < 5)
         log(ERROR, "tod-glamor: copia nella vetrina non riuscita (0x%x)", err);

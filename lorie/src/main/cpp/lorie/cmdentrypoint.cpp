@@ -54,9 +54,40 @@ static jmethodID sendBroadcast = nullptr;
 static jmethodID sendBroadcastDelayed = nullptr;
 static jmethodID setDocumentTag = nullptr;
 
+// A stream socket hands back whole requests only by accident; the event protocol has no framing
+// to find the next event again, so a short read or EOF makes the connection unusable.
+static bool readFully(int fd, void* data, size_t len) {
+    char* p = (char*) data;
+    while (len) {
+        ssize_t n = read(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            return false;
+        }
+        if (n == 0)
+            return false;
+        p += n;
+        len -= (size_t) n;
+    }
+    return true;
+}
+
+// One event to the app, whole: the event lock keeps a header and its payload from being split.
+static void sendEventToApp(const lorieEvent* e, const void* payload, size_t payloadSize) {
+    lorieEventWriteLock();
+    if (conn_fd != -1)
+        lorieWriteEventLocked(conn_fd, e, payload, payloadSize);
+    lorieEventWriteUnlock();
+}
+
 static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
     pthread_t t;
     JavaVM* vm = nullptr;
+
+    // Same switch as InitOutput.c's server diagnostics: the per-event logs in this file are
+    // gated on it instead of going to logcat on every touch.
+    lorieDebugEnabled = getenv("TERMUX_X11_DEBUG") != NULL;
 
     thiz = env->NewGlobalRef(self);
     if (!thiz)
@@ -103,6 +134,7 @@ static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
         cpu_set_t mask;
         long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
 
+        CPU_ZERO(&mask);
         for (int i = num_cpus/2; i < num_cpus; i++)
             CPU_SET(i, &mask);
 
@@ -212,9 +244,8 @@ static jboolean start(JNIEnv *env, jobject self, jobjectArray args) {
 
     env->GetJavaVM(&vm);
 
-    AChoreographer *choreographer = AChoreographer_getInstance();
-    // Trigger it first time
-    AChoreographer_postFrameCallback(choreographer, (AChoreographer_frameCallback) lorieChoreographerFrameCallback, choreographer);
+    // Starts the vsync chain; it keeps itself posted only while there is something to do.
+    lorieSetChoreographer(AChoreographer_getInstance());
 
     xorg_list_init(&registeredBuffers);
     pthread_create(&t, nullptr, +[](void* cookie) -> void* {
@@ -260,34 +291,65 @@ static Bool handleTouchEvent(__unused ClientPtr pClient, void *closure) {
     return TRUE;
 }
 
+// The app's end of the event socket is gone. Only tear down the state belonging to the fd that
+// actually hung up: a HUP can arrive for a descriptor a newer connection has already replaced,
+// and clearing conn_fd then would leave that connection without a server (a black screen after
+// a window was recreated).
+static void disconnectLorie(int fd) {
+    LorieBuffer* buf;
+
+    InputThreadUnregisterDev(fd);
+    lorieEventWriteLock();
+    if (conn_fd != fd) {
+        lorieEventWriteUnlock();
+        return;
+    }
+    conn_fd = -1;
+    close(fd);
+    lorieEnableClipboardSync(FALSE);
+    while ((buf = LorieBufferList_first(&registeredBuffers)))
+        LorieBuffer_removeFromList(buf);
+    lorieEventWriteUnlock();
+}
+
 void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
     ValuatorMask mask;
     lorieEvent e = {0};
     valuator_mask_zero(&mask);
 
     if (ready & X_NOTIFY_ERROR) {
-        LorieBuffer* buf;
-        InputThreadUnregisterDev(fd);
-        close(fd);
-        conn_fd = -1;
-        lorieEnableClipboardSync(FALSE);
-        while ((buf = LorieBufferList_first(&registeredBuffers)))
-            LorieBuffer_removeFromList(buf);
+        disconnectLorie(fd);
         return;
     }
 
     again:
-    if (read(fd, &e, sizeof(e)) == sizeof(e)) {
+    if (readFully(fd, &e, sizeof(e))) {
         switch(e.type) {
             case EVENT_SCREEN_SIZE: {
                 // The DPI shares its slot with the name pointer (see lorie.h), so it goes after the name and its zero
-                size_t tail = sizeof(lorieEvent) + e.screenSize.name_size + 1;
+                size_t nameSize = e.screenSize.name_size;
+                size_t tail, alloc;
                 uint32_t dpi = e.screenSize.dpi;
-                auto *copy = (lorieEvent*) calloc(1, tail + sizeof(uint32_t));
+                lorieEvent* copy;
+
+                // A name bigger than the X server can ever use is a corrupt event; the addition
+                // must not wrap into a short allocation that readFully would then overrun.
+                if (nameSize > 65536 ||
+                    __builtin_add_overflow(sizeof(lorieEvent), nameSize, &tail) ||
+                    __builtin_add_overflow(tail, 1, &tail) ||
+                    __builtin_add_overflow(tail, sizeof(uint32_t), &alloc) ||
+                    !(copy = (lorieEvent*) calloc(1, alloc))) {
+                    log(ERROR, "Screen size event with a bad name size %zu", nameSize);
+                    disconnectLorie(fd);
+                    return;
+                }
                 memcpy(copy, &e, sizeof(e));
-                copy->screenSize.name = copy->screenSize.name_size ? (char*) (copy + 1) : nullptr;
-                if (copy->screenSize.name_size)
-                    read(fd, copy->screenSize.name, copy->screenSize.name_size);
+                copy->screenSize.name = nameSize ? (char*) (copy + 1) : nullptr;
+                if (nameSize && !readFully(fd, copy->screenSize.name, nameSize)) {
+                    free(copy);
+                    disconnectLorie(fd);
+                    return;
+                }
                 memcpy((char*) copy + tail, &dpi, sizeof(dpi));
                 QueueWorkProc(+[](__unused ClientPtr pClient, void *closure) -> Bool {
                     // This must be done only on X server thread.
@@ -314,11 +376,13 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                 uint32_t released, pressed, diff;
                 DeviceIntPtr device = e.stylus.mouse ? lorieMouse : (e.stylus.eraser ? lorieEraser : loriePen);
                 if (!device) {
-                    __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "got stylus event but device is not requested\n");
+                    if (lorieDebugEnabled)
+                        __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "got stylus event but device is not requested\n");
                     break;
                 }
-                __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "got stylus event %f %f %d %d %d %d %s\n", e.stylus.x, e.stylus.y, e.stylus.pressure, e.stylus.tilt_x, e.stylus.tilt_y, e.stylus.orientation,
-                                    device == lorieMouse ? "lorieMouse" : (device == loriePen ? "loriePen" : "lorieEraser"));
+                if (lorieDebugEnabled)
+                    __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "got stylus event %f %f %d %d %d %d %s\n", e.stylus.x, e.stylus.y, e.stylus.pressure, e.stylus.tilt_x, e.stylus.tilt_y, e.stylus.orientation,
+                                        device == lorieMouse ? "lorieMouse" : (device == loriePen ? "loriePen" : "lorieEraser"));
 
                 valuator_mask_set_double(&mask, 0, max(min(e.stylus.x, pScreenPtr->width), 0));
                 valuator_mask_set_double(&mask, 1, max(min(e.stylus.y, pScreenPtr->height), 0));
@@ -337,11 +401,13 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                 for (int i=0; i<3; i++) {
                     if (released & 0x1) {
                         QueuePointerEvents(device, ButtonRelease, i + 1, POINTER_RELATIVE, nullptr);
-                        __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "sending %d press", i+1);
+                        if (lorieDebugEnabled)
+                            __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "sending %d press", i+1);
                     }
                     if (pressed & 0x1) {
                         QueuePointerEvents(device, ButtonPress, i + 1, POINTER_RELATIVE, nullptr);
-                        __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "sending %d release", i+1);
+                        if (lorieDebugEnabled)
+                            __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "sending %d release", i+1);
                     }
                     released >>= 1;
                     pressed >>= 1;
@@ -413,7 +479,8 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                         mieqProcessInputEvents();
                     } else {
                         int ks = ucs2keysym((long) (payload >> 1));
-                        __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "Trying to input keysym %d\n", ks);
+                        if (lorieDebugEnabled)
+                            __android_log_print(ANDROID_LOG_DEBUG, "LorieNative", "Trying to input keysym %d\n", ks);
                         lorieKeysymKeyboardEvent(ks, TRUE);
                         lorieKeysymKeyboardEvent(ks, FALSE);
                     }
@@ -504,37 +571,34 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
         int n;
         if (ioctl(fd, FIONREAD, &n) >= 0 && n > sizeof(e))
             goto again;
+    } else {
+        // EOF or a read error: the rest of the stream can not be parsed as events.
+        disconnectLorie(fd);
+        return;
     }
 }
 
 void lorieSendClipboardData(const char* data) {
-    if (data && conn_fd != -1) {
+    if (data) {
         size_t len = strlen(data);
         lorieEvent e = { .clipboardSend = { .t = EVENT_CLIPBOARD_SEND, .count = (uint32_t) len } };
-        write(conn_fd, &e, sizeof(e));
-        write(conn_fd, data, len);
+        sendEventToApp(&e, data, len);
     }
 }
 
 void lorieSendSyncReply(uint32_t serial) {
-    if (conn_fd != -1) {
-        lorieEvent e = { .sync = { .t = EVENT_SYNC_REPLY, .serial = serial } };
-        write(conn_fd, &e, sizeof(e));
-    }
+    lorieEvent e = { .sync = { .t = EVENT_SYNC_REPLY, .serial = serial } };
+    sendEventToApp(&e, nullptr, 0);
 }
 
 void lorieSendHeartbeat(void) {
-    if (conn_fd != -1) {
-        lorieEvent e = { .type = EVENT_HEARTBEAT };
-        write(conn_fd, &e, sizeof(e));
-    }
+    lorieEvent e = { .type = EVENT_HEARTBEAT };
+    sendEventToApp(&e, nullptr, 0);
 }
 
 void lorieRequestClipboard(void) {
-    if (conn_fd != -1) {
-        lorieEvent e = { .type = EVENT_CLIPBOARD_REQUEST };
-        write(conn_fd, &e, sizeof(e));
-    }
+    lorieEvent e = { .type = EVENT_CLIPBOARD_REQUEST };
+    sendEventToApp(&e, nullptr, 0);
 }
 
 // Preloaded by rendererCanRelockWhileLocked(): swaps the executable's main() for the probe.
@@ -558,45 +622,55 @@ bool lorieConnectionAlive(int fd) {
 }
 
 void lorieSendSharedServerState(int memfd) {
-    if (conn_fd != -1) {
-        lorieEvent e = { .type = EVENT_SHARED_SERVER_STATE };
-        write(conn_fd, &e, sizeof(e));
+    lorieEvent e = { .type = EVENT_SHARED_SERVER_STATE };
+    lorieEventWriteLock();
+    // The fd goes with the event it was announced by: both under the lock.
+    if (conn_fd != -1 && lorieWriteEventLocked(conn_fd, &e, nullptr, 0))
         ancil_send_fd(conn_fd, memfd);
-    }
+    lorieEventWriteUnlock();
 }
 
 void lorieRegisterBuffer(LorieBuffer* buffer) {
-    unsigned long id = LorieBuffer_description(buffer)->id;
-    if (conn_fd == -1 || LorieBufferList_findById(&registeredBuffers, id))
+    unsigned long id;
+    const LorieBuffer_Desc* desc;
+    lorieEvent e = { .type = EVENT_ADD_BUFFER };
+
+    if (!buffer)
+        return;
+    id = LorieBuffer_description(buffer)->id;
+    if (LorieBufferList_findById(&registeredBuffers, id))
         return; // Already registered
 
-    if (conn_fd != -1 && buffer) {
-        lorieEvent e = { .type = EVENT_ADD_BUFFER };
-        write(conn_fd, &e, sizeof(e));
+    lorieEventWriteLock();
+    if (conn_fd != -1 && lorieWriteEventLocked(conn_fd, &e, nullptr, 0)) {
         LorieBuffer_sendHandleToUnixSocket(buffer, conn_fd);
         LorieBuffer_addToList(buffer, &registeredBuffers);
-        const LorieBuffer_Desc* desc = LorieBuffer_description(buffer);
+        desc = LorieBuffer_description(buffer);
         log(INFO, "Sent shared buffer width %d stride %d height %d format %d type %d id %llu", desc->width, desc->stride, desc->height, desc->format, desc->type, desc->id);
     }
+    lorieEventWriteUnlock();
 }
 
 void lorieUnregisterBuffer(LorieBuffer* buffer) {
     unsigned long id;
+    lorieEvent e = {0};
+
     if (!buffer || (!LorieBufferList_findById(&registeredBuffers, (id = LorieBuffer_description(buffer)->id))))
         return;  // Not exist or not registered so no need to unregister
 
-    if (conn_fd != -1 && buffer) {
-        lorieEvent e = { .removeBuffer = { .t = EVENT_REMOVE_BUFFER, .id = id } };
-        write(conn_fd, &e, sizeof(e));
+    e.removeBuffer.t = EVENT_REMOVE_BUFFER;
+    e.removeBuffer.id = id;
+    lorieEventWriteLock();
+    if (conn_fd != -1) {
+        lorieWriteEventLocked(conn_fd, &e, nullptr, 0);
         LorieBuffer_removeFromList(buffer);
     }
+    lorieEventWriteUnlock();
 }
 
 extern "C" void DDXNotifyFocusChanged(void) {
-    if (conn_fd != -1) {
-        lorieEvent e = { .type = EVENT_WINDOW_FOCUS_CHANGED };
-        write(conn_fd, &e, sizeof(e));
-    }
+    lorieEvent e = { .type = EVENT_WINDOW_FOCUS_CHANGED };
+    sendEventToApp(&e, nullptr, 0);
 }
 
 static jobject getXConnection(JNIEnv *env, __unused jobject cls) {
@@ -605,8 +679,20 @@ static jobject getXConnection(JNIEnv *env, __unused jobject cls) {
     jmethodID adoptFd = env->GetStaticMethodID(ParcelFileDescriptorClass, "adoptFd", "(I)Landroid/os/ParcelFileDescriptor;");
     socketpair(AF_UNIX, SOCK_STREAM, 0, client);
     QueueWorkProc(+[](__unused ClientPtr pClient, void *closure) -> Bool {
-        InputThreadRegisterDev((int) (int64_t) closure, handleLorieEvents, nullptr);
-        conn_fd = (int) (int64_t) closure;
+        int fd = (int) (int64_t) closure;
+        int old;
+
+        InputThreadRegisterDev(fd, handleLorieEvents, nullptr);
+        // Swap under the event lock: writers read conn_fd there, and disconnectLorie compares
+        // under it, so a HUP on the old fd can not clear the new connection.
+        lorieEventWriteLock();
+        old = conn_fd;
+        conn_fd = fd;
+        lorieEventWriteUnlock();
+        if (old != -1 && old != fd) {
+            InputThreadUnregisterDev(old);
+            close(old);
+        }
         lorieActivityConnected();
         return TRUE;
     }, nullptr, (void*) (int64_t) client[1]);
