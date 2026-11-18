@@ -289,7 +289,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             arrow = new CursorOverlay(context);
             arrow.attach(display);
         }
-        arrow.moveTo(Math.round(px), Math.round(py));
+        arrow.moveArrow(Math.round(px), Math.round(py));
         arrow.raise();  // the panel was added after an arrow kept from an earlier opening: the arrow over it
         return true;
     }
@@ -305,7 +305,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             close();
             return;
         }
-        arrow.moveTo(x, y);
+        arrow.moveArrow(x, y);
         p.point(x, y);
     }
 
@@ -369,7 +369,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             close();
             return;
         }
-        arrow.moveTo(Math.round(px), Math.round(py));
+        arrow.moveArrow(Math.round(px), Math.round(py));
         p.point(Math.round(px), Math.round(py));
     }
 

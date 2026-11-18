@@ -162,6 +162,24 @@ final class CursorOverlay {
         }
     }
 
+    /**
+     * A Mac or a browser placed its pointer (absolutely, WirelessDisplay) and shows that pointer itself: the arrows
+     * XDesk draws on its own surfaces (Launchpad, Dock, notifications, Mac menus) stay hidden then, and the receiver
+     * is told to show its pointer. Drawn into the picture, the arrow came one stream behind the mouse (felt as lag).
+     */
+    static volatile boolean receiverPointer;
+
+    /** moveTo for a surface's own arrow: hidden while {@link #receiverPointer}. */
+    void moveArrow(int newX, int newY) {
+        if (!receiverPointer) {
+            moveTo(newX, newY);
+            return;
+        }
+        x = newX;
+        y = newY;
+        hide();
+    }
+
     void hide() {
         if (!shown) return;
         shown = false;

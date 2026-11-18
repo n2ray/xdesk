@@ -302,7 +302,7 @@ final class MacMenus {
             arrow = new CursorOverlay(context);
             arrow.attach(display);
         }
-        arrow.moveTo(Math.round(px), Math.round(py));
+        arrow.moveArrow(Math.round(px), Math.round(py));
     }
 
     /** True while the menu has the pointer (DockPointer.open). */
@@ -431,7 +431,7 @@ final class MacMenus {
         px = Math.max(0f, Math.min(width - 1, px + dx));
         py = Math.max(0f, Math.min(height - 1, py + dy));
         int x = Math.round(px), y = Math.round(py);
-        arrow.moveTo(x, y);
+        arrow.moveArrow(x, y);
         // The ≡, the bar and its dropdown are one surface (they touch): the arrow goes from one to the other and
         // stays the menu's; only leaving all of them gives the pointer back to the Mac's picture
         boolean onBar = bar != null && !bar.closing() && bar.holds(x, y);
@@ -499,7 +499,7 @@ final class MacMenus {
         if (driven && over == SURFACE_BAR) {
             px = Math.max(0f, Math.min(1f, fx)) * (width - 1);
             py = Math.max(0f, Math.min(1f, fy)) * (height - 1);
-            arrow.moveTo(Math.round(px), Math.round(py));
+            arrow.moveArrow(Math.round(px), Math.round(py));
             moveBy(0, 0);
             return;
         }

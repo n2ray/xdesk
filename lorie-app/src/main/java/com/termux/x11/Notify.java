@@ -562,7 +562,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             arrow = new CursorOverlay(context);
             arrow.attach(display);
         }
-        arrow.moveTo(Math.round(px), Math.round(py));
+        arrow.moveArrow(Math.round(px), Math.round(py));
     }
 
     /** True while the centre has the pointer (DockPointer.open). */
@@ -636,7 +636,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         px = Math.max(0f, Math.min(width - 1, px + dx));
         py = Math.max(0f, Math.min(height - 1, py + dy));
         int x = Math.round(px), y = Math.round(py);
-        arrow.moveTo(x, y);
+        arrow.moveArrow(x, y);
         if (over == SURFACE_PANEL) {
             if (panel.holdsPanel(x, y)) return null;
             panel.rect(rect);
@@ -718,7 +718,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         if (driven && over == SURFACE_PANEL) {
             px = Math.max(0f, Math.min(1f, fx)) * (width - 1);
             py = Math.max(0f, Math.min(1f, fy)) * (height - 1);
-            arrow.moveTo(Math.round(px), Math.round(py));
+            arrow.moveArrow(Math.round(px), Math.round(py));
             moveBy(0, 0);
             return;
         }

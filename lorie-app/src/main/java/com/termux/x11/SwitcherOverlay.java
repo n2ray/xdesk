@@ -743,7 +743,9 @@ final class SwitcherOverlay {
         void place(float x, float y) {
             px = Math.max(0, Math.min(width - 1, x));
             py = Math.max(0, Math.min(height - 1, y));
-            if (pointer.getVisibility() != View.VISIBLE) pointer.setVisibility(View.VISIBLE);
+            // Not while a Mac or a browser shows its own pointer here (CursorOverlay.receiverPointer)
+            int shown = CursorOverlay.receiverPointer ? View.INVISIBLE : View.VISIBLE;
+            if (pointer.getVisibility() != shown) pointer.setVisibility(shown);
             // The arrow's tip is the point
             pointer.setTranslationX(px - CursorOverlay.arrowTipX(pointer));
             pointer.setTranslationY(py);

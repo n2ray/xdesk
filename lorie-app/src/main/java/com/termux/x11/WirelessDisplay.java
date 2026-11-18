@@ -329,6 +329,7 @@ final class WirelessDisplay {
 
     private void setState(final int s) {
         state = s;
+        if (s != STREAMING) placedAbsolutely(false);
         ui.post(() -> {
             if (listener != null) listener.onWirelessChanged();
             if (s == IDLE) DesktopService.stopIfIdle(context);
@@ -514,7 +515,7 @@ final class WirelessDisplay {
         // The touchpad moves the X cursor, which then shows in the picture again (DesktopInput.move): a receiver's
         // placement no longer hides it, so the receiver hides its own pointer until it places again (INPUT_MODE 3)
         if (absolutePlacement && (web || inputReceiver)) {
-            absolutePlacement = false;
+            placedAbsolutely(false);
             new Thread(this::sendInputMode, "xdesk-input-mode").start();
         }
         if (!web || phonePointer) return;
@@ -542,7 +543,7 @@ final class WirelessDisplay {
         webKeys.clear();
         if (pointerToo) {
             // The pointer is gone: the X cursor comes back into the picture (DesktopInput.pointerGone)
-            absolutePlacement = false;
+            placedAbsolutely(false);
         }
     }
 
@@ -558,7 +559,7 @@ final class WirelessDisplay {
                 final int dx = p.getShort(), dy = p.getShort();
                 // Relative moves drive the X cursor in the picture (INPUT_MODE 3)
                 if (absolutePlacement) {
-                    absolutePlacement = false;
+                    placedAbsolutely(false);
                     sendInputMode();
                 }
                 r = () -> sink.move(dx, dy);
@@ -569,7 +570,7 @@ final class WirelessDisplay {
                 final float fx = (p.getShort() & 0xffff) / 65535f, fy = (p.getShort() & 0xffff) / 65535f;
                 // An absolute placement hides the X cursor (INPUT_MODE 1)
                 if (!absolutePlacement) {
-                    absolutePlacement = true;
+                    placedAbsolutely(true);
                     sendInputMode();
                 }
                 r = () -> sink.moveToFraction(fx, fy);
@@ -992,7 +993,7 @@ final class WirelessDisplay {
     private void restartStream() throws IOException {
         sentInputMode = -1;
         // The X cursor is back in the picture until this connection places its pointer
-        absolutePlacement = false;
+        placedAbsolutely(false);
         ByteBuffer format = ByteBuffer.allocate(8).putInt(CODEC_H264).putShort((short) streamWidth).putShort((short) streamHeight);
         writeMessage(VIDEO_FORMAT, format.array(), 0, 8);
         sendFeatures();
@@ -1150,6 +1151,7 @@ final class WirelessDisplay {
 
     void setDesktopCursor(boolean on) {
         desktopCursor = on;
+        placedAbsolutely(absolutePlacement);
     }
 
     /** Whether the external Dock has the pointer now (XDeskActivity): its arrow is in the picture. */
@@ -1166,6 +1168,17 @@ final class WirelessDisplay {
 
     /** The last pointer message placed the pointer absolutely: over X the X cursor is hidden then (DesktopInput). */
     private volatile boolean absolutePlacement;
+
+    /**
+     * A computer or a browser that places its pointer shows that pointer itself: XDesk's own surfaces then draw no
+     * arrow of their own (CursorOverlay.receiverPointer) and are not counted as a cursor in the picture. Worked out
+     * again when the content changes (setDesktopCursor).
+     */
+    private void placedAbsolutely(boolean on) {
+        absolutePlacement = on;
+        // Not over a Mac's picture: its cursor is in it, and the receiver hides its pointer there anyway
+        CursorOverlay.receiverPointer = on && (computer || web) && !desktopCursor;
+    }
 
     /** An Android receiver (codecs bits 7 and 6): it hides its own pointer when the picture has a cursor, so the
      *  phone keeps drawing its arrow for its absolute placements (AppSession.remoteHidesPointer). */
@@ -1184,7 +1197,8 @@ final class WirelessDisplay {
         // Worked out, compared and sent under the write lock: three threads call this, and a mode sent out of order
         // against the one recorded was never sent again (no pointer at all on the receiver)
         synchronized (writeLock) {
-            boolean drawn = desktopCursor || SwitcherOverlay.isShown() || dockDriven();
+            // The Launchpad's and the Dock's arrows are not drawn while the receiver shows its own pointer
+            boolean drawn = desktopCursor || (SwitcherOverlay.isShown() || dockDriven()) && !CursorOverlay.receiverPointer;
             int mode = drawn && (computer || web) ? 3 : !desktopShown ? touchMode && !computer ? 2 : 0
                     : drawn || !absolutePlacement ? 3 : 1;
             if (mode == sentInputMode || webLost) return;
