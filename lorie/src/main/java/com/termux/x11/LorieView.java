@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
 import android.text.Editable;
 import android.text.InputType;
 import android.util.AttributeSet;
@@ -329,6 +330,14 @@ public class LorieView extends SurfaceView implements InputStub {
                 return true;
             }
         });
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        // A view attached again after onDetachedFromWindow gets a new native side, or it stays dead
+        if (mNativeContext == 0)
+            mNativeContext = nativeInit();
     }
 
     @Override
@@ -734,7 +743,8 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     @FastNative private native long nativeInit();
-    @FastNative private native void nativeDestroy(long ptr);
+    // Not @FastNative: it joins the renderer thread and runs JNI code while tearing the view down
+    private native void nativeDestroy(long ptr);
     @FastNative private native void surfaceChanged(long ptr, Surface surface);
     @FastNative private native void setFiltering(long ptr, int filtering);
     @FastNative private native void setClipboardSyncEnabled(long ptr, boolean enabled, boolean ignored);
@@ -750,7 +760,21 @@ public class LorieView extends SurfaceView implements InputStub {
     @FastNative private native void sendSync(long ptr, int serial);
 
     // Public API stays free of the native pointer; it's threaded through to an overload below.
-    public void connect(int fd) { connect(mNativeContext, fd); }
+    /** Returns false when the view is detached and has no native side to take the socket; the fd is then closed. */
+    public boolean connect(int fd) {
+        if (mNativeContext == 0) {
+            // Detached: the native side is gone and cannot take the socket, close it rather than leak the fd
+            if (fd >= 0) {
+                try {
+                    ParcelFileDescriptor.adoptFd(fd).close();
+                } catch (java.io.IOException ignored) {
+                }
+            }
+            return false;
+        }
+        connect(mNativeContext, fd);
+        return true;
+    }
     @FastNative private static native void connect(long ptr, int fd);
 
     public boolean connected() { return connected(mNativeContext); }

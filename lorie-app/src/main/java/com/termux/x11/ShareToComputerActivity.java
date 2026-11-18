@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -17,8 +18,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * "Send to computer" in the system's share sheet. The permission to read what was shared ends with this activity, so
- * the files are opened here and sent after it has gone.
+ * "Send to computer" in the system's share sheet. The activity is exported, so any app can call it: what is sent,
+ * and to which computer, is always shown and only sent after the user agrees. The permission to read what was
+ * shared ends with this activity, so the files are opened here and sent after it has gone.
  */
 public final class ShareToComputerActivity extends Activity {
     private static final String TAG = "XDeskWireless";
@@ -31,8 +33,31 @@ public final class ShareToComputerActivity extends Activity {
             finish();
             return;
         }
-        List<WirelessDisplay.OutgoingFile> files = new ArrayList<>();
+        List<Uri> uris = new ArrayList<>();
+        List<String> names = new ArrayList<>();
         for (Uri uri : shared()) {
+            if (!allowed(uri)) continue;
+            uris.add(uri);
+            names.add(nameOf(uri));
+        }
+        if (names.isEmpty()) {
+            Toast.makeText(this, R.string.xd_share_nothing, Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        String what = getString(R.string.xd_share_sending, wireless.receiverName()) + "\n\n" + String.join("\n", names);
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(R.string.xd_share_label)
+                .setMessage(what)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> send(wireless, uris))
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> finish())
+                .setOnCancelListener(dialog -> finish())
+                .show();
+    }
+
+    private void send(WirelessDisplay wireless, List<Uri> uris) {
+        List<WirelessDisplay.OutgoingFile> files = new ArrayList<>();
+        for (Uri uri : uris) {
             WirelessDisplay.OutgoingFile f = open(uri);
             if (f != null) files.add(f);
         }

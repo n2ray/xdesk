@@ -17,7 +17,8 @@ public class DesktopService extends Service {
     private static final int NOTIFICATION = 1;
     /** 通知的标题，不给就是桌面。 */
     static final String EXTRA_TITLE = "title";
-    private PowerManager.WakeLock wakeLock;
+    private static final Object WAKE_GUARD = new Object();
+    private static PowerManager.WakeLock wakeLock;
     private static boolean ending, running;
 
     static boolean isRunning() {
@@ -27,10 +28,26 @@ public class DesktopService extends Service {
     /** 会话结束了不等于 XDesk 结束了：外接屏上还有仪表盘时，从最近任务划掉仍然要能收到。 */
     static void stopIfIdle(android.content.Context c) {
         android.content.Context app = c.getApplicationContext();
+        // Before deciding: whatever ended may be the last thing that needed the CPU, see updateWakeLock
+        updateWakeLock(app);
         // The web display keeps it while on: a browser may connect with XDesk in the background, see WebServer.start
         if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()
             || WirelessDisplay.get(app).isActive() || WebServer.get(app).isRunning()) return;
         app.stopService(new Intent(app, DesktopService.class));
+    }
+
+    /**
+     * The CPU stays awake only while a desktop, an app or a stream is actually running. The service alone (the
+     * dashboard alive, the web display merely listening) needs no wake lock, so the device can sleep.
+     */
+    private static void updateWakeLock(android.content.Context app) {
+        synchronized (WAKE_GUARD) {
+            if (wakeLock == null) return;
+            boolean needed = DesktopSession.get(app).isActive() || AppSession.get(app).isActive()
+                || WirelessDisplay.get(app).isActive();
+            if (needed && !wakeLock.isHeld()) wakeLock.acquire();
+            else if (!needed && wakeLock.isHeld()) wakeLock.release();
+        }
     }
 
     @Override public void onCreate() {
@@ -38,8 +55,10 @@ public class DesktopService extends Service {
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, getString(R.string.xd_service_channel), NotificationManager.IMPORTANCE_LOW));
         PowerManager pm = getSystemService(PowerManager.class);
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xdesk:session");
-        wakeLock.acquire();
+        synchronized (WAKE_GUARD) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xdesk:session");
+        }
+        updateWakeLock(this);
         running = true;
     }
 
@@ -56,6 +75,8 @@ public class DesktopService extends Service {
             .setOngoing(true)
             .build();
         startForeground(NOTIFICATION, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        // A session may have started without the service having been created by it (dashboard, web listener)
+        updateWakeLock(this);
         // 进程被杀后会话也没了，不要让系统空跑地重启服务
         return START_NOT_STICKY;
     }
@@ -101,7 +122,12 @@ public class DesktopService extends Service {
 
     @Override public void onDestroy() {
         running = false;
-        if (wakeLock.isHeld()) wakeLock.release();
+        synchronized (WAKE_GUARD) {
+            if (wakeLock != null) {
+                if (wakeLock.isHeld()) wakeLock.release();
+                wakeLock = null;
+            }
+        }
         super.onDestroy();
     }
 

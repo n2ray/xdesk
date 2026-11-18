@@ -27,7 +27,8 @@ final class DesktopSession {
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     /** 和 xdesk 命令里的 AUDIO_PORT 一致。 */
     private static final int AUDIO_PORT = 47130;
-    private static final long POLL_MS = 500;
+    /** Slow fallback for a connection change the window's callback did not report; the callback is the normal path. */
+    private static final long POLL_MS = 5000;
     /** 窗口重建时也会短暂断开，断开这么久才算 X 服务器没了。 */
     private static final long SERVER_LOST_MS = 3000;
     /** xdesk stop takes up to about 15 s (a logout that hangs, then kills). Past this it is treated as finished. */
@@ -62,11 +63,13 @@ final class DesktopSession {
         }
     };
 
+    /** Registered with the window, which reports its X connection coming and going; keep the Poll as a fallback. */
+    private final MainActivity.DesktopConnectionListener viewConnection = this::onViewConnection;
+
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!active) return;
-            boolean now = DesktopInput.view() != null;
-            if (now != connected) connectionChanged(now);
+            onViewConnection(DesktopInput.view() != null);
             ui.postDelayed(this, POLL_MS);
         }
     };
@@ -122,6 +125,7 @@ final class DesktopSession {
         context.startForegroundService(new Intent(context, DesktopService.class));
         // 只用来区分是不是用户结束的。别的 App 发的没有 NONCE，不算
         context.registerReceiver(stopped, new IntentFilter(ACTION_STOPPED), Context.RECEIVER_EXPORTED);
+        MainActivity.desktopConnectionListener = viewConnection;
         ui.post(poll);
     }
 
@@ -137,6 +141,12 @@ final class DesktopSession {
         return replaceRunning ? run("switch", name) : run("start", name);
     }
 
+    /** The window's connection callback and the slow poll. Main thread. */
+    private void onViewConnection(boolean now) {
+        if (!active) return;
+        if (now != connected) connectionChanged(now);
+    }
+
     private void connectionChanged(boolean c) {
         connected = c;
         ui.removeCallbacks(serverLost);
@@ -147,6 +157,8 @@ final class DesktopSession {
     /** 退出显示器，桌面继续运行。 */
     void abandon() {
         if (active) context.unregisterReceiver(stopped);
+        if (MainActivity.desktopConnectionListener == viewConnection)
+            MainActivity.desktopConnectionListener = null;
         active = false;
         connected = false;
         ui.removeCallbacks(serverLost);

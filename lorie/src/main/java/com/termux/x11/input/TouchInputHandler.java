@@ -189,7 +189,8 @@ public class TouchInputHandler {
         mInjector = injector;
         mActivity = activity;
         if (mDisplayManager == null) {
-            mDisplayManager = (DisplayManager) mActivity.getSystemService(Context.DISPLAY_SERVICE);
+            // Static, and the listener is never unregistered: the application context keeps no Activity alive
+            mDisplayManager = (DisplayManager) mActivity.getApplicationContext().getSystemService(Context.DISPLAY_SERVICE);
             mDisplayRotation = mDisplayManager.getDisplay(Display.DEFAULT_DISPLAY).getRotation() % 4;
             mDisplayManager.registerDisplayListener(mDisplayListener, null);
         }

@@ -219,7 +219,9 @@ public final class InputEventSender {
             syncLockKeysState(e.getMetaState());
 
         if ((e.getFlags() & KeyEvent.FLAG_CANCELED) == KeyEvent.FLAG_CANCELED) {
-            android.util.Log.d("KeyEvent", "We've got key event with FLAG_CANCELED, it will not be consumed. Details: " + e);
+            // Never the event itself: ACTION_MULTIPLE carries the typed characters
+            android.util.Log.d("KeyEvent", "We've got key event with FLAG_CANCELED, it will not be consumed. action="
+                    + e.getAction() + " keyCode=" + e.getKeyCode() + " flags=" + e.getFlags());
             return true;
         }
 

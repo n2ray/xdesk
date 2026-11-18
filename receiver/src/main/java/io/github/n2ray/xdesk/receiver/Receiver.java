@@ -5,9 +5,12 @@ import android.util.Log;
 import android.view.Surface;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,6 +31,8 @@ final class Receiver {
     // After the last one pairing stays closed until the app is opened again
     private static final int ADDRESS_FAILURES = MAX_WRONG, ALL_FAILURES = 10, TOTAL_FAILURES = 30;
     private static final long LOCKOUT_MS = 60_000, ALL_WINDOW_MS = 600_000, ALL_LOCKOUT_MS = 600_000;
+    /** The longest surfaceDestroyed waits for the decoders to let go of the surface before it returns. */
+    private static final int SURFACE_STOP_MS = 500;
 
     /** Called from network threads; only for the session that holds the receiver */
     interface Ui {
@@ -139,13 +144,13 @@ final class Receiver {
     }
 
     /**
-     * Closes everything and waits for the sessions to release their decoders: the caller is about to lose the
-     * surface they draw on. Tells a streaming phone BYE first.
+     * Closes everything. The caller (surfaceDestroyed) is about to lose the surface the decoder draws on, so each
+     * session is stopped here, synchronously, and its decoder gets a short time to be released; the longer wait for
+     * the sessions then goes on in the background. No BYE: writing it to a stalled phone could block.
      */
     void stop() {
         final ServerSocket ss;
         final List<Session> all;
-        final Session current;
         synchronized (this) {
             if (!running) return;
             running = false;
@@ -153,12 +158,24 @@ final class Receiver {
             ss = server;
             server = null;
             all = new ArrayList<>(sessions);
-            current = active;
         }
-        // Sockets must not be touched on the main thread
-        Thread t = new Thread(() -> {
-            closeQuietly(ss);
-            for (Session s : all) s.kill(s == current);
+        // First no new phone, then close the sessions: that wakes their reading threads, whose finally releases
+        // the MediaCodec. Both are local, quick operations.
+        closeQuietly(ss);
+        for (Session s : all) s.kill(false);
+        long until = SystemClock.elapsedRealtime() + SURFACE_STOP_MS;
+        for (Session s : all) {
+            long left = until - SystemClock.elapsedRealtime();
+            if (left <= 0) break;
+            try {
+                s.join(left);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        // The rest does not need the thread that is losing the surface
+        new Thread(() -> {
             for (Session s : all) {
                 try {
                     s.join(1500);
@@ -166,17 +183,35 @@ final class Receiver {
                     return;
                 }
             }
-        }, "stop");
-        t.start();
-        try {
-            t.join(2500);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        }, "stop").start();
     }
 
     private synchronized boolean alive(int my) {
         return running && gen == my;
+    }
+
+    /**
+     * Whether a connection accepted on {@code local} came in on a network a phone can reach: Wi-Fi (also as a
+     * hotspot), Ethernet or USB tethering. Not this device itself, mobile data, or a VPN or other tunnel, whose
+     * users are not the phone at the other end of the room.
+     */
+    private static boolean reachable(InetAddress local) {
+        if (local == null || local.isLoopbackAddress())
+            return false;
+        try {
+            NetworkInterface n = NetworkInterface.getByInetAddress(local);
+            if (n == null || !n.isUp() || n.isLoopback())
+                return false;
+            String name = n.getName().toLowerCase(Locale.ROOT);
+            return !(name.startsWith("rmnet") || name.startsWith("ccmni") || name.startsWith("pdp")
+                || name.startsWith("wwan") || name.startsWith("clat") || name.startsWith("v4-")
+                || name.startsWith("tun") || name.startsWith("tap") || name.startsWith("wg")
+                || name.startsWith("tailscale") || name.startsWith("pan") || name.startsWith("ppp")
+                || name.startsWith("ipsec") || name.startsWith("l2tp") || name.startsWith("dummy")
+                || name.startsWith("p2p") || name.startsWith("ip6") || name.startsWith("sit"));
+        } catch (SocketException e) {
+            return false;
+        }
     }
 
     private void serve(int my) {
@@ -201,7 +236,9 @@ final class Receiver {
                 while (true) {
                     Socket c = ss.accept();
                     String ip = c.getInetAddress().getHostAddress();
-                    if (!enterUnpaired(ip)) {
+                    // Only the networks a phone can be on: Wi-Fi, Ethernet or USB tethering. Loopback, mobile data
+                    // and VPNs are refused when the connection is taken, before it can reach pairing.
+                    if (!reachable(c.getLocalAddress()) || !enterUnpaired(ip)) {
                         closeQuietly(c);
                         continue;
                     }

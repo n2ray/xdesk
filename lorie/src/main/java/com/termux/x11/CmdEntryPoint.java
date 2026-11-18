@@ -17,6 +17,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.Log;
@@ -38,8 +39,17 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     public static final String EXTRA_DOCUMENT_TAG = "document_tag";
     static final Handler handler;
     public static Context ctx;
+    /**
+     * Delays for the broadcasts that say the X server is here when nothing knocks on its port: immediate, then a
+     * few with backoff. The server then waits to be knocked on, which is how the app asks for it (see
+     * LorieView.requestConnection); broadcasting for its whole life woke XDesk every second with no window open.
+     */
+    private static final long[] ANNOUNCE_DELAY_MS = {1000, 3000, 10000};
     private final Intent intent = createIntent();
     private boolean broadcastPending;
+    private int announcesLeft;
+    /** XDesk's uid, the only process allowed to call this Binder. */
+    private static int appUid = -2;
 
     /**
      * Command-line entry point.
@@ -145,10 +155,45 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
     // In some cases Android Activity part can not connect opened port.
     // In this case opened port works like a lock file.
     private void sendBroadcastDelayed() {
-        if (!connected())
-            sendBroadcast(intent);
+        synchronized (this) { announcesLeft = ANNOUNCE_DELAY_MS.length; }
+        announce();
+    }
 
-        handler.postDelayed(this::sendBroadcastDelayed, 1000);
+    private void announce() {
+        int next;
+        synchronized (this) {
+            if (announcesLeft <= 0)
+                return;
+            next = ANNOUNCE_DELAY_MS.length - announcesLeft;
+            announcesLeft--;
+        }
+        if (connected())
+            return;
+        sendBroadcast(intent);
+        if (next < ANNOUNCE_DELAY_MS.length)
+            handler.postDelayed(this::announce, ANNOUNCE_DELAY_MS[next]);
+    }
+
+    /** The only process that may use this Binder is XDesk itself (or this process); -1 when the package cannot be asked. */
+    private static int appUid() {
+        if (appUid == -2) {
+            try {
+                appUid = ctx.getPackageManager().getPackageUid(BuildConfig.APPLICATION_ID, 0);
+            } catch (Exception e) {
+                // Not known here: as before this check, every caller is let through (a desktop that cannot connect
+                // is worse than the check it would have given)
+                Log.e("CmdEntryPoint", "Cannot tell XDesk's uid, not checking Binder callers", e);
+                appUid = -1;
+            }
+        }
+        return appUid;
+    }
+
+    @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+        int uid = appUid();
+        if (uid != -1 && Binder.getCallingUid() != uid && Binder.getCallingUid() != android.os.Process.myUid())
+            throw new SecurityException("not XDesk");
+        return super.onTransact(code, data, reply, flags);
     }
 
     /** @noinspection DataFlowIssue*/

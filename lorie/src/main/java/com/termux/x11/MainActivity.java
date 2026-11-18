@@ -45,7 +45,6 @@ import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.OrientationEventListener;
 import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -81,6 +80,7 @@ import com.termux.x11.utils.TermuxX11ExtraKeys;
 import com.termux.x11.utils.X11ToolbarViewPager;
 
 import java.io.FileDescriptor;
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -90,6 +90,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.IntPredicate;
 
 import org.lsposed.hiddenapibypass.HiddenApiBypass;
@@ -100,11 +105,29 @@ public class MainActivity extends AppCompatActivity {
     public static final String ACTION_STOP = "com.termux.x11.ACTION_STOP";
     public static final String ACTION_CUSTOM = "com.termux.x11.ACTION_CUSTOM";
 
+    /**
+     * Calls into the X server's Binder from a worker: any app can send ACTION_START with a Binder of its own, and
+     * one that never answers must not freeze XDesk. At most two calls at a time; a hung call owns its thread, and
+     * further attempts are dropped instead of piling threads up.
+     */
+    private static final ExecutorService connectCalls = new ThreadPoolExecutor(0, 2, 10, TimeUnit.SECONDS,
+            new SynchronousQueue<>(), r -> {
+                Thread t = new Thread(r, "xdesk-x-connect");
+                t.setDaemon(true);
+                return t;
+            });
+    private static final long CONNECT_CALL_TIMEOUT_MS = 3000;
+
     public static Handler handler = new Handler();
     private final Runnable connectRetry = this::tryConnect;
+    private final Runnable connectRetryTimeout = this::onConnectRetryTimeout;
+    private final Runnable preferencesChangedCallback = this::onPreferencesChangedCallback;
+    /** A getXConnection call is in flight for this connectAttempt; see tryConnect. */
+    private boolean connecting;
+    private int connectAttempt;
     FrameLayout frm;
     TouchInputHandler mInputHandler;
-    protected ICmdEntryInterface service = null;
+    protected volatile ICmdEntryInterface service = null;
     /** The X server whose connection passed madeByXServer, for the desktop sound. */
     public static volatile ICmdEntryInterface verifiedServer;
     private boolean logcatPending;
@@ -118,9 +141,19 @@ public class MainActivity extends AppCompatActivity {
     private boolean isInPictureInPictureMode = false;
     /** The display the system letterboxed us on instead of rotating, {@code null} until it does. */
     private Rect orientationDeniedAt = null;
+    /**
+     * Told when the default window's X connection comes or goes. DesktopSession lives in the app module, which
+     * this library cannot see; it registers here instead of polling the view. Main thread.
+     */
+    public interface DesktopConnectionListener {
+        void onDesktopConnectionChanged(boolean connected);
+    }
+
+    public static volatile DesktopConnectionListener desktopConnectionListener;
     private String screenIdleTimeoutArmedMode = null; // numeric screenIdleTimeout mode the pending idle check reflects, or null if none pending
     private final Runnable screenIdleTimeoutCheck = this::checkScreenIdleTimeout;
-    private static final long SERVER_WATCHDOG_INTERVAL_MS = 200, SERVER_HEARTBEAT_TIMEOUT_MS = 3000;
+    /** The server writes a heartbeat every second; checking it every 200 ms only woke the main thread up. */
+    private static final long SERVER_WATCHDOG_INTERVAL_MS = 1000, SERVER_HEARTBEAT_TIMEOUT_MS = 3000;
     private final Runnable serverWatchdog = this::checkServerHeartbeat;
     @Keep private long lastServerHeartbeat;
     private long lastServerWatchdogRun;
@@ -132,7 +165,8 @@ public class MainActivity extends AppCompatActivity {
     LorieApp app;
 
     private boolean oldFullscreen = false, oldHideCutout = false;
-    private OrientationEventListener orientationListener;
+    /** The "no server" overlay, looked up once: the watchdog used to find it every 200 ms. */
+    private View noServerSignal;
 
     ViewTreeObserver.OnPreDrawListener mOnPredrawListener = new ViewTreeObserver.OnPreDrawListener() {
         @Override
@@ -349,6 +383,7 @@ public class MainActivity extends AppCompatActivity {
         applyWindowSettings();
 
         frm = findViewById(R.id.frame);
+        noServerSignal = findViewById(R.id.no_server_signal);
         findViewById(R.id.preferences_button).setOnClickListener((l) -> startActivity(new Intent(this, LoriePreferences.class) {{ setAction(Intent.ACTION_MAIN); }}));
         findViewById(R.id.help_button).setOnClickListener((l) -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/termux/termux-x11/blob/master/README.md#running-graphical-applications"))));
         findViewById(R.id.exit_button).setOnClickListener((l) -> finish());
@@ -389,11 +424,8 @@ public class MainActivity extends AppCompatActivity {
                 mInputHandler.handleInputTransformChanged(screenWidth, screenHeight, inputTransform));
 
         displayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
-        orientationListener = new OrientationEventListener(this) {
-            @Override public void onOrientationChanged(int orientation) {
-                setTerminalToolbarViewLayout();
-            }
-        };
+        // The bar follows the display's rotation and the position preference here; an OrientationEventListener would
+        // run the accelerometer for the whole time the window is resumed and relayout on every angle step.
         frm.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             String savedPos;
             int savedRotation;
@@ -445,6 +477,13 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         handler.removeCallbacks(screenIdleTimeoutCheck);
         handler.removeCallbacks(serverWatchdog);
+        // A retry posted after the view is gone would connect a LorieView whose native side has been released
+        handler.removeCallbacks(connectRetry);
+        handler.removeCallbacks(preferencesChangedCallback);
+        cancelConnectCall();
+        // Only a window that goes away for good: a recreate() makes a new one, which reconnects at once
+        if (!redirected && tag.isEmpty() && isFinishing())
+            notifyDesktopConnection(false);
         if (mInputHandler != null)
             mInputHandler.onDestroy();
         instances.values().removeIf(ref -> ref.get() == this);
@@ -592,9 +631,8 @@ public class MainActivity extends AppCompatActivity {
     private void positionNoServerSignal() {
         final View parent = (View) frm.getParent();
         final RectF rect = getVisibleFrmRect();
-        final View overlay = findViewById(R.id.no_server_signal);
-        overlay.setTranslationX(rect.centerX() - parent.getWidth() / 2f);
-        overlay.setTranslationY(rect.bottom - parent.getHeight() - 12 * getResources().getDisplayMetrics().density);
+        noServerSignal.setTranslationX(rect.centerX() - parent.getWidth() / 2f);
+        noServerSignal.setTranslationY(rect.bottom - parent.getHeight() - 12 * getResources().getDisplayMetrics().density);
     }
 
     private void makeSureHelpersAreVisibleAndInScreenBounds() {
@@ -734,8 +772,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void connectToService(IBinder ibinder) {
-        service = ICmdEntryInterface.Stub.asInterface(ibinder);
-        // Our logcat goes to the server, so only once its socket shows it is the real one, see tryConnect
+        ICmdEntryInterface next = ICmdEntryInterface.Stub.asInterface(ibinder);
+        if (service != null && (next == null || next.asBinder() != service.asBinder()))
+            cancelConnectCall();
+        service = next;
+        // Our logcat goes to the server, so only once its socket shows it is the real one, see onXConnection
         logcatPending = true;
         if (service != null && service.asBinder().isBinderAlive())
             tryConnect();
@@ -766,10 +807,21 @@ public class MainActivity extends AppCompatActivity {
         service = null;
 
         Log.v("Lorie", "Disconnected");
-        runOnUiThread(() -> { getLorieView().connect(-1); clientConnectedStateChanged(); });
+        runOnUiThread(() -> {
+            cancelConnectCall();
+            getLorieView().connect(-1);
+            clientConnectedStateChanged();
+        });
     }
 
+    /**
+     * Gets the X connection. The Binder call is made on a worker with a timeout: it comes from whoever sent
+     * ACTION_START, and a Binder that never answers used to freeze the window here, before the socket's uid was checked.
+     */
     boolean tryConnect() {
+        if (isFinishing() || isDestroyed())
+            return false;
+
         if (getLorieView().connected()) {
             handler.removeCallbacks(connectRetry);
             return false;
@@ -781,37 +833,118 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
 
-        try {
-            ParcelFileDescriptor fd = service.getXConnection();
-            if (fd != null && !madeByXServer(fd)) {
-                fd.close();
-                service = null;
-                scheduleConnect();
-            } else if (fd != null) {
-                app.verifiedServers.add(service.asBinder());
-                verifiedServer = service;
-                if (logcatPending) {
-                    logcatPending = false;
-                    Log.v("MainActivity", "Extracting logcat fd.");
-                    ParcelFileDescriptor logcatOutput = service.getLogcatOutput();
-                    if (logcatOutput != null)
-                        getLorieView().startLogcat(logcatOutput.detachFd());
-                }
-                Log.v("MainActivity", "Extracting X connection socket.");
-                getLorieView().connect(fd.detachFd());
-                finishStartupDraw();
-                getLorieView().triggerCallback();
-                clientConnectedStateChanged();
-                getLorieView().reloadPreferences(prefs);
-            } else
-                scheduleConnect();
-        } catch (Exception e) {
-            Log.e("MainActivity", "Something went wrong while we were establishing connection", e);
-            service = null;
+        if (connecting)
+            return false;
 
+        final ICmdEntryInterface from = service;
+        final int attempt = ++connectAttempt;
+        final WeakReference<MainActivity> self = new WeakReference<>(this);
+        connecting = true;
+        handler.postDelayed(connectRetryTimeout, CONNECT_CALL_TIMEOUT_MS);
+        try {
+            connectCalls.execute(() -> {
+                ParcelFileDescriptor fd = null;
+                Exception error = null;
+                try {
+                    fd = from.getXConnection();
+                } catch (Exception e) {
+                    error = e;
+                }
+                final ParcelFileDescriptor result = fd;
+                final Exception failure = error;
+                handler.post(() -> {
+                    MainActivity activity = self.get();
+                    if (activity != null)
+                        activity.onXConnection(attempt, from, result, failure);
+                    else
+                        closeQuietly(result);
+                });
+            });
+        } catch (RejectedExecutionException e) {
+            // Two calls are already stuck; do not add another
+            cancelConnectCall();
+            service = null;
             scheduleConnect();
         }
         return false;
+    }
+
+    /** A result from an older Binder, or a call that timed out, must not move the window. */
+    private void cancelConnectCall() {
+        connectAttempt++;
+        connecting = false;
+        handler.removeCallbacks(connectRetryTimeout);
+    }
+
+    private void onConnectRetryTimeout() {
+        if (!connecting)
+            return;
+        cancelConnectCall();
+        // Never use this Binder again: it had its chance to answer
+        service = null;
+        Log.w("MainActivity", "The X connection request did not answer");
+        scheduleConnect();
+    }
+
+    /** Main thread: the worker got the socket, or gave up. */
+    private void onXConnection(int attempt, ICmdEntryInterface from, ParcelFileDescriptor fd, Exception error) {
+        if (attempt != connectAttempt || from != service || isFinishing() || isDestroyed()) {
+            closeQuietly(fd);
+            return;
+        }
+        connecting = false;
+        handler.removeCallbacks(connectRetryTimeout);
+
+        if (error != null || fd == null) {
+            if (error != null)
+                Log.e("MainActivity", "Something went wrong while we were establishing connection", error);
+            service = null;
+            scheduleConnect();
+            return;
+        }
+
+        try {
+            if (!madeByXServer(fd)) {
+                fd.close();
+                service = null;
+                scheduleConnect();
+                return;
+            }
+            app.verifiedServers.add(from.asBinder());
+            verifiedServer = from;
+            if (logcatPending) {
+                logcatPending = false;
+                Log.v("MainActivity", "Extracting logcat fd.");
+                ParcelFileDescriptor logcatOutput = from.getLogcatOutput();
+                if (logcatOutput != null)
+                    getLorieView().startLogcat(logcatOutput.detachFd());
+            }
+            Log.v("MainActivity", "Extracting X connection socket.");
+            if (!getLorieView().connect(fd.detachFd())) {
+                // The view is detached (its native side is gone): do not keep asking this server for sockets
+                service = null;
+                scheduleConnect();
+                return;
+            }
+            finishStartupDraw();
+            getLorieView().triggerCallback();
+            clientConnectedStateChanged();
+            getLorieView().reloadPreferences(prefs);
+        } catch (Exception e) {
+            Log.e("MainActivity", "Something went wrong while we were establishing connection", e);
+            service = null;
+            closeQuietly(fd);
+            scheduleConnect();
+        }
+    }
+
+    private static void closeQuietly(ParcelFileDescriptor fd) {
+        if (fd != null) {
+            try {
+                fd.close();
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     void scheduleConnect() {
@@ -823,8 +956,8 @@ public class MainActivity extends AppCompatActivity {
         if ("additionalKbdVisible".equals(key))
             return;
 
-        handler.removeCallbacks(this::onPreferencesChangedCallback);
-        handler.postDelayed(this::onPreferencesChangedCallback, 100);
+        handler.removeCallbacks(preferencesChangedCallback);
+        handler.postDelayed(preferencesChangedCallback, 100);
     }
 
     @SuppressLint("UnsafeIntentLaunch")
@@ -878,7 +1011,6 @@ public class MainActivity extends AppCompatActivity {
 
         app.onActivityResumed(this);
 
-        orientationListener.enable();
         setTerminalToolbarView();
         getLorieView().requestFocus();
 
@@ -894,8 +1026,11 @@ public class MainActivity extends AppCompatActivity {
         lastServerWatchdogRun = now;
 
         boolean silent = getLorieView().connected() && now - lastServerHeartbeat > SERVER_HEARTBEAT_TIMEOUT_MS;
-        positionNoServerSignal();
-        findViewById(R.id.no_server_signal).setVisibility(silent ? View.VISIBLE : View.GONE);
+        // A layout change repositions the overlay anyway; only its coming and going needs work here
+        if (silent != (noServerSignal.getVisibility() == View.VISIBLE)) {
+            if (silent) positionNoServerSignal();
+            noServerSignal.setVisibility(silent ? View.VISIBLE : View.GONE);
+        }
         handler.postDelayed(serverWatchdog, SERVER_WATCHDOG_INTERVAL_MS);
     }
 
@@ -909,8 +1044,7 @@ public class MainActivity extends AppCompatActivity {
         getLorieView().setKeyboardVisible(false);
 
         handler.removeCallbacks(serverWatchdog);
-        findViewById(R.id.no_server_signal).setVisibility(View.GONE);
-        orientationListener.disable();
+        noServerSignal.setVisibility(View.GONE);
         super.onPause();
 
         app.onActivityPaused();
@@ -1328,6 +1462,7 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(()-> {
             boolean connected = getLorieView().connected();
             lastServerHeartbeat = SystemClock.uptimeMillis();
+            notifyDesktopConnection(connected);
             if (!connected)
                 setCapturingEnabled(false);
 
@@ -1341,7 +1476,7 @@ public class MainActivity extends AppCompatActivity {
             setTerminalToolbarView();
             findViewById(R.id.mouse_buttons).setVisibility(prefs.showMouseHelper.get() && "1".equals(prefs.touchMode.get()) && connected ? View.VISIBLE : View.GONE);
             findViewById(R.id.stub).setVisibility(connected?View.INVISIBLE:View.VISIBLE);
-            findViewById(R.id.no_server_signal).setVisibility(View.GONE);
+            noServerSignal.setVisibility(View.GONE);
             getLorieView().setVisibility(connected?View.VISIBLE:View.INVISIBLE);
 
             // We should recover connection in the case if file descriptor for some reason was broken...
@@ -1352,6 +1487,13 @@ public class MainActivity extends AppCompatActivity {
 
             applyWindowSettings();
         });
+    }
+
+    /** The default window is the desktop the app module's DesktopSession follows; tagged windows are not it. */
+    private void notifyDesktopConnection(boolean connected) {
+        DesktopConnectionListener l = desktopConnectionListener;
+        if (l != null && tag.isEmpty())
+            l.onDesktopConnectionChanged(connected);
     }
 
     public void getRealMetrics(DisplayMetrics m) {
