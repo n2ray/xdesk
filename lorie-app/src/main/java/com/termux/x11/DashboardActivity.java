@@ -37,7 +37,8 @@ public class DashboardActivity extends Activity {
 
     private DashboardView view;
     /** PermitCard while XDesk may not draw over other apps (owner, 2026-11-18); gone once it may. */
-    private android.view.View permit;
+    private PermitCard permit;
+    private static final long WATCH_MS = 2000;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -68,18 +69,34 @@ public class DashboardActivity extends Activity {
     /** The card over the dashboard: its button opens the system's page on the phone, where the switch is. */
     private void showPermit(boolean show) {
         if (!show) {
-            if (permit != null) ((FrameLayout) permit.getParent()).removeView(permit);
-            permit = null;
+            // The permission came: green for a moment (PermitCard), then the card goes
+            if (permit != null) permit.markDone();
             return;
         }
         if (permit != null) return;
         float density = getResources().getDisplayMetrics().density;
-        permit = new PermitCard(this, density, getString(R.string.xd_permit_overlay), getString(R.string.xd_permit_overlay_dash_why),
-            getString(R.string.xd_permit_overlay_path), PermitCard.ON_PHONE, null, this::openOverlaySettingsOnPhone, null).view;
+        final PermitCard card = new PermitCard(this, density, getString(R.string.xd_permit_overlay),
+            getString(R.string.xd_permit_overlay_dash_why), getString(R.string.xd_permit_overlay_path), PermitCard.ON_PHONE, null,
+            this::openOverlaySettingsOnPhone, null);
+        permit = card;
+        card.onDone(() -> {
+            if (card.view.getParent() != null) ((FrameLayout) card.view.getParent()).removeView(card.view);
+            if (permit == card) permit = null;
+        });
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Math.round(Math.min(420 * density,
             getResources().getDisplayMetrics().widthPixels * 0.8f)), -2, Gravity.CENTER);
-        ((FrameLayout) view.getParent()).addView(permit, lp);
+        ((FrameLayout) view.getParent()).addView(card.view, lp);
+        view.postDelayed(watchPermit, WATCH_MS);
     }
+
+    /** While the card shows: the switch is on the phone, and this window may stay resumed meanwhile, so it looks. */
+    private final Runnable watchPermit = new Runnable() {
+        @Override public void run() {
+            if (permit == null || permit.isDone() || isFinishing()) return;
+            if (Settings.canDrawOverlays(DashboardActivity.this)) showPermit(false);
+            else view.postDelayed(this, WATCH_MS);
+        }
+    };
 
     private void openOverlaySettingsOnPhone() {
         Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))

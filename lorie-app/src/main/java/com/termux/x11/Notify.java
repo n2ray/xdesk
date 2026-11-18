@@ -929,19 +929,24 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         closePanel();
     }
 
-    /** The DND switch needs the notification-policy access: explain once, then the system page (NOTIFY.md §4). */
+    /**
+     * The DND switch needs the notification-policy access: PermitCard on the phone each time it is missing ("Not now" is
+     * an answer for this time only), and a word on the external screen that it is there (NOTIFY.md §4, owner 2026-11-18).
+     */
     private void guideDndPolicy() {
         Activity a = activity;
-        if (center.policyAsked() || a == null || a.isFinishing() || a.isDestroyed()) {
-            // Explained before, or no window to explain in: the system's page straight away, so the tile always answers
+        if (a == null || a.isFinishing() || a.isDestroyed()) {
+            // No window to explain in: the system's page straight away, on the phone, so the tile always answers
             try {
-                context.startActivity(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                context.startActivity(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PermitCard.onPhone());
             } catch (RuntimeException e) {
                 Log.w(TAG, "no policy access settings", e);
             }
             return;
         }
         center.setPolicyAsked();
+        showNotice(context.getString(R.string.xd_permit_see_phone, context.getString(R.string.xd_permit_dnd)));
         new SettingsUi(a).permitSheet(a.getString(R.string.xd_permit_dnd), a.getString(R.string.xd_permit_dnd_why),
             a.getString(R.string.xd_permit_list_path), null, () -> {
                 try {
@@ -1009,11 +1014,15 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
 
     /** A short word from XDesk itself as a banner that goes by itself: an action or an opening that failed. */
     private void showNotice(int message) {
+        showNotice(context.getString(message));
+    }
+
+    private void showNotice(String message) {
         if (windows == null) return;
         NotifyBanner b = new NotifyBanner(dc, density, this, windows, 0);
         banners.add(0, b);
         Drawable icon = Style.letterIcon(dc, "X", density);
-        b.showNotice(icon, "XDesk", context.getString(message), System.currentTimeMillis());
+        b.showNotice(icon, "XDesk", message, System.currentTimeMillis());
         try {
             windows.addView(b.view(), b.params());
             raiseArrows();

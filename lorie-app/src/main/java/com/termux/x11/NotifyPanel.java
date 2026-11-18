@@ -95,6 +95,8 @@ final class NotifyPanel {
     private final Host host;
     private final Context dc;
     private final float density;
+    /** The "not connected" card while it is shown, and for its green moment once connected. */
+    private PermitCard linkCard;
     private final WindowManager windows;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final NotifyCenter center;
@@ -401,7 +403,14 @@ final class NotifyPanel {
         selected = null;
         rows.clear();
         list.removeAllViews();
-        if (!connected) list.addView(notConnected(), new LinearLayout.LayoutParams(-1, -2));
+        if (!connected) {
+            linkCard = notConnected();
+            list.addView(linkCard.view, new LinearLayout.LayoutParams(-1, -2));
+        } else if (linkCard != null) {
+            // It connected while the card was there: the card says so in green for a moment (PermitCard), then goes
+            linkCard.markDone();
+            list.addView(linkCard.view, new LinearLayout.LayoutParams(-1, -2));
+        }
         int groupAt = 0;
         for (NotifyCenter.Group g : center.groups()) {
             TextView head = label(Style.TEXT_DIM, 12, true);
@@ -427,13 +436,15 @@ final class NotifyPanel {
     }
 
     /** NOTIFY.md §2.1: the access is there but the system has not bound the listener — why, and the way to fix it. */
-    private View notConnected() {
+    private PermitCard notConnected() {
         // PermitCard's look (owner, 2026-11-18): MIUI's autostart, elsewhere the access switch once more; on the phone
         boolean miui = NotifyCenter.hasAutostartSwitch(dc);
-        return new PermitCard(dc, density, dc.getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
+        PermitCard card = new PermitCard(dc, density, dc.getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
             dc.getString(miui ? R.string.xd_permit_autostart_why : R.string.xd_permit_rebind_why),
             dc.getString(miui ? R.string.xd_permit_autostart_path : R.string.xd_permit_list_path),
-            PermitCard.ON_PHONE, null, host::fixConnection, null).view;
+            PermitCard.ON_PHONE, null, host::fixConnection, null);
+        if (!miui) card.retitle(dc.getString(R.string.xd_permit_title_again, dc.getString(R.string.xd_permit_notify_access)));
+        return card.onDone(() -> linkCard = null);
     }
 
     /** The clock and the battery (NOTIFY.md §4's header), again every minute while the panel is open. */

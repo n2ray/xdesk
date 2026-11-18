@@ -18,9 +18,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
@@ -36,7 +34,8 @@ public final class PermitCard {
     public static final int HERE = 0, ON_PHONE = 1;
     private static final int INK = 0xFF1A1405;  // the button's text, dark on amber
     private static final long DONE_MS = 2000;
-    private static final List<WeakReference<PermitCard>> live = new ArrayList<>();
+    /** Cards waiting for their permission, held while their view is attached (the card object has no other owner). */
+    private static final List<PermitCard> live = new ArrayList<>();
     private static final Handler ui = new Handler(Looper.getMainLooper());
 
     public final LinearLayout view;
@@ -48,6 +47,7 @@ public final class PermitCard {
     private final TextView title;
     private final LinearLayout rest;
     private boolean done;
+    private Runnable afterDone;
 
     /**
      * @param density pixels per dp on the screen it shows on (the external screen's panel has its own)
@@ -114,7 +114,33 @@ public final class PermitCard {
         }
         text.addView(rest);
         view.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
-        if (granted != null) live.add(new WeakReference<>(this));
+        if (granted != null) {
+            view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View v) {
+                    if (!done && !live.contains(PermitCard.this)) live.add(PermitCard.this);
+                }
+
+                @Override public void onViewDetachedFromWindow(View v) {
+                    live.remove(PermitCard.this);
+                }
+            });
+        }
+    }
+
+    /** A title of its own instead of "Turn on «X»" (a switch to turn off and on again). */
+    PermitCard retitle(String text) {
+        title.setText(text);
+        return this;
+    }
+
+    /** Runs once the green "turned on" has been shown (the page around it is then built again, the flow goes on). */
+    public PermitCard onDone(Runnable r) {
+        afterDone = r;
+        return this;
+    }
+
+    public boolean isDone() {
+        return done;
     }
 
     /** A second, quieter way under the button (the details page when the system's switch is grey). */
@@ -167,33 +193,32 @@ public final class PermitCard {
 
     /** XDesk is back in front (or the panel opened): cards whose permission is now there say so and go. */
     static void recheck() {
-        for (Iterator<WeakReference<PermitCard>> i = live.iterator(); i.hasNext(); ) {
-            PermitCard p = i.next().get();
-            if (p == null || p.done) {
-                i.remove();
-                continue;
-            }
+        for (PermitCard p : new ArrayList<>(live)) {
+            if (p.done) continue;
             boolean now;
             try {
                 now = p.granted.getAsBoolean();
             } catch (RuntimeException e) {
                 now = false;
             }
-            if (now) {
-                i.remove();
-                p.markDone();
-            }
+            if (now) p.markDone();
         }
     }
 
-    private void markDone() {
+    /** Shows the green "turned on" now, whatever the supplier (the host knows the permission came). */
+    public void markDone() {
+        if (done) return;
+        live.remove(this);
         done = true;
         bar.setColor(Style.OK);
         ((GradientDrawable) ((LayerDrawable) view.getBackground()).getDrawable(0)).setColor(0x1F3FCF7F);
         icon.setImageDrawable(new CheckIcon(Style.OK));
         title.setText(R.string.xd_permit_done);
         rest.setVisibility(View.GONE);
-        ui.postDelayed(() -> view.setVisibility(View.GONE), DONE_MS);
+        ui.postDelayed(() -> {
+            view.setVisibility(View.GONE);
+            if (afterDone != null) afterDone.run();
+        }, DONE_MS);
     }
 
     private TextView label(int color, float sizeDp) {
@@ -206,6 +231,13 @@ public final class PermitCard {
 
     private int dp(float v) {
         return Math.round(v * density);
+    }
+
+    /** Options that open a system page on the phone's own screen, also when asked from the external screen. */
+    static android.os.Bundle onPhone() {
+        android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+        o.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
+        return o.toBundle();
     }
 
     /** A key: a ring and a bit with two teeth, in one colour. */

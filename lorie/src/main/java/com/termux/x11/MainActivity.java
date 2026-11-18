@@ -428,11 +428,8 @@ public class MainActivity extends AppCompatActivity {
         initStylusAuxButtons();
         initMouseAuxButtons();
 
-        if (SDK_INT >= VERSION_CODES.TIRAMISU
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PERMISSION_GRANTED
-                && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
-            requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 0);
-        }
+        // XDesk: the notification permission is asked by XDeskActivity, explained first in its PermitCard (2026-11-18);
+        // asking here too put a second, unexplained system dialog over the desktop window
 
         findViewById(android.R.id.content).addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> makeSureHelpersAreVisibleAndInScreenBounds());
     }

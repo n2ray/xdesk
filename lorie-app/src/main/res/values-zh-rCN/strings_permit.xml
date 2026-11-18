@@ -2,6 +2,8 @@
 <resources>
     <!-- 统一的权限卡（PermitCard）：琥珀色、钥匙、"需要打开「X」"、为什么、在哪、按钮 -->
     <string name="xd_permit_title">需要打开「%1$s」</string>
+    <string name="xd_permit_title_again">需要重新打开「%1$s」</string>
+    <string name="xd_permit_see_phone">需要打开「%1$s」，请在手机上看</string>
     <string name="xd_permit_open">去开启 ›</string>
     <string name="xd_permit_open_phone">在手机上打开 ›</string>
     <string name="xd_permit_done">已开启</string>
@@ -13,7 +15,7 @@
     <string name="xd_permit_list_path">在下一页的列表里找到 XDesk，打开开关</string>
     <string name="xd_permit_restricted_link">开关是灰的？在应用详情页右上角 ⋮ 里点「允许受限制的设置」</string>
     <string name="xd_permit_autostart">自启动</string>
-    <string name="xd_permit_autostart_why">没有它，手机系统不让 XDesk 的通知服务启动，通知进不来。</string>
+    <string name="xd_permit_autostart_why">通知服务没连上，多半是手机系统不让 XDesk 自启动，通知就进不来。开了还这样，把通知使用权关掉再打开一次。</string>
     <string name="xd_permit_autostart_path">在下一页的列表里打开 XDesk；也可以在 设置 › 应用 › XDesk 里找到</string>
     <string name="xd_permit_rebind_why">系统还没接上 XDesk 的通知服务。把 XDesk 的开关关掉再打开一次就好。</string>
     <string name="xd_permit_dnd">勿扰权限</string>
@@ -32,12 +34,11 @@
     <string name="xd_permit_run_command_denied_path">之前拒绝过：在应用详情 › 权限 › 其他权限里允许「运行 Termux 命令」。也可以在 Termux 里自己运行 xdesk start</string>
     <string name="xd_permit_camera">相机</string>
     <string name="xd_permit_camera_why">用来扫 Mac 上 Sill 显示的二维码。不想开的话，可以返回改用地址添加 Mac。</string>
-    <string name="xd_permit_camera_path">在应用详情 › 权限 里允许相机</string>
+    <string name="xd_permit_camera_path">下一步由系统询问你是否允许</string>
+    <string name="xd_permit_camera_denied_path">之前拒绝过：在应用详情 › 权限 里允许相机</string>
     <string name="xd_permit_shizuku">Shizuku 授权</string>
-    <string name="xd_permit_write_secure">修改系统设置</string>
-    <string name="xd_permit_write_secure_path">这项只能在电脑上用 adb 给：\nadb shell settings put global tether_force_usb_functions 1</string>
-    <string name="xd_web_ncm_why">XDesk 才能把 USB 网络共享切成 NCM。</string>
+    <string name="xd_permit_write_secure">USB 网络共享用 NCM</string>
+    <string name="xd_permit_write_secure_path">在电脑上运行这条命令就设好了：\nadb shell settings put global tether_force_usb_functions 1</string>
+    <string name="xd_web_ncm_why">XDesk 自己没有改这项系统设置的权限，可以在电脑上用 adb 直接把它设好。</string>
     <string name="xd_permit_copy">复制命令</string>
-    <string name="xd_permit_mac_access">辅助功能</string>
-    <string name="xd_permit_mac_path">在 Mac 上：系统设置 › 隐私与安全性 › 辅助功能 › 允许 Sill</string>
 </resources>

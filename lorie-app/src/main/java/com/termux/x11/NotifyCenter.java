@@ -154,8 +154,9 @@ final class NotifyCenter {
 
     /** The system settings page for the notification access. */
     static void openAccessSettings(Context c) {
+        // On the phone's screen also when asked from the external screen's panel
         c.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PermitCard.onPhone());
     }
 
     // --- the list ---
@@ -716,14 +717,14 @@ final class NotifyCenter {
         Intent miui = new Intent().setComponent(new android.content.ComponentName("com.miui.securitycenter",
             "com.miui.permcenter.autostart.AutoStartManagementActivity")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
-            c.startActivity(miui);
+            c.startActivity(miui, PermitCard.onPhone());
             return;
         } catch (RuntimeException ignored) {
             // not MIUI / HyperOS
         }
         try {
             c.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                android.net.Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                android.net.Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PermitCard.onPhone());
         } catch (RuntimeException e) {
             Log.w(TAG, "no app details page", e);
         }

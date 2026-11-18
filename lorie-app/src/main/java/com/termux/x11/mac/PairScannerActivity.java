@@ -51,7 +51,8 @@ public final class PairScannerActivity extends Activity {
     private TextView status;
     private boolean active, completed;
     /** The camera permission's card while it is missing. */
-    private android.view.View permitCard;
+    private com.termux.x11.PermitCard permitCard;
+    private boolean refusedForGood;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -119,7 +120,7 @@ public final class PairScannerActivity extends Activity {
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
             status.setText(getString(R.string.xd_mac_scan_no_camera));
         else if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST);
+            showCameraPermit(false);  // said first, then the system asks (owner, 2026-11-18)
     }
 
     @Override protected void onResume() {
@@ -138,30 +139,55 @@ public final class PairScannerActivity extends Activity {
         super.onRequestPermissionsResult(request, permissions, results);
         if (request != CAMERA_REQUEST) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startCamera();
-        else showCameraPermit();
+        // Refused for good ("don't ask again"): only the details page can still allow it
+        else {
+            refusedForGood = !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
+            dropCameraPermit();
+            showCameraPermit(refusedForGood);
+        }
     }
 
-    /** No camera: the one permission card (PermitCard) in place of the picture, its button the app's details page. */
-    private void showCameraPermit() {
+    /**
+     * No camera permission: the one permission card (PermitCard) in place of the picture. Its button asks the system,
+     * or, once refused for good, opens the app's details page; back with the permission, it turns green and goes.
+     */
+    private void showCameraPermit(boolean refused) {
         if (permitCard != null) return;
         camera.setVisibility(android.view.View.GONE);
         status.setVisibility(android.view.View.GONE);
         LinearLayout root = (LinearLayout) camera.getParent();
-        android.view.View card = permitCard = new com.termux.x11.PermitCard(this, getResources().getDisplayMetrics().density,
-            getString(R.string.xd_permit_camera), getString(R.string.xd_permit_camera_why), getString(R.string.xd_permit_camera_path),
-            com.termux.x11.PermitCard.HERE, getString(R.string.xd_permit_details), () -> {
-                try {
-                    startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        android.net.Uri.parse("package:" + getPackageName())));
-                } catch (RuntimeException e) {
-                    status.setVisibility(android.view.View.VISIBLE);
-                    status.setText(getString(R.string.xd_mac_scan_denied));
-                }
-            }, null).view;
+        Runnable ask = () -> requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST);
+        Runnable details = () -> {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + getPackageName())));
+            } catch (RuntimeException e) {
+                status.setVisibility(android.view.View.VISIBLE);
+                status.setText(getString(R.string.xd_mac_scan_denied));
+            }
+        };
+        final com.termux.x11.PermitCard card = new com.termux.x11.PermitCard(this, getResources().getDisplayMetrics().density,
+            getString(R.string.xd_permit_camera), getString(R.string.xd_permit_camera_why),
+            getString(refused ? R.string.xd_permit_camera_denied_path : R.string.xd_permit_camera_path),
+            com.termux.x11.PermitCard.HERE, refused ? getString(R.string.xd_permit_details) : null, refused ? details : ask, null);
+        permitCard = card;
+        card.onDone(() -> {
+            if (permitCard == card) dropCameraPermit();
+            startCamera();
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = dp(16);
         lp.bottomMargin = dp(16);
-        root.addView(card, root.indexOfChild(camera), lp);
+        root.addView(card.view, root.indexOfChild(camera), lp);
+    }
+
+    /** The card gone, the picture back. */
+    private void dropCameraPermit() {
+        if (permitCard == null) return;
+        if (permitCard.view.getParent() != null) ((LinearLayout) permitCard.view.getParent()).removeView(permitCard.view);
+        permitCard = null;
+        camera.setVisibility(android.view.View.VISIBLE);
+        status.setVisibility(android.view.View.VISIBLE);
     }
 
     /** Leaving without a scan (cancel, back) leaves no pending receiver behind; a recreation keeps it. */
@@ -172,11 +198,10 @@ public final class PairScannerActivity extends Activity {
     }
 
     private void startCamera() {
+        // Back with the permission (asked here or allowed on the details page): green for a moment, then the picture
         if (permitCard != null && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            ((LinearLayout) permitCard.getParent()).removeView(permitCard);
-            permitCard = null;
-            camera.setVisibility(android.view.View.VISIBLE);
-            status.setVisibility(android.view.View.VISIBLE);
+            permitCard.markDone();
+            return;
         }
         if (active && !completed && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                 && getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) camera.resume();

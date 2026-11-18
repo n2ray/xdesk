@@ -59,6 +59,9 @@ public class XDeskActivity extends Activity {
     private static final String TAG = "XDesk";
     private static final String PERM = "com.termux.permission.RUN_COMMAND";
     private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3;
+    /** What waits for the Termux command permission allowed on the app's details page (none, a desktop, the list, a stop). */
+    private static final int AWAIT_NONE = 0, AWAIT_DESKTOP = 1, AWAIT_LIST = 2, AWAIT_STOP = 3;
+    private int awaitingRunCommand = AWAIT_NONE;
     private static final String PKG_TERMUX = "com.termux";
     private static final String SCRIPT = "/data/data/com.termux/files/usr/bin/xdesk";
     /**
@@ -1269,8 +1272,7 @@ public class XDeskActivity extends Activity {
         @Override public void onTermuxHint() {
             if (installed(PKG_TERMUX) && checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
                 showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
-                    getString(R.string.xd_permit_run_command_path), null, v -> requestPermissions(new String[]{PERM}, REQ_LIST_SESSIONS));
-                addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
+                    getString(R.string.xd_permit_run_command_path), null, v -> requestPermissions(new String[]{PERM}, REQ_LIST_SESSIONS));  // the page's own "back to the list" stays below
             } else {
                 refreshTermux();
             }
@@ -1492,6 +1494,7 @@ public class XDeskActivity extends Activity {
         ensureDashboard();
         apps.activateIfPaired();
         // 从系统设置或 Shizuku 授权回来、或装好缺的 App 回来时接着走
+        resumeRunCommand();
         if (pendingApp != null) {
             startApp(pendingApp);
             return;
@@ -2484,6 +2487,18 @@ public class XDeskActivity extends Activity {
         }
     }
 
+    /** Back from the details page with the Termux command permission: what waited for it goes on. */
+    private void resumeRunCommand() {
+        int what = awaitingRunCommand;
+        if (what == AWAIT_NONE || checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) return;
+        awaitingRunCommand = AWAIT_NONE;
+        if (what == AWAIT_DESKTOP && setupScreen.getVisibility() == View.VISIBLE) launchDesktop(pendingSession, pendingReplace);
+        else if (what == AWAIT_LIST && setupScreen.getVisibility() == View.VISIBLE) {
+            showChooser();
+            refreshTermux();
+        } else if (what == AWAIT_STOP) confirmStop();
+    }
+
     /** The app's details page in the system's settings (its permissions, "allow restricted settings"). */
     private void openAppDetails() {
         try {
@@ -3001,6 +3016,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void showDisplaySettings() {
+        final Dialog[] page = new Dialog[1];
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
@@ -3027,13 +3043,19 @@ public class XDeskActivity extends Activity {
         });
         if (!Settings.canDrawOverlays(this)) {
             s.permit(getString(R.string.xd_permit_overlay), getString(R.string.xd_permit_overlay_cover_why),
-                getString(R.string.xd_permit_overlay_path), this::openOverlaySettings, () -> Settings.canDrawOverlays(this)).addTo(external);
+                getString(R.string.xd_permit_overlay_path), this::openOverlaySettings, () -> Settings.canDrawOverlays(this))
+                .onDone(() -> {
+                    if (page[0] != null && page[0].isShowing()) {
+                        page[0].dismiss();
+                        showDisplaySettings();
+                    }
+                }).addTo(external);
         }
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
         }
-        settingsPage(getString(R.string.xd_section_display), c, null);
+        page[0] = settingsPage(getString(R.string.xd_section_display), c, null);
     }
 
     /**
@@ -3071,6 +3093,14 @@ public class XDeskActivity extends Activity {
     /** NOTIFY.md §6: what shows on the external screen, what banners say, per app, the bell, the low-battery banners. */
     private void showNotifySettings() {
         final SettingsUi s = ui();
+        // A card that turns green rebuilds the page, so the rows below say what is true now
+        final Dialog[] page = new Dialog[1];
+        final Runnable rebuild = () -> {
+            if (page[0] != null && page[0].isShowing()) {
+                page[0].dismiss();
+                showNotifySettings();
+            }
+        };
         final NotifyCenter center = NotifyCenter.get(this);
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
@@ -3080,6 +3110,7 @@ public class XDeskActivity extends Activity {
             PermitCard card = s.permit(getString(R.string.xd_permit_notify_access), getString(R.string.xd_permit_notify_access_why),
                 getString(R.string.xd_permit_list_path), () -> NotifyCenter.openAccessSettings(this),
                 () -> NotifyCenter.accessGranted(this));
+            card.onDone(rebuild);
             // Android 13 on: an app not installed by a store must first be let through ("restricted settings"), else the
             // system's switch is grey. Where to do that, and the app's details page to do it on (owner, 2026-11-15)
             if (android.os.Build.VERSION.SDK_INT >= 33) card.link(getString(R.string.xd_permit_restricted_link), this::openAppDetails);
@@ -3087,13 +3118,14 @@ public class XDeskActivity extends Activity {
         } else if (!center.connected()) {
             // NOTIFY.md §2.1: granted is not bound. MIUI: XDesk may not start itself; elsewhere the switch once more
             boolean miui = NotifyCenter.hasAutostartSwitch(this);
-            s.permit(getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
+            PermitCard link = s.permit(getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
                 getString(miui ? R.string.xd_permit_autostart_why : R.string.xd_permit_rebind_why),
                 getString(miui ? R.string.xd_permit_autostart_path : R.string.xd_permit_list_path), () -> {
                     center.rebindIfNeeded();
                     if (miui) NotifyCenter.openAutostartSettings(this);
                     else NotifyCenter.openAccessSettings(this);
-                }, center::connected).addTo(c);
+                }, center::connected).onDone(rebuild).addTo(c);
+            if (!miui) link.retitle(getString(R.string.xd_permit_title_again, getString(R.string.xd_permit_notify_access)));
         }
         LinearLayout show = s.card(c);
         s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(), center::setNotifyOn);
@@ -3118,7 +3150,7 @@ public class XDeskActivity extends Activity {
         LinearLayout more = s.card(c);
         s.switchRow(more, getString(R.string.xd_notify_battery_banner), getString(R.string.xd_notify_battery_banner_note),
             center.lowBatteryBanners(), center::setLowBatteryBanners);
-        settingsPage(getString(R.string.xd_section_notifications), c, null);
+        page[0] = settingsPage(getString(R.string.xd_section_notifications), c, null);
     }
 
     /** The per-app page of NOTIFY.md §6: the apps that posted recently, each with its own choice. */
@@ -4768,6 +4800,7 @@ public class XDeskActivity extends Activity {
      */
     private void backToChooser() {
         activationFlow = false;
+        awaitingRunCommand = AWAIT_NONE;
         pendingApp = null;
         shizukuScreens = false;
         closeActivation();
@@ -4993,6 +5026,8 @@ public class XDeskActivity extends Activity {
 
     /** 通知权限只问一次：拒绝过就不再弹，没有通知也能用。@return 问了，结果在 onRequestPermissionsResult */
     private boolean askNotificationsOnce(boolean pairing) {
+        // Before Android 13 there is no such permission: notifications just work, nothing to ask
+        if (android.os.Build.VERSION.SDK_INT < 33) return false;
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             || prefs.getBoolean(PREF_NOTIFICATIONS_ASKED, false)) return false;
         prefs.edit().putBoolean(PREF_NOTIFICATIONS_ASKED, true).apply();
@@ -5146,7 +5181,6 @@ public class XDeskActivity extends Activity {
         if (!installed(PKG_TERMUX)) {
             showSetup(getString(R.string.xd_no_termux_title), getString(R.string.xd_no_termux), false,
                 getString(R.string.xd_no_termux_action), v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TERMUX_DOWNLOAD))));
-            addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
             return;
         }
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
@@ -5156,7 +5190,6 @@ public class XDeskActivity extends Activity {
             showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
                 getString(R.string.xd_permit_run_command_path), null,
                 v -> requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND));
-            addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
             return;
         }
         pendingSession = name;
@@ -5201,8 +5234,15 @@ public class XDeskActivity extends Activity {
             return;
         }
         if (r == REQ_LIST_SESSIONS) {
-            backToChooser();
-            refreshTermux();
+            if (g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED || shouldShowRequestPermissionRationale(PERM)) {
+                showChooser();
+                refreshTermux();
+            } else {
+                // Refused for good: the system asks no more, only the details page can allow it; back with it, the list
+                awaitingRunCommand = AWAIT_LIST;
+                showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
+                    getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), v -> openAppDetails());
+            }
             return;
         }
         if (r != REQ_RUN_COMMAND) return;
@@ -5210,9 +5250,9 @@ public class XDeskActivity extends Activity {
             launchDesktop(pendingSession, pendingReplace);
             return;
         }
+        awaitingRunCommand = AWAIT_DESKTOP;  // allowed on the details page: the desktop starts when XDesk is back
         showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
             getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), v -> openAppDetails());
-        addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
     }
 
     private void showConnectFailure() {
@@ -5351,7 +5391,10 @@ public class XDeskActivity extends Activity {
         boolean asks = stopAsks();
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             ui().permitSheet(getString(R.string.xd_permit_run_command), getString(R.string.xd_end_desktop_no_permission),
-                getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), this::openAppDetails, null);
+                getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), () -> {
+                    awaitingRunCommand = AWAIT_STOP;
+                    openAppDetails();
+                }, null);
             return;
         }
         if (!asks) {

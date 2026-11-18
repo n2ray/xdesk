@@ -74,11 +74,11 @@
     <string name="xd_mac_menu_loading">Loading…</string>
     <string name="xd_mac_menu_changed">The menus changed. Open the menu again.</string>
     <string name="xd_mac_menu_no_answer">The Mac did not answer.</string>
-    <string name="xd_mac_menu_no_access">Allow Sill under System Settings › Privacy &amp; Security › Accessibility on the Mac</string>
+    <string name="xd_mac_menu_no_access">Turn on “Accessibility”: on the Mac, allow Sill under System Settings › Privacy &amp; Security › Accessibility</string>
     <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
     <string name="xd_mac_quitting">Quitting %1$s…</string>
     <string name="xd_mac_quit_save">%1$s has unsaved work. Please answer its dialog on the Mac</string>
-    <string name="xd_mac_quit_no_access">Sill on the Mac has no Accessibility permission, so XDesk sent ⌘Q instead. Allow it in System Settings › Privacy &amp; Security › Accessibility to make quitting apps reliable</string>
+    <string name="xd_mac_quit_no_access">Turn on “Accessibility”: on the Mac, allow Sill under System Settings › Privacy &amp; Security › Accessibility, so quitting apps is reliable. This time XDesk sent ⌘Q instead</string>
     <string name="xd_mac_quit_no_menus">The app has no menu bar to quit it from</string>
     <string name="xd_mac_quit_no_item">The app\'s menu has no Quit item</string>
     <string name="xd_mac_quit_no_answer">The Mac did not answer the menu request</string>
