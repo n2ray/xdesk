@@ -1,7 +1,10 @@
 package com.termux.x11;
 
+import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.util.Log;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -33,8 +36,12 @@ final class EvdevReader extends Thread {
 
     private static final String TAG = "XDeskInjector";
     private static final String DIR = "/dev/input";
-    private static final long RESCAN_MS = 2000;
-    private static final int POLL_MS = 200, MAX_DEVICES = 32, BUFFER_EVENTS = 256;
+    /** Events are the clock: a look at /dev/input at most this often, plus whenever a device goes. */
+    private static final long RESCAN_MS = 10000;
+    /** With no device to wait on, how often to look for one. */
+    private static final int POLL_MS = 200;
+    /** One less than the native poll's limit, for the wake pipe's fd. */
+    private static final int MAX_DEVICES = 31, BUFFER_EVENTS = 256;
     private static final int REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8, SYN_REPORT = 0, SYN_DROPPED = 3;
     private static final int KEY_LEFTCTRL = 29, KEY_RIGHTCTRL = 97, KEY_LEFTALT = 56, KEY_RIGHTALT = 100, KEY_M = 50, KEY_G = 34;
     private static final int FIRST_BUTTON = 256;
@@ -57,6 +64,8 @@ final class EvdevReader extends Thread {
     /** Game passthrough (GAMING.md): nothing grabbed, the keys and the mouse are the app's; Ctrl+Alt+M leaves it too. */
     private volatile boolean gameMode;
     private long lastScan;
+    /** Poll waits without a timeout; closing the write end wakes it for shutdown. */
+    private ParcelFileDescriptor wakeRead, wakeWrite;
     private boolean leftCtrl, rightCtrl, leftAlt, rightAlt, swallowM, swallowG, waitingForModifiers;
     private int dx, dy, wheel, hwheel;
 
@@ -80,6 +89,16 @@ final class EvdevReader extends Thread {
 
     void shutdown() {
         running = false;
+        // A poll with no timeout is waiting: the write end closing wakes it
+        closeQuietly(wakeWrite);
+        wakeWrite = null;
+    }
+
+    private static void closeQuietly(ParcelFileDescriptor p) {
+        if (p == null) return;
+        try {
+            p.close();
+        } catch (IOException ignored) { }
     }
 
     /** Any thread: a phone button, or this thread for the hotkey. */
@@ -153,14 +172,29 @@ final class EvdevReader extends Thread {
         if (grabbed) sink.onDeviceCount(devices.size(), true);
     }
 
+    /** The devices and, last, the wake fd: shutdown closes its write end, which ends a poll waiting for an event. */
     private synchronized int[] currentFds() {
-        int[] fds = new int[devices.size()];
+        int n = devices.size();
+        int[] fds = new int[n + 1];
         int i = 0;
         for (int fd : devices.values()) fds[i++] = fd;
+        ParcelFileDescriptor r = wakeRead;
+        fds[n] = r != null ? r.getFd() : -1;
         return fds;
     }
 
+    private void openWake() {
+        try {
+            ParcelFileDescriptor[] p = ParcelFileDescriptor.createPipe();
+            wakeRead = p[0];
+            wakeWrite = p[1];
+        } catch (IOException e) {
+            Log.w(TAG, "no wake pipe", e);
+        }
+    }
+
     @Override public void run() {
+        openWake();
         try {
             loop();
         } finally {
@@ -179,29 +213,39 @@ final class EvdevReader extends Thread {
         keyboards.clear();
         dropping.clear();
         grabbed = false;
+        closeQuietly(wakeRead);
+        closeQuietly(wakeWrite);
+        wakeRead = wakeWrite = null;
     }
 
     private void loop() {
         int[] out = new int[BUFFER_EVENTS * Evdev.STRIDE];
         while (running) {
-            long now = System.currentTimeMillis();
+            long now = SystemClock.uptimeMillis();
             if (now - lastScan >= RESCAN_MS) {
                 lastScan = now;
                 scan();
             }
             int[] fds = currentFds();
-            if (fds.length == 0) {
-                try {
-                    Thread.sleep(POLL_MS);
-                } catch (InterruptedException e) {
-                    return;
-                }
+            if (fds.length == 1) {
+                // Nothing but the wake fd: look for a device now and then
+                SystemClock.sleep(POLL_MS);
                 continue;
             }
-            int count = Evdev.poll(fds, fds.length, out, POLL_MS);
+            boolean wake = fds[fds.length - 1] >= 0;
+            // A long timeout while there is a wake fd: a mouse at 1000 Hz must not wake the thread every 200 ms, but a
+            // device plugged in while the others are idle is still found within RESCAN_MS
+            int count = Evdev.poll(fds, fds.length, out, wake ? (int) RESCAN_MS : POLL_MS);
+            if (count < 0) {
+                // A read failed: look at the devices again, and do not spin on the same error
+                lastScan = 0;
+                SystemClock.sleep(POLL_MS);
+                continue;
+            }
             ArrayList<Integer> gone = null;
             for (int i = 0; i < count; i++) {
                 int at = i * Evdev.STRIDE, type = out[at + 1], code = out[at + 2], value = out[at + 3];
+                if (out[at] == fds.length - 1) return;  // the wake fd: shutdown
                 if (type == Evdev.GONE) {
                     if (gone == null) gone = new ArrayList<>();
                     gone.add(fds[out[at]]);
@@ -209,7 +253,10 @@ final class EvdevReader extends Thread {
                     handle(fds[out[at]], type, code, value);
                 }
             }
-            if (gone != null) for (int fd : gone) removeDevice(fd);
+            if (gone != null) {
+                for (int fd : gone) removeDevice(fd);
+                lastScan = 0;  // a device went: look at what is there now
+            }
         }
     }
 

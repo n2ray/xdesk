@@ -47,6 +47,8 @@ final class TermuxCommand {
     }
 
     private static final SparseArray<Callback> PENDING = new SparseArray<>();
+    /** A command that never answers would keep its callback, and the Activity it captures, for ever. */
+    private static final long REPLY_TIMEOUT_MS = 300_000;
     private static int nextId = 1;
 
     private TermuxCommand() { }
@@ -79,11 +81,19 @@ final class TermuxCommand {
 
     /** 在 bash -c 里运行。结果回到主线程；Termux 不理就没有回调，调用方自己算超时。 */
     static boolean run(Context c, String script, Callback callback) {
-        int id;
+        final int id;
         synchronized (PENDING) {
             id = nextId++;
             PENDING.put(id, callback);
         }
+        // Its own copy, so a late answer is dropped like a missing one rather than acting on an old screen
+        final Handler expiry = new Handler(Looper.getMainLooper());
+        final Runnable drop = () -> {
+            synchronized (PENDING) {
+                if (PENDING.get(id) == callback) PENDING.remove(id);
+            }
+        };
+        expiry.postDelayed(drop, REPLY_TIMEOUT_MS);
         // Termux 要往里填结果，所以必须可变；用显式 Intent 才允许可变
         Intent result = new Intent(c, TermuxResultReceiver.class).putExtra(EXTRA_ID, id);
         PendingIntent pending = PendingIntent.getBroadcast(c, id, result, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
@@ -98,6 +108,7 @@ final class TermuxCommand {
             return true;
         } catch (RuntimeException e) {
             Log.w(TAG, "RUN_COMMAND failed", e);
+            expiry.removeCallbacks(drop);
             synchronized (PENDING) {
                 PENDING.remove(id);
             }

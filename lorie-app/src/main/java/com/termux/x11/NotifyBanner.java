@@ -77,6 +77,8 @@ final class NotifyBanner {
     private Notification.Action[] acts;
     private Notification.Action replyAction;
     private boolean replyOpen;
+    /** The pointer is resting on it: it may not leave under the pointer. */
+    private boolean hovered;
     private boolean closing;
 
     private final Runnable leave = this::leave;
@@ -311,8 +313,10 @@ final class NotifyBanner {
 
     /** The pointer is over the banner (or left it): while over it the timer stops, after it 2 seconds remain. */
     void hover(boolean on) {
+        hovered = on;
         ui.removeCallbacks(leave);
-        ui.postDelayed(leave, on ? STAY_MS : LEAVE_MS);
+        // An open reply waits for Enter or Esc wherever the pointer went: closing it would lose what was typed
+        if (!on && !replyOpen) ui.postDelayed(leave, LEAVE_MS);
     }
 
     private void leave() {
@@ -323,12 +327,15 @@ final class NotifyBanner {
     void slideOut() {
         if (closing) return;
         closing = true;
+        // The keys must not stay with an invisible field: Notify.key would swallow every one, Esc included
+        cancelReply();
         ui.removeCallbacks(leave);
         root.animate().translationX(dp(WIDTH_DP)).alpha(0f).setDuration(SLIDE_MS).withEndAction(this::remove).start();
     }
 
     void remove() {
         closing = true;
+        cancelReply();
         ui.removeCallbacks(leave);
         try {
             windows.removeViewImmediate(root);
@@ -377,6 +384,7 @@ final class NotifyBanner {
     }
 
     void openReply() {
+        stay();  // typing into it must not race the 5 seconds
         replyOpen = true;
         replyBox.setVisibility(View.VISIBLE);
         replyField.setText("");
@@ -393,6 +401,11 @@ final class NotifyBanner {
         replyOpen = false;
         replyBox.setVisibility(View.GONE);
         host.replyFocus(this, false);
+        // It kept the banner while it was open: back to an ordinary banner, unless the pointer is keeping it
+        if (!closing && !hovered) {
+            ui.removeCallbacks(leave);
+            ui.postDelayed(leave, LEAVE_MS);
+        }
     }
 
     void type(char c) {

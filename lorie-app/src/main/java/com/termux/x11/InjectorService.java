@@ -4,11 +4,13 @@ import android.hardware.display.VirtualDisplay;
 import android.os.Binder;
 import android.os.Parcel;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.Surface;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,6 +40,8 @@ public class InjectorService extends IInjector.Stub {
     private static final float WHEEL_STEP = 1f;
     private static final long KEY_REPEAT_DELAY_MS = 400, KEY_REPEAT_MS = 40;
     private static final long SESSION_POLL_MS = 1000;
+    /** How long one drain runs before the worker may take a timer (key repeat, a swipe's end) in between. */
+    private static final long DRAIN_MS = 8;
     private static final int BTN_LEFT = 272, BTN_RIGHT = 273, BTN_MIDDLE = 274, BTN_SIDE = 275, BTN_EXTRA = 276,
         BTN_FORWARD = 277, BTN_BACK = 278;
 
@@ -46,6 +50,9 @@ public class InjectorService extends IInjector.Stub {
     }
 
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    /** Tasks in the order they came, run by one drain on the worker: a burst of moves or wheel ticks is one task. */
+    private final ArrayDeque<Task> pending = new ArrayDeque<>();
+    private boolean draining;
     private final InputInjector injector;
     private final String injectorError;
     private EvdevReader reader;
@@ -153,10 +160,7 @@ public class InjectorService extends IInjector.Stub {
             post(injector::clearModifiers);
         }
         @Override public void onMove(final int dx, final int dy) {
-            post(() -> {
-                float gain = MOUSE_GAIN * injector.width() / MOUSE_REFERENCE_WIDTH * mouseSpeed;
-                injector.moveBy(dx * gain, dy * gain);
-            });
+            post(new MoveTask(true, dx, dy));
         }
         @Override public void onWheel(final int vertical, final int horizontal) {
             postScroll(vertical * WHEEL_STEP, horizontal * WHEEL_STEP);
@@ -258,8 +262,52 @@ public class InjectorService extends IInjector.Stub {
         injectorError = error;
     }
 
+    /** IInjector.destroy: Shizuku itself calls it when it removes the service, so it is not XDesk's alone. */
+    private static final int TRANSACTION_DESTROY = 16777114;
+    /** XDesk's app id, looked up once for the Shizuku path, which is handed no uid. 0 unknown, -1 lookup failed. */
+    private static volatile int xdeskAppId;
+
+    /**
+     * Whether this caller is XDesk. Only shell-user processes run this code, so the package manager must be asked;
+     * an unknown answer keeps the Shizuku path working, where Shizuku already gives the Binder to XDesk alone.
+     */
+    private static boolean isXDesk(int uid) {
+        int app = android.os.UserHandle.getAppId(uid);
+        if (xdeskAppId == app) return true;
+        if (xdeskAppId == -1) return true;
+        synchronized (InjectorService.class) {
+            if (xdeskAppId == app) return true;
+            if (xdeskAppId == -1) return true;
+            try {
+                Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class)
+                    .invoke(null, "package");
+                Class<?> ipm = Class.forName("android.content.pm.IPackageManager");
+                Object pm = Class.forName("android.content.pm.IPackageManager$Stub")
+                    .getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
+                String[] pkgs = (String[]) ipm.getMethod("getPackagesForUid", int.class).invoke(pm, uid);
+                if (pkgs != null) for (String p : pkgs) {
+                    if (BuildConfig.APPLICATION_ID.equals(p)) {
+                        xdeskAppId = app;
+                        return true;
+                    }
+                }
+                return false;
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                Log.w(TAG, "no package for the caller", e);
+                xdeskAppId = -1;
+                return true;
+            }
+        }
+    }
+
     @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
-        if (onlyUid != NO_UID && Binder.getCallingUid() != onlyUid) throw new SecurityException("not XDesk");
+        int caller = Binder.getCallingUid();
+        if (onlyUid != NO_UID) {
+            if (caller != onlyUid) throw new SecurityException("not XDesk");
+        } else if (code != TRANSACTION_DESTROY && !isXDesk(caller)) {
+            // Defence in depth: Shizuku decides who gets the Binder, but nothing else may use it either
+            throw new SecurityException("not XDesk");
+        }
         return super.onTransact(code, data, reply, flags);
     }
 
@@ -284,9 +332,84 @@ public class InjectorService extends IInjector.Stub {
         return e instanceof SecurityException || (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() instanceof SecurityException);
     }
 
+    /** A mouse move not yet injected. The phone's pad and a physical mouse use different gains, so only equal ones merge. */
+    private final class MoveTask implements Task {
+        final boolean physical;
+        float dx, dy;
+
+        MoveTask(boolean physical, float dx, float dy) {
+            this.physical = physical;
+            this.dx = dx;
+            this.dy = dy;
+        }
+
+        @Override public void run() throws Exception {
+            float gain = physical
+                ? MOUSE_GAIN * injector.width() / MOUSE_REFERENCE_WIDTH * mouseSpeed
+                : injector.width() / PAD_REFERENCE_WIDTH;
+            injector.moveBy(dx * gain, dy * gain);
+        }
+    }
+
+    /** Wheel steps not yet injected; in touch mode they become a swipe's moves there. */
+    private final class ScrollTask implements Task {
+        float vertical, horizontal;
+
+        ScrollTask(float vertical, float horizontal) {
+            this.vertical = vertical;
+            this.horizontal = horizontal;
+        }
+
+        @Override public void run() throws Exception {
+            injector.scroll(vertical, horizontal);
+            if (injector.isSwiping()) worker.schedule(() -> post(injector::endSwipeIfIdle), InputInjector.SWIPE_IDLE_MS + 20, TimeUnit.MILLISECONDS);
+        }
+    }
+
     private void enqueue(final Task t) {
         if (worker.isShutdown() || injector == null) return;
-        worker.execute(() -> {
+        synchronized (pending) {
+            // Only with the task not started yet: the order of keys and buttons, and of what came before them, stays exact
+            Task tail = pending.peekLast();
+            if (t instanceof MoveTask && tail instanceof MoveTask && ((MoveTask) tail).physical == ((MoveTask) t).physical) {
+                MoveTask m = (MoveTask) tail;
+                m.dx += ((MoveTask) t).dx;
+                m.dy += ((MoveTask) t).dy;
+                return;
+            }
+            if (t instanceof ScrollTask && tail instanceof ScrollTask) {
+                ScrollTask s = (ScrollTask) tail;
+                s.vertical += ((ScrollTask) t).vertical;
+                s.horizontal += ((ScrollTask) t).horizontal;
+                return;
+            }
+            pending.addLast(t);
+            if (draining) return;
+            draining = true;
+        }
+        scheduleDrain();
+    }
+
+    private void scheduleDrain() {
+        try {
+            worker.execute(this::drain);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // The executor ended between the check and the submit: run what was accepted, as it would have
+            drain();
+        }
+    }
+
+    private void drain() {
+        long until = SystemClock.uptimeMillis() + DRAIN_MS;
+        while (true) {
+            Task t;
+            synchronized (pending) {
+                t = pending.pollFirst();
+                if (t == null) {
+                    draining = false;
+                    return;
+                }
+            }
             try {
                 t.run();
             } catch (Exception e) {
@@ -296,7 +419,20 @@ public class InjectorService extends IInjector.Stub {
                     message(ShellText.code(ShellText.INJECT_REFUSED));
                 }
             }
-        });
+            if (SystemClock.uptimeMillis() < until) continue;
+            synchronized (pending) {
+                if (pending.isEmpty()) {
+                    draining = false;
+                    return;
+                }
+            }
+            if (!worker.isShutdown()) {
+                // Let the worker's timers (key repeat, a swipe's end) in between while input keeps coming
+                scheduleDrain();
+                return;
+            }
+            until = SystemClock.uptimeMillis() + DRAIN_MS;  // the session ends: finish what was accepted
+        }
     }
 
     /** In touch mode a scroll is a finger on the display, which has to be lifted after a short idle. */
@@ -318,10 +454,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     private void postScroll(final float vertical, final float horizontal) {
-        post(() -> {
-            injector.scroll(vertical, horizontal);
-            if (injector.isSwiping()) worker.schedule(() -> post(injector::endSwipeIfIdle), InputInjector.SWIPE_IDLE_MS + 20, TimeUnit.MILLISECONDS);
-        });
+        post(new ScrollTask(vertical, horizontal));
     }
 
     private void notifyButtonUp() {
@@ -599,10 +732,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void move(final int dx, final int dy) {
-        post(() -> {
-            float gain = injector.width() / PAD_REFERENCE_WIDTH;
-            injector.moveBy(dx * gain, dy * gain);
-        });
+        post(new MoveTask(false, dx, dy));
     }
 
     @Override public void moveToFraction(final float x, final float y) {
@@ -637,19 +767,14 @@ public class InjectorService extends IInjector.Stub {
     /** On the web keyboard while there is one, which goes where the focus is like any real keyboard. Otherwise injected. */
     private void typed(final Task onKeyboard, final Task injected) {
         post(() -> {
-            if (webKeyboard == null) {
-                injector.focus(injector.displayId());
-                Thread.sleep(FOCUS_SETTLE_MS);
-                focusStale = false;
-                injected.run();
-                return;
-            }
+            // Only a focus that moved away needs settling: two keys of a sentence must not cost two sleeps
             if (focusStale) {
                 injector.focus(injector.displayId());
                 Thread.sleep(FOCUS_SETTLE_MS);
                 focusStale = false;
             }
-            onKeyboard.run();
+            if (webKeyboard == null) injected.run();
+            else onKeyboard.run();
         });
     }
 
@@ -773,15 +898,57 @@ public class InjectorService extends IInjector.Stub {
         return r[1].contains("Error") ? r[1].trim() : null;
     }
 
+    /** How long one `dumpsys window windows` answer is shared: callers ask in bursts and each call is a process. */
+    private static final long WINDOW_DUMP_MS = 2500;
+    private final Object dumpLock = new Object();
+    private String dumpText;
+    private long dumpTried;
+    private boolean dumping;
+
+    /**
+     * The text of `dumpsys window windows`, read once at a time and at most every WINDOW_DUMP_MS: a caller in the
+     * middle of someone else's read shares it, one within the window gets the last one. Null when it cannot be read.
+     */
+    private String windowDump() {
+        synchronized (dumpLock) {
+            boolean waited = false;
+            while (dumping) {
+                waited = true;
+                try {
+                    dumpLock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+            // It waited for the read that was in flight: that answer is the one to share, however long it took
+            if (waited) return dumpText;
+            long now = SystemClock.elapsedRealtime();
+            if (dumpTried > 0 && now - dumpTried < WINDOW_DUMP_MS) return dumpText;
+            dumping = true;
+            dumpTried = now;
+        }
+        String[] r = null;
+        try {
+            r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
+        } finally {
+            synchronized (dumpLock) {
+                dumping = false;
+                if (r != null) dumpText = r[0] == null ? r[1] : null;  // a failed read is unknown, not old
+                dumpLock.notifyAll();
+            }
+        }
+        return r[0] == null ? r[1] : null;
+    }
+
     @Override public int imeTop(int displayId) {
-        String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
-        return r[0] != null ? -1 : WindowDump.imeTop(r[1], displayId);
+        String dump = windowDump();
+        return dump != null ? WindowDump.imeTop(dump, displayId) : -1;
     }
 
     @Override public String findPresentation(int displayId) {
-        String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
-        if (r[0] != null) return null;
-        return WindowDump.findPresentation(r[1], displayId);
+        String dump = windowDump();
+        return dump != null ? WindowDump.findPresentation(dump, displayId) : null;
     }
 
     /** Where a notification's activity landed (NOTIFY.md §5): the package in front on the display, best effort. */
@@ -882,9 +1049,9 @@ public class InjectorService extends IInjector.Stub {
                 boolean now = false;
                 String pkg = packageName;
                 if (enabled && watchSession && pkg != null && AppInputProfile.forPackage(pkg).keepScreenOnMeansRemoteCursor) {
-                    String[] r = exec(DUMPSYS_TIMEOUT_MS, "/system/bin/dumpsys", "window", "windows");
+                    String dump = windowDump();
                     // When the answer is unknown, show the cursor: too many is better than none
-                    now = r[0] == null && WindowDump.hasKeepScreenOn(r[1], pkg, displayId);
+                    now = dump != null && WindowDump.hasKeepScreenOn(dump, pkg, displayId);
                 }
                 if (now != inSession) {
                     inSession = now;

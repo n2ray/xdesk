@@ -644,7 +644,9 @@ final class NotifyPanel {
     private final class Row extends LinearLayout {
         final NotifyCenter.Entry entry;
         final View body;
-        private final View expanded;
+        /** Built on the first expand: most rows are never opened, and the picture in one is decoded and scaled. */
+        private View expanded;
+        private boolean open;
 
         Row(NotifyCenter.Entry e, int groupAt, boolean namesOnly) {
             super(dc);
@@ -688,10 +690,6 @@ final class NotifyPanel {
             body.setOnClickListener(v -> host.open(entry));
             body.setOnTouchListener((v, ev) -> swipe(ev));
             addView(body, new LinearLayout.LayoutParams(-1, -2));
-
-            expanded = expanded(entry);
-            expanded.setVisibility(GONE);
-            addView(expanded, new LinearLayout.LayoutParams(-1, -2));
         }
 
         /** A drag or a swipe to the right clears the notification (NOTIFY.md §4). */
@@ -711,11 +709,17 @@ final class NotifyPanel {
         }
 
         void toggle() {
-            expanded.setVisibility(expanded.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            if (expanded == null) {
+                expanded = expanded(entry);
+                expanded.setVisibility(GONE);
+                addView(expanded, new LinearLayout.LayoutParams(-1, -2));
+            }
+            open = !open;
+            expanded.setVisibility(open ? View.VISIBLE : View.GONE);
         }
 
         boolean isOpen() {
-            return expanded.getVisibility() == View.VISIBLE;
+            return open;
         }
 
         void openReply() {

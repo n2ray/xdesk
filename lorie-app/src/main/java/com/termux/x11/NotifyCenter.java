@@ -174,18 +174,25 @@ final class NotifyCenter {
         boolean shows = NotifyFilter.shows(p.ongoing, p.call, p.silent, own) && appMode(pkg) != APP_HIDDEN;
         if (!shows) {
             // XDesk's own (its service's) is not one the user would miss: not counted as hidden
-            if (!own) hiddenKeys.add(key);
+            boolean counted = !own && hiddenKeys.add(key);
             suppressed.remove(key);
-            if (old != null) drop(old);
-            listChanged();
+            if (old != null) {
+                drop(old);
+                listChanged();
+            } else if (counted && groups.isEmpty()) {
+                // Nothing visible changed, only the empty list's count of hidden notifications
+                listChanged();
+            }
             return;
         }
         hiddenKeys.remove(key);
         // A group's summary only while none of its messages is here: some apps post nothing but the summary
         if (p.summary && hasMessage(pkg, groupKey)) {
             suppressed.put(key, p);
-            if (old != null) drop(old);
-            listChanged();
+            if (old != null) {
+                drop(old);
+                listChanged();
+            }
             return;
         }
         suppressed.remove(key);
@@ -238,11 +245,12 @@ final class NotifyCenter {
 
     /** Cleared on the phone: it leaves the centre too (NOTIFY.md §2). */
     void removed(String key) {
-        hiddenKeys.remove(key);
+        boolean hidden = hiddenKeys.remove(key);
         suppressed.remove(key);
         Entry gone = find(key);
         if (gone == null) {
-            listChanged();
+            // A silent, ongoing or hidden one never showed: only an empty list's count of those changes
+            if (hidden && groups.isEmpty()) listChanged();
             return;
         }
         drop(gone);
