@@ -682,9 +682,11 @@ final class NotifyCenter {
         ui.postDelayed(toggle, TOGGLE_AFTER_MS);
     }
 
-    private final Runnable toggle = () -> {
+    private final Runnable toggle = this::toggleIfUnbound;
+
+    private void toggleIfUnbound() {
         if (service == null && accessGranted(context)) toggleComponent(context);
-    };
+    }
 
     /** The listener component off and on: the system sees it change and binds it again. At most every TOGGLE_GAP_MS. */
     private static void toggleComponent(Context c) {
