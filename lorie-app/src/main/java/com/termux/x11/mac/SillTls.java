@@ -71,58 +71,106 @@ final class SillTls implements Closeable {
             g.generateKeyPair();
         }
         byte[] own = MessageDigest.getInstance("SHA-256").digest(keys.getCertificate(ALIAS).getPublicKey().getEncoded());
-        KeyManagerFactory km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        km.init(keys, null);
-        final byte[][] observed = new byte[1][];
-        X509TrustManager trust = new X509TrustManager() {
-            @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-            @Override public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                throw new CertificateException("Unexpected client certificate");
-            }
-            @Override public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                if (chain == null || chain.length == 0 || !(chain[0].getPublicKey() instanceof ECPublicKey)
-                        || ((ECPublicKey) chain[0].getPublicKey()).getParams().getCurve().getField().getFieldSize() != 256)
-                    throw new CertificateException("Invalid Sill identity");
-                try {
-                    byte[] fp = MessageDigest.getInstance("SHA-256").digest(chain[0].getPublicKey().getEncoded());
-                    if (pin != null && !MessageDigest.isEqual(pin, fp)) throw new CertificateException("Mac identity changed");
-                    observed[0] = fp;
-                } catch (java.security.GeneralSecurityException e) {
-                    throw new CertificateException(e);
-                }
-            }
-        };
-        SSLContext context = SSLContext.getInstance("TLSv1.3");
-        context.init(km.getKeyManagers(), new TrustManager[] {trust}, new SecureRandom());
+        // This device's key managers are kept; the context is new for every dial (no resumed sessions)
+        Tls tlsOptions = tls(keys, Base64.encodeToString(own, Base64.NO_WRAP), pin);
         Socket tcp = new Socket();
         try {
+            // Sill's video door: the video traffic class, before the route is picked
+            try {
+                tcp.setTrafficClass(0xA0);
+            } catch (java.net.SocketException e) {
+                Log.d(TAG, "traffic class", e);
+            }
             tcp.connect(new InetSocketAddress(host, port), connectMs);
             tcp.setTcpNoDelay(true);
             tcp.setSoTimeout(readMs);
-            SSLSocket tls = (SSLSocket) context.getSocketFactory().createSocket(tcp, host, port, true);
+            SSLSocket tls = (SSLSocket) tlsOptions.context.getSocketFactory().createSocket(tcp, host, port, true);
             tls.setSoTimeout(readMs);
             SSLParameters p = tls.getSSLParameters();
             p.setProtocols(new String[] {"TLSv1.3"});
             p.setApplicationProtocols(new String[] {alpn});
             tls.setSSLParameters(p);
-            tls.startHandshake();
-            if (!alpn.equals(tls.getApplicationProtocol()) || observed[0] == null) throw new IOException("Sill TLS negotiation failed");
-            return new SillTls(tls, own, observed[0]);
+            tlsOptions.observed.remove();  // a fingerprint left by an earlier dial on this thread is not this one's
+            byte[] peer;
+            try {
+                tls.startHandshake();
+                peer = tlsOptions.observed.get();
+            } finally {
+                tlsOptions.observed.remove();
+            }
+            if (!alpn.equals(tls.getApplicationProtocol()) || peer == null) throw new IOException("Sill TLS negotiation failed");
+            return new SillTls(tls, own, peer);
         } catch (Exception e) {
             tcp.close();
             throw e;
         }
     }
 
-    /** What pairing gives: the Mac's pin, its id and name. */
+    /**
+     * The TLS side of one dial: the KeyManagerFactory (this device's key) is kept until that key changes; the
+     * SSLContext is new each time. The fingerprint seen is per handshake thread.
+     */
+    private static final class Tls {
+        final SSLContext context;
+        final ThreadLocal<byte[]> observed;
+
+        Tls(SSLContext context, ThreadLocal<byte[]> observed) {
+            this.context = context;
+            this.observed = observed;
+        }
+    }
+
+    private static final Object TLS_LOCK = new Object();
+    private static KeyManagerFactory keyManagers;
+    private static String keyManagersIdentity;
+
+    private static Tls tls(KeyStore keys, String identity, final byte[] pin) throws Exception {
+        synchronized (TLS_LOCK) {
+            if (keyManagers == null || !identity.equals(keyManagersIdentity)) {
+                KeyManagerFactory km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+                km.init(keys, null);
+                keyManagers = km;
+                keyManagersIdentity = identity;
+            }
+            final ThreadLocal<byte[]> observed = new ThreadLocal<>();
+            X509TrustManager trust = new X509TrustManager() {
+                @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    throw new CertificateException("Unexpected client certificate");
+                }
+                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                    if (chain == null || chain.length == 0 || !(chain[0].getPublicKey() instanceof ECPublicKey)
+                            || ((ECPublicKey) chain[0].getPublicKey()).getParams().getCurve().getField().getFieldSize() != 256)
+                        throw new CertificateException("Invalid Sill identity");
+                    try {
+                        byte[] fp = MessageDigest.getInstance("SHA-256").digest(chain[0].getPublicKey().getEncoded());
+                        if (pin != null && !MessageDigest.isEqual(pin, fp)) throw new CertificateException("Mac identity changed");
+                        observed.set(fp);
+                    } catch (java.security.GeneralSecurityException e) {
+                        throw new CertificateException(e);
+                    }
+                }
+            };
+            SSLContext context = SSLContext.getInstance("TLSv1.3");
+            context.init(keyManagers.getKeyManagers(), new TrustManager[] {trust}, new SecureRandom());
+            // A fresh context per dial, never a cached one: its session cache would resume a session, and a resumed
+            // handshake shows no certificate, so the pin could not be checked (the dial would fail, or worse)
+            return new Tls(context, observed);
+        }
+    }
+
+    /** What pairing gives: the Mac's pin, its id and name, and Sill's recognition key for local discovery. */
     static final class Paired {
         final byte[] pin;
         final String macId, name;
+        /** 32 bytes, or null from a host before home pairing: then no Bonjour tag can name this Mac. */
+        final byte[] recognitionKey;
 
-        Paired(byte[] pin, String macId, String name) {
+        Paired(byte[] pin, String macId, String name, byte[] recognitionKey) {
             this.pin = pin;
             this.macId = macId;
             this.name = name;
+            this.recognitionKey = recognitionKey;
         }
     }
 
@@ -157,7 +205,8 @@ final class SillTls implements Closeable {
         if (!PairingProof.verifyMac(PairingProof.proof(key, peer, own, false), answer))
             throw new IOException("Mac pairing proof failed");
         String id = result.optString("macID", "");
-        return new Paired(peer.clone(), id.isEmpty() ? macId(peer) : id, result.optString("name", ""));
+        return new Paired(peer.clone(), id.isEmpty() ? macId(peer) : id, result.optString("name", ""),
+                recognitionKey(result.optString("recognitionKey", "")));
     }
 
     /** The Mac's answer to an "ask": show me a pairing code. */
@@ -205,6 +254,20 @@ final class SillTls implements Closeable {
         PairRefused(String reason) {
             super("Pairing refused: " + reason);
             this.reason = reason;
+        }
+    }
+
+    /**
+     * PairResult.recognitionKey: base64url of 32 bytes, the key behind the Mac's Bonjour tag. Absent from hosts
+     * before home pairing, and a malformed one is dropped like an absent one (the saved address still works).
+     */
+    private static byte[] recognitionKey(String encoded) {
+        if (encoded == null || encoded.isEmpty()) return null;
+        try {
+            byte[] key = Base64.decode(encoded, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+            return key.length == 32 ? key : null;
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

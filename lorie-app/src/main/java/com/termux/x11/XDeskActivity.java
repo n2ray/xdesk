@@ -46,6 +46,7 @@ import com.termux.x11.mac.AutoQuality;
 import com.termux.x11.mac.HostSettings;
 import com.termux.x11.mac.MacClient;
 import com.termux.x11.mac.MacClients;
+import com.termux.x11.mac.MacDiscovery;
 import com.termux.x11.mac.MacStore;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1054,6 +1055,8 @@ public class XDeskActivity extends Activity {
 
     private WirelessFinder autoFinder;
     private boolean activityStarted;
+    /** Local discovery is held while this window is started (Mac screens and MacClients hold it too). */
+    private boolean discoveryHeld;
     private long lastAutoConnect = -AUTO_CONNECT_PAUSE_MS;
     private static final int AUTO_CONNECT_PAUSE_MS = 10000;
     private static final int RECEIVER_PROBE_MS = 2500, RECEIVER_PROBE_TIMEOUT_MS = 1200;
@@ -1516,6 +1519,10 @@ public class XDeskActivity extends Activity {
     @Override protected void onStop() {
         super.onStop();
         activityStarted = false;
+        if (discoveryHeld) {
+            discoveryHeld = false;
+            MacDiscovery.release();
+        }
         stopAutoReceiver();
         Display d = externalDisplay();
         if (d == null || TargetDisplay.isCar(d) || !prefs.getBoolean(PREF_COVER, true) || !(apps.isActive() || session.isActive())) return;
@@ -1534,6 +1541,11 @@ public class XDeskActivity extends Activity {
         super.onStart();
         removeCover();
         activityStarted = true;
+        // Only a saved Mac with a recognition key can be found at home: no such Mac, no mDNS
+        if (!discoveryHeld && MacStore.anyFindableAtHome(this)) {
+            discoveryHeld = true;
+            MacDiscovery.acquire(this);
+        }
         startAutoReceiver();
     }
 
@@ -1556,6 +1568,10 @@ public class XDeskActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (discoveryHeld) {
+            discoveryHeld = false;
+            MacDiscovery.release();
+        }
         if (Contents.host() == contentsHost) Contents.setHost(null);
         SwitcherOverlay.hide(null);
         if (MacSource.switcher != null) MacSource.switcher = null;

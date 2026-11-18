@@ -19,7 +19,7 @@ import java.util.List;
  * Smooth as one segmented control, or Custom when the Mac's settings match none of the three. It sits at the top
  * of MacStreamSettings, of a Mac's device page (DeviceSettings) and of a Mac item's card (ItemCard); Ctrl+Alt+Q
  * (XDeskActivity) cycles the same modes while a Mac is on the external screen. Picking a mode sends only the
- * fields that differ, each as its own change (MacClient.changeAll), and tells the Mac's AutoQuality that this is
+ * fields that differ, together in one change (MacClient.changeAll), and tells the Mac's AutoQuality that this is
  * the user's mode now.
  *
  * With a refill runnable the row also follows the Mac's settings while its page shows (its own SettingsListener,
@@ -100,7 +100,7 @@ final class MacModeRow {
             Toast.makeText(c, c.getString(R.string.xd_mac_set_failed), Toast.LENGTH_LONG).show();
     }
 
-    /** Pick a mode for a Mac: the fields that differ, each its own change, and it is the user's mode from now on. */
+    /** Pick a mode for a Mac: the fields that differ, in one change, and it is the user's mode from now on. */
     static boolean apply(Context c, MacClient client, int mode) {
         HostSettings h = client.settings();
         if (h == null) h = HostSettings.saved(MacStore.stream(c, client.mac().id).host);

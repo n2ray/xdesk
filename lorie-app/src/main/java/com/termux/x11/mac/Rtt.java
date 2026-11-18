@@ -64,6 +64,19 @@ final class Rtt {
         return Math.round(n % 2 == 1 ? recent[n / 2] : (recent[n / 2 - 1] + recent[n / 2]) / 2);
     }
 
+    /**
+     * The worst sample of the last 1500 ms, in milliseconds; null when there are none. A dead link's deadline
+     * follows it: four of the worst recent round trip (MacClient.pongDeadline), so a slow link is not declared dead.
+     */
+    synchronized Long worst(long now) {
+        long worst = -1;
+        for (int i = 0; i < count; i++) {
+            long age = now - times[i];
+            if (age >= 0 && age <= 1500) worst = Math.max(worst, (long) values[i]);
+        }
+        return worst < 0 ? null : worst;
+    }
+
     /** Whether the round trip has stayed above 250 ms for at least five seconds (the slow-link advice). */
     synchronized boolean slow(long now) {
         if (secondsCount < seconds.length || median(now) == null) return false;

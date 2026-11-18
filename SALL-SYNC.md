@@ -10,23 +10,25 @@ Sill. This file says which Sall commit each part follows and how to see what cha
 
 | XDesk (`lorie-app/src/main/java/com/termux/x11/`) | Sall / Sill source |
 |---|---|
-| `mac/MacVideo.java` | `VideoDecoderPolicy.java` (software HEVC decoders after the platform's fails, as of 3d17c0e), `Hevc.java` |
+| `mac/MacVideo.java` | `VideoDecoderPolicy.java` (software HEVC decoders after the platform's fails, as of 3d17c0e), `Hevc.java`. XDesk's decoder is asynchronous (MediaCodec callbacks on a `THREAD_PRIORITY_DISPLAY` thread), configures at the SPS's size, sets `KEY_OPERATING_RATE` and reports render lag; Sall's is synchronous |
+| `mac/MacDiscovery.java`, `mac/HomeDiscoveryMetadata.java`, `mac/RecognitionTag.java` | `MacDiscovery.java`, `HomeDiscoveryMetadata.java`, `RecognitionTag.java` (`DiscoveryEpoch.java`'s ticket guard is the `known` set: a resolution that comes after its service was lost is dropped); `Sources/StreamProtocol/Pairing.swift` (`RecognitionTag`, `HomeDoorTXT`); `Sources/SillHost/DoorPolicy.swift` (`trusts`: a paired key is trusted for `sill/1` at the home door), `StreamServer.swift` (the home listener and its Bonjour TXT). `MacStore.Mac.recognition` keeps the 32-byte key Sill sends once in its pairing answer (`PairResult.recognitionKey`); a Mac paired by an older Sill has none and is dialled at its saved address |
 | `mac/SillWire.java` | `AndroidClient/…/StreamWire.java`, `Sources/StreamProtocol/StreamMessage.swift` (kind numbers) |
 | `mac/HostSettings.java` | `Sources/StreamProtocol/HostSettings.swift` (StreamSettings, RunningStream, AwayQuality, LinkReport, HostSettingsState, HostSettingsChange, SettingsChoices, QualityPreset); `HostSettingsOptions.java`; `ConnectionDiagnostics.java` (`advice`, `accepted`) |
 | `mac/Rtt.java` | `ConnectionDiagnostics.Rtt` (the samples, the per-second medians, `slow`), fed from `MacClient`'s `PONG` as `MainActivity` case 11 feeds it |
 | `MacStreamSettings.java`'s round trip row and slow-link advice (`HostSettings.advice(boolean slow)`) | `MainActivity.refreshDiagnostics` (the readout, the 1 s tick), `ConnectionDiagnostics.advice`'s `olderHost && remote && slow` case. XDesk has no route label (`ConnectionRouteLabel` is not ported), so any address counts as remote: the advice also shows on a slow local link, where it is just as true |
 | `mac/AudioMute.java`; `MacStreamSettings.java`'s "mute this device" switch; `MacAudio.setMuted` | `LocalAudioControl.java`, `AudioMutePolicy.java` (the switch, `ACTION_AUDIO_BECOMING_NOISY`, the "mute only if sound played" rule); `MainActivity`'s `soundMuted` preference (XDesk keeps it per Mac in `MacStore.Stream.muted`, beside `sound`), `muteIndex` row, `case 43`'s `localAudio.received` |
-| `mac/MacClient.java`, section "Sill's settings": `settingsState`, `changeSetting`, `settingsCleared` | `MainActivity.java`: `case 16`, `changeHostSetting`, the reset on disconnect. Field and method names kept (`pendingSettingsToken`, `pendingSettingsField`, …) |
+| `mac/MacClient.java`, section "Sill's settings": `settingsState`, `changeSetting`, `changeAll`/`pumpChanges`, `settingsCleared` | `MainActivity.java`: `case 16`, `changeHostSetting`, the reset on disconnect. Field and method names kept (`pendingSettingsToken`, `pendingSettingsField`, …); a quality mode's fields go together in one `HostSettingsChange`, as `Sources/StreamProtocol/HostSettings.swift` and iOS `HostSettingsLedger.swift` send them |
 | `mac/MacMenuState.java` | `MacMenuState.java` (the mirrored menus: version, tokens, the refusals by their `note` words, and the row shaping — `Row`, `Content`, `topRows`, `sections`, `mark`, `clean`; `MacMenuRow.noteText`). Plain Java, tested in /tmp |
 | `mac/MacMenuNav.java`; `MacMenus.java`, `MacMenuBar.java`, `MacMenuDialog.java`; `CornerButton.java` (the bell's and the ≡'s shared button) | `MacMenuAdapter.java` (the row: mark, title, key, ›), `MainActivity.java`'s `showMenuRows`/`openMenuRow`/`sendMenuCommand` (the dialogs, the fetch on open, the press, the refusals as note rows, "The menus changed…" and the no-Accessibility words). XDesk's bar is its own overlay (MACMENU.md: the corner button, the push, Ctrl+Alt+Space, the driven pointer's grab as the notification centre's), Sall has no such thing |
 | `mac/MacClient.java`, section "quitting an app": `quitApp`, `case 24`, kinds 25 and 27 | `MainActivity.java`: `sendMenuCommand`, `sendMenu`, `case 24` (without the dialog rows); `Sources/StreamProtocol/MacMenu.swift` (kinds 24, 25 and 27, the rules in its header); `Sources/SillHost/MenuMirror.swift`, `MenuReader.swift`, `MenuPolicy.swift` (what each refusal's `note` says — matched to tell them apart) |
 | `MacStreamSettings.java` (the page) | `MainActivity.settings()`: `refreshInlineHostSettings`, `addHostChoice`, `addHostSegments`, `addHostToggle`, `showQualityMenu`, `refreshDiagnostics`, `applyDiagnosticsAdvice` |
 | `mac/AacEldConfig.java` | `AacEldConfig.java`, unchanged but for the package and records written as classes (XDesk builds as Java 9) |
-| `mac/MacAudio.java` | wire and decoder setup: `Sources/StreamProtocol/Audio.swift`, `AudioPlayer.java` (`decoderName`, `configure`), `AudioPackets.java` (`parse`, `needsFlush`, `primingFrames`), `AndroidAudioDevice.java` (`open`, `poll`). **The playout is XDesk's own**, see below |
+| `mac/MacAudio.java` | wire and decoder setup: `Sources/StreamProtocol/Audio.swift`, `AudioPlayer.java` (`decoderName`, `configure`), `AudioPackets.java` (`parse`, `needsFlush`, `primingFrames`), `AndroidAudioDevice.java` (`open`, `poll`). **The playout is XDesk's own**, see below; the low-latency track, the prefill-sized buffer and the once-a-second `getTimestamp` backlog drop follow iOS `AudioPlayout.swift`'s bounded buffer |
 | `mac/MacClient.java`: `helloAudio`, `audioMessage` | `MainActivity.java`: the hello's `audio` (`wantsAudio`), `case 43` |
-| `mac/MacClient.java`: `viewportFps` | `ViewportFps.java` (Sall caps at 60 on power saving or away; XDesk has a per-Mac choice instead) |
+| `mac/MacClient.java`: `viewportFps`, `MacActivity.giveSurface`/`onDisplayChanged` | `ViewportFps.java` (Sall caps at 60 on power saving or away; XDesk has a per-Mac choice instead), iOS `StreamClient+Viewport.swift` (`wantedFPS`: the screen's current rate, 60 while away) |
+| `mac/SillTls.java`: the cached `SSLContext`/`KeyManagerFactory`, `setTrafficClass(0xA0)`, the home door dial | `Sources/StreamProtocol/RemoteTLS.swift` (TLS 1.3, `sill/1`, the same pin at both doors), `Sources/SillHost/DoorPolicy.swift` |
 | `mac/MacClient.java`: `showDesktop`, `stepToDisplay`, `desktopDisplays`; `MacSource.windows()` (one desktop per display, `m:<mac>:desktop:<n>`) | `Sources/StreamProtocol/Switcher.swift` (`desktopDisplays`, `desktopDisplay`, `desktopDisplayNames`), `StreamMessage.swift` (kind 47 `nextDisplay`), `DesktopDisplays.swift` (`button`); Sall `20d40323` (2026-11-16, "Show desktop display navigation for Sill 0.6.2"): `MainActivity`'s list case and the Desktop button's tap. Sall steps one display per tap; XDesk lists every display and steps to the chosen one, a kind 47 per list until `desktopDisplay` is it |
-| `mac/PairLink.java` | `PairLink.java` (the sill://pair link: its fields, parsing, address order, name cleaning; records written as classes). XDesk has no discovery of local doors, so the local candidates are always empty |
+| `mac/PairLink.java` | `PairLink.java` (the sill://pair link: its fields, parsing, address order, name cleaning; records written as classes). `MacPairing.pairLink` still passes no local candidates: the discovery ported for a saved Mac's home door is not used for pairing (pairing is unchanged) |
 | `mac/SillTls.java`: `pairQr`, `ask` | `SillConnection.java`: `pairQrIdentity` (kind 19 method "qr": the link's secret is the key), `homePairingCommand` (kind 19 "ask": the Mac answers "shown", "locked", "busy"…, and the remote door "closed" without counting a try) |
 | `mac/MacPairing.java`: `pairLink`, `ask`, `pair` with the Mac's key | `MainActivity.java`: `beginPairLink` (dial the link's addresses, pinned to its key), `sendHomeAsk` (ask, then pair with the code against the key the ask saw) |
 | `MacSettings.java`: "Scan QR code", the code step's "Ask the Mac for a code", the link's confirmation; `mac/PairScannerActivity.java` | `PairScannerActivity.java`, `MainActivity.java`: `handlePairIntent` (confirm the link before pairing), `openHomePairing`. XDesk's scanner hands the link straight to MacSettings (a static one-shot receiver), never through an Intent, because XDesk has no activity-result plumbing |
@@ -39,7 +41,9 @@ cd sall && git fetch && git diff 3d17c0e..origin/main --stat -- \
   Sources/StreamProtocol/StreamMessage.swift Sources/SillHost/DeviceSettings.swift \
   Sources/StreamProtocol/Pairing.swift Sources/StreamProtocol/MacMenu.swift \
   Sources/SillHost/{MenuMirror,MenuReader,MenuPolicy}.swift \
-  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,PairLink,PairScannerActivity,SillConnection,MacMenuState,MacMenuAdapter,MacMenuRow}.java
+  AndroidClient/app/src/main/java/io/github/n2ray/sall/{HostSettingsOptions,ConnectionDiagnostics,AacEldConfig,AudioPackets,AudioPlayer,AndroidAudioDevice,ViewportFps,MacDiscovery,HomeDiscoveryMetadata,RecognitionTag,DiscoveryEpoch,PairLink,PairScannerActivity,SillConnection,MacMenuState,MacMenuAdapter,MacMenuRow}.java \
+  Sources/StreamProtocol/{RemoteTLS,Pairing,HostSettings}.swift Sources/SillHost/{DoorPolicy,Door,StreamServer,StreamCoordinator}.swift \
+  iOSClient/{StreamClient+Viewport,HostSettingsLedger,AudioPlayout}.swift
 # the settings panel lives in one big file: look at just its functions
 git log -p 3d17c0e..origin/main -L '/private void changeHostSetting(String field, Object value, Double/,+16:AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java'
 git diff 3d17c0e..origin/main -- AndroidClient/app/src/main/java/io/github/n2ray/sall/MainActivity.java | grep -n 'hostSettings\|addHost\|QUALITY_'
@@ -59,9 +63,11 @@ shows as "Custom — N Mbps". After comparing, update the commit at the top of t
   A device does not store and re-send them. XDesk keeps only the last state per Mac (`MacStore.Stream.host`) to
   show while not connected.
 - The Mac sends its state (kind 16) after the window list, whenever anything in it changes, and as the answer to a
-  change. A device sends (kind 17) only the field one control changed, as an absolute value, with a `token` that
-  only ever grows; the answer carries it as `answering`. A refused value is not an error: the answer simply shows
-  the Mac's value (`DeviceSettings.accepted` in SillHost logs "Settings from … refused: …").
+  change. A device sends (kind 17) the fields one control changed, as absolute values, with a `token` that only
+  ever grows; the answer carries it as `answering`. One control changes one field, except a quick quality mode,
+  which sends its differing fields together in one message (as iOS's `HostSettingsLedger.pick` does). A refused
+  value is not an error: the answer simply shows the Mac's value (`DeviceSettings.accepted` in SillHost logs
+  "Settings from … refused: …").
 - A device may pick only the Mac menu's values (`SettingsChoices`): frame rate limit 60 or 120, resolution Retina
   (2) or Standard (1), quality one of the seven presets. A field the Mac did not report is never shown or sent.
 - The frame rate limit is a ceiling for all devices. What one device gets is the rate its viewport (kind 9) asks
@@ -112,7 +118,7 @@ Sall plays the Mac's sound against the video's presentation clock: `AudioRuntime
 `AudioDecodeMapping`, `AudioOutputTimeline`, `AudioPresentationClock`, `AudioScheduleJoin`, `AudioStartupSupply`
 (about 1500 lines, Java 17), and stops it on any underrun. XDesk shows a frame as soon as it is decoded and has no
 such clock, so `MacAudio` plays the sound as it arrives behind a short buffer, like `AudioPlayer` does for the
-Linux desktop, but with a cushion that adapts to the link (60 ms, 40 ms more after each underrun up to 300 ms, back down after 30 s without one; a 400 ms track) and, past the cushion plus 250 ms, only the oldest messages dropped, down to the cushion (owner heard gaps over Tailscale, 2026-11-15). It goes to the
+Linux desktop, but with a cushion that adapts to the link (60 ms, 40 ms more after each underrun up to 300 ms, back down after 30 s without one; a track sized to that 300 ms maximum, low-latency mode where the output has it) and, past the cushion plus 250 ms, only the oldest messages dropped, down to the cushion (owner heard gaps over Tailscale, 2026-11-15). Once a second the frames queued in the track (`framesWritten` less the sound card's timestamped position) are held to the cushion plus 40 ms by dropping decoded PCM, as iOS `AudioPlayout` keeps its buffer bounded. It goes to the
 output of XDesk's sound setting (`AudioRoute`, through `MacClient.audioDevice`). Two switches: the Mac's "Send Audio"
 (`sendAudio`, for every device, off at first) and this device's "Play the Mac's sound here" (`MacStore.Stream.sound`,
 saved as `playSound`: the hello lists `aac-eld`, so it takes a new connection). Unlike Sall's, the second is on at
@@ -134,8 +140,8 @@ menu's values, only fields the Mac reported, one change at a time, the Mac's ans
   (captureScale 2) with prioritizeSpeed off; Balanced the middle preset (Balanced, `QUALITY_RATES[2]`, 15 Mbps)
   at Retina with speed off; Smooth the lowest (Low, `QUALITY_RATES[0]`, 4 Mbps — what Sill suggests most often
   for a weak link) at the standard resolution (1) with speed on. The control shows which mode the Mac's settings
-  match, or Custom when they match none; picking one sends only the fields that differ, each as its own change,
-  the next waiting for the Mac's answer (`MacClient.changeAll`). The row sits at the top of MacStreamSettings,
+  match, or Custom when they match none; picking one sends only the fields that differ, together in one
+  `HostSettingsChange` with one token, and applies the Mac's one answer (`MacClient.changeAll`). The row sits at the top of MacStreamSettings,
   at the top of a Mac's device page (DeviceSettings) and in a Mac item's card (ItemCard), with a note that the
   settings are the Mac's, so they hold for every connected device; Ctrl+Alt+Q cycles the modes while a Mac is on
   the external screen, flashing the new mode over the picture. A mode needs all three fields, so a host that

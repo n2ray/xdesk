@@ -157,7 +157,16 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         setContentView(root);
         displayWatch = new DisplayManager.DisplayListener() {
             @Override public void onDisplayAdded(int id) { }
-            @Override public void onDisplayChanged(int id) { }
+            @Override public void onDisplayChanged(int id) {
+                Display d = getDisplay();
+                if (client == null || d == null || d.getDisplayId() != id) return;
+                // The panel's rate or size changed: what is asked of the Mac follows it, after the layout
+                root.post(() -> {
+                    if (isFinishing() || client == null) return;
+                    giveSurface();
+                    client.sendViewport();
+                });
+            }
             @Override public void onDisplayRemoved(int id) {
                 if (id == displayWanted) end();
             }
@@ -165,6 +174,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         ((DisplayManager) getSystemService(DISPLAY_SERVICE)).registerDisplayListener(displayWatch, null);
         bind(getIntent());
         checkDisplay();
+        // Local discovery runs while a Mac is on a screen: a reconnect finds the home door again
+        MacDiscovery.acquire(this);
     }
 
     @Override public void onConfigurationChanged(android.content.res.Configuration c) {
@@ -209,6 +220,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     }
 
     @Override protected void onDestroy() {
+        MacDiscovery.release();
         root.removeCallbacks(hideBlank);
         if (displayWatch != null) ((DisplayManager) getSystemService(DISPLAY_SERVICE)).unregisterDisplayListener(displayWatch);
         live.remove(this);
@@ -244,9 +256,12 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         Display d = getDisplay();
         int fps = 60;
         if (d != null) {
-            float max = 0;
-            for (Display.Mode m : d.getSupportedModes()) max = Math.max(max, m.getRefreshRate());
-            if (max > 0) fps = Math.min(120, Math.round(max));
+            // The rate the display is running at now, not the fastest mode it could switch to: the Mac's stream
+            // follows what this panel actually shows
+            Display.Mode mode = d.getMode();
+            float rate = mode != null ? mode.getRefreshRate() : d.getRefreshRate();
+            // Sall's ViewportFps: never under 30 (Sill's own floor is 24), never over 120
+            if (rate > 0) fps = Math.max(30, Math.min(120, Math.round(rate)));
         }
         // The viewport is the whole screen in dp, not the letterboxed picture. The factor is the shell's b·u (§4.1,
         // Sizing.shell), not the display's Android density: an override set for apps must not resize the Mac window

@@ -24,6 +24,12 @@ public final class MacStore {
         public final String host;
         public final int port;
         final byte[] pin;
+        /**
+         * Sill's recognition key (32 bytes, sent once in the pairing answer): what the home door's Bonjour TXT
+         * tag is checked against, to find this Mac on the local network. Null for a Mac paired by a Sill that did
+         * not send one (before home pairing); such a Mac is reached at its saved address as before.
+         */
+        final byte[] recognition;
         /** Resize the streamed Mac window to the screen (DISPLAY.md §1.3, off by default). */
         public final boolean fit;
         /** The keyboard is a Mac keyboard: no Ctrl↔⌘ swap (INPUT.md §5.5). */
@@ -34,12 +40,14 @@ public final class MacStore {
          */
         public final boolean phoneIme;
 
-        Mac(String id, String name, String host, int port, byte[] pin, boolean fit, boolean macKeyboard, boolean phoneIme) {
+        Mac(String id, String name, String host, int port, byte[] pin, byte[] recognition, boolean fit,
+            boolean macKeyboard, boolean phoneIme) {
             this.id = id;
             this.name = name;
             this.host = host;
             this.port = port;
             this.pin = pin;
+            this.recognition = recognition;
             this.fit = fit;
             this.macKeyboard = macKeyboard;
             this.phoneIme = phoneIme;
@@ -51,18 +59,31 @@ public final class MacStore {
 
         JSONObject json() throws JSONException {
             return new JSONObject().put("id", id).put("name", name).put("host", host).put("port", port)
-                    .put("pin", Base64.encodeToString(pin, Base64.NO_WRAP)).put("fit", fit).put("macKeyboard", macKeyboard)
+                    .put("pin", Base64.encodeToString(pin, Base64.NO_WRAP))
+                    .put("recognition", recognition == null ? ""
+                            : Base64.encodeToString(recognition, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING))
+                    .put("fit", fit).put("macKeyboard", macKeyboard)
                     .put("phoneIme", phoneIme);
         }
 
         static Mac of(JSONObject o) throws JSONException {
+            byte[] recognition = null;
+            String encoded = o.optString("recognition", "");
+            if (!encoded.isEmpty()) {
+                try {
+                    byte[] decoded = Base64.decode(encoded, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+                    if (decoded.length == 32) recognition = decoded;
+                } catch (IllegalArgumentException ignored) {
+                    // A damaged hint is no hint: the Mac is still reachable at its saved address
+                }
+            }
             return new Mac(o.getString("id"), o.optString("name", ""), o.getString("host"), o.getInt("port"),
-                    Base64.decode(o.getString("pin"), Base64.NO_WRAP), o.optBoolean("fit", false), o.optBoolean("macKeyboard", false),
-                    o.optBoolean("phoneIme", false));
+                    Base64.decode(o.getString("pin"), Base64.NO_WRAP), recognition, o.optBoolean("fit", false),
+                    o.optBoolean("macKeyboard", false), o.optBoolean("phoneIme", false));
         }
 
         Mac with(String name, boolean fit, boolean macKeyboard, boolean phoneIme) {
-            return new Mac(id, name, host, port, pin, fit, macKeyboard, phoneIme);
+            return new Mac(id, name, host, port, pin, recognition, fit, macKeyboard, phoneIme);
         }
     }
 
@@ -70,6 +91,12 @@ public final class MacStore {
 
     private static SharedPreferences prefs(Context c) {
         return c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /** A saved Mac whose home door local discovery can recognise (it has a recognition key). */
+    public static synchronized boolean anyFindableAtHome(Context c) {
+        for (Mac m : all(c)) if (m.recognition != null) return true;
+        return false;
     }
 
     public static synchronized List<Mac> all(Context c) {
@@ -104,8 +131,10 @@ public final class MacStore {
         Mac old = null;
         for (int i = macs.size() - 1; i >= 0; i--) if (macs.get(i).id.equals(p.macId)) old = macs.remove(i);
         String name = p.name.isEmpty() ? (old != null ? old.name : "Mac") : p.name;
-        Mac m = new Mac(p.macId, name, host, port, p.pin, old != null && old.fit, old != null && old.macKeyboard,
-                old != null && old.phoneIme);
+        // A pairing answer from a Sill that has no recognition key leaves the one already saved alone
+        byte[] recognition = p.recognitionKey != null ? p.recognitionKey : old != null ? old.recognition : null;
+        Mac m = new Mac(p.macId, name, host, port, p.pin, recognition, old != null && old.fit,
+                old != null && old.macKeyboard, old != null && old.phoneIme);
         macs.add(m);
         save(c, macs);
         return m;

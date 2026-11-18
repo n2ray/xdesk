@@ -9,6 +9,9 @@ package com.termux.x11.mac;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,7 +47,11 @@ public final class MacClient {
     private static final String TAG = "XDeskMac";
     public static final int DEFAULT_PORT = 7455;
     private static final long IDLE_MS = 10 * 60_000, LAUNCH_MS = 15_000, PONG_DEADLINE_MS = 12_000;
-    private static final int CONNECT_MS = 8_000, HANDSHAKE_MS = 10_000;
+    /** While a screen shows this Mac: the least silence that ends the connection, and how long discovery may wait. */
+    private static final long MIN_DEADLINE_MS = 6_000, HOME_DISCOVERY_WAIT_MS = 300;
+    private static final int CONNECT_MS = 8_000, HOME_CONNECT_MS = 1_500, HANDSHAKE_MS = 10_000;
+    /** Reconnect pauses: the old 1→30 s, or at most this while a screen shows the Mac (someone is watching). */
+    private static final long BACKOFF_MAX_MS = 30_000, SHOWN_BACKOFF_MAX_MS = 2_000;
 
     // Sill's key modifier bits (CGEventFlags / UIKeyModifierFlags)
     public static final long SHIFT = 1L << 17, CONTROL = 1L << 18, OPTION = 1L << 19, COMMAND = 1L << 20;
@@ -121,13 +128,27 @@ public final class MacClient {
 
     // Connection
     private final Object lock = new Object();
+    /** Signalled when the state a caller of awaitConnected waits for may have changed. */
+    private final Object stateSignal = new Object();
     private Thread runner;
     private volatile SillTls session;
     private volatile boolean wanted;
     private long lastUse = SystemClock.uptimeMillis();
+    /** The last message of any kind from the Mac: pongs, and everything else that proves the link alive. */
     private volatile long lastPong;
     /** The round trips of the pings, from the session's start (Sall's diagnosticsRtt); for the settings page. */
     private volatile Rtt rtt;
+    /** Runners that watch the default network (one normally; a dying one may overlap its successor). Under lock. */
+    private int networkUsers;
+    /** The default network changed: the next session starts at once, without the reconnect pause. */
+    private volatile boolean reconnectAtOnce;
+    private volatile long networkEpoch;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private Network defaultNetwork;
+    /** A default network was seen since registering: the next one is a change, even after the old one was lost. */
+    private boolean networkSeen;
+    /** WiFi high-performance lock while a screen shows this Mac (and out of low latency). */
+    private WifiManager.WifiLock wifiLock;
 
     // The screen
     private final Object surfaceLock = new Object();
@@ -314,6 +335,9 @@ public final class MacClient {
                 wanted = false;
                 return; // unpaired or another key: only pairing again helps
             }
+            // Each runner holds the network watch from here to its own end. Discovery is held by what shows (XDesk's
+            // window, a Mac's screen), not by every connection: mDNS for the whole of an idle connection costs battery
+            networkWatch(true);
             state = State.CONNECTING;
             runner = new Thread(this::run, "mac-" + mac.id);
             runner.start();
@@ -328,12 +352,28 @@ public final class MacClient {
             if (backingOff && runner != null) runner.interrupt();
         }
         long until = SystemClock.uptimeMillis() + ms;
-        while (SystemClock.uptimeMillis() < until) {
-            if (state == State.CONNECTED && !windowsPending) return true;
-            if (state == State.FAILED) return false;
-            SystemClock.sleep(50);
+        synchronized (stateSignal) {
+            while (SystemClock.uptimeMillis() < until) {
+                if (state == State.CONNECTED && !windowsPending) return true;
+                if (state == State.FAILED) return false;
+                long left = until - SystemClock.uptimeMillis();
+                if (left <= 0) break;
+                try {
+                    stateSignal.wait(left);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            return state == State.CONNECTED;
         }
-        return state == State.CONNECTED;
+    }
+
+    /** Wakes awaitConnected's waiters: a state or the window list changed. */
+    private void stateChanged() {
+        synchronized (stateSignal) {
+            stateSignal.notifyAll();
+        }
     }
 
     private volatile boolean windowsPending = true;
@@ -345,6 +385,7 @@ public final class MacClient {
         wanted = false;
         SillTls s = session;
         if (s != null) s.close();
+        setWifiLock(false);
         synchronized (lock) {
             if (runner != null && backingOff) runner.interrupt();
             // Under the lock helloAudio takes, and wanted already false: a mute made before this is closed here,
@@ -359,78 +400,187 @@ public final class MacClient {
     private void setState(State s, String why) {
         state = s;
         failure = why;
+        stateChanged();
         changed();
         statusToView();
         ui.post(this::autoTickFollow);  // the auto quality tick follows the connection
     }
 
     private void run() {
-        int retries = 0;
-        while (true) {
-            // Under the lock touch() takes: either it sees this runner end and starts another, or this one goes on
-            synchronized (lock) {
-                if (!wanted) {
-                    if (runner == Thread.currentThread()) runner = null;
-                    break;
-                }
-            }
-            long started = SystemClock.uptimeMillis();
-            try {
-                setState(State.CONNECTING, null);
-                session(mac);
-                // Left without an error: shutdown() came (also while still connecting, which nothing interrupts)
-                SillTls s = session;
-                session = null;
-                if (s != null) s.close();
-                clearSession();
-                setState(State.OFFLINE, null);
-                retries = 0;
-            } catch (Exception e) {
-                Log.i(TAG, mac.name + ": session ended: " + e);
-                SillTls s = session;
-                session = null;
-                if (s != null) s.close();
-                clearSession();
-                if (e instanceof Ended) {
-                    Ended g = (Ended) e;
-                    if (!g.reconnect) {
-                        wanted = false;
-                        needsPairing = g.removed;
-                        setState(State.FAILED, g.text);
-                        return;
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
+        try {
+            int retries = 0;
+            while (true) {
+                // Under the lock touch() takes: either it sees this runner end and starts another, or this one goes on
+                synchronized (lock) {
+                    if (!wanted) {
+                        if (runner == Thread.currentThread()) runner = null;
+                        break;
                     }
                 }
-                if (identityChanged(e)) {
-                    wanted = false;
-                    needsPairing = true;
-                    setState(State.FAILED, context.getString(com.termux.x11.app.R.string.xd_mac_identity_changed));
-                    return;
-                }
-                setState(State.OFFLINE, wanted ? e.getMessage() : null);
-            }
-            if (SystemClock.uptimeMillis() - started > 30_000) retries = 0;
-            // Nobody has shown or asked for this Mac for a while: stay disconnected until asked again
-            synchronized (lock) {
-                if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
-                    wanted = false;
-                    runner = null;
+                long started = SystemClock.uptimeMillis();
+                try {
+                    setState(State.CONNECTING, null);
+                    session(mac);
+                    // Left without an error: shutdown() came (also while still connecting, which nothing interrupts)
+                    SillTls s = session;
+                    session = null;
+                    if (s != null) s.close();
+                    clearSession();
                     setState(State.OFFLINE, null);
-                    return;
+                    retries = 0;
+                } catch (Exception e) {
+                    Log.i(TAG, mac.name + ": session ended: " + e);
+                    SillTls s = session;
+                    session = null;
+                    if (s != null) s.close();
+                    clearSession();
+                    if (e instanceof Ended) {
+                        Ended g = (Ended) e;
+                        if (!g.reconnect) {
+                            wanted = false;
+                            needsPairing = g.removed;
+                            setState(State.FAILED, g.text);
+                            return;
+                        }
+                    }
+                    if (identityChanged(e)) {
+                        wanted = false;
+                        needsPairing = true;
+                        setState(State.FAILED, context.getString(com.termux.x11.app.R.string.xd_mac_identity_changed));
+                        return;
+                    }
+                    setState(State.OFFLINE, wanted ? e.getMessage() : null);
                 }
-                if (!wanted) continue;
-                backingOff = true;
+                if (SystemClock.uptimeMillis() - started > 30_000) retries = 0;
+                // Nobody has shown or asked for this Mac for a while: stay disconnected until asked again
+                synchronized (lock) {
+                    if (surface == null && SystemClock.uptimeMillis() - lastUse > IDLE_MS) {
+                        wanted = false;
+                        runner = null;
+                        setState(State.OFFLINE, null);
+                        return;
+                    }
+                    if (!wanted) continue;
+                    backingOff = true;
+                }
+                // A new default network: at once. While a screen shows the Mac, never wait long enough to be noticed.
+                boolean now = reconnectAtOnce;
+                reconnectAtOnce = false;
+                long delay = now ? 0 : Math.min(surface != null ? SHOWN_BACKOFF_MAX_MS : BACKOFF_MAX_MS,
+                        1000L << Math.min(retries++, 5));
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException e) {
+                    // Someone waits for this Mac (awaitConnected), a network came back, or shutdown(): now, from a
+                    // short pause again
+                    retries = 0;
+                }
+                synchronized (lock) {
+                    backingOff = false;
+                }
+                Thread.interrupted();
             }
-            long delay = Math.min(30_000, 1000L << Math.min(retries++, 5));
-            try {
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-                // Someone waits for this Mac (awaitConnected), or shutdown(): now, and from a short pause again
-                retries = 0;
+        } finally {
+            // This runner's own hold: a successor that already started has its own
+            networkWatch(false);
+        }
+    }
+
+    /**
+     * Watches the default network while this client wants a connection: the Mac's address on a mobile link is
+     * not the one on Wi-Fi, and a session dialled on the old one is dead. Off: no callback is left registered.
+     */
+    private void networkWatch(boolean on) {
+        synchronized (lock) {
+            if (on) {
+                networkUsers++;
+                // One callback for this client; a dying runner's successor keeps it
+                if (networkUsers > 1 || networkCallback != null) return;
+                ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm == null) return;
+                ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
+                    @Override public void onAvailable(Network network) {
+                        boolean changed;
+                        synchronized (lock) {
+                            // The first one is the network this client started on, not a change; one after a loss
+                            // or in place of another is
+                            changed = networkSeen && (defaultNetwork == null || !defaultNetwork.equals(network));
+                            networkSeen = true;
+                            defaultNetwork = network;
+                        }
+                        if (changed) networkChanged();
+                    }
+
+                    @Override public void onLost(Network network) {
+                        boolean lost;
+                        synchronized (lock) {
+                            lost = network.equals(defaultNetwork);
+                            if (lost) defaultNetwork = null;
+                        }
+                        if (lost) networkChanged();
+                    }
+                };
+                try {
+                    cm.registerDefaultNetworkCallback(cb);
+                    networkCallback = cb;
+                } catch (RuntimeException e) {
+                    Log.w(TAG, mac.name + ": network watch", e);
+                }
+            } else {
+                if (networkUsers == 0) return;
+                networkUsers--;
+                if (networkUsers > 0) return;
+                ConnectivityManager.NetworkCallback cb = networkCallback;
+                networkCallback = null;
+                defaultNetwork = null;
+                networkSeen = false;
+                if (cb == null) return;
+                ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm == null) return;
+                try {
+                    cm.unregisterNetworkCallback(cb);
+                } catch (RuntimeException ignored) { }
             }
-            synchronized (lock) {
-                backingOff = false;
+        }
+    }
+
+    /** A different default network: the old session cannot survive it, so close it and redial without the pause. */
+    private void networkChanged() {
+        networkEpoch++;
+        reconnectAtOnce = true;
+        Log.i(TAG, mac.name + ": the default network changed, reconnecting");
+        SillTls s = session;
+        if (s != null) s.close();
+        synchronized (lock) {
+            if (backingOff && runner != null) runner.interrupt();
+        }
+    }
+
+    /**
+     * Holds the Wi-Fi radio in its low-latency mode while a screen shows this Mac (Sill's video class on the Mac's
+     * side has a home for this here). Released when the surface goes, and on shutdown.
+     */
+    private void setWifiLock(boolean on) {
+        synchronized (lock) {
+            if (on == (wifiLock != null)) return;
+            if (on) {
+                WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+                if (wm == null) return;
+                try {
+                    WifiManager.WifiLock lock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "xdesk-mac");
+                    lock.acquire();
+                    wifiLock = lock;
+                } catch (RuntimeException e) {
+                    Log.w(TAG, mac.name + ": Wi-Fi low latency", e);
+                }
+            } else {
+                WifiManager.WifiLock lock = wifiLock;
+                wifiLock = null;
+                try {
+                    lock.release();
+                } catch (RuntimeException ignored) { }
             }
-            Thread.interrupted();
         }
     }
 
@@ -455,28 +605,60 @@ public final class MacClient {
     }
 
     private void session(MacStore.Mac m) throws Exception {
-        SillTls s = SillTls.connect(m.host, m.port, SillTls.SESSION, m.pin, CONNECT_MS, HANDSHAKE_MS);
+        long epoch = networkEpoch;
+        SillTls s = null;
+        // The Mac on this network, found by its Bonjour recognition tag: its home door takes the same paired key
+        // as the remote one (Sill's DoorPolicy.trusts: a paired key is trusted for "sill/1" at home), with the home
+        // quality and the home link's immediate keyframe recovery. A Mac paired before Sill sent a recognition key
+        // has none, and is never sought: the 300 ms wait would only delay its saved address.
+        MacDiscovery.Door home = m.recognition != null && m.recognition.length == 32
+                ? MacDiscovery.get(context).homeDoor(m.recognition, HOME_DISCOVERY_WAIT_MS) : null;
+        if (home != null) {
+            try {
+                // A LAN answers at once: a stale Bonjour record must not hold the saved address back for 8 s
+                s = SillTls.connect(home.host, home.port, SillTls.SESSION, m.pin, HOME_CONNECT_MS, HANDSHAKE_MS);
+                Log.i(TAG, m.name + ": connected at home (" + home.name + ", " + home.address() + ")");
+            } catch (Exception e) {
+                Log.i(TAG, m.name + ": home door " + home.address() + " did not answer, using the saved address: " + e);
+            }
+        }
+        if (s == null) {
+            s = SillTls.connect(m.host, m.port, SillTls.SESSION, m.pin, CONNECT_MS, HANDSHAKE_MS);
+            Log.i(TAG, m.name + ": connected at the saved address " + m.address());
+        }
+        // The network changed while this session was dialled: start the next one on the new one
+        if (networkEpoch != epoch) {
+            s.close();
+            throw new IOException("network changed");
+        }
+        final SillTls opened = s;
         inputsQueued.set(0);
         rtt = new Rtt();
-        session = s;
+        session = opened;
+        // A change between the check above and here: the callback could not close a session it did not see yet
+        if (networkEpoch != epoch) {
+            opened.close();
+            throw new IOException("network changed");
+        }
         windowsPending = true;
+        stateChanged();
         JSONObject hello = new JSONObject().put("protocol", 1).put("appVersion", appVersion()).put("device", Build.MODEL)
                 .put("build", "xdesk");
         helloAudio(hello);
-        s.send(SillWire.HELLO, hello.toString().getBytes(StandardCharsets.UTF_8));
+        opened.send(SillWire.HELLO, hello.toString().getBytes(StandardCharsets.UTF_8));
         // The pinger closes a connection without pongs, but it writes too, and a write into a dead mobile connection
         // can block it: nothing at all read for this long (pongs come every 1 to 4 s) ends the session as well
-        s.readTimeout((int) PONG_DEADLINE_MS + 8_000);
+        opened.readTimeout(readTimeout());
         lastPong = SystemClock.uptimeMillis();
-        Thread sender = new Thread(() -> sendLoop(s), "mac-out");
+        Thread sender = new Thread(() -> sendLoop(opened), "mac-out");
         sender.start();
-        Thread pinger = new Thread(() -> pingLoop(s), "mac-ping");
+        Thread pinger = new Thread(() -> pingLoop(opened), "mac-ping");
         pinger.start();
         SillWire.Message msg = new SillWire.Message();
         try {
-            while (wanted && session == s) {
-                SillWire.read(s.in, msg, SillWire.MAX_FRAME);
-                handle(s, msg);
+            while (wanted && session == opened) {
+                SillWire.read(opened.in, msg, SillWire.MAX_FRAME);
+                handle(opened, msg);
             }
         } finally {
             sender.interrupt();
@@ -501,6 +683,7 @@ public final class MacClient {
         videoW = videoH = 0;
         lastCursor = null;
         windowsPending = true;
+        stateChanged();
         activeWindow = -1;
         activeDesktop = false;
         desktopDisplays = desktopDisplay = 0;
@@ -524,18 +707,32 @@ public final class MacClient {
 
     private void pingLoop(SillTls s) {
         try {
-            long lastSent = SystemClock.uptimeMillis();
+            long lastSent = SystemClock.uptimeMillis(), lastDeadline = -1;
             while (session == s) {
                 // A screen wants the pongs for liveness; the settings page for the round trip it shows (Sall pings
                 // always). The interval is read again after each short step, so the page's 1 s cadence starts at
                 // once when it opens mid-wait, not up to 4 s later
                 long interval = surface != null || !settingsListeners.isEmpty() ? 1000 : 4000;
-                if (SystemClock.uptimeMillis() - lastSent >= interval) {
-                    if (SystemClock.uptimeMillis() - lastPong > PONG_DEADLINE_MS) {
-                        Log.i(TAG, "no pong: the connection is gone");
+                long deadline = pongDeadline();
+                if (lastDeadline != deadline) {
+                    // The reader's backstop above the pinger's deadline: a write that blocks must not outlive it
+                    lastDeadline = deadline;
+                    int timeout = (int) Math.min(Integer.MAX_VALUE, deadline + 8_000);
+                    try {
+                        s.readTimeout(timeout);
+                    } catch (java.io.IOException e) {
                         s.close();
                         return;
                     }
+                }
+                // Checked every step, not only when a ping is due: a dead link is noticed within a quarter second
+                // of its deadline
+                if (SystemClock.uptimeMillis() - lastPong > deadline) {
+                    Log.i(TAG, "no message for " + deadline + " ms: the connection is gone");
+                    s.close();
+                    return;
+                }
+                if (SystemClock.uptimeMillis() - lastSent >= interval) {
                     s.send(SillWire.PING, ByteBuffer.allocate(8).putDouble(System.nanoTime() / 1e9).array());
                     lastSent = SystemClock.uptimeMillis();
                     checkLaunch();
@@ -556,7 +753,25 @@ public final class MacClient {
         }
     }
 
+    /**
+     * How long silence may last. With a screen on this Mac the picture is what someone is watching: 6 s, or four
+     * times the worst round trip of the last moment when the link is slower than that. No screen: the old 12 s,
+     * since nothing waits on the picture.
+     */
+    private long pongDeadline() {
+        if (surface == null) return PONG_DEADLINE_MS;
+        Rtt r = rtt;
+        Long worst = r != null ? r.worst(SystemClock.uptimeMillis()) : null;
+        return Math.max(MIN_DEADLINE_MS, worst != null ? 4 * worst : 0);
+    }
+
+    /** The socket's read timeout: above the pinger's deadline, so the pinger is what normally ends a dead link. */
+    private int readTimeout() {
+        return (int) Math.min(Integer.MAX_VALUE, pongDeadline() + 8_000);
+    }
+
     private void sendLoop(SillTls s) {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
         try {
             while (session == s) {
                 Object item;
@@ -603,6 +818,8 @@ public final class MacClient {
     // --- incoming ---
 
     private void handle(SillTls s, SillWire.Message m) throws Exception {
+        // Any message at all is the Mac still there: pongs, frames, a list. Only silence is a dead link.
+        lastPong = SystemClock.uptimeMillis();
         switch (m.kind) {
         case SillWire.FRAME: {
             Surface target = surface;
@@ -852,6 +1069,7 @@ public final class MacClient {
             }
         }
         if (clipNew && surface != null) startClipboard();
+        stateChanged();  // awaitConnected also waits for the first list
         changed();
         statusToView();
     }
@@ -1128,6 +1346,8 @@ public final class MacClient {
                 pass = null;
             }
         }
+        // A screen showing this Mac gets the Wi-Fi radio's low-latency mode; no screen, no lock
+        setWifiLock(s != null);
         if (ended != null) offUi(ended::end);
         if (s != null && fresh) {
             // A wireless receiver that decodes HEVC gets Sill's stream as it is: nothing decoded or encoded here
@@ -1298,6 +1518,14 @@ public final class MacClient {
 
     private void selectSource(long source) {
         lastSelect = SystemClock.uptimeMillis();
+        // Sill restarts the capture for a select of what already streams (StreamCoordinator.select:
+        // restartOf = source == active), 0.5–2 s of frozen picture for nothing. The viewport and a keyframe
+        // are all a screen that arrives on a running source needs.
+        if (source != NONE && state == State.CONNECTED && activeSource() == source) {
+            sendViewport();
+            askKeyframeSoon();
+            return;
+        }
         try {
             JSONObject o = new JSONObject();
             if (source == DESKTOP) o.put("desktop", new JSONObject());
@@ -1364,11 +1592,14 @@ public final class MacClient {
     private volatile HostSettings hostState;
     /** Who follows the settings: the stream page, the mode rows (MacModeRow) on other pages. UI thread. */
     private final java.util.List<SettingsListener> settingsListeners = new java.util.ArrayList<>();
-    // The one change the Mac has not answered yet (Sall's pendingSettings*), UI thread
+    // The one change the Mac has not answered yet (Sall's pendingSettings*), UI thread. A quality mode is one
+    // HostSettingsChange with several fields (Sill's HostSettingsChange takes them together), so one token and
+    // one answer cover all of it.
     private volatile int pendingSettingsToken;
+    /** The first field of the pending change, for the rows that say what waits. */
     private volatile String pendingSettingsField;
-    private Object pendingSettingsValue;
-    private Double pendingSettingsScale;
+    /** Every field the pending change asked for, with its expected value, for the one answer. */
+    private volatile java.util.List<AutoQuality.Change> pendingSettingsChanges;
     private volatile MacStore.Stream streamOptions;
     private volatile MacAudio audio;
     /** This device's mute (Sall's LocalAudioControl), from the first session with sound to shutdown. */
@@ -1416,7 +1647,11 @@ public final class MacClient {
      */
     private int viewportFps() {
         int cap = streamOptions().fpsCap;
-        return cap > 0 ? Math.min(fps, cap) : fps;
+        int rate = cap > 0 ? Math.min(fps, cap) : fps;
+        // Away from home the Mac caps its stream at 60 (iOS StreamClient+Viewport.wantedFPS, Sall's
+        // ViewportFps): above that costs the shared stream more than the remote link can show
+        HostSettings h = hostState;
+        return h != null && h.thisConnectionAway ? Math.min(rate, 60) : rate;
     }
 
     /** Kind 16, after hostSettings(o) above took what the viewport needs. On the reader's thread. */
@@ -1425,6 +1660,9 @@ public final class MacClient {
         HostSettings before = hostState;
         hostState = h;
         MacStore.setHostSettings(context, mac.id, h.settingsJson);
+        // Away or home now: the rate asked for follows it, also when it changed mid-stream
+        if (state == State.CONNECTED && surface != null && (before == null || before.thisConnectionAway != h.thisConnectionAway))
+            sendViewport();
         if (!h.linkState.isEmpty() && (before == null || !h.linkState.equals(before.linkState)))
             Log.i(TAG, mac.name + ": link " + h.linkState + ", the Mac suggests " + h.suggestedBitrate + " bps"
                     + (h.suggestedCaptureScale != null ? " at scale " + h.suggestedCaptureScale : ""));
@@ -1432,9 +1670,12 @@ public final class MacClient {
             if (hostState != h) return;
             java.util.List<SettingsListener> ls = listeners();
             if (pendingSettingsToken != 0 && h.answering == pendingSettingsToken) {
-                boolean accepted = HostSettings.accepted(h.value(pendingSettingsField), pendingSettingsValue,
-                        h.captureScale, pendingSettingsScale);
+                java.util.List<AutoQuality.Change> sent = pendingSettingsChanges;
+                boolean accepted = sent != null;
+                if (sent != null) for (AutoQuality.Change c : sent)
+                    if (!HostSettings.accepted(h.value(c.field), c.value, h.captureScale, c.captureScale)) accepted = false;
                 pendingSettingsToken = 0;
+                pendingSettingsChanges = null;
                 Log.i(TAG, mac.name + ": " + pendingSettingsField + (accepted ? " set" : " not taken by the Mac"));
                 for (SettingsListener l : ls) l.settingsAnswer(accepted ? SettingsListener.ACCEPTED : SettingsListener.REFUSED);
                 pumpChanges();  // the queue of several changes (a mode, auto quality) sends its next one
@@ -1462,8 +1703,8 @@ public final class MacClient {
             JSONObject request = new JSONObject().put("token", token).put(field, value);
             if (captureScale != null) request.put(HostSettings.CAPTURE_SCALE, captureScale);
             pendingSettingsField = field;
-            pendingSettingsValue = value;
-            pendingSettingsScale = captureScale;
+            pendingSettingsChanges = java.util.Collections.singletonList(
+                    new AutoQuality.Change(field, value, captureScale));
             pendingSettingsToken = token;
             enqueue(SillWire.CHANGE_SETTINGS, request);
         } catch (JSONException e) {
@@ -1481,20 +1722,22 @@ public final class MacClient {
         ui.postDelayed(() -> {
             if (pendingSettingsToken != token) return;
             pendingSettingsToken = 0;
+            pendingSettingsChanges = null;
             java.util.List<SettingsListener> ls = listeners();
             for (SettingsListener l : ls) {
                 l.settingsAnswer(SettingsListener.TIMEOUT);
                 l.settingsChanged();
             }
+            pumpChanges();  // a mode queued behind this one may go now
         }, SETTINGS_ANSWER_MS);
         java.util.List<SettingsListener> ls = listeners();
         for (SettingsListener l : ls) l.settingsChanged();
         return true;
     }
 
-    // --- several changes in a row (AutoQuality: a quick mode, the machine's steps) ---
+    // --- a mode's changes (AutoQuality: a quick mode, the machine's steps) ---
 
-    /** The changes that set a mode: only the fields that differ, bitrate, resolution, speed, in that order. */
+    /** The fields that set a mode: only the ones that differ, bitrate, resolution, speed, in that order. */
     public static java.util.List<AutoQuality.Change> modeChanges(HostSettings h, int mode) {
         java.util.ArrayList<AutoQuality.Change> changes = new java.util.ArrayList<>();
         if (h.bitrate != null && h.bitrate != AutoQuality.preset(mode))
@@ -1510,7 +1753,7 @@ public final class MacClient {
     private final AutoQuality quality = new AutoQuality();
     public AutoQuality quality() { return quality; }
 
-    /** Changes waiting to be sent, each after the Mac answered the last (the queue the page never needs). UI thread. */
+    /** The fields of a change waiting for the pipe; sent together as one kind 17. UI thread. */
     private final java.util.ArrayDeque<AutoQuality.Change> pendingChanges = new java.util.ArrayDeque<>();
     /** The queue holds a manual pick (its result becomes the user's mode); false: the machine's own steps. */
     private boolean queueManual;
@@ -1518,8 +1761,9 @@ public final class MacClient {
     private boolean queueActive;
 
     /**
-     * Several changes one after another, each its own kind 17, the next only after the Mac's answer — the quick
-     * mode rows and the auto machine send this way. A manual pick clears the machine's unsent steps. UI thread.
+     * A mode's fields, out together as one HostSettingsChange with one token (Sill's HostSettingsChange takes
+     * several fields), the next batch only after the Mac's answer — the quick mode rows and the auto machine send
+     * this way. A manual pick clears the machine's unsent steps. UI thread.
      * @return false when nothing went out: not connected, or a manual pick already holds the pipe
      */
     public boolean changeAll(java.util.List<AutoQuality.Change> changes, boolean manual) {
@@ -1536,43 +1780,53 @@ public final class MacClient {
         return pendingSettingsToken != 0 || !pendingChanges.isEmpty();
     }
 
-    /** Send the queue's next change when the Mac has answered the last; settle the machine when it drains. */
+    /**
+     * Sends every field waiting as one kind 17 when the Mac has answered the last batch; settle the machine when
+     * the queue drains. A field the Mac stopped reporting is left out (or the whole batch, when none is left).
+     */
     private void pumpChanges() {
         if (pendingSettingsToken != 0) return;
         if (pendingChanges.isEmpty()) {
             settleChanges();
             return;
         }
-        AutoQuality.Change c = pendingChanges.poll();
         HostSettings h = hostState;
-        if (h == null || state != State.CONNECTED || h.value(c.field) == null
-                || c.captureScale != null && h.captureScale == null) {
-            // Gone (disconnected, the host lost the field): drop the rest, the page's toast says why
+        if (h == null || state != State.CONNECTED) {
+            // Gone (disconnected): drop the rest, the page's toast says why
             pendingChanges.clear();
             settleChanges();
             return;
         }
-        sendSetting(c);
-    }
-
-    /** One change of the queue, out as its own kind 17 (the next waits for the Mac's answer). */
-    private void sendSetting(AutoQuality.Change c) {
         final int token = settingsToken.incrementAndGet();
+        final java.util.ArrayList<AutoQuality.Change> sent = new java.util.ArrayList<>();
+        JSONObject request = new JSONObject();
         try {
-            JSONObject request = new JSONObject().put("token", token).put(c.field, c.value);
-            if (c.captureScale != null) request.put(HostSettings.CAPTURE_SCALE, c.captureScale);
-            pendingSettingsField = c.field;
-            pendingSettingsValue = c.value;
-            pendingSettingsScale = c.captureScale;
-            pendingSettingsToken = token;
-            enqueue(SillWire.CHANGE_SETTINGS, request);
+            request.put("token", token);
+            while (!pendingChanges.isEmpty()) {
+                AutoQuality.Change c = pendingChanges.poll();
+                if (h.value(c.field) == null || c.captureScale != null && h.captureScale == null) continue;
+                request.put(c.field, c.value);
+                if (c.captureScale != null) request.put(HostSettings.CAPTURE_SCALE, c.captureScale);
+                sent.add(c);
+            }
         } catch (JSONException e) {
-            pumpChanges();
+            pendingChanges.clear();
+            settleChanges();
             return;
         }
+        if (sent.isEmpty()) {
+            // The host lost every field the batch wanted: nothing can be asked
+            settleChanges();
+            return;
+        }
+        pendingSettingsField = sent.get(0).field;
+        pendingSettingsChanges = sent;
+        pendingSettingsToken = token;
+        enqueue(SillWire.CHANGE_SETTINGS, request);
         ui.postDelayed(() -> {
             if (pendingSettingsToken != token) return;
             pendingSettingsToken = 0;
+            pendingSettingsChanges = null;
             java.util.List<SettingsListener> ls = listeners();
             for (SettingsListener l : ls) {
                 l.settingsAnswer(SettingsListener.TIMEOUT);
@@ -1603,6 +1857,7 @@ public final class MacClient {
         hostState = null;
         ui.post(() -> {
             pendingSettingsToken = 0;
+            pendingSettingsChanges = null;
             pendingChanges.clear();
             queueManual = false;
             queueActive = false;

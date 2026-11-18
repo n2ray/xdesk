@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 自己打开无线调试之前，看有没有 Wi-Fi -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 外接屏上放 Mac 画面时按住 Wi-Fi 低延迟模式（MacClient） -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只在扫描时向系统要 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

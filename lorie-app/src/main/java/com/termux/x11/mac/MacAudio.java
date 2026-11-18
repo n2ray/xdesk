@@ -9,6 +9,7 @@ package com.termux.x11.mac;
 import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioTimestamp;
 import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -41,10 +42,11 @@ final class MacAudio {
     private static final int RATE = 48000, FRAME = 4;
     // The cushion before the track starts adapts to the link: PREFILL_MIN_MS on a steady one, one PREFILL_STEP_MS more
     // after every underrun up to PREFILL_MAX_MS (Tailscale and Wi-Fi bring packets in bursts), back down after
-    // CALM_MS without one. The track holds the largest cushion. Past the cushion plus BACKLOG_EXTRA_MS the oldest
-    // packets go, only as many as needed, so the sound never runs late and never drops all at once.
-    private static final int TRACK_MS = 400, PREFILL_MIN_MS = 60, PREFILL_MAX_MS = 300, PREFILL_STEP_MS = 40,
-        BACKLOG_EXTRA_MS = 250;
+    // CALM_MS without one. The track is sized to the largest cushion; past the cushion plus BACKLOG_EXTRA_MS the
+    // oldest packets go, and once a second the frames queued in the track are held to the cushion plus QUEUE_EXTRA_MS
+    // by dropping decoded PCM, only as many frames as needed, so the sound never runs late and never drops all at once.
+    private static final int PREFILL_MIN_MS = 60, PREFILL_MAX_MS = 300, PREFILL_STEP_MS = 40,
+        BACKLOG_EXTRA_MS = 250, QUEUE_EXTRA_MS = 40;
     private static final long CALM_MS = 30_000;
     // A gap this long is the Mac going quiet, not a late packet
     private static final long IDLE_PAUSE_MS = 500, IDLE_CLOSE_MS = 10_000, ROUTE_CHECK_MS = 500;
@@ -71,10 +73,17 @@ final class MacAudio {
     private AudioTrack track;
     private boolean submitted, floatPcm, failed;
     private int dropFrames, prefilled, preferredId = -1;
-    // The audio thread's own: the cushion now, and the track's underruns as last seen
+    // The audio thread's own: the cushion now, the track's underruns as last seen, and the frames this thread has
+    // written (AudioTrack's timestamp says how many of them the sound card has played)
     private int prefillMs = PREFILL_MIN_MS, underruns;
     private long calmSince;
-    private long lastRouteCheck, lastPacket;
+    private long lastRouteCheck, lastPacket, framesWritten, lastQueueCheck;
+    /** The counts when the queue was last re-based (a flush may or may not reset AudioTrack's position). */
+    private long queueBaseWritten, queueBaseFrame;
+    private boolean queueBasePending;
+    /** The least queued since the last re-base: the output's own latency (a Bluetooth headset's 200 ms and more),
+     *  which is not a backlog and must never be dropped. Long.MAX_VALUE: not measured yet. */
+    private long queueFloor = Long.MAX_VALUE;
     private short[] pcm = new short[2048];
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
 
@@ -131,6 +140,7 @@ final class MacAudio {
     }
 
     private void loop() {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
         try {
             while (running) {
                 byte[] m;
@@ -247,22 +257,43 @@ final class MacAudio {
         floatPcm = false;
         if (track == null) {
             int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
-            AudioTrack t = new AudioTrack.Builder()
-                    .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
-                    .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .setBufferSizeInBytes(Math.max(min, TRACK_MS * RATE / 1000 * FRAME)).build();
-            if (t.getState() != AudioTrack.STATE_INITIALIZED) {
-                t.release();
-                throw new IllegalStateException("AudioTrack unavailable");
+            // The track holds the largest cushion, not more: what is queued past it is what would run late
+            int bytes = Math.max(min, PREFILL_MAX_MS * RATE / 1000 * FRAME);
+            AudioTrack t = null;
+            for (int attempt = 0; attempt < 2 && t == null; attempt++) {
+                AudioTrack.Builder b = new AudioTrack.Builder()
+                        .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
+                        .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .setBufferSizeInBytes(bytes);
+                if (attempt == 0) {
+                    try {
+                        b.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
+                    } catch (RuntimeException ignored) {
+                        // No low-latency path on this output: try it without
+                    }
+                }
+                try {
+                    AudioTrack made = b.build();
+                    if (made.getState() == AudioTrack.STATE_INITIALIZED) t = made;
+                    else made.release();
+                } catch (RuntimeException e) {
+                    Log.i(TAG, "Mac sound: AudioTrack " + (attempt == 0 ? "low-latency" : "") + " mode refused: " + e);
+                }
             }
+            if (t == null) throw new IllegalStateException("AudioTrack unavailable");
             AudioDeviceInfo want = output != null ? output.device() : null;
             preferredId = want != null ? want.getId() : -1;
             t.setPreferredDevice(want);
             track = t;
             prefilled = 0;
+            framesWritten = 0;
+            queueBaseWritten = 0;
+            queueBaseFrame = 0;
+            queueBasePending = false;
+            lastQueueCheck = 0;
         }
     }
 
@@ -338,11 +369,15 @@ final class MacAudio {
                 t.pause();
                 t.flush();
                 prefilled = 0;
+                queueBasePending = true;
+                lastQueueCheck = 0;
+                queueFloor = Long.MAX_VALUE;
             }
             return;
         }
         // Blocks while the track is full: that is what paces this thread to the sound card
         t.write(pcm, skip * 2, (frames - skip) * 2);
+        framesWritten += frames - skip;
         if (t.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
             prefilled += frames - skip;
             if (prefilled >= prefillMs * RATE / 1000) {
@@ -352,8 +387,45 @@ final class MacAudio {
             }
         } else {
             adapt(t);
+            checkQueue(t);
         }
         checkRoute(t);
+    }
+
+    /**
+     * Once a second, how many decoded frames wait in the track: framesWritten less the position the sound card
+     * reports. Past the cushion plus QUEUE_EXTRA_MS the oldest of them cannot be dropped any more, so the next
+     * decoded PCM is skipped until the queue is back at the cushion (iOS AudioPlayout keeps its buffer bounded the
+     * same way: what is already queued is not played late).
+     */
+    private void checkQueue(AudioTrack t) {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastQueueCheck < 1000) return;
+        lastQueueCheck = now;
+        AudioTimestamp stamp = new AudioTimestamp();
+        if (!t.getTimestamp(stamp)) return;
+        if (queueBasePending) {
+            // A flush may reset the position or continue it: whatever it says, what is queued from here is measured
+            // from this stamp
+            queueBasePending = false;
+            queueBaseWritten = framesWritten;
+            queueBaseFrame = stamp.framePosition;
+            queueFloor = Long.MAX_VALUE;
+            return;
+        }
+        long queued = (framesWritten - queueBaseWritten) - (stamp.framePosition - queueBaseFrame);
+        if (queued <= 0) return;
+        // What the output itself holds (its latency) is in this count too: only what grew over the steady least is late
+        if (queued < queueFloor) queueFloor = queued;
+        long over = queued - queueFloor;
+        long limit = (prefillMs + QUEUE_EXTRA_MS) * (long) RATE / 1000;
+        if (over <= limit) return;
+        long cushion = prefillMs * (long) RATE / 1000;
+        long drop = over - cushion;
+        if (drop <= 0) return;
+        dropFrames = (int) Math.min(Integer.MAX_VALUE, Math.max(dropFrames, drop));
+        Log.i(TAG, "Mac sound: " + (queued * 1000 / RATE) + " ms queued, dropping " + (drop * 1000 / RATE)
+                + " to the " + prefillMs + " ms cushion");
     }
 
     /** The cushion follows the link: larger after an underrun (heard as a gap), smaller after a calm while. */
@@ -403,6 +475,11 @@ final class MacAudio {
         AudioTrack t = track;
         track = null;
         prefilled = 0;
+        framesWritten = 0;
+        queueBaseWritten = 0;
+        queueBaseFrame = 0;
+        queueBasePending = false;
+        lastQueueCheck = 0;
         if (t == null) return;
         try {
             t.pause();
