@@ -97,7 +97,7 @@ final class WebServer {
     private int unpaired;
     private final Map<String, Integer> unpairedPerAddress = new HashMap<>();
 
-    /** Local addresses the server answers on: those addresses() lists, and loopback. */
+    /** Local addresses the server answers on: those addresses() lists. Loopback is refused: the phone itself is not a viewer. */
     private volatile java.util.Set<String> allowed = java.util.Collections.emptySet();
     private volatile long allowedAt;
     private byte[] iconPng;
@@ -158,6 +158,8 @@ final class WebServer {
                 Listener l = listener;
                 if (l != null) l.onWebMessage(context.getString(com.termux.x11.app.R.string.xd_web_no_port, PORT, why));
             });
+            // The service was kept for a display that is not listening after all
+            ui.post(() -> DesktopService.stopIfIdle(context));
             return;
         }
         final ServerSocket s = server;
@@ -229,9 +231,12 @@ final class WebServer {
             for (NetworkInterface n : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 if (!n.isUp() || n.isLoopback()) continue;
                 String name = n.getName().toLowerCase(Locale.ROOT);
-                // Mobile data and VPNs: nobody on them can reach the phone
-                if (name.startsWith("rmnet") || name.startsWith("ccmni") || name.startsWith("tun") || name.startsWith("dummy")
-                    || name.startsWith("p2p") || name.startsWith("ip6") || name.startsWith("sit")) continue;
+                // Mobile data and VPNs: nobody on them can reach the phone, and any app there could reach this server
+                if (name.startsWith("rmnet") || name.startsWith("ccmni") || name.startsWith("pdp") || name.startsWith("wwan")
+                    || name.startsWith("clat") || name.startsWith("v4-") || name.startsWith("tun") || name.startsWith("tap")
+                    || name.startsWith("wg") || name.startsWith("tailscale") || name.startsWith("pan") || name.startsWith("ppp")
+                    || name.startsWith("ipsec") || name.startsWith("l2tp") || name.startsWith("dummy") || name.startsWith("p2p")
+                    || name.startsWith("ip6") || name.startsWith("sit")) continue;
                 int kind = name.startsWith("wlan") ? KIND_WIFI
                     : name.startsWith("ap") || name.startsWith("swlan") || name.startsWith("softap") ? KIND_HOTSPOT
                     : name.startsWith("rndis") || name.startsWith("ncm") || name.startsWith("usb") ? KIND_USB
@@ -309,8 +314,7 @@ final class WebServer {
     }
 
     private boolean allowedLocal(InetAddress local) {
-        if (local == null) return false;
-        if (local.isLoopbackAddress()) return true;
+        if (local == null || local.isLoopbackAddress()) return false;
         long now = android.os.SystemClock.uptimeMillis();
         // Stale, or a new address (Wi-Fi changed, tethering turned on); not for every refused connection
         boolean known = allowed.contains(local.getHostAddress());
@@ -550,7 +554,8 @@ final class WebServer {
                 return false;
             }
             if (wd.isActive() && !wd.webResumable(id, size[0], size[1])) {
-                ws.sendText(status("busy").replace("}", ",\"name\":" + JSONObject.quote(wd.receiverName()) + "}"));
+                // Not paired yet: the receiver's name is not for unknown callers
+                ws.sendText(status("busy"));
                 ws.close();
                 return false;
             }

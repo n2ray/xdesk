@@ -61,8 +61,9 @@
             </intent-filter>
         </activity>
         <!-- stopWithTask 必须是 false，否则划掉任务时收不到 onTaskRemoved -->
+        <!-- 导出的分享目标：发送前总要在对话框里确认文件和接收方，所以窗口不能是 NoDisplay -->
         <activity android:name="com.termux.x11.ShareToComputerActivity" android:exported="true" android:label="@string/xd_share_label"
-            android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true" android:noHistory="true">
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true" android:noHistory="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
@@ -137,6 +138,9 @@
         <receiver android:name="com.termux.x11.ConnectReceiver" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <!-- 上游给 termux-x11-preference 用的，导出后任何应用都能改设置，比如悄悄打开无障碍服务。XDesk 和 xdesk 命令都不用它 -->
         <receiver android:name="com.termux.x11.LoriePreferences$Receiver" android:exported="false" tools:node="merge" tools:replace="android:exported" />
+        <!-- 设置界面只由 XDesk 自己打开；上游把它导出给 termux-x11-preference，XDesk 不用那个命令 -->
+        <activity android:name="com.termux.x11.LoriePreferences" android:exported="false"
+            tools:node="merge" tools:replace="android:exported" />
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

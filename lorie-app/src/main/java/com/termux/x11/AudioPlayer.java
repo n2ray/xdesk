@@ -25,6 +25,8 @@ final class AudioPlayer {
      * starting in Chromium (decoder setup, page work) made the data late and the first seconds crackled.
      */
     private static final int TRACK_BUFFER = 100 * BYTES_PER_MS, PREFILL = 40 * BYTES_PER_MS;
+    /** The null-sink monitor sends digital silence for as long as the session lasts; stop the track after this. */
+    private static final int SILENCE_MS = 500, SILENCE_BYTES = SILENCE_MS * BYTES_PER_MS;
 
     private final int port;
     private volatile boolean running = true;
@@ -144,8 +146,15 @@ final class AudioPlayer {
         }
     }
 
+    private static boolean isSilent(byte[] b, int off, int len) {
+        for (int i = off; i < off + len; i++)
+            if (b[i] != 0)
+                return false;
+        return true;
+    }
+
     private void loop() {
-        byte[] buf = new byte[CHUNK];
+        byte[] buf = new byte[CHUNK], scratch = new byte[CHUNK];
         while (running) {
             try (Connection c = connect()) {
                 connection = c;
@@ -156,6 +165,8 @@ final class AudioPlayer {
                 try {
                     int have = 0, n;
                     int written = 0, underruns = 0;
+                    boolean playing = false;
+                    long silent = 0;
                     while (running && (n = in.read(buf, have, buf.length - have)) >= 0) {
                         have += n;
                         int whole = have - have % FRAME;
@@ -163,17 +174,50 @@ final class AudioPlayer {
                         int backlog = in.available();
                         if (backlog > MAX_BACKLOG) {
                             long drop = backlog - KEEP_BACKLOG;
-                            in.skip(drop - drop % FRAME);  // 只丢整数帧，左右声道才不会错位
+                            drop -= drop % FRAME;  // 只丢整数帧，左右声道才不会错位
+                            while (drop > 0 && running) {
+                                long skipped = in.skip(drop);
+                                if (skipped > 0) {
+                                    drop -= skipped;
+                                    continue;
+                                }
+                                // 有的流不会 skip：按实际读掉的字节数补齐，否则下一次读从帧中间开始
+                                int r = in.read(scratch, 0, (int) Math.min(drop, scratch.length));
+                                if (r < 0)
+                                    break;
+                                drop -= r;
+                            }
                         }
-                        t.write(buf, 0, whole);
-                        if (written < PREFILL) {
-                            written += whole;
-                            if (written >= PREFILL) t.play();
-                        } else if (t.getUnderrunCount() != underruns) {
-                            underruns = t.getUnderrunCount();
-                            Log.i(TAG, "audio underruns: " + underruns);
+                        if (whole > 0) {
+                            if (isSilent(buf, 0, whole))
+                                silent += whole;
+                            else
+                                silent = 0;
+
+                            if (silent >= SILENCE_BYTES) {
+                                // 整段静音（null sink 的监视输出）：暂停并丢掉，不占着音轨空放
+                                if (playing) {
+                                    t.pause();
+                                    t.flush();
+                                    playing = false;
+                                    written = 0;
+                                }
+                            } else {
+                                t.write(buf, 0, whole);
+                                if (!playing) {
+                                    written += whole;
+                                    if (written >= PREFILL) {
+                                        t.play();
+                                        playing = true;
+                                    }
+                                } else if (t.getUnderrunCount() != underruns) {
+                                    underruns = t.getUnderrunCount();
+                                    Log.i(TAG, "audio underruns: " + underruns);
+                                }
+                            }
+                            if (playing)
+                                checkRoute(t);
                         }
-                        checkRoute(t);
                         System.arraycopy(buf, whole, buf, 0, have - whole);
                         have -= whole;
                     }

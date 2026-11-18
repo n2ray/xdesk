@@ -34,6 +34,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.os.RemoteException;
 
 import androidx.annotation.Nullable;
@@ -576,6 +577,15 @@ public class LoriePreferences extends AppCompatActivity implements PreferenceFra
         @SuppressLint("ApplySharedPref")
         @Override
         public void onReceive(Context context, Intent intent) {
+            // The receiver is not exported in XDesk (lorie-app's manifest), but a shared-uid build or a future
+            // manifest must not let another app change settings either. API 34 says who sent it.
+            if (SDK_INT >= 34) {
+                int uid = getSentFromUid();
+                if (uid != Process.INVALID_UID && uid != Process.myUid()) {
+                    Log.w("LoriePreferences", "Ignored CHANGE_PREFERENCE from uid " + uid);
+                    return;
+                }
+            }
             Bundle bundle = intent != null ? intent.getBundleExtra(null) : null;
             IBinder ibinder = bundle != null ? bundle.getBinder(null) : null;
             IRemoteCmdImterface remote = ibinder != null ? IRemoteCmdImterface.Stub.asInterface(ibinder) : null;

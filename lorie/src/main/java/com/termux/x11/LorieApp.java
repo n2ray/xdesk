@@ -17,6 +17,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Build.VERSION_CODES;
 import android.os.IBinder;
+import android.os.Process;
 import android.os.RemoteException;
 import android.preference.PreferenceManager;
 import android.service.notification.StatusBarNotification;
@@ -30,22 +31,31 @@ import com.termux.x11.input.TouchInputHandler;
 
 import java.lang.ref.WeakReference;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LorieApp extends Application {
     public static final int NOTIFICATION_ID = 7892;
 
+    /**
+     * Connections waiting for a window: one per "-tag", a handful at most. Any app that can send ACTION_START
+     * on an older Android (before the sender uid check in Receiver) would otherwise grow this without bound.
+     */
+    private static final int MAX_PENDING_CONNECTIONS = 8, MAX_TAG_LENGTH = 256;
+
     public final Prefs builtInPrefs = new Prefs();
     public final Prefs secondaryPrefs = new Prefs();
     public NotificationManager notificationManager;
-    public final Map<String, IBinder> pendingConnections = new HashMap<>();
+    public final Map<String, IBinder> pendingConnections = new ConcurrentHashMap<>();
     /** X servers whose socket MainActivity has checked. Only these keep another ACTION_START out, see onBroadcastReceive. */
     public final Set<IBinder> verifiedServers = Collections.newSetFromMap(new WeakHashMap<>());
 
     private Notification baseNotification;
+    /** Only one rejected Binder is answered at a time: one that never returns must not pile up threads. */
+    private final AtomicBoolean reportingFatalError = new AtomicBoolean();
 
     private final SharedPreferences.OnSharedPreferenceChangeListener preferencesChangedListener = (__, key) -> {
         for (MainActivity activity : MainActivity.getInstances())
@@ -149,11 +159,18 @@ public class LorieApp extends Application {
                 IBinder activeService = activity != null && activity.service != null ? activity.service.asBinder() : null;
                 IBinder pendingConnection = pendingConnections.get(tag);
                 boolean sameConnection = binder.equals(activeService) || binder.equals(pendingConnection);
-                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit
+                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit.
+                // Off the main thread: a Binder that never returns would freeze the window.
                 if (!sameConnection && activeService != null && activeService.isBinderAlive() && verifiedServers.contains(activeService)) {
-                    try {
-                        ICmdEntryInterface.Stub.asInterface(binder).reportFatalError("Termux:X11 already has an active X server connection.");
-                    } catch (RemoteException ignored) {}
+                    reportFatalErrorAsync(binder);
+                    break;
+                }
+
+                // No window to take it: keep it for the window that opens later, within bounds. Tracked binders
+                // are dropped before linkToDeath so a flood of ignored ones leaves nothing on our side.
+                if (activity == null && (tag.length() > MAX_TAG_LENGTH
+                        || (!pendingConnections.containsKey(tag) && pendingConnections.size() >= MAX_PENDING_CONNECTIONS))) {
+                    Log.w("LorieApp", "Ignoring a connection: a tag is too long or too many are pending");
                     break;
                 }
 
@@ -210,6 +227,28 @@ public class LorieApp extends Application {
     }
 
     /**
+     * Tells a sender that another X server is active, without waiting for it. The Binder comes from any app that can
+     * send ACTION_START; one that blocks its caller for ever leaves only this thread, and later ones are not started.
+     */
+    private void reportFatalErrorAsync(IBinder binder) {
+        if (!reportingFatalError.compareAndSet(false, true))
+            return;
+        Thread thread = new Thread(() -> {
+            try {
+                ICmdEntryInterface remote = ICmdEntryInterface.Stub.asInterface(binder);
+                if (remote != null)
+                    remote.reportFatalError("Termux:X11 already has an active X server connection.");
+            } catch (RemoteException | RuntimeException e) {
+                Log.v("LorieApp", "The rejected sender did not answer: " + e);
+            } finally {
+                reportingFatalError.set(false);
+            }
+        }, "xdesk-reject");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
      * Exported, because the X server's ACTION_START comes from Termux's app_process. Anything else would let any app
      * close the desktop window (ACTION_STOP) or run a user action (ACTION_CUSTOM), even when named explicitly, so it
      * is dropped here. ACTION_START is checked against the X server's socket, see MainActivity.tryConnect.
@@ -221,7 +260,29 @@ public class LorieApp extends Application {
                 Log.w("LorieApp", "Ignored " + intent.getAction() + " from outside the app");
                 return;
             }
+            // API 34 says who sent the broadcast. The X server runs in Termux (or as root or the shell, like
+            // MainActivity.madeByXServer allows); anything else carrying a Binder here is not the server. Older
+            // Androids cannot tell, but MainActivity.tryConnect still checks the socket's SO_PEERCRED.
+            if (SDK_INT >= 34) {
+                int uid = getSentFromUid();
+                if (!senderAllowed(context, uid)) {
+                    Log.w("LorieApp", "Ignored ACTION_START from uid " + uid);
+                    return;
+                }
+            }
             ((LorieApp) context.getApplicationContext()).onBroadcastReceive(intent);
+        }
+
+        private static boolean senderAllowed(Context context, int uid) {
+            if (uid == Process.INVALID_UID)  // not known: the socket check still has to pass
+                return true;
+            if (uid == Process.myUid() || uid == Process.ROOT_UID || uid == Process.SHELL_UID)
+                return true;
+            try {
+                return uid == context.getPackageManager().getPackageUid("com.termux", 0);
+            } catch (PackageManager.NameNotFoundException e) {
+                return false;
+            }
         }
     }
 
