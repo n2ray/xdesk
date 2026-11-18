@@ -424,7 +424,8 @@ final class NotifyBanner {
         host.bannerClose(this);
     }
 
-    static void sendAction(Context c, Notification.Action action, String replyText) {
+    /** Sends a notification's action (with the reply, if any). False when the app's intent was cancelled or refused. */
+    static boolean sendAction(Context c, Notification.Action action, String replyText) {
         Intent intent = new Intent();
         if (replyText != null) {
             android.os.Bundle results = new android.os.Bundle();
@@ -433,8 +434,10 @@ final class NotifyBanner {
         }
         try {
             action.actionIntent.send(c, 0, intent);
+            return true;
         } catch (PendingIntent.CanceledException | RuntimeException e) {
             android.util.Log.w("XDeskNotify", "action send: " + e);
+            return false;
         }
     }
 }

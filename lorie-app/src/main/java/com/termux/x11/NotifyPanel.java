@@ -70,6 +70,8 @@ final class NotifyPanel {
         /** The pointer's place for the bell's fade and the reply field's keys. */
         void replyFocus(boolean on);
         void close();
+        /** The listener is not bound (NOTIFY.md §2.1): the phone's page that lets it be, opened on the phone. */
+        void fixConnection();
         /** The side panel's switches above the notifications (NOTIFY.md §4), as they are now. */
         List<Tile> tiles();
     }
@@ -118,6 +120,9 @@ final class NotifyPanel {
     private NotifyCenter.Entry replyEntry;
     private Notification.Action replyAction;
     private boolean closing;
+    /** What the list was last drawn from: it is drawn again only when one of these changed, not for the battery. */
+    private int drawnVersion = -1;
+    private boolean drawnConnected, drawnNamesOnly;
     private float downX;
     private final Runnable clock = this::clock;
     private final Runnable onLeave = this::onLeave;
@@ -350,7 +355,8 @@ final class NotifyPanel {
      * Shows the scrim, then the panel. betweenScrimAndPanel runs in between: the bell goes there, above the scrim it
      * closes the panel through, and under the panel, which overlaps it in the corner.
      */
-    void open(Runnable betweenScrimAndPanel) {
+    /** False when the windows could not be added: then there is no panel. */
+    boolean open(Runnable betweenScrimAndPanel) {
         closing = false;
         try {
             windows.addView(scrim, scrimParams);
@@ -362,20 +368,40 @@ final class NotifyPanel {
             } catch (RuntimeException ignored) { }
             android.util.Log.w("XDeskNotify", "no notification panel", e);
             closing = true;
-            return;
+            return false;
         }
-        fill();
+        center.rebindIfNeeded();
+        fill(true);
         refreshHeader();
         clock();
         slideIn();
         center.markSeen();
         host.hover(true);
+        return true;
     }
 
-    /** The model changed (or the panel just opened): the list follows it. */
+    /** The model changed: the list follows it, if the list itself changed. */
     void fill() {
+        fill(false);
+    }
+
+    /**
+     * The list drawn again (always when the panel opens). An open row's ▾ and the selection stay where they were;
+     * without the listener bound a line says so and what to do (NOTIFY.md §2.1); an empty list says what is hidden.
+     */
+    private void fill(boolean always) {
+        boolean connected = center.connected(), namesOnly = center.namesOnly();
+        if (!always && drawnVersion == center.listVersion() && drawnConnected == connected && drawnNamesOnly == namesOnly) return;
+        drawnVersion = center.listVersion();
+        drawnConnected = connected;
+        drawnNamesOnly = namesOnly;
+        java.util.HashSet<String> open = new java.util.HashSet<>();
+        for (Row r : rows) if (r.isOpen()) open.add(r.entry.key);
+        String selectedKey = selected != null ? selected.entry.key : null;
+        selected = null;
         rows.clear();
         list.removeAllViews();
+        if (!connected) list.addView(notConnected(), new LinearLayout.LayoutParams(-1, -2));
         int groupAt = 0;
         for (NotifyCenter.Group g : center.groups()) {
             TextView head = label(Style.TEXT_DIM, 12, true);
@@ -383,18 +409,41 @@ final class NotifyPanel {
             head.setPadding(dp(4), dp(12), dp(4), dp(4));
             list.addView(head, new LinearLayout.LayoutParams(-1, -2));
             for (NotifyCenter.Entry e : g.entries) {
-                Row row = new Row(e, groupAt);
+                Row row = new Row(e, groupAt, namesOnly);
                 rows.add(row);
                 list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+                if (open.contains(e.key)) row.toggle();
+                if (e.key.equals(selectedKey)) setSelected(row);
             }
             groupAt++;
         }
-        if (rows.isEmpty()) {
+        if (rows.isEmpty() && connected) {
             TextView empty = label(Style.TEXT_DIM, 13, false);
-            empty.setText(R.string.xd_notify_empty);
+            int hidden = center.hiddenCount();
+            empty.setText(hidden > 0 ? dc.getString(R.string.xd_notify_empty_hidden, hidden) : dc.getString(R.string.xd_notify_empty));
             empty.setPadding(dp(4), dp(20), dp(4), dp(4));
             list.addView(empty);
         }
+    }
+
+    /** NOTIFY.md §2.1: the access is there but the system has not bound the listener — why, and the way to fix it. */
+    private View notConnected() {
+        LinearLayout box = new LinearLayout(dc);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(10), dp(10), dp(10));
+        GradientDrawable back = new GradientDrawable();
+        back.setColor(0x33F2B33D);
+        back.setCornerRadius(dp(10));
+        box.setBackground(back);
+        TextView t = label(Style.TEXT, 13, false);
+        t.setText(NotifyCenter.hasAutostartSwitch(dc) ? R.string.xd_notify_unbound_miui : R.string.xd_notify_unbound);
+        box.addView(t, new LinearLayout.LayoutParams(-1, -2));
+        TextView fix = smallButton(dc.getString(NotifyCenter.hasAutostartSwitch(dc) ? R.string.xd_notify_unbound_fix_miui
+            : R.string.xd_notify_unbound_fix), host::fixConnection);
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, -2);
+        fp.topMargin = dp(6);
+        box.addView(fix, fp);
+        return box;
     }
 
     /** The clock and the battery (NOTIFY.md §4's header), again every minute while the panel is open. */
@@ -596,7 +645,7 @@ final class NotifyPanel {
         final View body;
         private final View expanded;
 
-        Row(NotifyCenter.Entry e, int groupAt) {
+        Row(NotifyCenter.Entry e, int groupAt, boolean namesOnly) {
             super(dc);
             this.entry = e;
             setOrientation(VERTICAL);
@@ -617,13 +666,14 @@ final class NotifyPanel {
             t.setTypeface(Typeface.DEFAULT_BOLD);
             t.setMaxLines(1);
             t.setEllipsize(TextUtils.TruncateAt.END);
-            t.setText(e.title.isEmpty() ? e.appLabel : e.title);
+            // Names only (NOTIFY.md §6): the app and "new message", as on the banners; ▾ shows the rest on request
+            t.setText(namesOnly || e.title.isEmpty() ? e.appLabel : e.title);
             mid.addView(t, new LinearLayout.LayoutParams(-1, -2));
             TextView x = label(Style.TEXT_DIM, 11, false);
             x.setMaxLines(2);
             x.setEllipsize(TextUtils.TruncateAt.END);
-            x.setText(e.text);
-            if (e.text.isEmpty()) x.setVisibility(View.GONE);
+            x.setText(namesOnly ? dc.getString(R.string.xd_notify_new_message) : e.text);
+            if (!namesOnly && e.text.isEmpty()) x.setVisibility(View.GONE);
             mid.addView(x, new LinearLayout.LayoutParams(-1, -2));
             ((LinearLayout) body).addView(mid, new LinearLayout.LayoutParams(0, -2, 1));
             TextView when = label(Style.TEXT_DIM, 11, true);
@@ -661,6 +711,10 @@ final class NotifyPanel {
 
         void toggle() {
             expanded.setVisibility(expanded.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        }
+
+        boolean isOpen() {
+            return expanded.getVisibility() == View.VISIBLE;
         }
 
         void openReply() {

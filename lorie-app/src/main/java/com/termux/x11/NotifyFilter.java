@@ -9,13 +9,15 @@ final class NotifyFilter {
     private NotifyFilter() { }
 
     /**
+     * Whether a notification shows, a group's summary aside (NotifyCenter shows one only while none of its group's
+     * messages is there: some apps post nothing but the summary).
      * @param ongoing the notification is ongoing (music, downloads, XDesk's own service)
-     * @param silent its channel's importance is MIN or LOW
-     * @param groupSummary it is a group's summary itself: only the group's messages show
+     * @param call it is a call (CATEGORY_CALL): shown though ongoing, it is what the external screen must not miss
+     * @param silent its channel's importance is MIN or LOW (known: an unknown importance is not silent)
      * @param ownPackage it is XDesk's own
      */
-    static boolean shows(boolean ongoing, boolean silent, boolean groupSummary, boolean ownPackage) {
-        return !ongoing && !silent && !groupSummary && !ownPackage;
+    static boolean shows(boolean ongoing, boolean call, boolean silent, boolean ownPackage) {
+        return !ownPackage && !silent && (!ongoing || call);
     }
 
     /**

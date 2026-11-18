@@ -13,6 +13,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
@@ -46,7 +47,8 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     /** NOTIFY.md §4.1: the corner is 48 shell dp of the right edge's top and the top edge's right. */
     static final float CORNER_DP = 48;
     private static final long EDGE_DWELL_MS = 350;
-    private static final long OPEN_WAIT_MS = 600;
+    /** How long a notification's own intent may take to show its app, looked at every OPEN_STEP_MS. */
+    private static final long OPEN_WAIT_MS = 2000, OPEN_STEP_MS = 150;
     /** What the driven pointer is over: 0..banners.size()-1 is a banner, the others are these. */
     private static final int SURFACE_PANEL = 10, SURFACE_BELL = 11;
 
@@ -196,7 +198,9 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             t.add(new NotifyPanel.Tile(context.getString(phone ? R.string.xd_side_sound_phone : R.string.xd_side_sound_screen), phone,
                 a::toggleSound, true));
         }
-        boolean dndOn = center.interruptionFilter() == NotificationManager.INTERRUPTION_FILTER_NONE;
+        // On in any of the phone's modes (priority only, alarms only, total silence), not just total silence
+        int filter = center.interruptionFilter();
+        boolean dndOn = filter != NotificationManager.INTERRUPTION_FILTER_ALL && filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN;
         t.add(new NotifyPanel.Tile(context.getString(dndOn ? R.string.xd_notify_dnd_on : R.string.xd_notify_dnd), dndOn,
             () -> dnd(!dndOn), true));
         if (a != null) {
@@ -248,6 +252,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         width = b.width();
         height = b.height();
         Log.i(TAG, "notifications on display " + id + " (" + width + "x" + height + ", shell " + density + ")");
+        center.rebindIfNeeded();
         // No bell any more (user, 2026-11-17: it covered apps' own buttons in their top-right corner): a banner says a
         // notification came, the corner opens the side panel
         onModelChanged();
@@ -483,7 +488,11 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         closeBanners();  // the centre takes their place; the bell still counts
         if (panel != null) return;
         panel = new NotifyPanel(dc, density, this, windows);
-        panel.open(this::raiseBell);
+        if (!panel.open(this::raiseBell)) {
+            // Its windows could not be added: no panel, so the next toggle tries again
+            panel = null;
+            return;
+        }
         raiseArrows();  // the panel came after the pointer: the pointer over it, not under
         ui.removeCallbacks(panelLeave);
     }
@@ -848,7 +857,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     }
 
     @Override public void bannerAction(NotifyBanner b, Notification.Action action, String replyText) {
-        NotifyBanner.sendAction(context, action, replyText);
+        if (!NotifyBanner.sendAction(context, action, replyText)) showNotice(R.string.xd_notify_action_failed);
     }
 
     @Override public void replyFocus(NotifyBanner b, boolean on) {
@@ -865,7 +874,14 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     }
 
     @Override public void action(NotifyCenter.Entry e, Notification.Action a, String replyText) {
-        NotifyBanner.sendAction(context, a, replyText);
+        if (!NotifyBanner.sendAction(context, a, replyText)) showNotice(R.string.xd_notify_action_failed);
+    }
+
+    /** NOTIFY.md §2.1: on the phone, the page that lets the system bind the listener again. */
+    @Override public void fixConnection() {
+        center.rebindIfNeeded();
+        if (NotifyCenter.hasAutostartSwitch(context)) NotifyCenter.openAutostartSettings(context);
+        else NotifyCenter.openAccessSettings(context);
     }
 
     @Override public void clear(NotifyCenter.Entry e) {
@@ -876,14 +892,24 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         center.clearAll();
     }
 
+    /**
+     * The DND tile (NOTIFY.md §4): off keeps the phone's mode it was in, on brings that mode back (priority only
+     * unless the phone was last in another one), so a round trip does not turn "priority only" into total silence.
+     */
     @Override public void dnd(boolean on) {
         NotificationManager nm = context.getSystemService(NotificationManager.class);
         if (!nm.isNotificationPolicyAccessGranted()) {
             guideDndPolicy();
             return;
         }
+        android.content.SharedPreferences prefs = context.getSharedPreferences("notify", Context.MODE_PRIVATE);
+        int was = nm.getCurrentInterruptionFilter();
+        if (!on && was != NotificationManager.INTERRUPTION_FILTER_ALL && was != NotificationManager.INTERRUPTION_FILTER_UNKNOWN) {
+            prefs.edit().putInt("dnd_mode", was).apply();
+        }
+        int mode = prefs.getInt("dnd_mode", NotificationManager.INTERRUPTION_FILTER_PRIORITY);
         try {
-            nm.setInterruptionFilter(on ? NotificationManager.INTERRUPTION_FILTER_NONE : NotificationManager.INTERRUPTION_FILTER_ALL);
+            nm.setInterruptionFilter(on ? mode : NotificationManager.INTERRUPTION_FILTER_ALL);
         } catch (SecurityException e) {
             guideDndPolicy();  // the access went away between the check and the switch
             return;
@@ -905,10 +931,17 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
 
     /** The DND switch needs the notification-policy access: explain once, then the system page (NOTIFY.md §4). */
     private void guideDndPolicy() {
-        if (center.policyAsked()) return;
-        center.setPolicyAsked();
         Activity a = activity;
-        if (a == null || a.isFinishing() || a.isDestroyed()) return;
+        if (center.policyAsked() || a == null || a.isFinishing() || a.isDestroyed()) {
+            // Explained before, or no window to explain in: the system's page straight away, so the tile always answers
+            try {
+                context.startActivity(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (RuntimeException e) {
+                Log.w(TAG, "no policy access settings", e);
+            }
+            return;
+        }
+        center.setPolicyAsked();
         new SettingsUi(a).confirm(a.getString(R.string.xd_notify_dnd_title), a.getString(R.string.xd_notify_dnd_message),
             a.getString(R.string.xd_notify_dnd_open), () -> {
                 try {
@@ -926,6 +959,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         Display d = display;
         if (d == null) return;
         PendingIntent pi = e.sbn.getNotification().contentIntent;
+        boolean sent = false;
         if (pi != null) {
             try {
                 ActivityOptions o = ActivityOptions.makeBasic();
@@ -934,15 +968,29 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
                     o.setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
                 }
                 pi.send(context, 0, null, null, null, null, o.toBundle());
+                sent = true;
                 Log.i(TAG, "opening " + e.pkg + " by its contentIntent");
             } catch (PendingIntent.CanceledException | RuntimeException ex) {
                 Log.w(TAG, "contentIntent for " + e.pkg + ": " + ex);
             }
         }
         // Wait for its activity, then: already on the external display — just make it the content; landed on the
-        // phone (the PendingIntent ignored the display) — the launcher's own path starts it there with the injector,
-        // which moves its task; nowhere — say to unlock the phone
-        ui.postDelayed(() -> choose(e), OPEN_WAIT_MS);
+        // phone (the PendingIntent ignored the display) or not at all — the launcher's own path starts it there with
+        // the injector, which moves its task; locked — say to unlock the phone. Not sent: that path at once
+        if (!sent) {
+            choose(e);
+            return;
+        }
+        waitForOpen(e, SystemClock.uptimeMillis() + OPEN_WAIT_MS);
+    }
+
+    /** Looks every OPEN_STEP_MS for the app on the external display, until the deadline; then chooses once. */
+    private void waitForOpen(NotifyCenter.Entry e, long deadline) {
+        if (onExternal(e.pkg) || SystemClock.uptimeMillis() >= deadline) {
+            choose(e);
+            return;
+        }
+        ui.postDelayed(() -> waitForOpen(e, deadline), OPEN_STEP_MS);
     }
 
     private void choose(NotifyCenter.Entry e) {
@@ -957,6 +1005,25 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             return;
         }
         chooseKey(e.pkg);
+    }
+
+    /** A short word from XDesk itself as a banner that goes by itself: an action or an opening that failed. */
+    private void showNotice(int message) {
+        if (windows == null) return;
+        NotifyBanner b = new NotifyBanner(dc, density, this, windows, 0);
+        banners.add(0, b);
+        Drawable icon = Style.letterIcon(dc, "X", density);
+        b.showNotice(icon, "XDesk", context.getString(message), System.currentTimeMillis());
+        try {
+            windows.addView(b.view(), b.params());
+            raiseArrows();
+            b.shown();
+        } catch (RuntimeException ex) {
+            banners.remove(b);
+            return;
+        }
+        neverGrabResting(b);
+        relayout();
     }
 
     /** "Unlock the phone" (NOTIFY.md §5): a synthetic banner, sticky until ACTION_USER_PRESENT takes it down. */
@@ -996,7 +1063,9 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     private void chooseKey(String pkg) {
         AppCatalog.App a = AppCatalog.get(context).findPackage(pkg);
         if (a == null) {
+            // Nothing to start it by (no launcher activity): say so, where the user looks
             Log.w(TAG, "no launcher activity for " + pkg);
+            if (!onExternal(pkg)) showNotice(R.string.xd_notify_open_failed);
             return;
         }
         String key = ChooserView.recentKey(a);

@@ -1476,6 +1476,8 @@ public class XDeskActivity extends Activity {
         super.onResume();
         resumed = true;
         checkServerBuild();
+        // NOTIFY.md §2.1: granted but not bound (HyperOS refused the system's rebind): ask while XDesk is in front
+        NotifyCenter.get(this).rebindIfNeeded();
         // Back on this window, perhaps from a terminal where the X side's input method was set up or stopped
         if (session.isActive()) ui.post(syncTermux);
         ensureDashboard();
@@ -3037,6 +3039,18 @@ public class XDeskActivity extends Activity {
         s.valueRow(show, getString(R.string.xd_notify_access), null,
             granted ? getString(R.string.xd_notify_access_on) : getString(R.string.xd_notify_access_off),
             () -> NotifyCenter.openAccessSettings(this));
+        // NOTIFY.md §2.1: granted is not bound. Said here too, with the way to fix it (MIUI: let XDesk start itself)
+        if (granted) {
+            boolean bound = center.connected();
+            boolean miui = NotifyCenter.hasAutostartSwitch(this);
+            s.valueRow(show, getString(R.string.xd_notify_link), bound ? null
+                    : getString(miui ? R.string.xd_notify_unbound_miui : R.string.xd_notify_unbound),
+                getString(bound ? R.string.xd_notify_link_on : R.string.xd_notify_link_off), () -> {
+                    center.rebindIfNeeded();
+                    if (miui) NotifyCenter.openAutostartSettings(this);
+                    else NotifyCenter.openAccessSettings(this);
+                });
+        }
         // Android 13 on: an app not installed by a store must first be let through ("restricted settings"), else the
         // system's switch is grey. Where to do that, and the app's details page to do it on (owner, 2026-11-15)
         if (!granted && android.os.Build.VERSION.SDK_INT >= 33) {

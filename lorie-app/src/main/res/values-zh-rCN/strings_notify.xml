@@ -57,4 +57,14 @@
     <string name="xd_side_sound_phone">声音：手机</string>
     <string name="xd_side_game">游戏直通</string>
     <string name="xd_side_quality">画质：%1$s</string>
+    <string name="xd_notify_empty_hidden">没有通知。手机上另有 %d 条没有显示在这里（静默、常驻，或来自设为不显示的应用）。</string>
+    <string name="xd_notify_unbound_miui">通知进不来：手机系统没让 XDesk 的通知服务启动。在手机上给 XDesk 打开「自启动」就好了。</string>
+    <string name="xd_notify_unbound">通知进不来：系统还没启动 XDesk 的通知服务。XDesk 正在重新请求；一直这样的话，把 XDesk 的通知使用权关一下再打开。</string>
+    <string name="xd_notify_unbound_fix_miui">在手机上打开自启动设置</string>
+    <string name="xd_notify_unbound_fix">在手机上打开通知使用权</string>
+    <string name="xd_notify_action_failed">没有成功：应用拒绝了这个操作。</string>
+    <string name="xd_notify_open_failed">这个应用没法在外接屏上打开。</string>
+    <string name="xd_notify_link">通知服务</string>
+    <string name="xd_notify_link_on">已连接</string>
+    <string name="xd_notify_link_off">没连上</string>
 </resources>

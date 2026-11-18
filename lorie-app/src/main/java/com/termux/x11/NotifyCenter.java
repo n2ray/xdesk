@@ -46,6 +46,8 @@ final class NotifyCenter {
         final boolean matchesDnd;
         /** Not yet read: the panel's opening has not shown it. Counts on the bell. */
         boolean seen;
+        /** A group's summary, shown while none of its group's messages is (NotifyCenter.posted). */
+        boolean summary;
 
         Entry(String key, String pkg, String appLabel, String title, String text, long when,
               StatusBarNotification sbn, boolean matchesDnd) {
@@ -82,6 +84,16 @@ final class NotifyCenter {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final SharedPreferences prefs;
     private final ArrayList<Group> groups = new ArrayList<>();
+    /** Keys of the phone's notifications the centre does not show (silent, ongoing, a hidden app's): the panel's count. */
+    private final java.util.HashSet<String> hiddenKeys = new java.util.HashSet<>();
+    /** Summaries standing aside while their group has messages here, by key: they come back when it has none. */
+    private final Map<String, NotifyService.Posted> suppressed = new HashMap<>();
+    /** While a sync runs: whether each key that was here was read. Null otherwise. */
+    private Map<String, Boolean> syncing;
+    private int listVersion;
+    /** When a rebind was last asked for (elapsedRealtime). */
+    private static long lastRebind;
+    private static final long REBIND_GAP_MS = 5000;
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private final Map<String, Drawable> icons = new HashMap<>();
     private final Map<String, String> labels = new HashMap<>();
@@ -116,8 +128,19 @@ final class NotifyCenter {
         for (Runnable r : new ArrayList<>(listeners)) r.run();
     }
 
-    /** Whether the system's notification access is granted to XDesk (Settings.Secure's enabled listeners). */
+    /** Whether the system's notification access is granted to XDesk. Granted is not bound: see connected(). */
     static boolean accessGranted(Context c) {
+        try {
+            NotificationManager nm = c.getSystemService(NotificationManager.class);
+            if (nm != null) return nm.isNotificationListenerAccessGranted(new android.content.ComponentName(c, NotifyService.class));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "access check: " + e);
+        }
+        return accessGrantedBySetting(c);
+    }
+
+    /** The same from Settings.Secure's enabled listeners, where the system's call fails. */
+    private static boolean accessGrantedBySetting(Context c) {
         // Settings.Secure.ENABLED_NOTIFICATION_LISTENERS is hidden: its value is "enabled_notification_listeners"
         String flat = Settings.Secure.getString(c.getContentResolver(), "enabled_notification_listeners");
         if (flat == null) return false;
@@ -134,58 +157,146 @@ final class NotifyCenter {
 
     // --- the list ---
 
-    /** A notification was posted, filtered by NOTIFY.md §2. {@code seed}: what was already there when the service connected. */
-    void posted(StatusBarNotification sbn, boolean silent, boolean ongoing, boolean groupSummary, boolean matchesDnd, boolean seed) {
-        if (!NotifyFilter.shows(ongoing, silent, groupSummary, context.getPackageName().equals(sbn.getPackageName()))) return;
-        String pkg = sbn.getPackageName();
-        if (appMode(pkg) == APP_HIDDEN) return;
-        Entry e = new Entry(sbn.getKey(), pkg, appLabel(pkg), titleOf(sbn), textOf(sbn), whenOf(sbn), sbn, matchesDnd);
-        e.seen = seed;
-        Group g = group(pkg);
-        // The newest first; a fresh post of an existing key replaces it (an update of the same notification)
-        boolean existed = false;
-        for (int i = 0; i < g.entries.size(); i++) if (g.entries.get(i).key.equals(e.key)) {
-            g.entries.remove(i);
-            existed = true;
-            break;
+    /**
+     * A notification was posted (NOTIFY.md §2). {@code seed}: it was already there, found by a sync, so it neither
+     * counts unread nor raises a banner. A post of a key already here replaces it (an update); one that no longer
+     * shows (it went silent, its app was hidden) takes the old one out.
+     */
+    void posted(NotifyService.Posted p, boolean seed) {
+        StatusBarNotification sbn = p.sbn;
+        String pkg = sbn.getPackageName(), key = sbn.getKey(), groupKey = sbn.getGroupKey();
+        Entry old = find(key);
+        boolean own = context.getPackageName().equals(pkg);
+        boolean shows = NotifyFilter.shows(p.ongoing, p.call, p.silent, own) && appMode(pkg) != APP_HIDDEN;
+        if (!shows) {
+            // XDesk's own (its service's) is not one the user would miss: not counted as hidden
+            if (!own) hiddenKeys.add(key);
+            suppressed.remove(key);
+            if (old != null) drop(old);
+            listChanged();
+            return;
         }
+        hiddenKeys.remove(key);
+        // A group's summary only while none of its messages is here: some apps post nothing but the summary
+        if (p.summary && hasMessage(pkg, groupKey)) {
+            suppressed.put(key, p);
+            if (old != null) drop(old);
+            listChanged();
+            return;
+        }
+        suppressed.remove(key);
+        Entry e = new Entry(key, pkg, appLabel(pkg), titleOf(sbn), textOf(sbn), whenOf(sbn), sbn, p.matchesDnd);
+        e.summary = p.summary;
+        e.seen = seed ? syncSeen(key) : old != null && old.seen;
+        if (old != null) drop(old);
+        // A message came: its group's summary steps aside until the group has none again
+        if (!p.summary) for (Entry s : summariesOf(pkg, groupKey)) {
+            drop(s);
+            suppressed.put(s.key, new NotifyService.Posted(s.sbn, false, false, true, false, s.matchesDnd));
+        }
+        Group g = group(pkg);
         int at = 0;
         while (at < g.entries.size() && g.entries.get(at).when >= e.when) at++;
         g.entries.add(at, e);
         sortGroups();
+        if (!e.seen) unread++;
         // An update neither counts unread again (an unseen one is still one unseen) nor raises a banner
         // (FLAG_ONLY_ALERT_ONCE re-posts are updates, NOTIFY.md §2)
-        if (!seed && NotifyFilter.fresh(existed)) {
-            unread++;
-            lastPosted = e;
-        }
-        changed();
+        if (!seed && NotifyFilter.fresh(old != null)) lastPosted = e;
+        listChanged();
+    }
+
+    /**
+     * NOTIFY.md §2.1: the centre made the same as the phone's notifications now. Kept: what was here and still is (read
+     * or not); gone: what went meanwhile; new ones enter read, without banners.
+     */
+    void sync(List<NotifyService.Posted> now) {
+        java.util.HashMap<String, Boolean> seen = new java.util.HashMap<>();
+        for (Group g : groups) for (Entry e : g.entries) seen.put(e.key, e.seen);
+        syncing = seen;
+        groups.clear();
+        hiddenKeys.clear();
+        suppressed.clear();
+        unread = 0;
+        lastPosted = null;
+        // The messages first, so that a summary knows whether its group has any
+        for (NotifyService.Posted p : now) if (!p.summary) posted(p, true);
+        for (NotifyService.Posted p : now) if (p.summary) posted(p, true);
+        syncing = null;
+        listChanged();
+    }
+
+    /** During a sync, whether a key was read before it; one not here before counts as read. */
+    private boolean syncSeen(String key) {
+        Boolean s = syncing != null ? syncing.get(key) : null;
+        return s == null || s;
     }
 
     /** Cleared on the phone: it leaves the centre too (NOTIFY.md §2). */
     void removed(String key) {
-        for (Group g : groups) {
-            for (int i = 0; i < g.entries.size(); i++) {
-                if (!g.entries.get(i).key.equals(key)) continue;
-                Entry gone = g.entries.remove(i);
-                if (!gone.seen) unread = Math.max(0, unread - 1);
-                if (g.entries.isEmpty()) groups.remove(g);
-                lastRemoved = key;
-                changed();
-                return;
+        hiddenKeys.remove(key);
+        suppressed.remove(key);
+        Entry gone = find(key);
+        if (gone == null) {
+            listChanged();
+            return;
+        }
+        drop(gone);
+        lastRemoved = key;
+        // Its group's last message went: a summary that stood aside for it comes back
+        if (!gone.summary && !hasMessage(gone.pkg, gone.sbn.getGroupKey())) {
+            for (NotifyService.Posted p : new ArrayList<>(suppressed.values())) {
+                if (p.sbn.getPackageName().equals(gone.pkg) && p.sbn.getGroupKey().equals(gone.sbn.getGroupKey())) posted(p, true);
             }
+        }
+        listChanged();
+    }
+
+    /** Out of the list, the unread count and an empty group with it. */
+    private void drop(Entry e) {
+        for (Group g : groups) {
+            if (!g.entries.remove(e)) continue;
+            if (!e.seen) unread = Math.max(0, unread - 1);
+            if (g.entries.isEmpty()) groups.remove(g);
+            return;
         }
     }
 
-    /** Cleared from the external screen: cancels on the phone (NOTIFY.md §2). */
-    void cancel(String key) {
+    private boolean hasMessage(String pkg, String groupKey) {
+        for (Group g : groups) {
+            if (!g.pkg.equals(pkg)) continue;
+            for (Entry e : g.entries) if (!e.summary && e.sbn.getGroupKey().equals(groupKey)) return true;
+        }
+        return false;
+    }
+
+    private List<Entry> summariesOf(String pkg, String groupKey) {
+        ArrayList<Entry> out = new ArrayList<>();
+        for (Group g : groups) {
+            if (!g.pkg.equals(pkg)) continue;
+            for (Entry e : g.entries) if (e.summary && e.sbn.getGroupKey().equals(groupKey)) out.add(e);
+        }
+        return out;
+    }
+
+    /**
+     * Cleared from the external screen: cancelled on the phone, and gone from here with it (NOTIFY.md §2). False when
+     * that cannot happen — the system keeps it (FLAG_NO_CLEAR), or the service is not bound — and it stays.
+     */
+    boolean cancel(String key) {
         Entry e = find(key);
-        if (e == null) return;
-        // FLAG_NO_CLEAR: the system keeps it on the phone, so the centre keeps it too — its × does nothing
-        if ((e.sbn.getNotification().flags & android.app.Notification.FLAG_NO_CLEAR) != 0) return;
+        if (e == null) return false;
+        if ((e.sbn.getNotification().flags & android.app.Notification.FLAG_NO_CLEAR) != 0) return false;
         NotifyService s = service;
-        if (s != null) s.cancelNotification(key);
+        if (s == null) return false;
+        try {
+            s.cancelNotification(key);
+        } catch (RuntimeException ex) {
+            Log.w(TAG, "cancel " + e.pkg + ": " + ex);
+            return false;
+        }
         removed(key);
+        return true;
     }
 
     private Entry find(String key) {
@@ -197,6 +308,22 @@ final class NotifyCenter {
         for (Group g : new ArrayList<>(groups)) for (Entry e : new ArrayList<>(g.entries)) cancel(e.key);
         // cancel() → removed() → changed(); make sure one change comes even when nothing was cancelled
         changed();
+    }
+
+    /** The list itself changed (not only the battery or a setting): the panel draws it again. One change per sync. */
+    private void listChanged() {
+        if (syncing != null) return;
+        listVersion++;
+        changed();
+    }
+
+    int listVersion() {
+        return listVersion;
+    }
+
+    /** Notifications on the phone the centre does not show: silent, ongoing, of hidden apps. The panel says how many. */
+    int hiddenCount() {
+        return hiddenKeys.size();
     }
 
     /** The panel opened: everything counts as read. */
@@ -214,10 +341,18 @@ final class NotifyCenter {
         return unread;
     }
 
-    /** The apps that posted since the service connected, the newest first: the settings' per-app list. */
+    /**
+     * The settings' per-app list: the apps in the centre now, the newest first, then every app with a choice of its own
+     * (a hidden app has nothing in the centre, and must still be found to show it again).
+     */
     List<String> recentApps() {
         ArrayList<String> out = new ArrayList<>();
         for (Group g : groups) out.add(g.pkg);
+        for (String k : prefs.getAll().keySet()) {
+            if (!k.startsWith("app_")) continue;
+            String pkg = k.substring(4);
+            if (!out.contains(pkg)) out.add(pkg);
+        }
         return out;
     }
 
@@ -264,13 +399,34 @@ final class NotifyCenter {
         return g.entries.isEmpty() ? 0 : g.entries.get(0).when;
     }
 
+    /** The title, or a conversation's (MessagingStyle puts a group chat's name there). */
     private static String titleOf(StatusBarNotification sbn) {
-        CharSequence t = sbn.getNotification().extras.getCharSequence(android.app.Notification.EXTRA_TITLE);
+        android.os.Bundle x = sbn.getNotification().extras;
+        CharSequence t = x.getCharSequence(android.app.Notification.EXTRA_TITLE);
+        if (t == null || t.length() == 0) t = x.getCharSequence(android.app.Notification.EXTRA_CONVERSATION_TITLE);
         return t != null ? t.toString() : "";
     }
 
+    /**
+     * The line under the title: the text, else what the style holds — a conversation's newest message (with its
+     * sender), the big text, an inbox's last line, the sub text. Chat apps often leave EXTRA_TEXT empty.
+     */
     private static String textOf(StatusBarNotification sbn) {
-        CharSequence t = sbn.getNotification().extras.getCharSequence(android.app.Notification.EXTRA_TEXT);
+        android.os.Bundle x = sbn.getNotification().extras;
+        CharSequence t = x.getCharSequence(android.app.Notification.EXTRA_TEXT);
+        if (t != null && t.length() > 0) return t.toString();
+        android.os.Parcelable[] messages = x.getParcelableArray(android.app.Notification.EXTRA_MESSAGES);
+        if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof android.os.Bundle) {
+            android.os.Bundle m = (android.os.Bundle) messages[messages.length - 1];
+            CharSequence text = m.getCharSequence("text");
+            CharSequence sender = m.getCharSequence("sender");
+            if (text != null && text.length() > 0) return sender != null && sender.length() > 0 ? sender + ": " + text : text.toString();
+        }
+        t = x.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT);
+        if (t != null && t.length() > 0) return t.toString();
+        CharSequence[] lines = x.getCharSequenceArray(android.app.Notification.EXTRA_TEXT_LINES);
+        if (lines != null && lines.length > 0 && lines[lines.length - 1] != null) return lines[lines.length - 1].toString();
+        t = x.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT);
         return t != null ? t.toString() : "";
     }
 
@@ -382,6 +538,14 @@ final class NotifyCenter {
         return v >= CONTENT_ALL && v <= CONTENT_NONE ? v : CONTENT_ALL;
     }
 
+    /**
+     * Whether the panel's rows, like the banners, say only the app (NOTIFY.md §6): the same choice, so on a projector
+     * the centre does not show what the banners hide. A row's ▾ still shows it all, on the user's own click.
+     */
+    boolean namesOnly() {
+        return bannerContent() == CONTENT_NAME;
+    }
+
     boolean bannerContentChosen() {
         return prefs.contains("content");
     }
@@ -401,13 +565,19 @@ final class NotifyCenter {
         if (mode == APP_NORMAL) prefs.edit().remove("app_" + pkg).apply();
         else prefs.edit().putString("app_" + pkg, APP_MODES[mode]).apply();
         lastModeApp = pkg;
+        NotifyService s = service;
+        if (s != null) {
+            // Hidden: its entries leave the centre (the notifications stay on the phone); shown again: they come back
+            s.resync();
+            return;
+        }
         if (mode == APP_HIDDEN) {
-            // Not shown any more: its entries leave the centre (the notifications stay on the phone)
             for (Group g : new ArrayList<>(groups)) {
                 if (!g.pkg.equals(pkg)) continue;
                 for (Entry e : g.entries) if (!e.seen) unread = Math.max(0, unread - 1);
                 groups.remove(g);
             }
+            listVersion++;
         }
         changed();
     }
@@ -463,9 +633,72 @@ final class NotifyCenter {
 
     void attach(NotifyService s) {
         service = s;
+        Log.i(TAG, "connected");
+        changed();
     }
 
     void detach(NotifyService s) {
-        if (service == s) service = null;
+        if (service != s) return;
+        service = null;
+        changed();
+    }
+
+    /** Whether the system has the listener bound: only then do notifications come (NOTIFY.md §2.1). */
+    boolean connected() {
+        return service != null;
+    }
+
+    /**
+     * Asks the system to bind the listener again (NOTIFY.md §2.1). After XDesk's process went, HyperOS refuses the
+     * system's own rebind unless XDesk may start itself; asked while XDesk runs, it may let it through. At most every
+     * few seconds.
+     */
+    static void requestRebind(Context c) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lastRebind != 0 && now - lastRebind < REBIND_GAP_MS) return;
+        lastRebind = now;
+        try {
+            android.service.notification.NotificationListenerService.requestRebind(
+                new android.content.ComponentName(c, NotifyService.class));
+            Log.i(TAG, "rebind asked");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "rebind: " + e);
+        }
+    }
+
+    /** XDesk came to the front, the external screen came, the panel opened: rebind if granted but not bound. */
+    void rebindIfNeeded() {
+        if (service == null && accessGranted(context)) requestRebind(context);
+    }
+
+    /**
+     * Where the user lets XDesk start itself, which HyperOS wants before it binds the listener again: MIUI's own page,
+     * else the app's details.
+     */
+    static void openAutostartSettings(Context c) {
+        Intent miui = new Intent().setComponent(new android.content.ComponentName("com.miui.securitycenter",
+            "com.miui.permcenter.autostart.AutoStartManagementActivity")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            c.startActivity(miui);
+            return;
+        } catch (RuntimeException ignored) {
+            // not MIUI / HyperOS
+        }
+        try {
+            c.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no app details page", e);
+        }
+    }
+
+    /** Whether this phone has MIUI's autostart switch (HyperOS): then the panel names it. */
+    static boolean hasAutostartSwitch(Context c) {
+        try {
+            c.getPackageManager().getPackageInfo("com.miui.securitycenter", 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
     }
 }

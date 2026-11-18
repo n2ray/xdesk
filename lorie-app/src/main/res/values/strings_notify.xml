@@ -57,4 +57,14 @@
     <string name="xd_side_sound_phone">Sound: phone</string>
     <string name="xd_side_game">Game passthrough</string>
     <string name="xd_side_quality">Quality: %1$s</string>
+    <string name="xd_notify_empty_hidden">No notifications. %d more on the phone are not shown here (silent, ongoing, or from apps set not to show).</string>
+    <string name="xd_notify_unbound_miui">Notifications are not coming in: the phone\'s system stopped XDesk\'s notification service from starting. Turn on Autostart for XDesk on the phone, and they come.</string>
+    <string name="xd_notify_unbound">Notifications are not coming in: the system has not started XDesk\'s notification service. XDesk is asking again; if this stays, turn XDesk\'s notification access off and on.</string>
+    <string name="xd_notify_unbound_fix_miui">Open Autostart on the phone</string>
+    <string name="xd_notify_unbound_fix">Open notification access on the phone</string>
+    <string name="xd_notify_action_failed">That did not work: the app refused it.</string>
+    <string name="xd_notify_open_failed">This app cannot be opened on the external screen.</string>
+    <string name="xd_notify_link">Notification service</string>
+    <string name="xd_notify_link_on">Connected</string>
+    <string name="xd_notify_link_off">Not connected</string>
 </resources>
