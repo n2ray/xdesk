@@ -103,4 +103,10 @@ interface IInjector {
     oneway void setGameMode(boolean on) = 44;
     /** The phone's whole sound output as 48 kHz stereo 16-bit PCM, for the wireless display; nothing plays on the phone meanwhile. Close the stream to stop. Throws with the reason. */
     ParcelFileDescriptor captureOutput() = 36;
+    /** The phone's on-screen gamepad as a real one (GAMEPAD.md): made if missing, nothing pressed. It stays until the session ends. */
+    oneway void gamepadOpen() = 47;
+    /** Its whole state: button n (GAMEPAD.md §4) is bit n-1, hat 0-7 clockwise from up or 8 for none, sticks -32768..32767, triggers 0..255. */
+    oneway void gamepad(int buttons, int hat, int lx, int ly, int rx, int ry, int lt, int rt) = 48;
+    /** Nothing pressed; the device stays, so games do not say it went away. */
+    oneway void gamepadEnd() = 49;
 }

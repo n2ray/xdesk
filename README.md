@@ -89,6 +89,8 @@ Open a cloud gaming app such as **GeForce NOW** on the display, connect a gamepa
 - The keyboard and mouse must be connected to the phone (Bluetooth or USB). The picture can go to any screen XDesk drives.
 - While Ctrl+Alt+G is on, the Dock, the notification centre and XDesk's other shortcuts wait until you leave it. Details in [GAMING.md](GAMING.md).
 
+**No gamepad? The phone is one.** Tap **Gamepad** at the top of XDesk's phone screen while an Android app is on the display: the phone turns sideways into a gamepad (two sticks, d-pad, ABXY, bumpers, triggers, Back, Start, Home). The game sees a real wired Xbox 360 controller, so it works in any app that takes a gamepad, GeForce NOW included. Edit the layout from its ⋯ menu: drag, resize, hide, fade; keep several layouts, and each app gets the one it used last. Back leaves the gamepad. Android apps only. Details in [GAMEPAD.md](GAMEPAD.md).
+
 ## Linux desktops with Termux
 
 Optional, and Android apps need none of it. The phone's own apps are there from the first start; Linux desktops are devices you add on demand. In XDesk, open **Add device › Linux** and add Termux (and any proot or chroot environment the `xdesk` command knows). XDesk asks for Termux's permission to run commands there. Each environment then gets its own tab with its apps; there is nothing to connect, the lists are always there.

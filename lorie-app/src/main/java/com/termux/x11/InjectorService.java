@@ -66,6 +66,8 @@ public class InjectorService extends IInjector.Stub {
     private String webLayout;
     private boolean takenOver;
     private UhidKeyboard webKeyboard;
+    /** The on-screen gamepad (GAMEPAD.md), made on first use and closed with the session. */
+    private final GamepadHid gamepad = new GamepadHid();
     private final OutputCapture output = new OutputCapture();
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
@@ -397,6 +399,7 @@ public class InjectorService extends IInjector.Stub {
                     density.clearOurs();
                     panels.clearOurs();
                     closeWebKeyboard();
+                    gamepad.close();
                 }
                 if (onlyUid == NO_UID) System.exit(0);
                 if (!wasOver) shutdown();
@@ -461,6 +464,20 @@ public class InjectorService extends IInjector.Stub {
             injector.focus(injector.displayId());
             focusStale = false;
         });
+    }
+
+    @Override public void gamepadOpen() {
+        if (sessionOver) return;
+        gamepad.open();
+    }
+
+    @Override public void gamepad(int buttons, int hat, int lx, int ly, int rx, int ry, int lt, int rt) {
+        if (sessionOver) return;
+        gamepad.state(buttons, hat, lx, ly, rx, ry, lt, rt);
+    }
+
+    @Override public void gamepadEnd() {
+        gamepad.end();
     }
 
     @Override public void focusDisplay(int display) {
@@ -908,6 +925,7 @@ public class InjectorService extends IInjector.Stub {
         density.clearOurs();
         panels.clearOurs();
         closeWebKeyboard();
+        gamepad.close();
         enabled = false;
         listener = null;
         ShellClipboard c = clipboard;

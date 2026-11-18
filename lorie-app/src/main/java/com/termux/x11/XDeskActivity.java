@@ -144,6 +144,9 @@ public class XDeskActivity extends Activity {
     private boolean keysExpanded, keyboardOpen, phonePassive;
     /** 触控区铺满整个手机屏，系统栏隐藏。 */
     private boolean padFullscreen;
+    /** The phone is a gamepad (GAMEPAD.md): gamepadView covers everything. */
+    private boolean gamepadShown;
+    private GamepadView gamepadView;
     /** 这个显示器已经放过仪表盘了，放不上去也别一直试。 */
     private int dashboardTried = Display.INVALID_DISPLAY;
     /** 认得的外接屏。拔掉时系统已经查不到它是什么屏了，只能靠记下的 id 认出来。 */
@@ -205,7 +208,7 @@ public class XDeskActivity extends Activity {
     private TextView statusText, diagText;
     /** Holds the status dot and text: shown only for warnings and errors, the buttons already say the rest. */
     private View statusRow;
-    private Style.IconButton audioBtn, touchBtn, forwardBtn, fullscreenBtn, launcherBtn, settingsBtn, backBtn;
+    private Style.IconButton audioBtn, touchBtn, forwardBtn, gamepadBtn, fullscreenBtn, launcherBtn, settingsBtn, backBtn;
     private View statusDot;
     private TouchpadView touchpad;
     private KeyInputView keyView;
@@ -1533,6 +1536,8 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onPause() {
         resumed = false;
+        // Fingers leaving with the window would hold their buttons down
+        if (gamepadShown) gamepadView.releaseAll();
         super.onPause();
     }
 
@@ -1587,7 +1592,7 @@ public class XDeskActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
         if (focus) {
-            if (padFullscreen) applyImmersive();
+            if (padFullscreen || gamepadShown) applyImmersive();
             // 选择界面开着时焦点归搜索框
             if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
             updateCapture();
@@ -1872,7 +1877,7 @@ public class XDeskActivity extends Activity {
     private void applyImmersive() {
         android.view.WindowInsetsController c = getWindow().getInsetsController();
         if (c == null) return;
-        if (padFullscreen) {
+        if (padFullscreen || gamepadShown) {
             // 从边上滑一下系统栏临时出来，又自己收回去
             c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             c.hide(WindowInsets.Type.systemBars());
@@ -1922,6 +1927,11 @@ public class XDeskActivity extends Activity {
                 ownership.toggle();
             }
         });
+        gamepadBtn = new Style.IconButton(this, R.drawable.xd_ic_gamepad, getString(R.string.xd_gamepad_short), Style.SURFACE);
+        gamepadBtn.setContentDescription(getString(R.string.xd_gamepad));
+        gamepadBtn.onTap(new Runnable() {
+            @Override public void run() { showGamepad(); }
+        });
         launcherBtn = new Style.IconButton(this, R.drawable.xd_ic_apps, getString(R.string.xd_launcher), Style.SURFACE);
         launcherBtn.onTap(new Runnable() {
             @Override public void run() { openChooserOverSession(); }
@@ -1933,7 +1943,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void addTopButtons(LinearLayout row, boolean fill) {
-        for (View b : new View[]{audioBtn, touchBtn, forwardBtn, launcherBtn, settingsBtn}) {
+        for (View b : new View[]{audioBtn, touchBtn, forwardBtn, gamepadBtn, launcherBtn, settingsBtn}) {
             LinearLayout.LayoutParams p = fill ? new LinearLayout.LayoutParams(0, dp(Style.TARGET + 4), 1)
                 : new LinearLayout.LayoutParams(dp(Style.TARGET + 4), dp(Style.TARGET));
             p.leftMargin = fill ? dp(2) : dp(4);
@@ -2284,6 +2294,13 @@ public class XDeskActivity extends Activity {
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
         keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
         touchBtn.setVisibility(apps.canUseTouchMode() ? View.VISIBLE : View.GONE);
+        // GAMEPAD.md: only for an Android app on the external display; the app it is for picks the layout
+        gamepadBtn.setVisibility(app ? View.VISIBLE : View.GONE);
+        if (gamepadShown && !app) hideGamepad();
+        if (gamepadShown) {
+            AppCatalog.App a = apps.app();
+            gamepadView.setPackage(a != null ? a.packageName : null);
+        }
         applyInputMode();
     }
 
@@ -2475,7 +2492,8 @@ public class XDeskActivity extends Activity {
                 updatePhoneFocus();
             }
             lastFingerDown = android.os.SystemClock.uptimeMillis();
-            if (apps.isActive()) apps.phoneTouched();
+            // Not for the gamepad: it would leave game passthrough, and a pad's presses are not the phone wanting focus
+            if (apps.isActive() && !gamepadShown) apps.phoneTouched();
             // 摸手机屏会把焦点拿到手机上，设置页这类窗口关掉后焦点也留在手机屏
             if (phonePassive) refocusExternal();
         }
@@ -2544,7 +2562,48 @@ public class XDeskActivity extends Activity {
 
     /** 只影响 XDesk 的触控界面：手机系统锁竖屏时这里也能横过来。默认跟随系统。 */
     private void applyOrientation() {
-        setRequestedOrientation(ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT)]);
+        // A gamepad is held sideways
+        setRequestedOrientation(gamepadShown ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            : ORIENTATIONS[prefs.getInt(PREF_ORIENTATION, ORIENTATION_DEFAULT)]);
+    }
+
+    // --- 手柄（GAMEPAD.md）：手机屏整个变成游戏手柄，游戏看到的是一个真手柄 ---
+
+    private final GamepadView.Host gamepadHost = new GamepadView.Host() {
+        @Override public void state(int buttons, int hat, int lx, int ly, int rx, int ry, int lt, int rt) {
+            apps.gamepad(buttons, hat, lx, ly, rx, ry, lt, rt);
+        }
+        @Override public void end() {
+            apps.gamepadEnd();
+        }
+        @Override public void exit() {
+            hideGamepad();
+        }
+    };
+
+    private void showGamepad() {
+        if (gamepadShown || !apps.isActive()) return;
+        if (gamepadView == null) gamepadView = new GamepadView(this, gamepadHost);
+        AppCatalog.App a = apps.app();
+        gamepadView.setPackage(a != null ? a.packageName : null);
+        if (gamepadView.getParent() == null) screens.addView(gamepadView, new FrameLayout.LayoutParams(-1, -1));
+        gamepadShown = true;
+        apps.gamepadOpen();
+        // The window must stay one that touches do not take focus to (GAMEPAD.md §3); the keys go to the game
+        updatePhoneFocus();
+        if (phonePassive) refocusExternal();
+        applyOrientation();
+        applyImmersive();
+    }
+
+    private void hideGamepad() {
+        if (!gamepadShown) return;
+        gamepadShown = false;
+        gamepadView.releaseAll();
+        apps.gamepadEnd();
+        screens.removeView(gamepadView);
+        applyOrientation();
+        applyImmersive();
     }
 
     private int resolutionMode() {
@@ -3747,6 +3806,10 @@ public class XDeskActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
+        if (gamepadShown) {
+            if (!gamepadView.back()) hideGamepad();
+            return;
+        }
         if (padFullscreen) setFullscreenWanted(false);
         else if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
         else if (chooser.getVisibility() != View.VISIBLE && setupScreen.getVisibility() != View.VISIBLE

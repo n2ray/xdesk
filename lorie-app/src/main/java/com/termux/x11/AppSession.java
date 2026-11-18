@@ -1648,6 +1648,29 @@ final class AppSession {
         } catch (RemoteException ignored) { }
     }
 
+    /** The on-screen gamepad (GAMEPAD.md): the device made, nothing pressed. A state also makes it, after a reconnect. */
+    void gamepadOpen() {
+        IInjector i = injector;
+        try {
+            if (i != null) i.gamepadOpen();
+        } catch (RemoteException ignored) { }
+    }
+
+    void gamepad(int buttons, int hat, int lx, int ly, int rx, int ry, int lt, int rt) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.gamepad(buttons, hat, lx, ly, rx, ry, lt, rt);
+        } catch (RemoteException ignored) { }
+    }
+
+    /** Nothing pressed; the device stays for the session. */
+    void gamepadEnd() {
+        IInjector i = injector;
+        try {
+            if (i != null) i.gamepadEnd();
+        } catch (RemoteException ignored) { }
+    }
+
     /** The display id is not stable across replugging, so follow the events and never remember one for longer. */
     void displayRemoved(int id) {
         if (display == null || display.getDisplayId() != id) return;
