@@ -1273,6 +1273,7 @@ public class XDeskActivity extends Activity {
         @Override public void onInputDeviceAdded(int id) {
             applyDefaultPage();
             updateCapture();
+            applyKeysButton();
             // A keyboard came: whether the X side has an input method for it is asked again (xdesk status)
             InputDevice d = InputDevice.getDevice(id);
             if (session.isActive() && d != null && d.isExternal() && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)
@@ -1284,6 +1285,10 @@ public class XDeskActivity extends Activity {
             mouseIn.cancel();
             heldModifiers.clear();
             if (keyView != null) keyView.clearMouse();
+            // The last keyboard or mouse went: their button goes too, and they belong to the display again, or a
+            // 键鼠在本机 left behind would keep the home Launchpad away with no button to undo it
+            if (!hasExternalInput()) ownership.set(true);
+            applyKeysButton();
             applyDefaultPage();
             updateCapture();
         }
@@ -1911,7 +1916,7 @@ public class XDeskActivity extends Activity {
                 updateStatus();
             }
         });
-        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_mouse, getString(R.string.xd_keys_phone), Style.SURFACE);
+        forwardBtn = new Style.IconButton(this, R.drawable.xd_ic_keys_phone, getString(R.string.xd_keys_short), Style.SURFACE);
         forwardBtn.onTap(new Runnable() {
             @Override public void run() {
                 ownership.toggle();
@@ -2274,8 +2279,7 @@ public class XDeskActivity extends Activity {
         if (desktopTaken && app) takeDesktopWhenBack = true;
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
         updatePhoneFocus();
-        forwardBtn.setVisibility(app || session.isActive() || contentKey != null || SplitStageActivity.isActive() ? View.VISIBLE : View.GONE);
-        showOwnership();
+        applyKeysButton();
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
         keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
@@ -2307,14 +2311,27 @@ public class XDeskActivity extends Activity {
         if (size != null) directTouch.setDisplaySize(size[0], size[1]);
     }
 
+    /**
+     * The keys button (INPUT.md §7), only with a physical keyboard or mouse on the phone: without one there is nothing
+     * for it to give. Where they are is in its icon and colour: blue, the mouse joined to the screen, on the display.
+     */
+    private void applyKeysButton() {
+        if (forwardBtn == null) return;
+        boolean running = apps.isActive() || session.isActive() || contentKey != null || SplitStageActivity.isActive();
+        forwardBtn.setVisibility(running && hasExternalInput() ? View.VISIBLE : View.GONE);
+        showOwnership();
+    }
+
     /** INPUT.md §7: one indicator for every kind of session, 键鼠在外屏 / 键鼠在本机. Tapping it switches. */
     private void showOwnership() {
         boolean on = ownership.forwarded();
-        String label = getString(on ? R.string.xd_keys_external : R.string.xd_keys_phone);
-        forwardBtn.setLabel(label);
+        String said = getString(on ? R.string.xd_keys_external : R.string.xd_keys_phone);
+        forwardBtn.setIcon(on ? R.drawable.xd_ic_keys_external : R.drawable.xd_ic_keys_phone);
+        forwardBtn.setContentDescription(said);
         forwardBtn.setActive(on);
-        // The list's top row has the same button, there while this one is (applyModeToTopBar)
-        if (chooser != null) chooser.setKeys(apps.isActive() || session.isActive() || contentKey != null ? label : null, on);
+        // The list's top row has the same button, there while this one is (applyKeysButton)
+        boolean shown = (apps.isActive() || session.isActive() || contentKey != null) && hasExternalInput();
+        if (chooser != null) chooser.setKeys(shown ? said : null, on);
     }
 
     private void updateAppStatus() {

@@ -132,7 +132,7 @@ final class ChooserView extends LinearLayout {
         LayoutParams cp = new LayoutParams(-2, Style.dp(c, Style.TARGET));
         cp.rightMargin = Style.dp(c, Style.GAP);
         head.addView(touchpad, cp);
-        keys = new Style.IconButton(c, R.drawable.xd_ic_mouse, "", Style.SURFACE);
+        keys = new Style.IconButton(c, R.drawable.xd_ic_keys_phone, "", Style.SURFACE);
         keys.onTap(host::onToggleKeys);
         keys.setVisibility(GONE);
         LayoutParams kp = new LayoutParams(-2, -2);
@@ -302,13 +302,15 @@ final class ChooserView extends LinearLayout {
 
     /**
      * The keys button, as the touchpad page's: whose the physical keyboard and mouse are, tapping switches.
-     * @param label null while nothing runs that could have them: no button
+     * @param said where they are, read aloud (the icon and colour show it); null while nothing runs that could
+     *     have them, or the phone has no keyboard or mouse: no button
      */
-    void setKeys(String label, boolean onDisplay) {
-        keys.setVisibility(label != null ? VISIBLE : GONE);
-        if (label == null) return;
-        keys.setLabel(label);
-        keys.setContentDescription(label);
+    void setKeys(String said, boolean onDisplay) {
+        keys.setVisibility(said != null ? VISIBLE : GONE);
+        if (said == null) return;
+        keys.setLabel(getContext().getString(R.string.xd_keys_short));
+        keys.setIcon(onDisplay ? R.drawable.xd_ic_keys_external : R.drawable.xd_ic_keys_phone);
+        keys.setContentDescription(said);
         keys.setActive(onDisplay);
     }
 

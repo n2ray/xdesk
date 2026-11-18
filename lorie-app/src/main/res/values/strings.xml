@@ -411,6 +411,8 @@
     <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. A Mac set as Mac keyboard is never swapped</string>
     <string name="xd_keys_external">Keys on display</string>
     <string name="xd_keys_phone">Keys on phone</string>
+    <!-- The button's label; its icon and colour say where they are (xd_keys_external / xd_keys_phone, read aloud) -->
+    <string name="xd_keys_short">Input</string>
     <string name="xd_mouse_speed">Physical mouse speed</string>
     <string name="xd_mouse_speed_note" formatted="false">For everything on the screen; 100% is the usual speed</string>
     <string name="xd_always_cursor">Always show the XDesk cursor</string>

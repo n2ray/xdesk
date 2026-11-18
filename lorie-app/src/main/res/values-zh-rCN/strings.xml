@@ -390,6 +390,8 @@
     <string name="xd_translate_modifiers_note">PC 键盘用在 Mac 上：Ctrl 当 ⌘，Alt 当 ⌥。设成 Mac 键盘的 Mac 不换</string>
     <string name="xd_keys_external">键鼠在外屏</string>
     <string name="xd_keys_phone">键鼠在本机</string>
+    <!-- The button's label; its icon and colour say where they are (xd_keys_external / xd_keys_phone, read aloud) -->
+    <string name="xd_keys_short">键鼠</string>
     <string name="xd_mouse_speed">实体鼠标速度</string>
     <string name="xd_mouse_speed_note" formatted="false">所有内容都用；100% 是各自的默认速度</string>
     <string name="xd_always_cursor">始终显示 XDesk 光标</string>
