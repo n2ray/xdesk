@@ -2,7 +2,7 @@
 //! keyboard and mouse while the window is in front and the pointer is on it.
 //!
 //! Control+Option with: Esc gives the keyboard and mouse back until the next click, F full screen, B back, H home,
-//! R the recent apps of an old phone, or the switchboard (总览) with FEATURES bit 0, D the latency panel, L low
+//! R the recent apps of an old phone, or the switchboard (启动台) with FEATURES bit 0, D the latency panel, L low
 //! latency. The same things are in the bar at the top edge and in the menu.
 
 mod clip;
@@ -50,22 +50,28 @@ const CURSOR_AGAIN: Duration = Duration::from_secs(1);
 fn needs_access() -> &'static str {
     tr("请在 系统设置 → 隐私与安全性 → 辅助功能 里打开 XDesk，键盘才能交给手机", "Allow XDesk in System Settings › Privacy & Security › Accessibility, so the keyboard can go to the phone")
 }
-/// How close to the top edge, and for how long, before the bar shows. In window points.
-const BAR_EDGE: i32 = 6;
-const BAR_DWELL: Duration = Duration::from_millis(200);
-const BAR_KEEP_BELOW: i32 = 24;
-const BAR_TOP: u32 = 8;
-const BAR_TOP_FULLSCREEN: u32 = 34;
-const BAR_HEIGHT: u32 = 36;
-const BAR_PADDING: u32 = 16;
+/// The bar is XDesk Receiver's and the web display's: a blue handle on the right edge, the buttons in a column
+/// beside it while open. In window points: the handle's line, the room around it a click finds it in, the buttons.
+const HANDLE_WIDTH: u32 = 7;
+const HANDLE_HEIGHT: u32 = 64;
+const HANDLE_LEFT: u32 = 10;
+const HANDLE_RIGHT: u32 = 8;
+const HANDLE_ABOVE: u32 = 16;
+const HANDLE_BLUE: Color = Color::RGB(0x3d, 0x7e, 0xf5);
+const BAR_HEIGHT: u32 = 40;
+const BAR_PADDING: u32 = 14;
+const BAR_MIN_WIDTH: u32 = 72;
+const BAR_INSET: u32 = 4;
+/// Open, it closes this long after the last press, as on the receiver; the pointer resting on it keeps it open.
+const BAR_OPEN_FOR: Duration = Duration::from_secs(6);
 const BAR_TEXT: f32 = 14.0;
 /// The bar on the picture. An old phone's 最近 asks for its list of apps (APPS), the panel this window draws; with
-/// FEATURES bit 0 the same place is 总览, which opens the switchboard.
+/// FEATURES bit 0 the same place is 启动台, which opens the switchboard.
 fn bar(actions: bool) -> [(&'static str, u8); 5] {
     [
         (tr("返回", "Back"), ACT_BACK),
         (tr("主页", "Home"), ACT_HOME),
-        (if actions { tr("总览", "Overview") } else { tr("最近", "Recent") }, ACT_RECENTS),
+        (if actions { tr("启动台", "Launchpad") } else { tr("最近", "Recent") }, ACT_RECENTS),
         (tr("全屏", "Full screen"), ACT_FULLSCREEN),
         (tr("断开", "Disconnect"), ACT_DISCONNECT),
     ]
@@ -187,21 +193,34 @@ fn words_texture<'a>(creator: &'a TextureCreator<WindowContext>, image: &Image) 
     Ok(Words { texture, width: image.width, height: image.height })
 }
 
-/// Where each of the bar's buttons is, in pixels.
-fn bar_places(area: (u32, u32), scale: f32, fullscreen: bool, widths: &[u32]) -> Vec<Rect> {
-    let padding = (BAR_PADDING as f32 * scale) as u32;
-    let height = (BAR_HEIGHT as f32 * scale) as u32;
-    let top = ((if fullscreen { BAR_TOP_FULLSCREEN } else { BAR_TOP }) as f32 * scale) as i32;
-    let total: u32 = widths.iter().map(|w| w + padding * 2).sum();
-    let mut x = (area.0.saturating_sub(total) / 2) as i32;
-    widths
-        .iter()
-        .map(|w| {
-            let r = Rect::new(x, top, w + padding * 2, height);
-            x += r.width() as i32;
-            r
-        })
-        .collect()
+/// Where the bar is, in pixels: the handle's line, the room a click finds the handle in, and the open bar's panel
+/// with each of its buttons, in a column left of the handle, centred on it.
+struct BarPlaces {
+    line: Rect,
+    handle: Rect,
+    panel: Rect,
+    buttons: Vec<Rect>,
+}
+
+fn bar_places(area: (u32, u32), scale: f32, widths: &[u32]) -> BarPlaces {
+    let px = |v: u32| ((v as f32 * scale) as u32).max(1);
+    let (hw, hh) = (px(HANDLE_LEFT + HANDLE_WIDTH + HANDLE_RIGHT), px(HANDLE_HEIGHT + HANDLE_ABOVE * 2));
+    let handle = Rect::new(area.0 as i32 - hw as i32, (area.1 as i32 - hh as i32) / 2, hw, hh);
+    let line = Rect::new(handle.x() + px(HANDLE_LEFT) as i32, handle.y() + px(HANDLE_ABOVE) as i32, px(HANDLE_WIDTH), px(HANDLE_HEIGHT));
+    let inset = px(BAR_INSET);
+    let row = px(BAR_HEIGHT);
+    let width = (widths.iter().copied().max().unwrap_or(0) + px(BAR_PADDING) * 2).max(px(BAR_MIN_WIDTH));
+    let (pw, ph) = (width + inset * 2, row * widths.len() as u32 + inset * 2);
+    let panel = Rect::new(handle.x() - pw as i32, (area.1 as i32 - ph as i32) / 2, pw, ph);
+    let buttons = (0..widths.len())
+        .map(|i| Rect::new(panel.x() + inset as i32, panel.y() + inset as i32 + (row * i as u32) as i32, width, row))
+        .collect();
+    BarPlaces { line, handle, panel, buttons }
+}
+
+/// The pointer is on the handle, or on the open bar: it works the bar, not the phone.
+fn over_bar(bar: &BarPlaces, open: bool, streaming: bool, point: (i32, i32)) -> bool {
+    streaming && (bar.handle.contains_point(point) || (open && bar.panel.contains_point(point)))
 }
 
 /// The panel of the list of apps and its rows, in pixels.
@@ -321,8 +340,8 @@ fn main() -> Result<(), String> {
     let mut dirty = true;
 
     let mut mouse = (0i32, 0i32);
-    let mut at_top_since: Option<Instant> = None;
     let mut bar_open = false;
+    let mut bar_since = Instant::now();
     let mut cursor_hidden = false;
     // macOS may show the cursor again on its own when the pointer enters the window: re-apply the wanted state
     let mut cursor_stale = true;
@@ -356,7 +375,6 @@ fn main() -> Result<(), String> {
         }
         let points = canvas.window().size();
         let scale = area.0 as f32 / points.0.max(1) as f32;
-        let fullscreen = canvas.window().fullscreen_state() != FullscreenType::Off;
         let features_actions = net::features_actions();
         if (scale - bar_scale).abs() > 0.01 || features_actions != bar_actions {
             bar_scale = scale;
@@ -369,7 +387,7 @@ fn main() -> Result<(), String> {
             }
         }
         let widths: Vec<u32> = bar_labels.iter().map(|(_, w)| w.width).collect();
-        let bar = bar_places(area, scale, fullscreen, &widths);
+        let bar = bar_places(area, scale, &widths);
         let list = apps.as_ref().map(|a| list_places(area, scale, a.len()));
         let pixel = |m: (i32, i32)| ((m.0 as f32 * scale) as i32, (m.1 as f32 * scale) as i32);
         let mut actions = tap::take_actions();
@@ -426,7 +444,7 @@ fn main() -> Result<(), String> {
                     mouse = (x, y);
                     // Where the candidates of the Mac's input method go: the X cursor's place is not known here
                     text_input.set_rect(Rect::new(x, y + COMPOSING_BELOW, 1, COMPOSING_HEIGHT));
-                    let over_something = apps.is_some() || (bar_open && index_at(&bar, pixel(mouse)).is_some());
+                    let over_something = apps.is_some() || over_bar(&bar, bar_open, net::STREAMING.load(Ordering::Relaxed), pixel(mouse));
                     if over_something || tap::RELEASED.load(Ordering::Relaxed) || picture.0 == 0 {
                         continue;
                     }
@@ -448,11 +466,18 @@ fn main() -> Result<(), String> {
                         dirty = true;
                         continue;
                     }
-                    if bar_open {
-                        if let Some(i) = index_at(&bar, pixel(mouse)) {
+                    if net::STREAMING.load(Ordering::Relaxed) && bar.handle.contains_point(pixel(mouse)) {
+                        bar_open = !bar_open;
+                        bar_since = Instant::now();
+                        dirty = true;
+                        continue;
+                    }
+                    if bar_open && bar.panel.contains_point(pixel(mouse)) {
+                        if let Some(i) = index_at(&bar.buttons, pixel(mouse)) {
                             actions.push(bar_labels[i].0);
-                            continue;
                         }
+                        bar_since = Instant::now();
+                        continue;
                     }
                     if tap::RELEASED.swap(false, Ordering::Relaxed) {
                         continue;
@@ -527,23 +552,16 @@ fn main() -> Result<(), String> {
             last_permission_look = Instant::now();
             tap_ready = tap::install();
         }
-        // The bar: comes when the pointer rests on the top edge, goes when it moves away
+        // The bar: the handle opens and closes it; it closes by itself a while after the last press
         let inside = tap::INSIDE.load(Ordering::Relaxed) && !tap::RELEASED.load(Ordering::Relaxed);
-        if streaming && inside && mouse.1 <= BAR_EDGE {
-            let since = *at_top_since.get_or_insert_with(Instant::now);
-            if !bar_open && since.elapsed() >= BAR_DWELL {
-                bar_open = true;
-                dirty = true;
-            }
-        } else {
-            at_top_since = None;
-            let bottom = bar.first().map_or(0, |r| r.bottom());
-            if bar_open && (!streaming || !inside || (mouse.1 as f32 * scale) as i32 > bottom + (BAR_KEEP_BELOW as f32 * scale) as i32) {
-                bar_open = false;
-                dirty = true;
-            }
+        if bar_open && inside && bar.panel.contains_point(pixel(mouse)) {
+            bar_since = Instant::now();
         }
-        let hover = if bar_open { index_at(&bar, pixel(mouse)) } else { None };
+        if bar_open && (!streaming || bar_since.elapsed() >= BAR_OPEN_FOR) {
+            bar_open = false;
+            dirty = true;
+        }
+        let hover = if bar_open && inside { index_at(&bar.buttons, pixel(mouse)) } else { None };
         if hover != bar_hover {
             bar_hover = hover;
             dirty = true;
@@ -570,7 +588,7 @@ fn main() -> Result<(), String> {
         // The picture contains the desktop's cursor (INPUT_MODE 3, FEATURES bit 3): this computer's own pointer
         // must not double it over the picture. Over the receiver's own bar and lists it stays visible.
         if streaming {
-            let over_picture = picture.0 > 0 && !bar_open && apps.is_none() && {
+            let over_picture = picture.0 > 0 && !over_bar(&bar, bar_open, streaming, pixel(mouse)) && apps.is_none() && {
                 let (px, py, pw, ph) = fit(points, picture);
                 mouse.0 >= px && mouse.0 < px + pw as i32 && mouse.1 >= py && mouse.1 < py + ph as i32
             };
@@ -718,11 +736,18 @@ fn main() -> Result<(), String> {
             canvas.fill_rect(place)?;
             draw_in(&mut canvas, c, place)?;
         }
+        if streaming {
+            canvas.set_draw_color(HANDLE_BLUE);
+            canvas.fill_rect(bar.line)?;
+        }
         if bar_open {
-            for (i, r) in bar.iter().enumerate() {
-                let level = if bar_hover == Some(i) { 90 } else { 40 };
-                canvas.set_draw_color(Color::RGBA(level, level, level, 225));
-                canvas.fill_rect(*r)?;
+            canvas.set_draw_color(Color::RGBA(29, 29, 31, 230));
+            canvas.fill_rect(bar.panel)?;
+            for (i, r) in bar.buttons.iter().enumerate() {
+                if bar_hover == Some(i) {
+                    canvas.set_draw_color(Color::RGBA(255, 255, 255, 30));
+                    canvas.fill_rect(*r)?;
+                }
                 draw_in(&mut canvas, &bar_labels[i].1, *r)?;
             }
         }

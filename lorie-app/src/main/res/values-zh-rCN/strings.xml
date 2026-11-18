@@ -168,7 +168,7 @@
     <string name="xd_switcher_title">打开的应用和窗口</string>
     <string name="xd_switcher_overview">这个系统的窗口</string>
     <string name="xd_switcher_running">正在运行</string>
-    <string name="xd_switcher_short">全部</string>
+    <string name="xd_switcher_short">启动台</string>
     <string name="xd_switcher_empty">没有正在运行的。可以在手机上添加收藏。</string>
     <string name="xd_dock_more">还有 %1$d 个——在启动台里</string>
     <string name="xd_linux_title">Linux</string>

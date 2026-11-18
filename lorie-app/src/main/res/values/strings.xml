@@ -176,7 +176,7 @@
     <string name="xd_switcher_title">Open apps and windows</string>
     <string name="xd_switcher_overview">Windows of this system</string>
     <string name="xd_switcher_running">Running</string>
-    <string name="xd_switcher_short">All</string>
+    <string name="xd_switcher_short">Launchpad</string>
     <string name="xd_switcher_empty">Nothing is running. Add favourites on the phone.</string>
     <string name="xd_dock_more">%1$d more — in the Launchpad</string>
     <string name="xd_linux_title">Linux</string>

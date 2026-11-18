@@ -22,14 +22,18 @@
 </div>
 <textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true"></textarea>
 
-<div id="bar" class="hidden">
-  <button id="b-back" title=""></button>
-  <button id="b-home" title=""></button>
-  <button id="b-overview" title="" class="hidden"></button>
-  <button id="b-full" title=""></button>
-  <button id="b-kbd" title=""></button>
-  <button id="b-sound" title=""></button>
-  <button id="b-quit" title=""></button>
+<!-- The handle on the right edge opens the tools, as on XDesk Receiver and the Mac app -->
+<div id="bar">
+  <div id="tools" class="hidden">
+    <button id="b-kbd" title=""></button>
+    <button id="b-back" title=""></button>
+    <button id="b-home" title=""></button>
+    <button id="b-overview" title="" class="hidden"></button>
+    <button id="b-full" title=""></button>
+    <button id="b-sound" title=""></button>
+    <button id="b-quit" title=""></button>
+  </div>
+  <div id="handle" role="button" aria-label=""><span></span></div>
 </div>
 <div id="hint" class="hidden"></div>
 

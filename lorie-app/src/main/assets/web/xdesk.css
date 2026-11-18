@@ -16,19 +16,24 @@ html, body {
 #video.on, #canvas.on { display: block; }
 #kbd { position: fixed; left: -1000px; top: 0; width: 10px; height: 10px; opacity: 0; font-size: 16px; }
 
+/* As XDesk Receiver's: a blue handle on the right edge, the tools beside it while open */
 #bar {
-  position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: 50%; transform: translateX(-50%);
-  display: flex; gap: 4px; padding: 4px; border-radius: 14px;
-  background: rgba(21, 24, 29, .86); box-shadow: 0 4px 18px rgba(0,0,0,.45);
-  transition: opacity .25s, transform .25s; z-index: 5;
+  position: fixed; right: env(safe-area-inset-right); top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; z-index: 5; opacity: .9;
 }
-#bar.hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -12px); }
-#bar button {
-  width: 44px; height: 40px; border: 0; border-radius: 10px; background: transparent; color: #e8ecf1;
-  font-size: 19px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+#bar.open { opacity: 1; }
+#tools {
+  display: flex; flex-direction: column; padding: 4px; border-radius: 14px;
+  background: rgba(29, 29, 31, .9); box-shadow: 0 4px 18px rgba(0,0,0,.45);
 }
-#bar button:active { background: rgba(255,255,255,.12); }
-#bar button.on { color: #3d7ef5; }
+#tools button {
+  min-width: 72px; padding: 12px 14px; border: 0; border-radius: 10px; background: transparent; color: #fff;
+  font: inherit; font-size: 15px; cursor: pointer;
+}
+#tools button:active { background: rgba(255,255,255,.12); }
+#tools button.on { color: #3d7ef5; }
+#handle { padding: 16px 8px 16px 10px; cursor: pointer; }
+#handle span { display: block; width: 7px; height: 64px; border-radius: 4px; background: #3d7ef5; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
 #hint {
   position: fixed; bottom: calc(env(safe-area-inset-bottom) + 18px); left: 50%; transform: translateX(-50%);
   padding: 8px 14px; border-radius: 12px; background: rgba(21, 24, 29, .9); font-size: 14px; z-index: 6;

@@ -21,7 +21,7 @@ fn items() -> [(&'static str, u8); 9] {
         (tr("返回    ⌃⌥B", "Back    ⌃⌥B"), tap::ACT_BACK),
         (tr("主页    ⌃⌥H", "Home    ⌃⌥H"), tap::ACT_HOME),
         // A phone from before 0.6 shows its recent apps here instead
-        (tr("总览    ⌃⌥R", "Overview    ⌃⌥R"), tap::ACT_RECENTS),
+        (tr("启动台    ⌃⌥R", "Launchpad    ⌃⌥R"), tap::ACT_RECENTS),
         (tr("全屏    ⌃⌥F", "Full screen    ⌃⌥F"), tap::ACT_FULLSCREEN),
         (tr("延迟面板    ⌃⌥D", "Latency panel    ⌃⌥D"), tap::ACT_PANEL),
         (tr("低延迟模式    ⌃⌥L", "Low latency    ⌃⌥L"), tap::ACT_LOW_LATENCY),

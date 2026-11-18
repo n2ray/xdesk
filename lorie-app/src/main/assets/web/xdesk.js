@@ -13,8 +13,8 @@ const T = zh ? {
   noVideo: '这个浏览器不能播放 H.264 视频流，请换 Safari、Chrome、Edge 或 Firefox', connect: '连接',
   noteHttp: '提示：添加到主屏幕后，可以像 App 一样全屏使用。',
   full: '全屏', kbd: '键盘', sound: '声音', quit: '断开', soundOn: '点一下画面打开声音',
-  back: '返回', home: '主页', overview: '总览',
-  backBlocked: '已拦住返回，要离开请点工具栏的断开', bye: '已断开。', reconnect: '重新连接',
+  back: '返回', home: '主页', overview: '启动台', tools: '工具',
+  backBlocked: '已拦住返回，要离开请点右边的蓝条，再点断开', bye: '已断开。', reconnect: '重新连接',
   lockHint: '点一下画面锁定鼠标，按 Esc 解锁', ended: '手机结束了投屏', leave: '要断开 XDesk 吗？',
   pairing: '另一个浏览器正在配对，稍后自动重试', noPicture: '连上了手机，但几次都没有画面，已停止重连。看一下手机上 XDesk 的提示。',
 } : {
@@ -24,8 +24,8 @@ const T = zh ? {
   noVideo: 'This browser cannot play an H.264 stream. Try Safari, Chrome, Edge or Firefox', connect: 'Connect',
   noteHttp: 'Tip: add this page to the home screen to use it full screen like an app.',
   full: 'Full screen', kbd: 'Keyboard', sound: 'Sound', quit: 'Disconnect', soundOn: 'Tap the picture to turn on sound',
-  back: 'Back', home: 'Home', overview: 'Overview',
-  backBlocked: 'Back is blocked; disconnect from the toolbar to leave', bye: 'Disconnected.', reconnect: 'Connect again',
+  back: 'Back', home: 'Home', overview: 'Launchpad', tools: 'Tools',
+  backBlocked: 'Back is blocked; to leave, tap the blue handle on the right, then Disconnect', bye: 'Disconnected.', reconnect: 'Connect again',
   lockHint: 'Click the picture to capture the mouse, Esc to release', ended: 'The phone ended the stream', leave: 'Disconnect XDesk?',
   pairing: 'Another browser is pairing; trying again shortly', noPicture: 'Connected several times without a picture, so this stopped trying. Look at XDesk on the phone.',
 };
@@ -311,7 +311,7 @@ function startSession() {
   if (DEBUG) { stats.path = player.name; debugTimer = setInterval(debugTick, 1000); askTime(); }
   trapHistory();
   flash(matchMedia('(pointer: fine)').matches ? T.lockHint : '', 3500);
-  showBar(4000);
+  openBar(false);
 }
 
 function stopSession() {
@@ -370,7 +370,7 @@ function onMessage(v) {
   }
 }
 
-// The Overview button only for a phone that said FEATURES bit 0: it opens the switchboard (ANDROID 4)
+// The Launchpad button only for a phone that said FEATURES bit 0: it opens the switchboard (ANDROID 4)
 function applyFeatures() {
   $('b-overview').classList.toggle('hidden', !(features & FEATURE_ACTIONS));
 }
@@ -1090,12 +1090,10 @@ function onFullscreen() { $('b-full').classList.toggle('on', !!fullscreenEl()); 
 document.addEventListener('fullscreenchange', onFullscreen);
 document.addEventListener('webkitfullscreenchange', onFullscreen);
 
-const icons = { back: '↩', home: '⌂', overview: '⊞', full: '⛶', kbd: '⌨', sound: '♪', quit: '⏻' };
 for (const [k, id] of [['back', 'b-back'], ['home', 'b-home'], ['overview', 'b-overview'], ['full', 'b-full'], ['kbd', 'b-kbd'], ['sound', 'b-sound'], ['quit', 'b-quit']]) {
-  $(id).textContent = icons[k];
-  $(id).title = T[k];
-  $(id).setAttribute('aria-label', T[k]);
+  $(id).textContent = T[k];
 }
+$('handle').setAttribute('aria-label', T.tools);
 // The phone does the actions for whatever is on the picture (receiver/PROTOCOL.md ANDROID)
 function sendAndroid(which) { send(IN_ANDROID, new Uint8Array([which])); }
 $('b-back').addEventListener('click', () => sendAndroid(1));
@@ -1119,22 +1117,24 @@ $('b-quit').addEventListener('click', () => {
   if (ws) ws.close();
   show(T.bye, { button: T.reconnect });
 });
-for (const b of bar.querySelectorAll('button')) {
-  b.addEventListener('pointerdown', e => e.stopPropagation());
-}
+// Nothing on the bar reaches the picture
+bar.addEventListener('pointerdown', e => e.stopPropagation());
 
-// The bar shows near the top edge or on a touch at the top, and hides again
+// The handle opens the tools and closes them again; they close by themselves 6 s after the last press, as on
+// XDesk Receiver
+const tools = $('tools');
 let barTimer = 0;
-function showBar(ms) {
-  bar.classList.remove('hidden');
+function openBar(open) {
   clearTimeout(barTimer);
-  barTimer = setTimeout(() => bar.classList.add('hidden'), ms || 3000);
+  tools.classList.toggle('hidden', !open);
+  bar.classList.toggle('open', open);
+  if (open) barTimer = setTimeout(() => openBar(false), 6000);
 }
-document.addEventListener('mousemove', e => { if (!locked() && e.clientY < 48) showBar(2500); });
-stage.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' && e.clientY < 60) showBar(4000); }, true);
-// With the mouse captured, Esc releases it: show the bar so it can be used
+$('handle').addEventListener('click', () => openBar(tools.classList.contains('hidden')));
+tools.addEventListener('click', e => { if (e.target.closest('button') && !tools.classList.contains('hidden')) openBar(true); });
+// With the mouse captured, Esc releases it: open the tools so they can be used
 document.addEventListener('pointerlockchange', () => {
-  if (!locked() && live) { mouseUnlockedOnPurpose = true; showBar(4000); setTimeout(() => { mouseUnlockedOnPurpose = false; }, 600); }
+  if (!locked() && live) { mouseUnlockedOnPurpose = true; openBar(true); setTimeout(() => { mouseUnlockedOnPurpose = false; }, 600); }
 });
 
 let flashTimer = 0;
