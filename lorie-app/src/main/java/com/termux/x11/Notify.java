@@ -105,10 +105,10 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     /** A reply field is taking the phone's keys (a banner's, or the panel's own). */
     private NotifyBanner replyBanner;
 
-    /** The low-battery banner now up (NOTIFY.md §4), and the strongest threshold said this charge. */
+    /** The low-battery banner now up (NOTIFY.md §4), and the thresholds said this charge: bit 0 5%, bit 1 15%. */
     private NotifyBanner batteryBannerView;
     private boolean batteryUp;
-    private int batteryDone;
+    private int batteryShown;
     /** The "unlock the phone" banner (NOTIFY.md §5), up while it is. */
     private NotifyBanner unlockBanner;
 
@@ -305,6 +305,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         if (p != null) p.slideOut(null);
         for (NotifyBanner b : new ArrayList<>(banners)) b.remove();
         banners.clear();
+        replyBanner = null;
         hideBell();
         if (arrow != null) arrow.remove();
         arrow = null;
@@ -418,17 +419,19 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     private void battery() {
         int level = center.batteryLevel();
         boolean charging = center.batteryCharging();
-        if (charging) batteryDone = 0;  // a new charge: both thresholds may speak again
+        if (charging) batteryShown = 0;  // a new charge: both thresholds may speak again
         int want = !charging && center.lowBatteryBanners() && level >= 0 ? (level <= 5 ? 5 : level <= 15 ? 15 : 0) : 0;
         if (want == 0) {
             // Charging, or back above the threshold: the banner goes
             if (batteryUp) closeBattery();
             return;
         }
-        if (want <= batteryDone) return;  // this threshold already said its piece (or its × went)
+        // Each threshold says its piece once: 15% when the phone passes it, and 5% later in the same discharge
+        int bit = want == 5 ? 1 : 2;
+        if ((batteryShown & bit) != 0) return;
         if (batteryUp) closeBattery();  // 15%'s banner gives way to 5%'s
         // Only said once it really showed: a panel in the way must not spend the threshold
-        if (showBatteryBanner(want)) batteryDone = want;
+        if (showBatteryBanner(want)) batteryShown |= bit;
     }
 
     private void closeBattery() {
@@ -850,7 +853,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
 
     @Override public void bannerClose(NotifyBanner b) {
         if (b == batteryBannerView) {
-            batteryUp = false;  // its × went: this threshold said its piece (batteryDone already holds it)
+            batteryUp = false;  // its × went: this threshold keeps its place in batteryShown
             batteryBannerView = null;
         }
         closeBanner(b);
@@ -861,8 +864,9 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     }
 
     @Override public void replyFocus(NotifyBanner b, boolean on) {
-        replyBanner = on ? b : null;
-        relayout();  // the reply field made the banner taller
+        // A banner going takes only its own reply: another one may have the keys by now
+        if (on || replyBanner == b) replyBanner = on ? b : null;
+        relayout();  // the reply field made the banner taller (or shorter)
     }
 
     @Override public void bannerGone(NotifyBanner b) {

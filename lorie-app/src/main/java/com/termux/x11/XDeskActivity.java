@@ -868,7 +868,8 @@ public class XDeskActivity extends Activity {
                     if (autoFinder == null || wireless.isActive()) return;
                     lastAutoConnect = SystemClock.uptimeMillis();
                     stopAutoReceiver();
-                    startWireless(r.host, r.port, r.name);
+                    // Anyone can announce the id: this connection only succeeds against a receiver that proves the token
+                    startWireless(r.host, r.port, r.name, true);
                 });
             }, "xdesk-receiver-probe").start();
         });
@@ -910,11 +911,15 @@ public class XDeskActivity extends Activity {
     }
 
     private void startWireless(String host, int port, String name) {
+        startWireless(host, port, name, false);
+    }
+
+    private void startWireless(String host, int port, String name, boolean auto) {
         if (!apps.injectorReady()) {
             Toast.makeText(this, R.string.xd_wireless_need_injector, Toast.LENGTH_LONG).show();
             return;
         }
-        wireless.start(host, port, name);
+        wireless.start(host, port, name, auto);
     }
 
     // --- 网页显示 ---
@@ -1485,6 +1490,8 @@ public class XDeskActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed = true;
+        // Back in front: the idle timer starts again (onPause took it, and a dimmed window, away)
+        bumpIdle();
         checkServerBuild();
         // NOTIFY.md §2.1: granted but not bound (HyperOS refused the system's rebind): ask while XDesk is in front
         NotifyCenter.get(this).rebindIfNeeded();
@@ -1562,12 +1569,17 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onPause() {
         resumed = false;
+        // A timer left behind would dim the phone's window while another app is in front, and it would stay dim
+        ui.removeCallbacks(dim);
+        if (dimmed) setDimmed(false);
         // Fingers leaving with the window would hold their buttons down
         if (gamepadShown) gamepadView.releaseAll();
         super.onPause();
     }
 
     @Override protected void onDestroy() {
+        // The pages own threads and listeners (the wireless picker's probe): closing them ends those
+        closeSettings();
         if (discoveryHeld) {
             discoveryHeld = false;
             MacDiscovery.release();
@@ -2586,7 +2598,8 @@ public class XDeskActivity extends Activity {
     private void bumpIdle() {
         ui.removeCallbacks(dim);
         if (dimmed) setDimmed(false);
-        if ((session.isActive() || apps.isActive()) && prefs.getBoolean(PREF_DIM, true)) ui.postDelayed(dim, wireless.inputSource() != null ? DIM_WITH_COMPUTER_MS : DIM_AFTER_MS);
+        // Not while another app is in front: the window would stay dim when the user comes back
+        if (resumed && (session.isActive() || apps.isActive()) && prefs.getBoolean(PREF_DIM, true)) ui.postDelayed(dim, wireless.inputSource() != null ? DIM_WITH_COMPUTER_MS : DIM_AFTER_MS);
     }
 
     private void setDimmed(boolean d) {
@@ -4393,6 +4406,7 @@ public class XDeskActivity extends Activity {
 
     /** 问 Termux 现在跑着什么，答了或等不到时都接着走。 */
     private void withFreshTermuxState(final Runnable then) {
+        if (isFinishing() || isDestroyed()) return;
         if (!installed(PKG_TERMUX) || checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             then.run();
             return;
@@ -4400,17 +4414,19 @@ public class XDeskActivity extends Activity {
         final boolean[] done = new boolean[1];
         final Runnable once = new Runnable() {
             @Override public void run() {
-                if (done[0]) return;
+                if (done[0] || isFinishing() || isDestroyed()) return;
                 done[0] = true;
                 then.run();
             }
         };
         boolean sent = TermuxCommand.run(this, TERMUX_STATE_COMMAND, new TermuxCommand.Callback() {
             @Override public void onOutput(String stdout) {
+                if (isFinishing() || isDestroyed()) return;
                 parseTermuxState(stdout);
                 once.run();
             }
             @Override public void onFailure(String message) {
+                if (isFinishing() || isDestroyed()) return;
                 termuxFailed(message);
                 once.run();
             }
@@ -4523,6 +4539,7 @@ public class XDeskActivity extends Activity {
     /** 列出环境和正在运行的东西。列不出时用上次的结果，并说明原因。 */
     private void refreshTermux() {
         ui.removeCallbacks(termuxNoReply);
+        if (isFinishing() || isDestroyed()) return;
         forgetGoneTermux();
         if (!installed(PKG_TERMUX)) {
             setChooserTermux(new ArrayList<String>(), null, null, false, getString(R.string.xd_termux_not_installed), null);
@@ -4535,8 +4552,12 @@ public class XDeskActivity extends Activity {
         // The last read's version notices stay until the new one replaces them
         setChooserTermux(savedSessions(), null, runningSession, false, null, termuxVersionHint);
         boolean sent = TermuxCommand.run(this, TERMUX_STATE_COMMAND, new TermuxCommand.Callback() {
-            @Override public void onOutput(String stdout) { parseTermuxState(stdout); }
-            @Override public void onFailure(String message) { termuxFailed(message); }
+            @Override public void onOutput(String stdout) {
+                if (!isFinishing() && !isDestroyed()) parseTermuxState(stdout);
+            }
+            @Override public void onFailure(String message) {
+                if (!isFinishing() && !isDestroyed()) termuxFailed(message);
+            }
         });
         if (sent) ui.postDelayed(termuxNoReply, TERMUX_REPLY_TIMEOUT_MS);
         else termuxNoReply.run();

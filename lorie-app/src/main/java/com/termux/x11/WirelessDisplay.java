@@ -98,8 +98,9 @@ final class WirelessDisplay {
     /** Phone → XDesk Receiver: u16 where the input method begins, 0 to 65535 down the picture; 65535 while it is not showing. */
     private static final int IME_AREA = 15;
     private static final int IME_NONE = 0xFFFF;
-    /** After a tap: when to look whether it opened the input method; while it shows, how often to look whether it went. */
-    private static final long[] IME_CHECKS_MS = {300, 900, 1800};
+    /** After a tap: when to look whether it opened the input method; while it shows, how often to look whether it went.
+     *  The looks are wider apart than InjectorService's dumpsys cache, so that a later one really reads the windows. */
+    private static final long[] IME_CHECKS_MS = {300, 2900};
     private static final long IME_WATCH_MS = 1000;
     private static final int CODEC_H264 = 0x68323634;
     private static final long PING_AFTER_MS = 2000;
@@ -260,6 +261,14 @@ final class WirelessDisplay {
      * shared, so the new one only begins once the old one has ended.
      */
     void start(final String host, final int port, final String name) {
+        start(host, port, name, false);
+    }
+
+    /**
+     * @param auto an automatic reconnection (the computer used last showed up again): only a receiver that proves it
+     *     holds the saved token is taken, and no pairing is started from it. A network can announce any id.
+     */
+    void start(final String host, final int port, final String name, final boolean auto) {
         stop();
         final Thread previous = worker, bye = byeThread;
         final Socket oldSocket = socket;
@@ -290,7 +299,7 @@ final class WirelessDisplay {
             receiverName = shownName;
             codes.clear();
             running = true;
-            run(host, port);
+            run(host, port, auto);
         }, "xdesk-wireless");
         starting = t;
         worker = t;
@@ -353,7 +362,7 @@ final class WirelessDisplay {
 
     // --- 连接和配对 ---
 
-    private void run(String host, int port) {
+    private void run(String host, int port, boolean requireProof) {
         Socket s = new Socket();
         try {
             socket = s;
@@ -363,7 +372,7 @@ final class WirelessDisplay {
             out = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 1 << 16));
             // While pairing nothing is read, so this only limits a receiver that does not answer
             s.setSoTimeout(TIMEOUT_MS);
-            int[] size = handshake(in);
+            int[] size = handshake(in, requireProof);
             if (size == null) return;
             receiverId = handshakeId;
             receiverDensity = size[2];
@@ -772,8 +781,13 @@ final class WirelessDisplay {
         fileUri = null;
     }
 
-    /** Returns width, height and density, or null when the receiver said no or the user gave up. */
-    private int[] handshake(DataInputStream in) throws IOException {
+    /**
+     * Returns width, height and density, or null when the receiver said no or the user gave up.
+     *
+     * @param requireProof an automatic reconnection: the receiver must prove it holds the saved token, and pairing
+     *     (which a network impostor could ask for) is not started here.
+     */
+    private int[] handshake(DataInputStream in, boolean requireProof) throws IOException {
         final String phoneNonce = randomHex(32);
         synchronized (writeLock) {
             out.write(MAGIC);
@@ -783,7 +797,7 @@ final class WirelessDisplay {
             writeString(phoneNonce);
             out.flush();
         }
-        boolean wrong = false;
+        boolean wrong = false, proven = false, pairedHere = false;
         while (true) {
             int status = in.readUnsignedByte();
             String id = readString(in), name = readString(in);
@@ -798,6 +812,13 @@ final class WirelessDisplay {
                         proof(token, "receiver", id, phoneNonce, nonce).getBytes(StandardCharsets.UTF_8),
                         theirs.getBytes(StandardCharsets.UTF_8))) {
                     answer = proof(token, "phone", id, phoneNonce, nonce);
+                    proven = true;
+                }
+                if (requireProof && !proven) {
+                    // An automatic connection only goes to the receiver that was paired; not even a code prompt.
+                    // No answer is sent: closing first is not a pairing the receiver could count as failed
+                    Log.i(TAG, "receiver " + receiverName + " did not prove the token");
+                    return null;
                 }
                 synchronized (writeLock) {
                     writeString(answer);
@@ -806,6 +827,13 @@ final class WirelessDisplay {
                 continue;
             }
             if (status == OK) {
+                // An OK can come from anyone: take it only from the receiver that proved the saved token here, or
+                // from one that has just taken the code the user typed here. Never store a token on a stranger's word
+                if (!proven && !pairedHere) {
+                    Log.i(TAG, "receiver " + receiverName + " sent OK without proof");
+                    if (requireProof) return null;
+                    throw new IOException("receiver did not prove its token");
+                }
                 String token = readString(in);
                 if (!token.isEmpty()) prefs.edit().putString("token_" + id, token).apply();
                 int w = in.readUnsignedShort(), h = in.readUnsignedShort(), dpi = in.readUnsignedShort();
@@ -823,12 +851,18 @@ final class WirelessDisplay {
                 return new int[]{size[0], size[1], densityFor(dpi, w, size[0])};
             }
             if (status == PAIR) {
+                if (requireProof) {
+                    // Only the code on the real receiver can pair; an automatic connection does not ask for one
+                    Log.i(TAG, "receiver " + receiverName + " asked for a code on an automatic connection");
+                    return null;
+                }
                 String code = askCode(wrong);
                 if (code == null) return null;
                 synchronized (writeLock) {
                     writeString(code);
                     out.flush();
                 }
+                pairedHere = true;
                 wrong = true;
                 continue;
             }
@@ -1335,7 +1369,8 @@ final class WirelessDisplay {
                 out = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 1 << 16));
             }
             String expected = receiverId, name = receiverName;
-            int[] size = handshake(in);
+            // A reconnection is automatic too: only the receiver that proves the saved token gets the display back
+            int[] size = handshake(in, true);
             if (size == null) throw new IOException("refused");
             // Only the same receiver takes up the kept display, whoever answers at its old address
             if (expected != null && !expected.equals(handshakeId)) {
