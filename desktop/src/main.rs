@@ -720,6 +720,11 @@ fn main() -> Result<(), String> {
             }
             let x = (area.0.saturating_sub(n.width) / 2) as i32;
             let y = if streaming { (TOAST_TOP as f32 * scale) as i32 } else { (area.1.saturating_sub(n.height) / 2) as i32 };
+            if streaming {
+                // White words straight on the picture were lost on a light one (the low-latency switch said nothing)
+                canvas.set_draw_color(Color::RGBA(29, 29, 31, 220));
+                canvas.fill_rect(Rect::new(x, y, n.width, n.height))?;
+            }
             canvas.copy(&n.texture, None, Some(Rect::new(x, y, n.width, n.height)))?;
         }
         if let Some(p) = panel_image.as_ref().filter(|_| panel_on) {
