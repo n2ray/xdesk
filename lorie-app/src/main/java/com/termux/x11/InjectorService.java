@@ -272,7 +272,7 @@ public class InjectorService extends IInjector.Stub {
      * an unknown answer keeps the Shizuku path working, where Shizuku already gives the Binder to XDesk alone.
      */
     private static boolean isXDesk(int uid) {
-        int app = android.os.UserHandle.getAppId(uid);
+        int app = uid % 100000;  // UserHandle.getAppId (hidden): the uid within its user
         if (xdeskAppId == app) return true;
         if (xdeskAppId == -1) return true;
         synchronized (InjectorService.class) {
