@@ -3140,6 +3140,9 @@ public class XDeskActivity extends Activity {
         for (int id : inputs.getInputDeviceIds()) {
             InputDevice d = inputs.getInputDevice(id);
             if (d == null || !d.isExternal() || d.isVirtual()) continue;
+            // XDesk's own keyboard (UhidKeyboard, for a Mac's or a browser's typing into Android apps) looks like a
+            // physical one to Android: it is not one the phone could give away
+            if (UhidKeyboard.NAME.equals(d.getName())) continue;
             if (d.supportsSource(InputDevice.SOURCE_MOUSE) || d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return true;
         }
         return false;
