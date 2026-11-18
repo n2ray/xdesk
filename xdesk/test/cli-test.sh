@@ -5,7 +5,7 @@ set -u
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 XDESK=$here/xdesk
-TMP=$(mktemp -d)
+TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "${TMP:?}"' EXIT
 export HOME=$TMP/home
 export PREFIX=$TMP/prefix
