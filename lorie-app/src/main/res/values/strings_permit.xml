@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The one permission card (PermitCard): amber, a key, "Turn on «X»", why, where, a button -->
+    <string name="xd_permit_title">Turn on “%1$s”</string>
+    <string name="xd_permit_open">Turn on ›</string>
+    <string name="xd_permit_open_phone">Open on the phone ›</string>
+    <string name="xd_permit_done">Turned on</string>
+    <string name="xd_permit_not_now">Not now</string>
+    <string name="xd_permit_details">App details ›</string>
+
+    <string name="xd_permit_notify_access">Notification access</string>
+    <string name="xd_permit_notify_access_why">So XDesk can show the phone\'s notifications on the external screen. They stay in memory only: never stored, never sent anywhere.</string>
+    <string name="xd_permit_list_path">On the next page, find XDesk and turn its switch on</string>
+    <string name="xd_permit_restricted_link">Switch greyed out? On the app details page, tap ⋮ at the top right → “Allow restricted settings”</string>
+    <string name="xd_permit_autostart">Autostart</string>
+    <string name="xd_permit_autostart_why">Without it, the phone does not let XDesk\'s notification service start, so no notifications come in.</string>
+    <string name="xd_permit_autostart_path">Turn XDesk on in the list on the next page; it is also under Settings › Apps › XDesk</string>
+    <string name="xd_permit_rebind_why">The system has not connected XDesk\'s notification service yet. Turn XDesk\'s switch off and on again.</string>
+    <string name="xd_permit_dnd">Do Not Disturb access</string>
+    <string name="xd_permit_dnd_why">So the Do Not Disturb switch on the external screen can set the phone\'s, like the one in Quick Settings.</string>
+    <string name="xd_permit_post">Notifications</string>
+    <string name="xd_permit_post_why">So you can type the pairing code right in XDesk\'s notification, without switching between pages.</string>
+    <string name="xd_permit_post_desktop_why">While a desktop runs, one notification stays; tap it to come back to XDesk. Works without it too.</string>
+    <string name="xd_permit_post_path">Not required: open XDesk in split screen or a floating window and type it on its page</string>
+    <string name="xd_permit_overlay">Display over other apps</string>
+    <string name="xd_permit_overlay_cover_why">So the clock can cover the external screen while it is locked.</string>
+    <string name="xd_permit_overlay_dash_why">So this screen can show the launcher. Until then, choose apps on the phone.</string>
+    <string name="xd_permit_overlay_path">On the next page, turn on “Allow display over other apps”</string>
+    <string name="xd_permit_run_command">Run commands in Termux</string>
+    <string name="xd_permit_run_command_why">So XDesk can start and end desktops in Termux for you, and list Termux\'s environments.</string>
+    <string name="xd_permit_run_command_path">The system asks you next</string>
+    <string name="xd_permit_run_command_denied_path">Refused before: allow “Run commands in Termux environment” under App details › Permissions › Additional permissions. Or run xdesk start in Termux yourself</string>
+    <string name="xd_permit_camera">Camera</string>
+    <string name="xd_permit_camera_why">To scan the QR code Sill shows on the Mac. Without it, go back and add the Mac by address.</string>
+    <string name="xd_permit_camera_path">Allow the camera under App details › Permissions</string>
+    <string name="xd_permit_shizuku">Shizuku permission</string>
+    <string name="xd_permit_write_secure">Modify system settings</string>
+    <string name="xd_permit_write_secure_path">Only adb on a computer can grant this:\nadb shell settings put global tether_force_usb_functions 1</string>
+    <string name="xd_web_ncm_why">So XDesk can switch USB tethering to NCM.</string>
+    <string name="xd_permit_copy">Copy command</string>
+    <string name="xd_permit_mac_access">Accessibility</string>
+    <string name="xd_permit_mac_path">On the Mac: System Settings › Privacy &amp; Security › Accessibility › allow Sill</string>
+</resources>

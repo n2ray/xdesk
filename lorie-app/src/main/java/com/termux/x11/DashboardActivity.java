@@ -1,6 +1,13 @@
 package com.termux.x11;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+import android.util.Log;
+import android.view.Gravity;
+import android.widget.FrameLayout;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.Display;
@@ -29,6 +36,8 @@ public class DashboardActivity extends Activity {
     }
 
     private DashboardView view;
+    /** PermitCard while XDesk may not draw over other apps (owner, 2026-11-18); gone once it may. */
+    private android.view.View permit;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -41,7 +50,9 @@ public class DashboardActivity extends Activity {
         instance = new WeakReference<>(this);
         getWindow().setDecorFitsSystemWindows(false);
         view = new DashboardView(this, getString(R.string.xd_dash_choose), true);
-        setContentView(view);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(view, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
         getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
     }
 
@@ -49,8 +60,37 @@ public class DashboardActivity extends Activity {
         super.onStart();
         // The switchboard is drawn over this as an overlay window. Without the permission for that there is only this
         // window: it says what is missing, and that the phone's list works meanwhile
-        if (view != null) view.setHint(getString(android.provider.Settings.canDrawOverlays(this) ? R.string.xd_dash_choose : R.string.xd_dash_no_overlay));
+        if (view != null) view.setHint(getString(R.string.xd_dash_choose));
+        if (view != null) showPermit(!Settings.canDrawOverlays(this));
         if (view != null) view.start();
+    }
+
+    /** The card over the dashboard: its button opens the system's page on the phone, where the switch is. */
+    private void showPermit(boolean show) {
+        if (!show) {
+            if (permit != null) ((FrameLayout) permit.getParent()).removeView(permit);
+            permit = null;
+            return;
+        }
+        if (permit != null) return;
+        float density = getResources().getDisplayMetrics().density;
+        permit = new PermitCard(this, density, getString(R.string.xd_permit_overlay), getString(R.string.xd_permit_overlay_dash_why),
+            getString(R.string.xd_permit_overlay_path), PermitCard.ON_PHONE, null, this::openOverlaySettingsOnPhone, null).view;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Math.round(Math.min(420 * density,
+            getResources().getDisplayMetrics().widthPixels * 0.8f)), -2, Gravity.CENTER);
+        ((FrameLayout) view.getParent()).addView(permit, lp);
+    }
+
+    private void openOverlaySettingsOnPhone() {
+        Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            ActivityOptions o = ActivityOptions.makeBasic();
+            o.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+            startActivity(i, o.toBundle());
+        } catch (RuntimeException e) {
+            Log.w("XDeskDash", "no overlay settings", e);
+        }
     }
 
     /** Covered by an app or a desktop: nothing to update. */

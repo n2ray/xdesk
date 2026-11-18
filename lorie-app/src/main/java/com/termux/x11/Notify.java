@@ -942,14 +942,14 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             return;
         }
         center.setPolicyAsked();
-        new SettingsUi(a).confirm(a.getString(R.string.xd_notify_dnd_title), a.getString(R.string.xd_notify_dnd_message),
-            a.getString(R.string.xd_notify_dnd_open), () -> {
+        new SettingsUi(a).permitSheet(a.getString(R.string.xd_permit_dnd), a.getString(R.string.xd_permit_dnd_why),
+            a.getString(R.string.xd_permit_list_path), null, () -> {
                 try {
                     a.startActivity(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS));
                 } catch (RuntimeException e) {
                     Log.w(TAG, "no policy access settings", e);
                 }
-            });
+            }, null);
     }
 
     // --- opening a notification (NOTIFY.md §5) ---

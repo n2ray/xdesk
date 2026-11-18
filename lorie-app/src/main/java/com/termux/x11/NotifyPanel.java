@@ -428,22 +428,12 @@ final class NotifyPanel {
 
     /** NOTIFY.md §2.1: the access is there but the system has not bound the listener — why, and the way to fix it. */
     private View notConnected() {
-        LinearLayout box = new LinearLayout(dc);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(10), dp(10), dp(10), dp(10));
-        GradientDrawable back = new GradientDrawable();
-        back.setColor(0x33F2B33D);
-        back.setCornerRadius(dp(10));
-        box.setBackground(back);
-        TextView t = label(Style.TEXT, 13, false);
-        t.setText(NotifyCenter.hasAutostartSwitch(dc) ? R.string.xd_notify_unbound_miui : R.string.xd_notify_unbound);
-        box.addView(t, new LinearLayout.LayoutParams(-1, -2));
-        TextView fix = smallButton(dc.getString(NotifyCenter.hasAutostartSwitch(dc) ? R.string.xd_notify_unbound_fix_miui
-            : R.string.xd_notify_unbound_fix), host::fixConnection);
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, -2);
-        fp.topMargin = dp(6);
-        box.addView(fix, fp);
-        return box;
+        // PermitCard's look (owner, 2026-11-18): MIUI's autostart, elsewhere the access switch once more; on the phone
+        boolean miui = NotifyCenter.hasAutostartSwitch(dc);
+        return new PermitCard(dc, density, dc.getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
+            dc.getString(miui ? R.string.xd_permit_autostart_why : R.string.xd_permit_rebind_why),
+            dc.getString(miui ? R.string.xd_permit_autostart_path : R.string.xd_permit_list_path),
+            PermitCard.ON_PHONE, null, host::fixConnection, null).view;
     }
 
     /** The clock and the battery (NOTIFY.md §4's header), again every minute while the panel is open. */

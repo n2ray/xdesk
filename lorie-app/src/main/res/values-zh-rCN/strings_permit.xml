@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 统一的权限卡（PermitCard）：琥珀色、钥匙、"需要打开「X」"、为什么、在哪、按钮 -->
+    <string name="xd_permit_title">需要打开「%1$s」</string>
+    <string name="xd_permit_open">去开启 ›</string>
+    <string name="xd_permit_open_phone">在手机上打开 ›</string>
+    <string name="xd_permit_done">已开启</string>
+    <string name="xd_permit_not_now">以后再说</string>
+    <string name="xd_permit_details">去应用详情页 ›</string>
+
+    <string name="xd_permit_notify_access">通知使用权</string>
+    <string name="xd_permit_notify_access_why">XDesk 才能把手机的通知放到外屏上。内容只在内存里，不落盘、不外传。</string>
+    <string name="xd_permit_list_path">在下一页的列表里找到 XDesk，打开开关</string>
+    <string name="xd_permit_restricted_link">开关是灰的？在应用详情页右上角 ⋮ 里点「允许受限制的设置」</string>
+    <string name="xd_permit_autostart">自启动</string>
+    <string name="xd_permit_autostart_why">没有它，手机系统不让 XDesk 的通知服务启动，通知进不来。</string>
+    <string name="xd_permit_autostart_path">在下一页的列表里打开 XDesk；也可以在 设置 › 应用 › XDesk 里找到</string>
+    <string name="xd_permit_rebind_why">系统还没接上 XDesk 的通知服务。把 XDesk 的开关关掉再打开一次就好。</string>
+    <string name="xd_permit_dnd">勿扰权限</string>
+    <string name="xd_permit_dnd_why">外屏上的勿扰开关才能切换手机的勿扰，和系统快捷开关里的一样。</string>
+    <string name="xd_permit_post">通知</string>
+    <string name="xd_permit_post_why">配对码可以直接在 XDesk 的通知里输入，不用在两个页面之间来回切。</string>
+    <string name="xd_permit_post_desktop_why">桌面运行时通知栏里留一条，点它就回到 XDesk。不开也能用。</string>
+    <string name="xd_permit_post_path">不开也行：分屏或小窗打开 XDesk，在它的页面里输入</string>
+    <string name="xd_permit_overlay">显示在其他应用上层</string>
+    <string name="xd_permit_overlay_cover_why">外屏锁定时才能用时钟遮住内容。</string>
+    <string name="xd_permit_overlay_dash_why">这块屏上才能显示启动台。在那之前，请在手机上选择应用。</string>
+    <string name="xd_permit_overlay_path">在下一页打开「允许显示在其他应用上层」</string>
+    <string name="xd_permit_run_command">运行 Termux 命令</string>
+    <string name="xd_permit_run_command_why">XDesk 才能替你启动、结束 Termux 里的桌面，并列出 Termux 环境。</string>
+    <string name="xd_permit_run_command_path">下一步由系统询问你是否允许</string>
+    <string name="xd_permit_run_command_denied_path">之前拒绝过：在应用详情 › 权限 › 其他权限里允许「运行 Termux 命令」。也可以在 Termux 里自己运行 xdesk start</string>
+    <string name="xd_permit_camera">相机</string>
+    <string name="xd_permit_camera_why">用来扫 Mac 上 Sill 显示的二维码。不想开的话，可以返回改用地址添加 Mac。</string>
+    <string name="xd_permit_camera_path">在应用详情 › 权限 里允许相机</string>
+    <string name="xd_permit_shizuku">Shizuku 授权</string>
+    <string name="xd_permit_write_secure">修改系统设置</string>
+    <string name="xd_permit_write_secure_path">这项只能在电脑上用 adb 给：\nadb shell settings put global tether_force_usb_functions 1</string>
+    <string name="xd_web_ncm_why">XDesk 才能把 USB 网络共享切成 NCM。</string>
+    <string name="xd_permit_copy">复制命令</string>
+    <string name="xd_permit_mac_access">辅助功能</string>
+    <string name="xd_permit_mac_path">在 Mac 上：系统设置 › 隐私与安全性 › 辅助功能 › 允许 Sill</string>
+</resources>

@@ -277,6 +277,42 @@ final class SettingsUi {
         return confirm(title, message, action, c.getString(R.string.xd_cancel), onConfirm);
     }
 
+    /** A PermitCard for a page on the phone; add it with addTo. */
+    PermitCard permit(String what, String why, String path, Runnable open, java.util.function.BooleanSupplier granted) {
+        return new PermitCard(c, c.getResources().getDisplayMetrics().density, what, why, path, PermitCard.HERE, null, open, granted);
+    }
+
+    /**
+     * A permission asked for at a moment rather than on a page: the PermitCard in a sheet, "Not now" under it. The
+     * card's button closes the sheet and runs {@code open}; closing it any other way runs {@code notNow} (may be null).
+     */
+    Dialog permitSheet(String what, String why, String path, String action, Runnable open, Runnable notNow) {
+        final Dialog[] d = new Dialog[1];
+        final boolean[] opened = new boolean[1];
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        PermitCard card = new PermitCard(c, c.getResources().getDisplayMetrics().density, what, why, path, PermitCard.HERE,
+            action, () -> {
+                opened[0] = true;
+                d[0].dismiss();
+                open.run();
+            }, null);
+        box.addView(card.view, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout row = new LinearLayout(c);
+        row.setGravity(Gravity.END);
+        TextView later = pill(c.getString(R.string.xd_permit_not_now), Style.SURFACE_RAISED);
+        later.setOnClickListener(v -> d[0].dismiss());
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.topMargin = dp(10);
+        row.addView(later, pillParams());
+        box.addView(row, rp);
+        d[0] = sheet(null, null, box);
+        d[0].setOnDismissListener(x -> {
+            if (!opened[0] && notNow != null) notNow.run();
+        });
+        return d[0];
+    }
+
     /** confirm with its own word for not now. */
     Dialog confirm(String title, String message, String action, String cancelLabel, final Runnable onConfirm) {
         LinearLayout row = new LinearLayout(c);

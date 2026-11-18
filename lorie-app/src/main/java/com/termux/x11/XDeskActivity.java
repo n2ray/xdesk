@@ -204,6 +204,8 @@ public class XDeskActivity extends Activity {
     private String desktopName;
     private int lastOrientation;
     private TextView setupTitle, setupMessage, setupAction, setupSecond, setupBack;
+    /** The key over the title when the setup page asks for a permission (PermitCard's look). */
+    private ImageView setupKey;
     private ProgressBar setupProgress;
     private TextView statusText, diagText;
     /** Holds the status dot and text: shown only for warnings and errors, the buttons already say the rest. */
@@ -1130,10 +1132,11 @@ public class XDeskActivity extends Activity {
                     d[0].dismiss();
                     ui.postDelayed(this::showWebPage, 300);
                 } else {
-                    s.confirm(getString(R.string.xd_web_ncm), getString(R.string.xd_web_ncm_need_permission), getString(R.string.xd_web_copy), () -> {
+                    s.permitSheet(getString(R.string.xd_permit_write_secure), getString(R.string.xd_web_ncm_why),
+                        getString(R.string.xd_permit_write_secure_path), getString(R.string.xd_permit_copy), () -> {
                         android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", "adb shell settings put global tether_force_usb_functions 1"));
-                    });
+                    }, null);
                 }
             });
         s.valueRow(wired, getString(R.string.xd_web_tethering), getString(R.string.xd_web_tethering_note), "", this::openTetherSettings);
@@ -1265,7 +1268,9 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onTermuxHint() {
             if (installed(PKG_TERMUX) && checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{PERM}, REQ_LIST_SESSIONS);
+                showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
+                    getString(R.string.xd_permit_run_command_path), null, v -> requestPermissions(new String[]{PERM}, REQ_LIST_SESSIONS));
+                addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
             } else {
                 refreshTermux();
             }
@@ -1478,6 +1483,10 @@ public class XDeskActivity extends Activity {
         checkServerBuild();
         // NOTIFY.md §2.1: granted but not bound (HyperOS refused the system's rebind): ask while XDesk is in front
         NotifyCenter.get(this).rebindIfNeeded();
+        // Back from a system page: permission cards whose permission came say so (the rebind takes a moment)
+        PermitCard.recheck();
+        ui.postDelayed(PermitCard::recheck, 1500);
+        ui.postDelayed(PermitCard::recheck, 4500);
         // Back on this window, perhaps from a terminal where the X side's input method was set up or stopped
         if (session.isActive()) ui.post(syncTermux);
         ensureDashboard();
@@ -1653,6 +1662,13 @@ public class XDeskActivity extends Activity {
         name.setLetterSpacing(0.1f);
         name.setGravity(Gravity.CENTER);
         s.addView(name, new LinearLayout.LayoutParams(-2, -2));
+
+        setupKey = new ImageView(this);
+        setupKey.setImageDrawable(new PermitCard.KeyIcon(Style.WARN));
+        setupKey.setVisibility(View.GONE);
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        kp.topMargin = dp(24);
+        s.addView(setupKey, kp);
 
         setupTitle = new TextView(this);
         setupTitle.setTextColor(Style.TEXT);
@@ -2432,6 +2448,10 @@ public class XDeskActivity extends Activity {
         displayNoticeShown = false;
         setupScreen.setVisibility(View.VISIBLE);
         applyFullscreen();
+        setupKey.setVisibility(View.GONE);
+        setupTitle.setTextColor(Style.TEXT);
+        setupAction.setBackground(Style.ripple(this, Style.ACCENT, 24));
+        setupAction.setTextColor(Style.TEXT);
         setupTitle.setText(title);
         setupMessage.setText(message);
         setupProgress.setVisibility(progress ? View.VISIBLE : View.GONE);
@@ -2441,6 +2461,36 @@ public class XDeskActivity extends Activity {
             setupAction.setOnClickListener(onAction);
         }
         setupSecond.setVisibility(View.GONE);
+    }
+
+    /**
+     * The setup page asking for a permission, in PermitCard's look: the amber key, "Turn on «what»", why and where,
+     * and the amber button (the usual word when {@code action} is null).
+     */
+    private void showPermitSetup(String what, String why, String path, String action, View.OnClickListener onAction) {
+        showSetup(getString(R.string.xd_permit_title, what), path != null ? why + "\n\n" + path : why, false,
+            action != null ? action : getString(R.string.xd_permit_open), onAction);
+        setupKey.setVisibility(View.VISIBLE);
+        setupAction.setBackground(Style.ripple(this, Style.WARN, 24));
+        setupAction.setTextColor(0xFF1A1405);
+    }
+
+    /** The system's page for "display over other apps", for XDesk. */
+    private void openOverlaySettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no overlay settings", e);
+        }
+    }
+
+    /** The app's details page in the system's settings (its permissions, "allow restricted settings"). */
+    private void openAppDetails() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no app details page", e);
+        }
     }
 
     /** 紧接着 showSetup 调用：多一个次要的选择。 */
@@ -2975,6 +3025,10 @@ public class XDeskActivity extends Activity {
         s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true), on -> {
             prefs.edit().putBoolean(PREF_COVER, on).apply();
         });
+        if (!Settings.canDrawOverlays(this)) {
+            s.permit(getString(R.string.xd_permit_overlay), getString(R.string.xd_permit_overlay_cover_why),
+                getString(R.string.xd_permit_overlay_path), this::openOverlaySettings, () -> Settings.canDrawOverlays(this)).addTo(external);
+        }
         if (!appMode) {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(external, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
@@ -2993,9 +3047,8 @@ public class XDeskActivity extends Activity {
         prefs.edit().putBoolean(PREF_NOTIFY_ACCESS_OFFERED, true).putBoolean(PREF_NOTIFY_ACCESS_ASKED, true).apply();
         ui.post(() -> {
             if (isFinishing() || NotifyCenter.accessGranted(this)) return;
-            ui().confirm(getString(R.string.xd_notify_access_title), getString(R.string.xd_notify_access_offer),
-                getString(R.string.xd_notify_access_open), getString(R.string.xd_notify_access_later),
-                () -> NotifyCenter.openAccessSettings(this));
+            ui().permitSheet(getString(R.string.xd_permit_notify_access), getString(R.string.xd_notify_access_offer),
+                getString(R.string.xd_permit_list_path), null, () -> NotifyCenter.openAccessSettings(this), null);
         });
     }
 
@@ -3022,45 +3075,42 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         boolean granted = NotifyCenter.accessGranted(this);
+        // PermitCard (owner, 2026-11-18): what is missing is said at the top, in the one look of a permission to turn on
         if (!granted) {
-            pageNote(c, R.string.xd_notify_access_note);
-            // Explained once (NOTIFY.md §2), then the system's page; afterwards the row below says how to get back
-            if (!prefs.getBoolean(PREF_NOTIFY_ACCESS_ASKED, false)) {
-                prefs.edit().putBoolean(PREF_NOTIFY_ACCESS_ASKED, true).apply();
-                s.confirm(getString(R.string.xd_notify_access_title), getString(R.string.xd_notify_access_message),
-                    getString(R.string.xd_notify_access_open), () -> NotifyCenter.openAccessSettings(this));
-            }
+            PermitCard card = s.permit(getString(R.string.xd_permit_notify_access), getString(R.string.xd_permit_notify_access_why),
+                getString(R.string.xd_permit_list_path), () -> NotifyCenter.openAccessSettings(this),
+                () -> NotifyCenter.accessGranted(this));
+            // Android 13 on: an app not installed by a store must first be let through ("restricted settings"), else the
+            // system's switch is grey. Where to do that, and the app's details page to do it on (owner, 2026-11-15)
+            if (android.os.Build.VERSION.SDK_INT >= 33) card.link(getString(R.string.xd_permit_restricted_link), this::openAppDetails);
+            card.addTo(c);
+        } else if (!center.connected()) {
+            // NOTIFY.md §2.1: granted is not bound. MIUI: XDesk may not start itself; elsewhere the switch once more
+            boolean miui = NotifyCenter.hasAutostartSwitch(this);
+            s.permit(getString(miui ? R.string.xd_permit_autostart : R.string.xd_permit_notify_access),
+                getString(miui ? R.string.xd_permit_autostart_why : R.string.xd_permit_rebind_why),
+                getString(miui ? R.string.xd_permit_autostart_path : R.string.xd_permit_list_path), () -> {
+                    center.rebindIfNeeded();
+                    if (miui) NotifyCenter.openAutostartSettings(this);
+                    else NotifyCenter.openAccessSettings(this);
+                }, center::connected).addTo(c);
         }
         LinearLayout show = s.card(c);
         s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(), center::setNotifyOn);
         s.segmentedRow(show, getString(R.string.xd_notify_content), getString(R.string.xd_notify_content_note),
             new String[]{getString(R.string.xd_notify_content_all), getString(R.string.xd_notify_content_name), getString(R.string.xd_notify_content_none)},
             center.bannerContent(), center::setBannerContent);
+        // The state rows stay below for whoever wants to turn it off again
         s.valueRow(show, getString(R.string.xd_notify_access), null,
             granted ? getString(R.string.xd_notify_access_on) : getString(R.string.xd_notify_access_off),
             () -> NotifyCenter.openAccessSettings(this));
-        // NOTIFY.md §2.1: granted is not bound. Said here too, with the way to fix it (MIUI: let XDesk start itself)
         if (granted) {
             boolean bound = center.connected();
-            boolean miui = NotifyCenter.hasAutostartSwitch(this);
-            s.valueRow(show, getString(R.string.xd_notify_link), bound ? null
-                    : getString(miui ? R.string.xd_notify_unbound_miui : R.string.xd_notify_unbound),
+            s.valueRow(show, getString(R.string.xd_notify_link), null,
                 getString(bound ? R.string.xd_notify_link_on : R.string.xd_notify_link_off), () -> {
                     center.rebindIfNeeded();
-                    if (miui) NotifyCenter.openAutostartSettings(this);
+                    if (NotifyCenter.hasAutostartSwitch(this)) NotifyCenter.openAutostartSettings(this);
                     else NotifyCenter.openAccessSettings(this);
-                });
-        }
-        // Android 13 on: an app not installed by a store must first be let through ("restricted settings"), else the
-        // system's switch is grey. Where to do that, and the app's details page to do it on (owner, 2026-11-15)
-        if (!granted && android.os.Build.VERSION.SDK_INT >= 33) {
-            s.valueRow(show, getString(R.string.xd_notify_restricted), getString(R.string.xd_notify_restricted_note),
-                getString(R.string.xd_notify_restricted_open), () -> {
-                    try {
-                        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
-                    } catch (RuntimeException e) {
-                        Log.w(TAG, "no app details page", e);
-                    }
                 });
         }
         LinearLayout per = s.card(c);
@@ -4860,9 +4910,10 @@ public class XDeskActivity extends Activity {
             else showShizukuSetup();
         } else if (!Settings.canDrawOverlays(this)) {
             closeActivation();
-            showSetup(getString(R.string.xd_overlay_title), getString(R.string.xd_overlay_message), false, getString(R.string.xd_open_settings), new View.OnClickListener() {
+            showPermitSetup(getString(R.string.xd_permit_overlay), getString(R.string.xd_overlay_message),
+                getString(R.string.xd_permit_overlay_path), null, new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                    openOverlaySettings();
                 }
             });
         } else {
@@ -4941,17 +4992,26 @@ public class XDeskActivity extends Activity {
     }
 
     /** 通知权限只问一次：拒绝过就不再弹，没有通知也能用。@return 问了，结果在 onRequestPermissionsResult */
-    private boolean askNotificationsOnce() {
+    private boolean askNotificationsOnce(boolean pairing) {
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             || prefs.getBoolean(PREF_NOTIFICATIONS_ASKED, false)) return false;
         prefs.edit().putBoolean(PREF_NOTIFICATIONS_ASKED, true).apply();
-        requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+        // Said first in PermitCard's look; "Not now" goes on without it (the page has its own field)
+        ui().permitSheet(getString(R.string.xd_permit_post), getString(pairing ? R.string.xd_permit_post_why : R.string.xd_permit_post_desktop_why),
+            pairing ? getString(R.string.xd_permit_post_path) : null, null,
+            () -> requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS),
+            () -> {
+                if (pairingAfterPermission) {
+                    pairingAfterPermission = false;
+                    startPairingService();
+                }
+            });
         return true;
     }
 
     /** 配对框开着时才有配对码，所以先把找端口的服务开起来，用户在系统设置里也能从通知输入。 */
     private void beginPairing() {
-        if (askNotificationsOnce()) {
+        if (askNotificationsOnce(true)) {
             pairingAfterPermission = true;
             return;
         }
@@ -5004,14 +5064,14 @@ public class XDeskActivity extends Activity {
             });
         } else if (shizuku == AppSession.SHIZUKU_NO_PERMISSION) {
             if (apps.permissionDeniedForGood()) {
-                showSetup(getString(R.string.xd_shizuku_denied_title), getString(R.string.xd_shizuku_denied), false, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
+                showPermitSetup(getString(R.string.xd_permit_shizuku), getString(R.string.xd_shizuku_denied), null, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
                         if (open != null) startActivity(open);
                     }
                 });
             } else {
-                showSetup(getString(R.string.xd_shizuku_ask_title), getString(R.string.xd_shizuku_ask), false, getString(R.string.xd_shizuku_ask_action), new View.OnClickListener() {
+                showPermitSetup(getString(R.string.xd_permit_shizuku), getString(R.string.xd_shizuku_ask), null, null, new View.OnClickListener() {
                     @Override public void onClick(View v) { apps.requestPermission(); }
                 });
             }
@@ -5092,7 +5152,11 @@ public class XDeskActivity extends Activity {
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             pendingSession = name;
             pendingReplace = replace;
-            requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND);
+            // Said first in PermitCard's look, then the system asks (owner, 2026-11-18)
+            showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
+                getString(R.string.xd_permit_run_command_path), null,
+                v -> requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND));
+            addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
             return;
         }
         pendingSession = name;
@@ -5107,7 +5171,7 @@ public class XDeskActivity extends Activity {
             }
             attachDisplay(d);
         }
-        askNotificationsOnce();
+        askNotificationsOnce(false);
         // "NAME+apps" is the light X a Linux program is opened on: no desktop is starting
         boolean light = name != null && name.endsWith(Devices.APPS_ONLY);
         showSetup(getString(light ? R.string.xd_starting_x_title : R.string.xd_starting_desktop_title), getString(R.string.xd_starting_desktop), true, null, null);
@@ -5137,6 +5201,7 @@ public class XDeskActivity extends Activity {
             return;
         }
         if (r == REQ_LIST_SESSIONS) {
+            backToChooser();
             refreshTermux();
             return;
         }
@@ -5145,11 +5210,9 @@ public class XDeskActivity extends Activity {
             launchDesktop(pendingSession, pendingReplace);
             return;
         }
-        showSetup(getString(R.string.xd_run_command_denied_title), getString(R.string.xd_run_command_denied), false, getString(R.string.xd_open_settings), new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
-            }
-        });
+        showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
+            getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), v -> openAppDetails());
+        addSetupChoice(getString(R.string.xd_back_to_launcher), v -> backToChooser());
     }
 
     private void showConnectFailure() {
@@ -5287,7 +5350,8 @@ public class XDeskActivity extends Activity {
         // Nothing to lose with only the light X and no window open: no question then
         boolean asks = stopAsks();
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
-            ui().confirm(getString(R.string.xd_end_desktop_title), getString(R.string.xd_end_desktop_no_permission), getString(R.string.xd_ok), null);
+            ui().permitSheet(getString(R.string.xd_permit_run_command), getString(R.string.xd_end_desktop_no_permission),
+                getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), this::openAppDetails, null);
             return;
         }
         if (!asks) {

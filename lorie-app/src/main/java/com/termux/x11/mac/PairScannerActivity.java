@@ -50,6 +50,8 @@ public final class PairScannerActivity extends Activity {
     private BarcodeView camera;
     private TextView status;
     private boolean active, completed;
+    /** The camera permission's card while it is missing. */
+    private android.view.View permitCard;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -136,7 +138,30 @@ public final class PairScannerActivity extends Activity {
         super.onRequestPermissionsResult(request, permissions, results);
         if (request != CAMERA_REQUEST) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startCamera();
-        else status.setText(getString(R.string.xd_mac_scan_denied));
+        else showCameraPermit();
+    }
+
+    /** No camera: the one permission card (PermitCard) in place of the picture, its button the app's details page. */
+    private void showCameraPermit() {
+        if (permitCard != null) return;
+        camera.setVisibility(android.view.View.GONE);
+        status.setVisibility(android.view.View.GONE);
+        LinearLayout root = (LinearLayout) camera.getParent();
+        android.view.View card = permitCard = new com.termux.x11.PermitCard(this, getResources().getDisplayMetrics().density,
+            getString(R.string.xd_permit_camera), getString(R.string.xd_permit_camera_why), getString(R.string.xd_permit_camera_path),
+            com.termux.x11.PermitCard.HERE, getString(R.string.xd_permit_details), () -> {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + getPackageName())));
+                } catch (RuntimeException e) {
+                    status.setVisibility(android.view.View.VISIBLE);
+                    status.setText(getString(R.string.xd_mac_scan_denied));
+                }
+            }, null).view;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(16);
+        lp.bottomMargin = dp(16);
+        root.addView(card, root.indexOfChild(camera), lp);
     }
 
     /** Leaving without a scan (cancel, back) leaves no pending receiver behind; a recreation keeps it. */
@@ -147,6 +172,12 @@ public final class PairScannerActivity extends Activity {
     }
 
     private void startCamera() {
+        if (permitCard != null && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            ((LinearLayout) permitCard.getParent()).removeView(permitCard);
+            permitCard = null;
+            camera.setVisibility(android.view.View.VISIBLE);
+            status.setVisibility(android.view.View.VISIBLE);
+        }
         if (active && !completed && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                 && getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) camera.resume();
     }
