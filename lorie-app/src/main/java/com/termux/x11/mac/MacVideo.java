@@ -268,6 +268,11 @@ final class MacVideo {
     private final MediaCodec.OnFrameRenderedListener frameRendered = (c, presentationTimeUs, nanoTime) -> {
         synchronized (MacVideo.this) {
             if (c != codec) return;
+            // Some decoders (this phone's) give the render time on the wall clock, not System.nanoTime's: brought
+            // to the arrival's clock, else the median reads as the date
+            long mono = System.nanoTime();
+            if (Math.abs(nanoTime - mono) > 3_600_000_000_000L)
+                nanoTime = nanoTime - System.currentTimeMillis() * 1_000_000L + mono;
             Long arrival = arrivals.remove(presentationTimeUs);
             if (arrival != null && nanoTime >= arrival) renderSamples.add(nanoTime - arrival);
             report(nanoTime);
