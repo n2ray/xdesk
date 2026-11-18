@@ -94,6 +94,9 @@ final class NotifyCenter {
     /** When a rebind was last asked for (elapsedRealtime). */
     private static long lastRebind;
     private static final long REBIND_GAP_MS = 5000;
+    /** After a rebind asked for, how long to wait before toggling the component; and the least time between toggles. */
+    private static final long TOGGLE_AFTER_MS = 3000, TOGGLE_GAP_MS = 30000;
+    private static long lastToggle;
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private final Map<String, Drawable> icons = new HashMap<>();
     private final Map<String, String> labels = new HashMap<>();
@@ -666,9 +669,41 @@ final class NotifyCenter {
         }
     }
 
-    /** XDesk came to the front, the external screen came, the panel opened: rebind if granted but not bound. */
+    /**
+     * XDesk came to the front, the external screen came, the panel opened: rebind if granted but not bound.
+     * requestRebind only wakes a listener that unbound itself (requestUnbind), so it does nothing for one the system
+     * never bound — measured on HyperOS 3, 2026-11-18. If it is still not bound after TOGGLE_AFTER_MS, XDesk turns its
+     * own listener component off and on (toggleComponent), which makes the system bind it again, now while XDesk runs.
+     */
     void rebindIfNeeded() {
-        if (service == null && accessGranted(context)) requestRebind(context);
+        if (service != null || !accessGranted(context)) return;
+        requestRebind(context);
+        ui.removeCallbacks(toggle);
+        ui.postDelayed(toggle, TOGGLE_AFTER_MS);
+    }
+
+    private final Runnable toggle = () -> {
+        if (service == null && accessGranted(context)) toggleComponent(context);
+    };
+
+    /** The listener component off and on: the system sees it change and binds it again. At most every TOGGLE_GAP_MS. */
+    private static void toggleComponent(Context c) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lastToggle != 0 && now - lastToggle < TOGGLE_GAP_MS) return;
+        lastToggle = now;
+        PackageManager pm = c.getPackageManager();
+        android.content.ComponentName cn = new android.content.ComponentName(c, NotifyService.class);
+        try {
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+            Log.i(TAG, "listener component toggled");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "toggle: " + e);
+            // Never leave it off
+            try {
+                pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+            } catch (RuntimeException ignored) { }
+        }
     }
 
     /**

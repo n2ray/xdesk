@@ -36,7 +36,7 @@
 
 **有权限不等于连上了。** 系统要「绑定」XDesk 的监听服务，通知才进来。实测（15 Ultra，HyperOS 3）：XDesk 的进程一重启（装新版、被系统杀、重启手机），系统重新绑定时被小米的自启动管理拦下（`AutoStartManagerService: Reject service … NotifyService`，XDesk 的自启动 `MIUIOP(10008)` 是关的），之后一条通知都收不到，面板只说「没有通知」。这就是面板时有时无的原因。
 
-- 断开时（`onListenerDisconnected`）、XDesk 回到前台（`onResume`）、外屏出现、面板打开时，有权限没连上就调 `NotificationListenerService.requestRebind`（最多 5 秒一次）。XDesk 自己在前台时请求，小米可能放行；放不放行要实测。
+- 断开时（`onListenerDisconnected`）、XDesk 回到前台（`onResume`）、外屏出现、面板打开时，有权限没连上就调 `NotificationListenerService.requestRebind`（最多 5 秒一次）。实测它在这里不起作用：它只唤醒应用自己 `requestUnbind` 过的监听者，系统从没绑上的不管（日志里请求之后什么都没发生）。所以 3 秒后还没连上，XDesk 把自己的监听组件停用再启用一次（`setComponentEnabledSetting`，最多 30 秒一次），系统看到组件变了会重新绑定，这时 XDesk 正在前台运行。小米放不放行待 0.6.4-beta.2 实测；不放行就只能开自启动，面板会这样说。
 - 每次连上都**对账**：取 `getActiveNotifications()`，把通知中心变成和手机上一样——断开期间清掉的拿掉，新来的进来（算已读、不弹横幅），原来的保留已读状态。排序变化（`onNotificationRankingUpdate`）、一个应用改回显示时也对一次。
 - 没连上时面板顶上说明原因和办法：小米上「在手机上给 XDesk 打开自启动」，按钮在手机上打开小米的自启动设置；别的手机说「正在重新请求，一直这样就把通知使用权关一下再开」。设置 › 通知里也有一行「通知服务：已连接 / 没连上」。
 - 权限检查用 `NotificationManager.isNotificationListenerAccessGranted`，失败时才读设置字符串。
