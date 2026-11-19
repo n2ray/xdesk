@@ -108,6 +108,12 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         a.end();
     }
 
+    /** Some Mac is on a screen now (not on its way out): the privacy cover covers it too. Main thread. */
+    public static boolean anyShowing() {
+        for (MacActivity a : live) if (!a.isFinishing()) return true;
+        return false;
+    }
+
     public static boolean isShowing(String macId) {
         return of(macId) != null;
     }

@@ -1549,7 +1549,9 @@ public class XDeskActivity extends Activity {
         }
         stopAutoReceiver();
         Display d = externalDisplay();
-        if (d == null || TargetDisplay.isCar(d) || !prefs.getBoolean(PREF_COVER, true) || !(apps.isActive() || session.isActive())) return;
+        // A Mac on the screen is covered too (owner, 2026-11-19: the Mac desktop stayed in view and heard)
+        boolean showing = apps.isActive() || session.isActive() || com.termux.x11.mac.MacActivity.anyShowing();
+        if (d == null || TargetDisplay.isCar(d) || !prefs.getBoolean(PREF_COVER, true) || !showing) return;
         cover.show(d);
         if (cover.isShown()) {
             forwardingBeforeCover = apps.isForwarding();
