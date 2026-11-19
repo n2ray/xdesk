@@ -10,8 +10,12 @@ package com.termux.x11.mac;
 final class SyncedAudioRecoveryPolicy {
     private final java.util.ArrayDeque<Long> attempts = new java.util.ArrayDeque<>();
     boolean retry(Throwable error, long now) {
-        if (!(error instanceof IllegalStateException)
-                || error.getMessage() == null || !error.getMessage().startsWith("presentation timestamp unavailable or discontinuous")) return false;
+        // An underrun is a gap heard, not a broken clock: the session starts again the same way (XDesk; Sall ends
+        // it). On the fast output a busy moment emptied its 20 ms and the sound went back to the unsynced playout
+        // for the rest of the connection (2026-11-19)
+        String m = error instanceof IllegalStateException ? error.getMessage() : null;
+        if (m == null || !(m.startsWith("presentation timestamp unavailable or discontinuous") || m.startsWith("audio underrun during")))
+            return false;
         while (!attempts.isEmpty() && now - attempts.peekFirst() >= 30_000_000_000L) attempts.removeFirst();
         if (attempts.size() >= 2) return false;
         attempts.addLast(now);

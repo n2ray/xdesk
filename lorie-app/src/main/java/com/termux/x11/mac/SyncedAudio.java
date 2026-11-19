@@ -37,7 +37,13 @@ final class SyncedAudio implements SoundPlayer, AutoCloseable {
     private interface Event { void apply() throws Exception; }
     private final ArrayDeque<Event> events = new ArrayDeque<>();
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "mac-audio-synced"); t.setDaemon(true); return t;
+        // The sound's own priority, as MacAudio's thread: at the default one a busy moment emptied the fast track
+        Thread t = new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+            r.run();
+        }, "mac-audio-synced");
+        t.setDaemon(true);
+        return t;
     });
     private final SyncedAudioRuntime runtime;
     private final SyncedAudioRecoveryPolicy clockRecovery = new SyncedAudioRecoveryPolicy();
