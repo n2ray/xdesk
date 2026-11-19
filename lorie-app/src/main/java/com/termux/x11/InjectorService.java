@@ -79,6 +79,8 @@ public class InjectorService extends IInjector.Stub {
     private volatile boolean enabled = true, watchSession, inSession;
     private volatile String packageName;
     private volatile int displayId = -1;
+    /** The pointer over apps, drawn here when XDesk asks (pointerLayer); moved with every place the injector makes. */
+    private final PointerLayer pointer = new PointerLayer();
     private Thread sessionWatcher;
     private String ownPackage;
     private boolean linked;
@@ -236,6 +238,7 @@ public class InjectorService extends IInjector.Stub {
         try {
             i = new InputInjector(new InputInjector.CursorListener() {
                 @Override public void onCursor(int x, int y) {
+                    pointer.moveTo(x, y);
                     IInjectorListener l = listener;
                     try {
                         if (l != null) l.onCursor(x, y);
@@ -656,6 +659,7 @@ public class InjectorService extends IInjector.Stub {
     @Override public void setDisplay(final int displayId, final int width, final int height) {
         if (sessionOver) return;
         this.displayId = displayId;
+        pointer.display(displayId);
         post(() -> {
             int before = injector.displayId();
             injector.setDisplay(displayId, width, height);
@@ -1093,6 +1097,7 @@ public class InjectorService extends IInjector.Stub {
         panels.clearOurs();
         closeWebKeyboard();
         gamepad.close();
+        pointer.release();
         enabled = false;
         listener = null;
         ShellClipboard c = clipboard;
@@ -1108,6 +1113,15 @@ public class InjectorService extends IInjector.Stub {
 
     private synchronized void stopSessionWatcher() {
         if (sessionWatcher != null) sessionWatcher.interrupt();
+    }
+
+    @Override public boolean pointerLayer(android.graphics.Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y) {
+        if (sessionOver || displayId < 0) return false;
+        return pointer.set(displayId, image, offsetX, offsetY, visible, x, y);
+    }
+
+    @Override public void pointerAt(int x, int y) {
+        pointer.moveTo(x, y);
     }
 
     /** From Shizuku when it removes the service. Nothing calls this in ShellServer, but it stays only the end of a session. */

@@ -46,8 +46,74 @@ final class CursorOverlay {
     private ArrowView view;
     private WindowManager.LayoutParams params;
     private boolean shown, framePending, moved, faint, touchStyle;
-    private int x, y, margin, attachedWidth, attachedHeight;
+    private int x, y, margin, attachedWidth, attachedHeight, windowSize;
     private float attachedFactor;
+
+    /**
+     * Who can draw the pointer as a layer of its own instead of this window: the injector (PointerLayer), which
+     * moves it in the same step it places the pointer, with no WindowManager relayout per frame.
+     */
+    interface Remote {
+        /** Picture (null keeps it), its point inside it, shown or not, where it is. False: draw the window. */
+        boolean set(android.graphics.Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y);
+
+        /** A place the injector did not make itself. */
+        void at(int x, int y);
+    }
+
+    private Remote remote;
+    /** The remote draws the pointer now: no window is on the screen. */
+    private boolean remoteOn;
+
+    /**
+     * The injector to draw the pointer, or null (it went away): the pointer moves to it, or back to the window, at
+     * once, where it is and as it looks.
+     */
+    void setRemote(Remote r) {
+        boolean wasShown = shown;
+        if (shown) {
+            if (remoteOn) {
+                if (remote != null) remote.set(null, 0, 0, false, x, y);
+            } else if (view != null) {
+                try {
+                    windows.removeViewImmediate(view);
+                } catch (RuntimeException ignored) { }
+            }
+            shown = false;
+        }
+        remoteOn = false;
+        remote = r;
+        if (wasShown && view != null) moveTo(x, y);
+    }
+
+    private int offsetX() {
+        return margin;
+    }
+
+    private int offsetY() {
+        return touchStyle ? margin : -HOTSPOT_OFFSET_Y;
+    }
+
+    /** The arrow's picture as the window shows it, for the remote. */
+    private android.graphics.Bitmap picture() {
+        android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(windowSize, windowSize, android.graphics.Bitmap.Config.ARGB_8888);
+        view.drawArrow(new Canvas(b));
+        return b;
+    }
+
+    /** The picture or the visibility changed: the remote hears it; false when it can not draw (the window then). */
+    private boolean pushRemote(boolean withPicture) {
+        if (remote == null || view == null) return false;
+        boolean ok;
+        try {
+            ok = remote.set(withPicture ? picture() : null, offsetX(), offsetY(), shown, x, y);
+        } catch (RuntimeException e) {
+            ok = false;
+        }
+        if (!ok && remoteOn) Log.w(TAG, "pointer layer gone, back to the window");
+        if (ok && !remoteOn) Log.i(TAG, "cursor drawn by the injector");
+        return ok;
+    }
 
     CursorOverlay(Context c) {
         context = c;
@@ -92,6 +158,7 @@ final class CursorOverlay {
         int size = Math.max(MIN_SIZE, Math.round(SIZE_DP * attachedFactor));
         margin = Math.round(size * MARGIN_OF_SIZE);
         int window = size + 2 * margin;
+        windowSize = window;
         Log.i(TAG, "cursor " + size + " px on " + real.x + "x" + real.y + " shell " + attachedFactor);
         view = new ArrowView(dc, size, margin);
         view.setFaint(faint);
@@ -108,7 +175,7 @@ final class CursorOverlay {
 
     /** Above a window that was added after the cursor's. */
     void raise() {
-        if (!shown || view == null) return;
+        if (!shown || view == null || remoteOn) return;
         try {
             windows.removeViewImmediate(view);
             windows.addView(view, params);
@@ -124,7 +191,9 @@ final class CursorOverlay {
         touchStyle = on;
         if (view == null) return;
         view.setTouchStyle(on);
-        if (shown) {
+        if (remoteOn) {
+            if (!pushRemote(true)) fallBackToWindow();
+        } else if (shown) {
             place();
             windows.updateViewLayout(view, params);
         }
@@ -132,14 +201,49 @@ final class CursorOverlay {
 
     /** See CursorPolicy. */
     void setFaint(boolean f) {
+        // Called with every move: only a change is anything to send
+        if (faint == f) return;
         faint = f;
         if (view != null) view.setFaint(f);
+        if (remoteOn && !pushRemote(true)) fallBackToWindow();
+    }
+
+    /** The injector placed the pointer: when it draws it too, it has moved it already. */
+    void followed(int newX, int newY) {
+        if (remoteOn && shown) {
+            x = newX;
+            y = newY;
+            return;
+        }
+        moveTo(newX, newY);
+    }
+
+    /** The window again, where the pointer is (the remote stopped drawing it). */
+    private void fallBackToWindow() {
+        remoteOn = false;
+        remote = null;
+        if (!shown) return;
+        shown = false;
+        moveTo(x, y);
     }
 
     void moveTo(int newX, int newY) {
         if (view == null) return;
         x = newX;
         y = newY;
+        if (remoteOn && shown) {
+            remote.at(x, y);
+            return;
+        }
+        if (!shown && remote != null) {
+            shown = true;
+            if (pushRemote(true)) {
+                remoteOn = true;
+                return;
+            }
+            shown = false;
+            remote = null;  // this injector can not: the window from now on, until the next one
+        }
         if (!shown) {
             place();
             try {
@@ -183,6 +287,11 @@ final class CursorOverlay {
     void hide() {
         if (!shown) return;
         shown = false;
+        if (remoteOn) {
+            // Only the layer was on the screen; one that can not hear it any more is taken for gone
+            remoteOn = pushRemote(false);
+            return;
+        }
         try {
             windows.removeViewImmediate(view);
         } catch (RuntimeException e) {
@@ -306,6 +415,10 @@ final class CursorOverlay {
         }
 
         @Override protected void onDraw(Canvas c) {
+            drawArrow(c);
+        }
+
+        void drawArrow(Canvas c) {
             if (faint) {
                 float r = size * FAINT_DOT_OF_SIZE / 2;
                 c.drawCircle(tipX + r, r, r, dot);

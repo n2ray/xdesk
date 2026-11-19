@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.os.ParcelFileDescriptor;
+import android.graphics.Bitmap;
 import android.view.Surface;
 import com.termux.x11.IInjectorListener;
 
@@ -109,4 +110,9 @@ interface IInjector {
     oneway void gamepad(int buttons, int hat, int lx, int ly, int rx, int ry, int lt, int rt) = 48;
     /** Nothing pressed; the device stays, so games do not say it went away. */
     oneway void gamepadEnd() = 49;
+    // The pointer over apps as the injector's own layer (PointerLayer): its picture (null keeps it), where its point is
+    // inside it, whether it shows, and where it is. False: draw it as a window instead.
+    boolean pointerLayer(in Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y) = 50;
+    // A place for it that the injector did not make itself (XDesk put the pointer somewhere).
+    oneway void pointerAt(int x, int y) = 51;
 }

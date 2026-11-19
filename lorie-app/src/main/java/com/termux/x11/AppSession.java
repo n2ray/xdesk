@@ -185,7 +185,7 @@ final class AppSession {
                 pointerPlaced(x, y);
                 // Only what a computer does not place comes here: a touchpad or a mouse on the phone
                 webPointer = false;
-                cursor.moveTo(x, y);
+                cursor.followed(x, y);
                 updateCursor();
                 scheduleCursorHide();
             });
@@ -270,6 +270,23 @@ final class AppSession {
             if ((!active && !audioOnly) || binder == null || !binder.pingBinder()) return;
             final IInjector i = IInjector.Stub.asInterface(binder);
             injector = i;
+            // The injector draws the pointer as its own layer when it can (PointerLayer); else the window as before
+            cursor.setRemote(new CursorOverlay.Remote() {
+                @Override public boolean set(android.graphics.Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y) {
+                    if (injector != i) return false;
+                    try {
+                        return i.pointerLayer(image, offsetX, offsetY, visible, x, y);
+                    } catch (RemoteException | RuntimeException e) {
+                        return false;
+                    }
+                }
+
+                @Override public void at(int x, int y) {
+                    try {
+                        i.pointerAt(x, y);
+                    } catch (RemoteException | RuntimeException ignored) { }
+                }
+            });
             // The phone's clipboard for every device (ShareHub): told of each change, and what it holds now
             new Thread(() -> {
                 try {
@@ -966,6 +983,7 @@ final class AppSession {
     /** The service died: Shizuku or the built-in server was stopped or the process was killed. Grabs ended with it. */
     private void lostInjector() {
         injector = null;
+        cursor.setRemote(null);
         gameMode = false;  // a new injector starts without it and would never report the end
         audioRoute.detachInjector();
         forgetDensity(-1);
@@ -1773,6 +1791,7 @@ final class AppSession {
         CarActivity.showApps(0, 0);
         final IInjector i = injector;
         injector = null;
+        cursor.setRemote(null);
         final Shizuku.UserServiceArgs a = args;
         final boolean shellSession = viaShell;
         // The built-in server stays for the next session, so its death is no longer about this one
