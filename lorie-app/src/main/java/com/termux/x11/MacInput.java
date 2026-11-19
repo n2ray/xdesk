@@ -46,6 +46,10 @@ final class MacInput implements InputSink {
         sourceMacKeyboard = mac;
     }
 
+    MacClient client() {
+        return client;
+    }
+
     MacInput(MacClient client, String prefix, Switcher switcher) {
         this.client = client;
         this.prefix = prefix;

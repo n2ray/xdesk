@@ -222,6 +222,7 @@ public final class MacClient {
         context = c.getApplicationContext();
         this.mac = mac;
         video = new MacVideo(this::videoSize);
+        video.setSmooth(MacStore.smooth(context, mac.id));
     }
 
     /**
@@ -1629,6 +1630,7 @@ public final class MacClient {
     /** This device's own options changed (MacStore.setStreamOptions): the rate at once, the sound with a new session. */
     public void streamOptionsChanged() {
         streamOptions = MacStore.stream(context, mac.id);
+        video.setSmooth(MacStore.smooth(context, mac.id));
         autoTickFollow();
         SillTls s = session;
         if (s == null || state != State.CONNECTED) return;

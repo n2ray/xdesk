@@ -158,6 +158,8 @@
     <string name="xd_mac_mode_flash">画质：%1$s</string>
     <string name="xd_mac_auto">网络变差时自动降低画质</string>
     <string name="xd_mac_auto_note">Mac 持续 5 秒报告连接带不动当前画面时，自动降到 Mac 建议的画质或再降一档；链路稳定一段时间后，逐步升回你选的模式。只在 XDesk 连着这台 Mac 时生效</string>
+    <string name="xd_mac_smooth">平滑播放</string>
+    <string name="xd_mac_smooth_note">按 Mac 采集画面的时间均匀显示。网络不稳时画面会稍晚一点（最多 50 毫秒），但不会一跳一跳。关闭后，每帧一到就立即显示</string>
     <string name="xd_mac_auto_lowered">网络变差，画质已切到%1$s</string>
     <string name="xd_mac_auto_lowered_generic">网络变差，画质已自动降低</string>
     <string name="xd_mac_auto_raised">网络已恢复，画质切回%1$s</string>

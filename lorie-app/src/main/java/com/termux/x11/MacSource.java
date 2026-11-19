@@ -283,7 +283,10 @@ final class MacSource implements ContentSource {
 
     private MacInput input(MacClient m) {
         MacInput in = inputs.get(m.mac().id);
-        if (in == null) {
+        // A Mac removed and paired again has the same id but a new client: the old one's input went nowhere
+        // (owner, 2026-11-19: the picture came, the pointer never moved on the Mac)
+        if (in == null || in.client() != m) {
+            if (in != null) in.releaseAll();
             final String p = macPrefix(m);
             in = new MacInput(m, p, prefix -> {
                 MacInput.Switcher s = switcher;

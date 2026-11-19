@@ -76,6 +76,29 @@ final class MacVideo {
     private final HashMap<Long, Long> arrivals = new HashMap<>();
     private final ArrayList<Long> renderSamples = new ArrayList<>();
     private long statsAt;
+    /** Frames that found no free input buffer at once and waited, and those that waited in vain (a keyframe asked). */
+    private int inputWaits, inputMissed;
+    /** Raw render times logged for a fresh decoder: which clock its OnFrameRendered uses is seen in the log. */
+    private int rawLogged;
+
+    /**
+     * Smooth playback (MacStore.smooth): each picture goes to the surface at its capture time on this device's
+     * clock, plus the link's recent jitter, so a burst of frames after a stall on the network is shown one a refresh
+     * instead of two in a refresh (SurfaceFlinger drops the older) followed by a gap. Off: each picture at once.
+     */
+    private volatile boolean smooth = true;
+    /** Output time less capture time (ns, both clocks' offset in it) of the last PACE_WINDOW pictures. */
+    private final long[] lateness = new long[PACE_WINDOW];
+    private int latenessCount, latenessAt, paceSince;
+    /** The window's least lateness (the link at its quickest) and how much more its 95th percentile is. */
+    private long paceBase, paceMargin;
+    private long marginSum, marginSamples;
+    /** About 3 s of pictures; recomputed every PACE_EVERY of them. */
+    private static final int PACE_WINDOW = 180, PACE_EVERY = 15;
+    /** At most this much added: a longer stall is let through as a stall, not paid for by every picture after it. */
+    private static final long PACE_MAX_NS = 50_000_000L;
+    /** A frame waits this long for the decoder to free an input buffer before the picture starts over at a keyframe. */
+    private static final int INPUT_WAIT_MS = 12;
 
     MacVideo(SizeListener sizes) {
         this.sizes = sizes;
@@ -160,6 +183,26 @@ final class MacVideo {
             // keyframe starts the picture again
             Integer index = freeInput.poll();
             if (index == null) {
+                // A burst after a stall on the link: the decoder frees a buffer within a frame or so. Dropping the
+                // frame would throw the picture away until a keyframe (hundreds of KB) came, a much longer stall
+                MediaCodec waiting = codec;
+                inputWaits++;
+                long until = SystemClock.uptimeMillis() + INPUT_WAIT_MS;
+                while (freeInput.isEmpty() && codec == waiting) {
+                    long left = until - SystemClock.uptimeMillis();
+                    if (left <= 0) break;
+                    try {
+                        wait(left);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                if (codec != waiting) return false;
+                index = freeInput.poll();
+            }
+            if (index == null) {
+                inputMissed++;
                 needKeyframe = true;
                 return false;
             }
@@ -234,8 +277,11 @@ final class MacVideo {
             synchronized (MacVideo.this) {
                 if (c != codec) return;
                 try {
-                    // The surface now: the stream is live, there is nothing to pace
-                    c.releaseOutputBuffer(index, true);
+                    long now = System.nanoTime();
+                    long at = smooth ? paceTarget(bufferInfo.presentationTimeUs, now) : 0;
+                    // A time to show it at, or the surface now: the stream is live, nothing is held longer than that
+                    if (at > now + 2_000_000L) c.releaseOutputBuffer(index, at);
+                    else c.releaseOutputBuffer(index, true);
                 } catch (RuntimeException e) {
                     Log.w(TAG, "video output", e);
                     fail(codecName());
@@ -268,11 +314,18 @@ final class MacVideo {
     private final MediaCodec.OnFrameRenderedListener frameRendered = (c, presentationTimeUs, nanoTime) -> {
         synchronized (MacVideo.this) {
             if (c != codec) return;
-            // Some decoders (this phone's) give the render time on the wall clock, not System.nanoTime's: brought
-            // to the arrival's clock, else the median reads as the date
-            long mono = System.nanoTime();
-            if (Math.abs(nanoTime - mono) > 3_600_000_000_000L)
-                nanoTime = nanoTime - System.currentTimeMillis() * 1_000_000L + mono;
+            // The documented clock is System.nanoTime's, but some decoders (this phone's) give another: the one the
+            // render time is nearest to now is taken and brought to the arrival's clock (the render was a moment ago)
+            long raw = nanoTime, mono = System.nanoTime(), boot = SystemClock.elapsedRealtimeNanos(),
+                    wall = System.currentTimeMillis() * 1_000_000L;
+            long dm = Math.abs(raw - mono), db = Math.abs(raw - boot), dw = Math.abs(raw - wall);
+            nanoTime = dm <= db && dm <= dw ? raw : db <= dw ? raw - boot + mono : raw - wall + mono;
+            if (rawLogged < 3) {
+                rawLogged++;
+                Long a = arrivals.get(presentationTimeUs);
+                Log.i(TAG, "video render time: raw " + raw + ", nanoTime " + mono + ", boot " + boot + ", wall " + wall
+                        + ", arrival " + a + " -> " + (a != null ? (nanoTime - a) / 1_000_000L + " ms" : "?"));
+            }
             Long arrival = arrivals.remove(presentationTimeUs);
             if (arrival != null && nanoTime >= arrival) renderSamples.add(nanoTime - arrival);
             report(nanoTime);
@@ -331,10 +384,50 @@ final class MacVideo {
             }
         }
         long seconds = Math.max(1, (now - statsAt) / 1_000_000_000L);
+        String pace = !smooth ? "smooth off" : marginSamples == 0 ? "smooth on" : String.format(Locale.ROOT,
+                "smooth on, %.1f ms added on average", marginSum / 1e6 / marginSamples);
         Log.i(TAG, "video: " + n + " frames in " + seconds + " s, render after arrival median " + median
-                + " ms, p95 " + p95 + " ms; " + lost + " arrived but never rendered");
+                + " ms, p95 " + p95 + " ms; " + lost + " arrived but never rendered; " + inputWaits
+                + " waited for an input buffer, " + inputMissed + " in vain; " + pace);
         renderSamples.clear();
+        inputWaits = inputMissed = 0;
+        marginSum = marginSamples = 0;
         statsAt = now;
+    }
+
+    void setSmooth(boolean on) {
+        smooth = on;
+    }
+
+    /**
+     * When to show the picture captured at ptsUs, decoded now: its capture time on this clock (the window's least
+     * lateness is the link at its quickest) plus the 95th percentile of the jitter above that, at most PACE_MAX_NS.
+     * 0: at once (too few pictures yet, or this one is late anyway).
+     */
+    private long paceTarget(long ptsUs, long now) {
+        long late = now - ptsUs * 1000L;
+        // A new stream's clock (or a jump in the Mac's): the window starts again
+        if (latenessCount > 0 && Math.abs(late - paceBase) > 1_000_000_000L) latenessCount = latenessAt = paceSince = 0;
+        lateness[latenessAt] = late;
+        latenessAt = (latenessAt + 1) % PACE_WINDOW;
+        if (latenessCount < PACE_WINDOW) latenessCount++;
+        if (latenessCount < PACE_EVERY) {
+            paceBase = latenessCount == 1 ? late : Math.min(paceBase, late);
+            return 0;
+        }
+        if (++paceSince >= PACE_EVERY || latenessCount == PACE_EVERY) {
+            paceSince = 0;
+            long[] s = Arrays.copyOf(lateness, latenessCount);
+            Arrays.sort(s);
+            int p95 = Math.max(0, Math.min(latenessCount - 1, (int) Math.ceil(latenessCount * 0.95) - 1));
+            paceBase = s[0];
+            paceMargin = Math.min(PACE_MAX_NS, s[p95] - s[0]);
+        }
+        long at = ptsUs * 1000L + paceBase + paceMargin;
+        if (at <= now || at - now > PACE_MAX_NS) return 0;
+        marginSum += at - now;
+        marginSamples++;
+        return at;
     }
 
     private String codecName() {
@@ -489,6 +582,9 @@ final class MacVideo {
         codecSurface = null;
         freeInput.clear();
         arrivals.clear();
+        latenessCount = latenessAt = paceSince = 0;
+        rawLogged = 0;
+        notifyAll();  // a frame waiting for this decoder's input buffer gives up
         if (c == null) return;
         try {
             c.stop();

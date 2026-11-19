@@ -144,7 +144,7 @@ public final class MacStore {
         List<Mac> macs = all(c);
         for (int i = macs.size() - 1; i >= 0; i--) if (macs.get(i).id.equals(id)) macs.remove(i);
         save(c, macs);
-        prefs(c).edit().remove(STREAM + id).apply();
+        prefs(c).edit().remove(STREAM + id).remove(SMOOTH + id).apply();
     }
 
     public static synchronized void setOptions(Context c, String id, boolean fit, boolean macKeyboard, boolean phoneIme) {
@@ -231,6 +231,20 @@ public final class MacStore {
         Stream now = stream(c, id);
         saveStream(c, id, new Stream(now.fpsCap, now.sound, now.muted, autoQuality, now.host));
     }
+
+    /**
+     * Smooth playback (MacVideo pacing): pictures shown evenly by the Mac's capture times, a little later when the
+     * link is uneven, instead of each at once as it arrives. This device's own switch, on by default.
+     */
+    public static boolean smooth(Context c, String id) {
+        return prefs(c).getBoolean(SMOOTH + id, true);
+    }
+
+    public static void setSmooth(Context c, String id, boolean on) {
+        prefs(c).edit().putBoolean(SMOOTH + id, on).apply();
+    }
+
+    private static final String SMOOTH = "smooth.";
 
     /** The Mac's settings as it last sent them; written only when they changed. */
     static synchronized void setHostSettings(Context c, String id, String settingsJson) {

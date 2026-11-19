@@ -217,6 +217,11 @@ final class MacStreamSettings implements MacClient.SettingsListener {
             client.streamOptionsChanged();
             drawn = snapshot(client);
         });
+        // Smooth playback (MacVideo's pacing): this device's own, at once
+        s.switchRow(device, c.getString(R.string.xd_mac_smooth), c.getString(R.string.xd_mac_smooth_note), MacStore.smooth(c, macId), on -> {
+            MacStore.setSmooth(c, macId, on);
+            client.streamOptionsChanged();
+        });
 
         LinearLayout sound = s.section(content, c.getString(R.string.xd_mac_sound));
         if (h != null && h.sendAudio == null) {

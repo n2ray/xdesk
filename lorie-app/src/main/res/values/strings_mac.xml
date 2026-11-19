@@ -159,6 +159,8 @@
     <string name="xd_mac_mode_flash">Quality: %1$s</string>
     <string name="xd_mac_auto">Lower quality automatically on a weak link</string>
     <string name="xd_mac_auto_note">When the Mac keeps reporting for 5 seconds that the connection cannot carry the picture, XDesk lowers the quality to the Mac\'s suggestion or one step, and steps back towards your mode after the link has kept up for a while. Only while XDesk is connected to the Mac</string>
+    <string name="xd_mac_smooth">Smooth playback</string>
+    <string name="xd_mac_smooth_note">Shows the Mac\'s pictures evenly, by when the Mac captured them. On an uneven network the picture is a little later (at most 50 ms) instead of jumping. Off: each picture as soon as it arrives</string>
     <string name="xd_mac_auto_lowered">Link slowed: quality lowered to %1$s</string>
     <string name="xd_mac_auto_lowered_generic">Link slowed: quality lowered automatically</string>
     <string name="xd_mac_auto_raised">Link recovered: quality back to %1$s</string>

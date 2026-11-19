@@ -22,7 +22,7 @@ import com.termux.x11.Sizing;
 /**
  * A Mac window or the Mac desktop on a screen (DISPLAY.md §3.0): Sill's HEVC decoded by the hardware straight
  * into this SurfaceView, letterboxed to the picture's aspect, nothing composed on the way. The Mac's cursor is a
- * small view over it, moved by translation, in the shape the Mac sends. A line in the middle says when there is
+ * small layer over it (CursorLayer, a view in the window when there is none), in the shape the Mac sends. A line in the middle says when there is
  * no picture: connecting, the Mac locked, the stream taken by another device (tap to take it back).
  *
  * The window never takes focus: keys stay with XDesk on the phone, which hands them to the Mac (MacInput).
@@ -64,6 +64,13 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     private FrameLayout root;
     private SurfaceView picture;
     private ImageView cursor;
+    /** The pointer as its own layer over the picture (CursorLayer); null: the view above (no surface, or refused). */
+    private CursorLayer layer;
+    /** The pointer's shape and size, whichever of the two shows it; where its top left is on the screen. */
+    private Bitmap shape;
+    private int shapeW, shapeH;
+    private boolean pointerShown;
+    private float pointerLeft, pointerTop;
     private TextView status;
     private int videoW, videoH;
     private float hotX, hotY;
@@ -121,6 +128,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
              * The hole itself is still cleared in the window's pixels, so the picture shows through as before.
              */
             @Override public boolean gatherTransparentRegion(android.graphics.Region region) {
+                // The pointer in a layer of its own: nothing over the picture moves without a layout, the usual hint holds
+                if (layer != null) return super.gatherTransparentRegion(region);
                 if (region != null) {
                     int[] at = new int[2];
                     getLocationInWindow(at);
@@ -222,6 +231,8 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
     @Override protected void onDestroy() {
         MacDiscovery.release();
         root.removeCallbacks(hideBlank);
+        if (layer != null) layer.release();
+        layer = null;
         if (displayWatch != null) ((DisplayManager) getSystemService(DISPLAY_SERVICE)).unregisterDisplayListener(displayWatch);
         live.remove(this);
         boolean last = client != null && !replaced();
@@ -244,9 +255,39 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     @Override public void surfaceChanged(SurfaceHolder h, int format, int w, int ht) {
         giveSurface();
+        attachLayer();
+    }
+
+    /** The pointer moves to a layer over the picture once the picture has one; the view in the window goes. */
+    private void attachLayer() {
+        if (layer != null) return;
+        CursorLayer l = CursorLayer.attach(picture);
+        if (l == null) return;
+        if (shape != null && !l.shape(shape, shapeW, shapeH)) {
+            l.release();
+            return;
+        }
+        layer = l;
+        l.show(pointerShown);
+        int[] r = client != null ? client.frameRect() : new int[6];
+        l.move(pointerLeft - r[0], pointerTop - r[1]);
+        cursor.setVisibility(View.GONE);
+        cursor.setImageDrawable(null);
+        root.requestTransparentRegion(picture);
+        note("in a layer of its own");
+    }
+
+    /** Back to the view in the window (the picture's surface went, or the layer failed). */
+    private void dropLayer() {
+        if (layer == null) return;
+        layer.release();
+        layer = null;
+        root.requestTransparentRegion(picture);
+        if (shape != null) viewShape();
     }
 
     @Override public void surfaceDestroyed(SurfaceHolder h) {
+        dropLayer();
         // Before the surface goes: the decoder must not render into it any more
         if (client != null) client.clearSurface(this);
     }
@@ -326,15 +367,16 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
 
     /** The cursor shown or not, with the reason in the log when that changes. */
     private void show(boolean visible, String why) {
-        boolean was = cursor.getVisibility() == View.VISIBLE;
-        if (was == visible) return;
-        cursor.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (pointerShown == visible) return;
+        pointerShown = visible;
+        if (layer != null) layer.show(visible);
+        else cursor.setVisibility(visible ? View.VISIBLE : View.GONE);
         note((visible ? "shown: " : "hidden: ") + why + ", at " + place());
     }
 
     private String place() {
         int[] r = client != null ? client.frameRect() : new int[6];
-        return Math.round(cursor.getTranslationX() + hotX) + "," + Math.round(cursor.getTranslationY() + hotY)
+        return Math.round(pointerLeft + hotX) + "," + Math.round(pointerTop + hotY)
                 + " picture " + r[0] + "," + r[1] + " " + r[2] + "x" + r[3] + " screen " + r[4] + "x" + r[5];
     }
 
@@ -355,12 +397,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         // Sizes are Mac points, as many pixels each as the client asked the Mac window for
         float density = client.pointScale();
         int w = Math.round(width * density), h = Math.round(height * density);
-        cursor.setImageBitmap(shape);
-        cursor.setScaleType(ImageView.ScaleType.FIT_XY);
-        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) cursor.getLayoutParams();
-        p.width = w;
-        p.height = h;
-        cursor.setLayoutParams(p);
+        setShape(shape, w, h);
         hotX = hx * density;
         hotY = hy * density;
         show(true, "the Mac sent a shape");
@@ -373,7 +410,7 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
      */
     @Override public void pointer(float x, float y) {
         // A locked Mac sends no cursor shape (Sill's LockPolicy): an arrow of our own, so the pointer can be found
-        if (cursor.getDrawable() == null) defaultArrow();
+        if (shape == null) defaultArrow();
         moves++;
         show(true, "the pointer moved");
         if (blankCursor) {
@@ -408,21 +445,48 @@ public final class MacActivity extends Activity implements MacClient.View, Surfa
         paint.setStyle(android.graphics.Paint.Style.FILL);
         paint.setColor(Color.BLACK);
         c.drawPath(arrow, paint);
-        cursor.setImageBitmap(b);
-        cursor.setScaleType(ImageView.ScaleType.FIT_XY);
-        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) cursor.getLayoutParams();
-        p.width = w;
-        p.height = h;
-        cursor.setLayoutParams(p);
+        setShape(b, w, h);
         hotX = 1.5f * u;
         hotY = 1.5f * u;
+    }
+
+    /** The pointer's shape: into its layer, or the view when there is none (or the layer failed). */
+    private void setShape(Bitmap b, int w, int h) {
+        shape = b;
+        shapeW = w;
+        shapeH = h;
+        if (layer != null) {
+            if (layer.shape(b, w, h)) return;
+            layer.release();
+            layer = null;
+            root.requestTransparentRegion(picture);
+        }
+        viewShape();
+    }
+
+    private void viewShape() {
+        cursor.setImageBitmap(shape);
+        cursor.setScaleType(ImageView.ScaleType.FIT_XY);
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) cursor.getLayoutParams();
+        p.width = shapeW;
+        p.height = shapeH;
+        cursor.setLayoutParams(p);
+        cursor.setTranslationX(pointerLeft);
+        cursor.setTranslationY(pointerTop);
+        cursor.setVisibility(pointerShown ? View.VISIBLE : View.GONE);
     }
 
     private void placeCursor(float x, float y) {
         int[] r = client.frameRect();
         if (r[2] <= 0) return;
-        cursor.setTranslationX(r[0] + x * r[2] - hotX);
-        cursor.setTranslationY(r[1] + y * r[3] - hotY);
+        pointerLeft = r[0] + x * r[2] - hotX;
+        pointerTop = r[1] + y * r[3] - hotY;
+        // The layer is the picture's child: its place is the picture's own pixels
+        if (layer != null) layer.move(pointerLeft - r[0], pointerTop - r[1]);
+        else {
+            cursor.setTranslationX(pointerLeft);
+            cursor.setTranslationY(pointerTop);
+        }
     }
 
     @Override public void status(String line, boolean taken) {
