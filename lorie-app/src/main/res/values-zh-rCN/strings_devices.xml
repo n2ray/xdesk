@@ -116,4 +116,5 @@
     <string name="xd_starting_x_title">正在为应用启动 X</string>
     <string name="xd_linux_session_edit_note">启动脚本：~/.config/xdesk/sessions/%1$s.sh。点按在 Termux 里编辑，文件里的注释写明了哪些能改</string>
     <string name="xd_linux_session_edit_failed">没能打开 Termux 来编辑它</string>
+    <string name="xd_dev_remove_running">它正在运行：会先停止它的桌面和程序。</string>
 </resources>

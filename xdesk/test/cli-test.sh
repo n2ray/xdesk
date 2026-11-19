@@ -46,6 +46,8 @@ stub() {
 stub ps 'echo 5'
 stub xrandr 'exit 1'
 stub pgrep 'exit 1'
+# No real session bus from a test: one would outlive it (2026-11-19, six were left running)
+stub dbus-daemon 'exit 1'
 stub pkill 'exit 1'
 stub timeout 'shift; exec "$@"'
 stub pulseaudio 'exit 0'
@@ -1115,6 +1117,15 @@ check "a bus made just now is kept for a starting session" test -e "$PREFIX/tmp/
 touch -d '-60 seconds' "$PREFIX/tmp/xdesk/bus.pid"
 xdesk_fn apps_bus_maybe_stop >/dev/null 2>&1
 check "an unused bus is stopped" test ! -e "$PREFIX/tmp/xdesk/bus.pid"
+
+# xdesk stop leaves no lock or socket of its display behind, and never touches another display's
+mkdir -p "$PREFIX/tmp/.X11-unix"
+echo 999999 >"$PREFIX/tmp/.X9-lock"; : >"$PREFIX/tmp/.X11-unix/X9"; : >"$PREFIX/tmp/.X11-unix/X1"; echo 999998 >"$PREFIX/tmp/.X1-lock"
+xdesk_fn clear_x_files >/dev/null 2>&1
+check "a dead X's lock on XDesk's display is removed" test ! -e "$PREFIX/tmp/.X9-lock"
+check "a dead X's socket on XDesk's display is removed" test ! -e "$PREFIX/tmp/.X11-unix/X9"
+check "another display's files are left alone" test -e "$PREFIX/tmp/.X11-unix/X1" -a -e "$PREFIX/tmp/.X1-lock"
+rm -f "$PREFIX/tmp/.X11-unix/X1" "$PREFIX/tmp/.X1-lock"
 
 echo
 echo "$pass passed, $fail failed"

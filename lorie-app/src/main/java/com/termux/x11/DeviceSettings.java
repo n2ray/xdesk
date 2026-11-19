@@ -182,10 +182,17 @@ final class DeviceSettings {
         // runs inside Termux, so the Termux page says that removing Termux leaves them
         String removeNote = c.getString(env.equals(Devices.TERMUX)
                 ? R.string.xd_dev_remove_termux_note : R.string.xd_dev_remove_linux_note);
+        // Its desktop or programs on the screen: they stop first, or they would run on with no device to stop them from
+        // (owner, 2026-11-19). X busy with another environment only is left running
+        final boolean running = d.state == Devices.State.CONNECTED || d.state == Devices.State.CONNECTING;
+        final String confirmNote = running ? c.getString(R.string.xd_dev_remove_running) + "\n\n" + removeNote : removeNote;
         s.dangerRow(content, c.getString(R.string.xd_dev_remove), removeNote, () ->
-            s.confirm(c.getString(R.string.xd_dev_remove_title, d.name), removeNote,
+            s.confirm(c.getString(R.string.xd_dev_remove_title, d.name), confirmNote,
                 c.getString(R.string.xd_dev_remove_action), SettingsUi.LEVEL_DANGER,
-                () -> devices.setLinuxAdded(env, false)));
+                () -> {
+                    if (running) devices.stop(id);
+                    devices.setLinuxAdded(env, false);
+                }));
         return true;
     }
 

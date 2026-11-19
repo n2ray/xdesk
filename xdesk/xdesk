@@ -364,6 +364,14 @@ stop_x_servers() {
             kill -9 "$p" 2>/dev/null
         fi
     done
+    clear_x_files
+}
+
+# The lock and socket of XDesk's display once its server is gone: one killed outright cannot remove them itself.
+# Only DPY, and only when no X holds the lock: :1 and any other display are the user's
+clear_x_files() {
+    x_lock_alive && return 0
+    rm -f "${PREFIX:?}/tmp/.X${DPY#:}-lock" "${PREFIX:?}/tmp/.X11-unix/X${DPY#:}"
 }
 
 # XDesk's display was :1 before 0.6.5: a server of that version is xdesk's own, and would keep a desktop on the

@@ -204,6 +204,7 @@ Mac 接收器就是这么做的。手机的实体键盘走这条路时（开关�
    - **布局是 XDesk 这台 X 的键盘属性：** 原样的键按 X 服务器的 XKB 布局出字（和键盘直接插在一台 Linux 电脑上一样）。lorie 的 X 服务器默认是 `evdev` 规则、`pc105`、`us`；扫描码 +8 就是 X 的 keycode，和 PC 键盘的 evdev 键位一致。新起的 X 总是 `us`，所以不是美式键盘时布局要写成设置：`xdesk keyboard layout NAME` 存进 `~/.config/xdesk/keyboard-layout`（`NAME` 是 XKB 的名字，如 `de-nodeadkeys` 就是 `de(nodeadkeys)`；不带 NAME 看现在的设置，`auto` 取消），用 `setxkbmap` 设在 **XDesk 自己的 X** 上：X 起来时，以及改的时候。App 的「键盘布局」一行调的是旧名字 `xdesk ime layout NAME`，效果一样。`$DPY` 上是别人的 X 时不改（`x_is_ours`），只记住选择。它不改用户的 fcitx5 profile：fcitx5 自己若按 profile 改了 X 的布局，那是用户输入法的行为，不归 XDesk 管。走 §5.1 时布局是 Android 那边的，和 X 无关。
    - 每个 Linux 设备一个开关"实体键盘用手机输入法打字"（默认关 = 上面的自动判断），打开就回到 §5.1。
    - **手机软键盘还是 §5.1：** 它的字经文字桥变成 X 的按键事件。这时 X 这边的 fcitx5 如果正处在拼音状态，软键盘打的英文字母会被它再拼一次；fcitx5 默认是英文状态，切到拼音后又改用软键盘才会遇到，切回英文即可。
+   - **用户自己起 Termux 的 fcitx5 时要知道的（给用户的提示，XDesk 不做）：** Termux 的 fcitx5 是按 Android 编的，启动时处在“屏幕键盘”模式（`src/lib/fcitx/instance_p.h`：`isAndroid() ? OnScreenKeyboard : PhysicalKeyboard`），这个模式下只接受 D-Bus 上的虚拟键盘做界面，没有就不显示候选框。切到实体键盘模式的代码属于虚拟键盘接口，只有总线名 `org.fcitx.Fcitx5.VirtualKeyboard` 有主人时才运行。所以在同一个会话里、fcitx5 之前先运行 `dbus-test-tool echo --session --name=org.fcitx.Fcitx5.VirtualKeyboard &`（dbus 自带，对每个调用回空答复），第一下真按键之后 classicui 就画候选框。0.6.5 以前 XDesk 替用户做这一步。
    - 命令：`xdesk ime`（只读状态）、`xdesk keyboard layout [NAME|auto]`（键盘布局，见上；`xdesk ime layout` 是给 App 留的同义名字；`xdesk status` 的 `Keyboard layout:` 一行报给应用）。X 输入法怎么装、怎么启动、怎么配（包括候选框和快捷键）都是用户自己的事，文档不再给 XDesk 的命令。
 
 ### 5.3 文字桥（目标不是 Android 时）
