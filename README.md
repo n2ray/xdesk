@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="XDesk on a portable display: an Android desktop with a dock, the phone in a stand as touchpad, a keyboard and a mouse"></p>
 
-**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and a push of the pointer against the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
+**Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and resting the pointer on the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
 
 | Screen | How it connects |
 |---|---|
@@ -53,7 +53,7 @@ Connect a monitor with a USB-C to HDMI cable or dock, and open **XDesk**. The ph
 
 ## Android apps on the display
 
-The external display's home is the Launchpad: the same switchboard as the list on the phone, one model shown in two places. It has tabs for running items, favourites, the phone and every device, and the two screens share the current tab and search (search reaches every device, pinyin initials included). Push the pointer against the bottom edge to open the dock over any content — Android apps, Linux and Mac — and move away to close it.
+The external display's home is the Launchpad: the same switchboard as the list on the phone, one model shown in two places. It has tabs for running items, favourites, the phone and every device, and the two screens share the current tab and search (search reaches every device, pinyin initials included). Rest the pointer on the bottom edge to open the dock over any content — Android apps, Linux and Mac — and move away to close it.
 
 Tap an app in the launcher to run it on the external display. Physical keys and mouse go to the external content by default; Ctrl+Alt+M gives them to the phone for the current content, and again gives them back. With a mouse attached, the phone stays on the launcher and its touchpad is available from the top row; without a mouse it opens the touchpad.
 
@@ -232,7 +232,7 @@ It shares its machinery with the wireless display, so there is one browser or re
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
 - Physical mouse and keyboard go to the display while XDesk is open, Ctrl+Alt+M moves them back to the phone and again. A physical keyboard types through the input method of the content: fcitx5 in Termux for Linux, with its candidates at the text on the display; the Mac's own for a Mac. Needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
-- One switchboard: the list on the phone, the display's home (the Launchpad) and the docks are one model, with tabs for running items, favourites, the phone and every device, shared between the screens, and search across every device. A push of the pointer against the bottom edge opens the dock over any content
+- One switchboard: the list on the phone, the display's home (the Launchpad) and the docks are one model, with tabs for running items, favourites, the phone and every device, shared between the screens, and search across every device. Resting the pointer on the bottom edge opens the dock over any content
 - Devices added on demand: the phone's own apps come first, then Linux in Termux (each proot or chroot its own device), and Macs, each with its tab, status and settings
 - Linux programs as apps, opened one by one with a light X and no desktop, GPU acceleration on Adreno (Turnip, zink) set up by the installer
 - Mac windows, apps and the desktop on the display, and XDesk on the Mac as the big screen, with text and files shared. See [Mac](#mac)
