@@ -15,7 +15,7 @@ import com.termux.x11.mac.MacClients;
 import com.termux.x11.mac.MacStore;
 
 /**
- * XDesk settings › Mac › a Mac › Picture and sound: Sill's own settings for that Mac (quality, resolution, frame
+ * XDesk settings › Devices › a Mac › Picture and sound: Sill's own settings for that Mac (quality, resolution, frame
  * rate limit, prioritise speed, virtual display, send audio), as Sall's settings panel shows them, and this
  * device's three (the rate it asks for, whether it plays the Mac's sound, whether it mutes itself). While it is
  * open, the round trip is kept fresh once a second (Sall's refreshDiagnostics tick). Opened with open(context, macId).
@@ -122,10 +122,6 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         final String pending = client.pendingSetting();
         // A control only while the Mac listens and has answered the last change; otherwise the value alone
         final boolean open = live != null && pending == null;
-
-        // The quick quality modes, the page's first control (SALL-SYNC.md "XDesk's own additions"): the page
-        // itself follows the Mac, so the row needs no refill of its own
-        MacModeRow.add(c, s, macId, content, null);
 
         LinearLayout now = s.section(content, c.getString(R.string.xd_mac_stream_now));
         if (live == null) {

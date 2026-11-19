@@ -339,17 +339,16 @@ final class Switchboard {
         } else if (d.state == Devices.State.NOT_SET_UP) {
             actions.add(setUp(d));
         } else if (d.type == Devices.Type.MAC && d.state == Devices.State.FAILED && d.note != null && needsPairing(d)) {
+            // With its saved address ready, not an empty "add"
             actions.add(new Action(str(R.string.xd_dev_pair_again), !d.busy, true, () -> {
-                if (phone() != null) MacSettings.add(phone());
+                if (phone() != null) MacSettings.repair(phone(), d.id.substring(Devices.MAC.length()));
             }));
         } else if (d.canConnect(devices)) {
             actions.add(new Action(str(R.string.xd_dev_connect), !d.busy, false, () -> devices.connect(d.id)));
         }
-        // The device's own page: a Linux environment's state, Stop and desktops, a Mac's keyboard and fit
+        // The device's own page: one level for a Mac or a Linux environment
         if (d.state != Devices.State.NOT_SET_UP) actions.add(new Action(str(R.string.xd_settings), true, true, () -> {
-            if (phone() == null) return;
-            if (d.type == Devices.Type.MAC) MacSettings.open(phone());
-            else DeviceSettings.openDevice(phone(), d.id);
+            if (phone() != null) DeviceSettings.openDevice(phone(), d.id);
         }));
         return new Bar(Devices.color(d.state), text, actions);
     }
@@ -682,9 +681,13 @@ final class Switchboard {
      */
     private Item forKey(String key) {
         if (key == null) return null;
-        // Termux removed (from the phone or as a device): its programs and desktops leave the favourites and
-        // Docks too. What is on the display now stays while it is there
-        if (devices.deviceOf(key).startsWith(Devices.LINUX) && !devices.linuxShown() && !key.equals(current)) return null;
+        // A Linux device removed (Termux alone, or an environment): its programs and desktops leave the favourites
+        // and Docks too, while the other environments stay. What is on the display now stays while it is there
+        String id = devices.deviceOf(key);
+        if (id.startsWith(Devices.LINUX) && !key.equals(current)) {
+            boolean termux = id.equals(Devices.LINUX + Devices.TERMUX);
+            if (termux ? !devices.termuxShown() : !devices.linuxShown()) return null;
+        }
         if (ChooserView.isAppKey(key)) {
             AppCatalog.App a = AppCatalog.get(c).find(ChooserView.componentOf(key));
             return a != null ? appItem(a) : null;

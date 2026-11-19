@@ -21,7 +21,7 @@
     <string name="xd_dev_state">State</string>
     <string name="xd_dev_connect">Connect</string>
     <string name="xd_dev_disconnect">Disconnect</string>
-    <string name="xd_dev_set_up">Set up</string>
+    <string name="xd_dev_set_up">Set up this device</string>
     <string name="xd_dev_pair_again">Pair again</string>
     <string name="xd_dev_disconnect_title">Disconnect %1$s?</string>
     <string name="xd_dev_disconnect_mac_note">Its picture leaves the screen and XDesk stops connecting to it until you connect or open something of it again.</string>
@@ -35,7 +35,7 @@
         <item quantity="one">%1$d connected</item>
         <item quantity="other">%1$d connected</item>
     </plurals>
-    <string name="xd_dev_connect_devices">Connect device</string>
+    <string name="xd_dev_connect_devices">Devices</string>
     <string name="xd_dev_connect_devices_note">Linux in Termux, proot or chroot, and Macs</string>
     <string name="xd_dev_external">External devices</string>
     <string name="xd_dev_none">None yet</string>
@@ -49,15 +49,6 @@
     <string name="xd_dev_type_linux_note">Termux, proot or chroot on this phone, through the xdesk command</string>
     <string name="xd_dev_type_mac">Mac</string>
     <string name="xd_dev_type_mac_note">Pair with Sill on the Mac</string>
-    <string name="xd_dev_soon">Coming later</string>
-    <string name="xd_dev_soon_short">Coming soon</string>
-    <string name="xd_dev_type_windows">Windows</string>
-    <string name="xd_dev_type_windows_note">For now use RustDesk</string>
-    <string name="xd_dev_type_android">Another Android device</string>
-    <string name="xd_dev_type_android_note">A tablet or another phone</string>
-    <string name="xd_dev_gone">This device was removed</string>
-    <string name="xd_dev_mac_options">Fit to screen, Mac keyboard, remove</string>
-    <string name="xd_dev_linux_add_more">Add or find environments</string>
     <string name="xd_dev_linux_steps">To make xdesk know more</string>
     <string name="xd_dev_linux_install">Install Termux</string>
     <string name="xd_dev_linux_install_note">From F-Droid or GitHub, then install xdesk in it</string>
@@ -87,13 +78,18 @@
     <string name="xd_dev_state_starting">Starting…</string>
     <string name="xd_dev_stop">Stop</string>
     <string name="xd_dev_stop_note">Ends the X server that all Linux environments share: every Linux program and desktop closes.</string>
-    <string name="xd_dev_remove">Remove this device</string>
-    <string name="xd_dev_remove_linux_note">Only its tab goes. The environment itself is not touched; add it again from Add device › Linux.</string>
+    <string name="xd_dev_remove">Remove from XDesk</string>
+    <string name="xd_dev_remove_title">Remove %1$s from XDesk?</string>
+    <string name="xd_dev_remove_action">Remove</string>
+    <string name="xd_dev_remove_linux_note">Only its tab goes. The environment itself is not touched: it runs inside Termux, and removing Termux as a device does not remove it. Add it again from Add device › Linux.</string>
+    <string name="xd_dev_remove_termux_note">Only the Termux device goes. The proot and chroot environments run inside Termux and stay as devices; remove each one on its own page. Add Termux again from Add device › Linux.</string>
+    <string name="xd_dev_in_termux">Runs inside Termux</string>
     <string name="xd_dev_linux_how">Used through the xdesk command</string>
     <string name="xd_dev_linux_how_note">On this phone, so there is nothing to connect. Its apps are always listed; opening one starts X by itself, without the desktop. Only “Whole desktop” starts the desktop.</string>
     <string name="xd_linux_keyboard">Keyboard</string>
+    <string name="xd_follow_global">Follow global</string>
     <string name="xd_linux_phone_ime">Keyboard types with the phone\'s input method</string>
-    <string name="xd_linux_phone_ime_note">Off: when an input method runs on the Linux side (fcitx5), a keyboard on the phone types with it, its candidates on the external screen, at the text; without one the phone\'s input method is used. On: always the phone\'s, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
+    <string name="xd_linux_phone_ime_note">Follow global: use the Input settings\' “Keyboard through the phone\'s input method”. Off: when an input method runs on the Linux side (fcitx5), a keyboard on the phone types with it, its candidates on the external screen, at the text; without one the phone\'s input method is used. On: always the phone\'s, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
     <string name="xd_linux_x_ime_on">Now: an input method runs on the Linux side.</string>
     <string name="xd_linux_x_ime_off">Now: none runs on the Linux side. To set one up, in Termux: xdesk ime setup</string>
     <string name="xd_linux_x_layout">Keyboard layout (X side)</string>

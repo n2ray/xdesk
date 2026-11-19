@@ -20,7 +20,7 @@
     <string name="xd_dev_state">状态</string>
     <string name="xd_dev_connect">连接</string>
     <string name="xd_dev_disconnect">断开</string>
-    <string name="xd_dev_set_up">设置</string>
+    <string name="xd_dev_set_up">设置这台设备</string>
     <string name="xd_dev_pair_again">重新配对</string>
     <string name="xd_dev_disconnect_title">断开「%1$s」？</string>
     <string name="xd_dev_disconnect_mac_note">它的画面离开屏幕；之后不再自动连接，直到你点连接或打开它的东西。</string>
@@ -32,7 +32,7 @@
     <plurals name="xd_dev_connected_count">
         <item quantity="other">%1$d 台已连接</item>
     </plurals>
-    <string name="xd_dev_connect_devices">连接设备</string>
+    <string name="xd_dev_connect_devices">设备</string>
     <string name="xd_dev_connect_devices_note">Termux、proot、chroot 里的 Linux，还有 Mac</string>
     <string name="xd_dev_external">外部设备</string>
     <string name="xd_dev_none">还没有</string>
@@ -46,15 +46,6 @@
     <string name="xd_dev_type_linux_note">这台手机上的 Termux、proot 或 chroot，通过 xdesk 命令</string>
     <string name="xd_dev_type_mac">Mac</string>
     <string name="xd_dev_type_mac_note">和 Mac 上的 Sill 配对</string>
-    <string name="xd_dev_soon">以后</string>
-    <string name="xd_dev_soon_short">即将支持</string>
-    <string name="xd_dev_type_windows">Windows</string>
-    <string name="xd_dev_type_windows_note">暂时请用 RustDesk</string>
-    <string name="xd_dev_type_android">其他 Android 设备</string>
-    <string name="xd_dev_type_android_note">平板或另一台手机</string>
-    <string name="xd_dev_gone">这台设备已移除</string>
-    <string name="xd_dev_mac_options">适应屏幕、Mac 键盘、移除</string>
-    <string name="xd_dev_linux_add_more">添加或查找环境</string>
     <string name="xd_dev_linux_steps">让 xdesk 知道更多环境</string>
     <string name="xd_dev_linux_install">安装 Termux</string>
     <string name="xd_dev_linux_install_note">从 F-Droid 或 GitHub 安装，再在里面装 xdesk</string>
@@ -84,13 +75,18 @@
     <string name="xd_dev_state_starting">正在启动…</string>
     <string name="xd_dev_stop">停止</string>
     <string name="xd_dev_stop_note">结束所有 Linux 环境共用的 X 服务器：Linux 程序和桌面都会关闭。</string>
-    <string name="xd_dev_remove">移除这个设备</string>
-    <string name="xd_dev_remove_linux_note">只去掉它的标签，环境本身不动；可以在「添加设备 › Linux」里再加回来。</string>
+    <string name="xd_dev_remove">从 XDesk 移除</string>
+    <string name="xd_dev_remove_title">从 XDesk 移除「%1$s」？</string>
+    <string name="xd_dev_remove_action">移除</string>
+    <string name="xd_dev_remove_linux_note">只去掉它的标签，环境本身不动。它在 Termux 里运行，把 Termux 从设备里移除也不会动它；可以在「添加设备 › Linux」里再加回来。</string>
+    <string name="xd_dev_remove_termux_note">只去掉 Termux 这台设备。proot 和 chroot 环境在 Termux 里运行，但它们各自是设备，会保留；要移除请在各自的页面上逐个移除。可以在「添加设备 › Linux」里再加回 Termux。</string>
+    <string name="xd_dev_in_termux">在 Termux 里运行</string>
     <string name="xd_dev_linux_how">通过 xdesk 命令使用</string>
     <string name="xd_dev_linux_how_note">就在这台手机上，不需要连接。应用一直列在这里；打开应用时自动起 X，不带桌面。只有「整个桌面」会启动桌面。</string>
     <string name="xd_linux_keyboard">键盘</string>
+    <string name="xd_follow_global">跟随全局</string>
     <string name="xd_linux_phone_ime">实体键盘用手机输入法打字</string>
-    <string name="xd_linux_phone_ime_note">关：Linux 这边有输入法（fcitx5）在运行时，手机上接的键盘用它打字，候选框在外屏上、紧挨着文字；没有时用手机输入法。开：始终用手机输入法，候选在手机上。手机的软键盘始终用手机输入法</string>
+    <string name="xd_linux_phone_ime_note">跟随全局：用输入设置里的「键盘先交给手机输入法」。关：Linux 这边有输入法（fcitx5）在运行时，手机上接的键盘用它打字，候选框在外屏上、紧挨着文字；没有时用手机输入法。开：始终用手机输入法，候选在手机上。手机的软键盘始终用手机输入法</string>
     <string name="xd_linux_x_ime_on">现在：Linux 这边有输入法在运行。</string>
     <string name="xd_linux_x_ime_off">现在：Linux 这边没有输入法在运行。要装一个，在 Termux 里运行：xdesk ime setup</string>
     <string name="xd_linux_x_layout">键盘布局（X 这边）</string>

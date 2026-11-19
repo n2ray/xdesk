@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Mac content (DISPLAY.md §1.3): Sill streams, pairing and settings -->
 <resources>
-    <string name="xd_mac_settings">Mac</string>
-    <string name="xd_mac_settings_note">Mac windows and the Mac desktop on the external screen, through Sill on the Mac</string>
     <string name="xd_mac_add">Add Mac</string>
+    <string name="xd_mac_add_address">Enter its address</string>
+    <string name="xd_mac_repair_title">Pair %1$s again?</string>
+    <string name="xd_mac_repair_address">At its saved address (%1$s)</string>
+    <string name="xd_mac_repair_note">For a Mac that removed XDesk or changed identity: pair at its saved address or scan its new code</string>
     <string name="xd_mac_add_note">Needs Sill 0.6.1 or later on the Mac. Over Tailscale use the Mac\'s 100.x address</string>
     <string name="xd_mac_scan">Scan QR code</string>
     <string name="xd_mac_scan_note">Scan the QR code in Sill\'s pairing window on the Mac (Pair iPhone or iPad…)</string>
@@ -27,7 +29,6 @@
     <string name="xd_mac_scan_camera_error">Cannot open the camera. Add the Mac by its address instead</string>
     <string name="xd_mac_scan_no_camera">This device has no camera. Add the Mac by its address instead</string>
     <string name="xd_mac_scan_denied">The camera is not allowed. Allow it, or add the Mac by its address instead</string>
-    <string name="xd_mac_address">Address</string>
     <string name="xd_mac_address_note">The Mac\'s address, and its port if Sill\'s Remote Access port is not 7455</string>
     <string name="xd_mac_next">Next</string>
     <string name="xd_mac_code">Pairing code</string>
@@ -43,13 +44,18 @@
     <string name="xd_mac_pair_failed">Pairing failed: %1$s</string>
     <string name="xd_mac_fit">Fit to screen</string>
     <string name="xd_mac_fit_note">Resize the Mac window to this screen. Sill puts it back when the stream ends</string>
-    <string name="xd_mac_keyboard">Mac keyboard</string>
-    <string name="xd_mac_keyboard_note">Off: a PC keyboard, Ctrl works as ⌘, Win as Ctrl, Alt as ⌥</string>
     <string name="xd_mac_phone_ime">Keyboard types with the phone\'s input method</string>
-    <string name="xd_mac_phone_ime_note">Off: a keyboard on the phone types with this Mac\'s own input method, its candidates on the Mac\'s picture, at the text. On: the phone\'s input method composes, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
-    <string name="xd_mac_remove">Remove %1$s</string>
+    <string name="xd_mac_phone_ime_note">Follow global: use the Input settings\' “Keyboard through the phone\'s input method”. Off: a keyboard on the phone types with this Mac\'s own input method, its candidates on the Mac\'s picture, at the text. On: the phone\'s input method composes, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
     <string name="xd_mac_remove_note">To connect again you pair again. Remove XDesk in Sill\'s Devices on the Mac too</string>
-    <string name="xd_mac_remove_action">Remove</string>
+    <string name="xd_mac_screen">Screen</string>
+    <string name="xd_mac_addresses">Addresses</string>
+    <string name="xd_mac_paired_address">Paired at</string>
+    <string name="xd_mac_addr_lan">Local network</string>
+    <string name="xd_mac_addr_vpn">VPN</string>
+    <string name="xd_mac_addr_vpn_tailscale">VPN (Tailscale)</string>
+    <string name="xd_mac_addr_internet">Internet</string>
+    <string name="xd_mac_addr_remembered">Remembered from an older list</string>
+    <string name="xd_mac_addr_last_worked">Last worked</string>
     <string name="xd_mac_section_one">Mac「%1$s」</string>
     <string name="xd_mac_desktop">%1$s desktop</string>
     <string name="xd_mac_display">%1$s display %2$d</string>
@@ -83,7 +89,7 @@
     <string name="xd_mac_quit_no_item">The app\'s menu has no Quit item</string>
     <string name="xd_mac_quit_no_answer">The Mac did not answer the menu request</string>
     <string name="xd_mac_quit_failed">Could not quit %1$s: %2$s</string>
-    <string name="xd_mac_unpaired">The Mac removed XDesk. Pair it again in XDesk settings › Mac</string>
+    <string name="xd_mac_unpaired">The Mac removed XDesk. Open the Mac in XDesk settings › Devices and pair it again there</string>
     <string name="xd_mac_identity_changed">The Mac\'s identity changed. Remove it and pair again</string>
     <string name="xd_mac_remote_off">Remote Access is off on the Mac</string>
     <string name="xd_mac_quit">Sill quit on the Mac</string>
@@ -150,6 +156,7 @@
     <string name="xd_mac_stream_about">About these settings</string>
     <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
     <string name="xd_mac_mode">Quick quality</string>
+    <string name="xd_mac_mode_custom_now">Now: Custom (set on the Mac or by hand)</string>
     <string name="xd_mac_mode_note">One tap between Sharp, Balanced and Smooth. These are the Mac\'s settings, so they hold for every device connected to it; with a Mac on the external screen, Ctrl+Alt+Q cycles them</string>
     <string-array name="xd_mac_mode_names">
         <item>Sharp</item>

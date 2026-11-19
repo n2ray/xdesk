@@ -319,18 +319,7 @@
     <string name="xd_clipboard_sync">Share the clipboard</string>
     <string name="xd_clipboard_sync_note">Text copied on the computer, tablet or phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
     <string name="xd_section_connect">Connect</string>
-    <string name="xd_section_more">More</string>
-    <string name="xd_section_experiments">Experiments</string>
-    <string name="xd_split_row">Split screen prototype</string>
-    <string name="xd_split_row_note">Two Android apps side by side on the external screen, drawn by XDesk (DISPLAY.md §15). Throwaway quality</string>
-    <string name="xd_split_left">Left half</string>
-    <string name="xd_split_right">Right half</string>
-    <string name="xd_split_side_note">Starts on its own virtual display in this half</string>
-    <string name="xd_split_page_note">Pick the two apps, then start. Esc Esc or Back closes the stage; Ctrl+Alt+M gives the keys and mouse back to the phone</string>
-    <string name="xd_split_start">Start the stage</string>
-    <string name="xd_split_start_note">On the external display. Needs the injector and two different apps</string>
-    <string name="xd_split_need_injector">The injector is not ready: activate it first (the prompt in the chooser)</string>
-    <string name="xd_split_two_apps">Pick two different apps for the two halves</string>
+    <string name="xd_section_other">Other</string>
     <string name="xd_split_running">Split screen prototype: two apps on the external display</string>
     <string name="xd_split_readout">L %1$d · R %2$d fps</string>
     <string name="xd_split_no_injector">No injector: the split screen prototype cannot open</string>
@@ -368,6 +357,8 @@
     <string name="xd_wireless_address_note">The address shown on the receiver, if it is not found here</string>
     <string name="xd_wireless_connect">Connect</string>
     <string name="xd_wireless_stop">Stop showing on %1$s</string>
+    <string name="xd_wireless_stop_title">Stop showing on the receiver?</string>
+    <string name="xd_wireless_stop_message">The receiver stops showing XDesk, and XDesk forgets to reconnect to it by itself. Connect again from this page whenever you like.</string>
     <string name="xd_wireless_pair_title">Pair with %1$s</string>
     <string name="xd_wireless_pair">Pair</string>
     <string name="xd_wireless_code_note">Enter the 4 digits shown on %1$s</string>
@@ -408,7 +399,7 @@
     <string name="xd_ime_corrections">Input method corrections</string>
     <string name="xd_ime_corrections_note">Suggestions and autocorrect of the phone\'s keyboard also fix what was already typed on the Linux desktop or a Mac</string>
     <string name="xd_translate_modifiers">Swap Ctrl and ⌘ for a Mac</string>
-    <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. A Mac set as Mac keyboard is never swapped</string>
+    <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. Each Mac can follow this or choose its own on its page</string>
     <string name="xd_keys_external">Keys on display</string>
     <string name="xd_keys_phone">Keys on phone</string>
     <!-- The button's label; its icon and colour say where they are (xd_keys_external / xd_keys_phone, read aloud) -->
@@ -417,7 +408,6 @@
     <string name="xd_mouse_speed_note" formatted="false">For everything on the screen; 100% is the usual speed</string>
     <string name="xd_always_cursor">Always show the XDesk cursor</string>
     <string name="xd_always_cursor_note">Turn on if it guesses wrong in a RustDesk session</string>
-    <string name="xd_output">Sound output</string>
     <string name="xd_fullscreen_default">Force apps to full screen landscape</string>
     <string name="xd_fullscreen_default_note">Ignores portrait locks on the display and other large screens; the phone screen is not affected. Applies the next time an app starts, and restarts it the first time. Can be changed per app in its card</string>
     <string name="xd_fullscreen_reset">Restore all apps</string>
@@ -440,8 +430,8 @@
     <string name="xd_pair_again_note">If you revoked the authorisation in Developer options, or it keeps failing to connect</string>
     <string name="xd_pair_again_title">Pair again?</string>
     <string name="xd_pair_again_message">XDesk stops the built-in service and forgets the pairing, then takes you through pairing in wireless debugging again.</string>
-    <string name="xd_end_desktop_row">End Termux desktop</string>
-    <string name="xd_end_desktop_row_note">XDesk stays open</string>
+    <string name="xd_end_desktop_row">Stop Linux desktop</string>
+    <string name="xd_end_desktop_row_note">Ends the desktop of Termux, proot or chroot. XDesk stays open</string>
     <string name="xd_end_xdesk_note">Apps go back to the phone, and the display mirrors the phone again</string>
     <string name="xd_builtin_running">Running</string>
     <string name="xd_builtin_starting">Starting</string>
@@ -532,8 +522,8 @@
     <string name="xd_place_failed_display">Can\'t put the desktop on the display: %1$s</string>
     <string name="xd_end_desktop_title">End desktop</string>
     <string name="xd_end_desktop_no_permission">XDesk has no permission to run Termux commands. Run this in Termux:\n\nxdesk stop</string>
-    <string name="xd_end_desktop_confirm_title">End desktop?</string>
-    <string name="xd_end_desktop_message">The desktop exits. Unsaved work will be lost.</string>
+    <string name="xd_end_desktop_confirm_title">Stop the Linux desktop?</string>
+    <string name="xd_end_desktop_message">The desktop exits, and so do its programs. Unsaved work will be lost.</string>
     <!-- Web display: any browser as the display, over Wi-Fi, the hotspot or a USB cable -->
     <string name="xd_web">Web display</string>
     <string name="xd_web_row_note">Any device\'s browser as the display, over Wi-Fi or a USB cable</string>
@@ -550,13 +540,16 @@
     <string name="xd_web_kind_other">Other network</string>
     <string name="xd_web_copy">Copy</string>
     <string name="xd_web_copied">Copied %1$s</string>
+    <string name="xd_web_stop_title">Stop the web display?</string>
+    <string name="xd_web_stop_message">The browser’s picture goes away and the page stops being served. Paired browsers can connect again when you turn Web display back on.</string>
     <string name="xd_web_computer">From a computer, lowest delay</string>
     <string name="xd_web_computer_note">Run one of these on the computer, then open http://localhost:47150 in its browser. On localhost the browser can use its faster video decoder, and Chrome can install the page as an app. Over SSH, Termux needs sshd running.</string>
     <string name="xd_web_adb">USB (needs USB debugging)</string>
     <string name="xd_web_ssh">Wi-Fi or tethering (SSH)</string>
     <string name="xd_web_wired">Wired</string>
-    <string name="xd_web_wired_how">How</string>
+    <string name="xd_web_wired_how">How, over the cable</string>
     <string name="xd_web_wired_how_note">Connect an iPad, Mac or computer with a USB cable and turn on USB tethering (below). A wired address appears above. Lower and steadier delay than Wi-Fi. For iPad and Mac, switch tethering to NCM first. The phone barely charges from an iPad meanwhile.</string>
+    <string name="xd_web_computer_how">How, on the computer</string>
     <string name="xd_web_ncm">USB tethering as NCM</string>
     <string name="xd_web_ncm_note">iPad and Mac only work with NCM; Windows and Linux work with either. Turn USB tethering off and on after changing it.</string>
     <string name="xd_web_ncm_on">NCM</string>

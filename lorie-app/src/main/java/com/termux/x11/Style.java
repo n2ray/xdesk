@@ -31,6 +31,11 @@ final class Style {
     static final int WARN = 0xFFF2B33D;
     static final int DANGER = 0xFFE5534B;
     /**
+     * 可以再来一次的停止：断开 Mac、停止 Linux 桌面、停止内置服务、停止投屏。比权限卡的琥珀色 WARN 更红，
+     * 在近黑的底上对比度约 7:1，和 DANGER 一样清楚，又不会和红色混。
+     */
+    static final int STOP = 0xFFFF7A1A;
+    /**
      * 设备徽章的颜色盘（ExternalLauncher 的设备徽章）：同一个设备永远是同一个颜色。取中间明度的饱和色，
      * 在深色和浅色的表面上都清楚，彼此分得开。
      */

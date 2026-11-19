@@ -29,7 +29,7 @@ public final class MacStore {
 
     /** One address the Mac advertised (kind "vpn", "lan" or "internet"), or one a session connected at (kind null). */
     public static final class Address {
-        static final String VPN = "vpn", LAN = "lan", INTERNET = "internet";
+        public static final String VPN = "vpn", LAN = "lan", INTERNET = "internet";
 
         public final String host;
         public final int port;
@@ -39,6 +39,11 @@ public final class MacStore {
             this.host = host;
             this.port = port;
             this.kind = kind;
+        }
+
+        /** Host and port as shown, an IPv6 host in brackets. */
+        public String display() {
+            return (host.indexOf(':') >= 0 ? "[" + host + "]" : host) + ":" + port;
         }
 
         static boolean validKind(String kind) {
@@ -107,13 +112,16 @@ public final class MacStore {
         final byte[] recognition;
         /** Resize the streamed Mac window to the screen (DISPLAY.md §1.3, off by default). */
         public final boolean fit;
-        /** The keyboard is a Mac keyboard: no Ctrl↔⌘ swap (INPUT.md §5.5). */
-        public final boolean macKeyboard;
         /**
-         * A physical keyboard on the phone types through the phone's input method (text, composed on the phone)
-         * instead of as keys the Mac's own input method composes (INPUT.md §5.2, off by default).
+         * Ctrl↔⌘ swap for this Mac (INPUT.md §5.5): null follows XDesk's global input setting, true swaps, false
+         * sends Ctrl as Ctrl.
          */
-        public final boolean phoneIme;
+        public final Boolean translateOverride;
+        /**
+         * A physical keyboard on the phone types through the phone's input method for this Mac (INPUT.md §5.2):
+         * null follows the global setting, true uses the phone's, false the Mac's own.
+         */
+        public final Boolean phoneImeOverride;
         /**
          * What the Mac's last signed address list (SillWire.MAC_INFO) said: where it can be reached, in its own
          * order. Empty before the first list and for a saved Mac from before XDesk read one.
@@ -130,7 +138,7 @@ public final class MacStore {
         final List<Remembered> remembered;
 
         Mac(String id, String name, String host, int port, byte[] pin, byte[] recognition, boolean fit,
-            boolean macKeyboard, boolean phoneIme, List<Address> advertised, double infoIssuedAt,
+            Boolean translateOverride, Boolean phoneImeOverride, List<Address> advertised, double infoIssuedAt,
             Address lastWorked, List<Remembered> remembered) {
             this.id = id;
             this.name = name;
@@ -139,8 +147,8 @@ public final class MacStore {
             this.pin = pin;
             this.recognition = recognition;
             this.fit = fit;
-            this.macKeyboard = macKeyboard;
-            this.phoneIme = phoneIme;
+            this.translateOverride = translateOverride;
+            this.phoneImeOverride = phoneImeOverride;
             this.advertised = Collections.unmodifiableList(new ArrayList<>(advertised));
             this.infoIssuedAt = infoIssuedAt;
             this.lastWorked = lastWorked;
@@ -149,6 +157,31 @@ public final class MacStore {
 
         public String address() {
             return (host.indexOf(':') >= 0 ? "[" + host + "]" : host) + ":" + port;
+        }
+
+        /** Ctrl↔⌘ swap here: this Mac's own choice, else the global setting. */
+        public boolean translateModifiers(boolean global) {
+            return translateOverride != null ? translateOverride : global;
+        }
+
+        /** The phone's input method here: this Mac's own choice, else the global setting. */
+        public boolean phoneIme(boolean global) {
+            return phoneImeOverride != null ? phoneImeOverride : global;
+        }
+
+        /** The addresses the Mac last advertised, in its order. */
+        public List<Address> advertised() {
+            return advertised;
+        }
+
+        /** Where a session last connected, or null; its kind is null (it was not advertised as such). */
+        public Address lastWorked() {
+            return lastWorked;
+        }
+
+        /** VPN addresses a newer list dropped, newest first. */
+        public List<Remembered> remembered() {
+            return remembered;
         }
 
         JSONObject json() throws JSONException {
@@ -160,14 +193,20 @@ public final class MacStore {
                     .put("pin", Base64.encodeToString(pin, Base64.NO_WRAP))
                     .put("recognition", recognition == null ? ""
                             : Base64.encodeToString(recognition, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING))
-                    .put("fit", fit).put("macKeyboard", macKeyboard)
-                    .put("phoneIme", phoneIme)
+                    .put("fit", fit)
+                    .put("translate", translateOverride == null ? JSONObject.NULL : translateOverride)
+                    .put("phoneImeOverride", phoneImeOverride == null ? JSONObject.NULL : phoneImeOverride)
                     .put("advertised", advertisedJson).put("infoIssuedAt", infoIssuedAt)
                     .put("lastWorked", lastWorked == null ? JSONObject.NULL : lastWorked.json())
                     .put("remembered", rememberedJson);
         }
 
-        static Mac of(JSONObject o) throws JSONException {
+        /**
+         * A saved Mac. The two keyboard choices were saved as "Mac keyboard" and "phone IME" before each Mac could
+         * follow the global setting: an old value that differs from the global one becomes an explicit override,
+         * one that equals it becomes "follow", so today's behaviour stays.
+         */
+        static Mac of(JSONObject o, boolean globalTranslate, boolean globalPhoneIme) throws JSONException {
             byte[] recognition = null;
             String encoded = o.optString("recognition", "");
             if (!encoded.isEmpty()) {
@@ -180,27 +219,47 @@ public final class MacStore {
             }
             double issued = o.optDouble("infoIssuedAt", 0);
             if (!Double.isFinite(issued) || issued < 0) issued = 0;
+            Boolean translate;
+            if (o.has("translate")) translate = nullableBoolean(o, "translate");
+            else {
+                // Before: macKeyboard=true meant no swap whatever the global setting; false meant follow it
+                boolean macKeyboard = o.optBoolean("macKeyboard", false);
+                translate = macKeyboard && globalTranslate ? Boolean.FALSE : null;
+            }
+            Boolean phoneIme;
+            if (o.has("phoneImeOverride")) phoneIme = nullableBoolean(o, "phoneImeOverride");
+            else {
+                // Before: off by default, which meant the Mac's own input method. Keep that where it differs
+                boolean old = o.optBoolean("phoneIme", false);
+                phoneIme = old != globalPhoneIme ? Boolean.valueOf(old) : null;
+            }
             return new Mac(o.getString("id"), o.optString("name", ""), o.getString("host"), o.getInt("port"),
                     Base64.decode(o.getString("pin"), Base64.NO_WRAP), recognition, o.optBoolean("fit", false),
-                    o.optBoolean("macKeyboard", false), o.optBoolean("phoneIme", false),
-                    addresses(o.optJSONArray("advertised")), issued,
-                    Address.of(o.optJSONObject("lastWorked"), false), remembered(o.optJSONArray("remembered")));
+                    translate, phoneIme,
+                    MacStore.addresses(o.optJSONArray("advertised")), issued,
+                    Address.of(o.optJSONObject("lastWorked"), false), MacStore.remembered(o.optJSONArray("remembered")));
         }
 
-        Mac with(String name, boolean fit, boolean macKeyboard, boolean phoneIme) {
-            return new Mac(id, name, host, port, pin, recognition, fit, macKeyboard, phoneIme, advertised,
-                    infoIssuedAt, lastWorked, remembered);
+        Mac with(String name, boolean fit, Boolean translateOverride, Boolean phoneImeOverride) {
+            return new Mac(id, name, host, port, pin, recognition, fit, translateOverride, phoneImeOverride,
+                    advertised, infoIssuedAt, lastWorked, remembered);
         }
 
         Mac withInfo(List<Address> advertised, double infoIssuedAt, List<Remembered> remembered) {
-            return new Mac(id, name, host, port, pin, recognition, fit, macKeyboard, phoneIme, advertised,
-                    infoIssuedAt, lastWorked, remembered);
+            return new Mac(id, name, host, port, pin, recognition, fit, translateOverride, phoneImeOverride,
+                    advertised, infoIssuedAt, lastWorked, remembered);
         }
 
         Mac withLastWorked(Address lastWorked) {
-            return new Mac(id, name, host, port, pin, recognition, fit, macKeyboard, phoneIme, advertised,
-                    infoIssuedAt, lastWorked, remembered);
+            return new Mac(id, name, host, port, pin, recognition, fit, translateOverride, phoneImeOverride,
+                    advertised, infoIssuedAt, lastWorked, remembered);
         }
+    }
+
+    /** A saved choice that may be absent: null in the JSON means "follow the global setting". */
+    private static Boolean nullableBoolean(JSONObject o, String key) {
+        if (!o.has(key) || o.isNull(key)) return null;
+        return o.optBoolean(key, false);
     }
 
     /** The advertised list, in its saved order; malformed entries (an older or damaged record) are skipped. */
@@ -247,9 +306,12 @@ public final class MacStore {
 
     public static synchronized List<Mac> all(Context c) {
         ArrayList<Mac> out = new ArrayList<>();
+        // The old saved choices are read against these: a value equal to the global one follows it from now on
+        boolean translate = com.termux.x11.KeyboardSettings.translateModifiers(c);
+        boolean phoneIme = com.termux.x11.KeyboardSettings.keysViaIme(c);
         try {
             JSONArray a = new JSONArray(prefs(c).getString(KEY, "[]"));
-            for (int i = 0; i < a.length(); i++) out.add(Mac.of(a.getJSONObject(i)));
+            for (int i = 0; i < a.length(); i++) out.add(Mac.of(a.getJSONObject(i), translate, phoneIme));
         } catch (JSONException e) {
             android.util.Log.w("XDeskMac", "saved Macs unreadable", e);
         }
@@ -282,7 +344,7 @@ public final class MacStore {
         // What the old key signed is the old key's to say: a Mac paired again with a new key starts with no routes.
         boolean samePin = old != null && MessageDigest.isEqual(old.pin, p.pin);
         Mac m = new Mac(p.macId, name, host, port, p.pin, recognition, old != null && old.fit,
-                old != null && old.macKeyboard, old != null && old.phoneIme,
+                old != null ? old.translateOverride : null, old != null ? old.phoneImeOverride : null,
                 samePin ? old.advertised : Collections.<Address>emptyList(),
                 samePin ? old.infoIssuedAt : 0, samePin ? old.lastWorked : null,
                 samePin ? old.remembered : Collections.<Remembered>emptyList());
@@ -359,10 +421,13 @@ public final class MacStore {
         prefs(c).edit().remove(STREAM + id).remove(SMOOTH + id).apply();
     }
 
-    public static synchronized void setOptions(Context c, String id, boolean fit, boolean macKeyboard, boolean phoneIme) {
+    /** This Mac's options; a null keyboard choice follows the global setting. */
+    public static synchronized void setOptions(Context c, String id, boolean fit, Boolean translateOverride,
+                                                Boolean phoneImeOverride) {
         List<Mac> macs = all(c);
         for (int i = 0; i < macs.size(); i++)
-            if (macs.get(i).id.equals(id)) macs.set(i, macs.get(i).with(macs.get(i).name, fit, macKeyboard, phoneIme));
+            if (macs.get(i).id.equals(id))
+                macs.set(i, macs.get(i).with(macs.get(i).name, fit, translateOverride, phoneImeOverride));
         save(c, macs);
     }
 
@@ -373,7 +438,7 @@ public final class MacStore {
         for (int i = 0; i < macs.size(); i++) {
             Mac m = macs.get(i);
             if (m.id.equals(id) && !name.isEmpty() && !name.equals(m.name)) {
-                macs.set(i, m.with(name, m.fit, m.macKeyboard, m.phoneIme));
+                macs.set(i, m.with(name, m.fit, m.translateOverride, m.phoneImeOverride));
                 changed = true;
             }
         }

@@ -9,8 +9,8 @@ import java.util.HashSet;
 /**
  * XDesk's input for a Mac window or the Mac desktop (INPUT.md Target "Mac"): the touchpad's relative moves and a
  * browser's absolute ones become a pointer in fractions of the streamed frame; left and right buttons; wheel
- * steps become Sill scrolls; Linux key codes become HID usages with INPUT.md §5.5's modifier translation (the
- * switch in XDesk's input settings, and each Mac's "Mac keyboard"). Text comes already reconciled by the phone's text
+ * steps become Sill scrolls; Linux key codes become HID usages with INPUT.md §5.5's modifier translation (each
+ * Mac's own choice, else XDesk's input setting). Text comes already reconciled by the phone's text
  * bridge (TextBridge, shared with the X desktop): corrections arrive as Backspace keys and the new text. The host repeats held keys when its list says keyRepeat, so a repeated down from
  * Android is dropped then.
  *
@@ -33,8 +33,10 @@ final class MacInput implements InputSink {
     /** HID usages down now, as sent (after translation). */
     private final HashSet<Integer> down = new HashSet<>();
     private boolean altHeld, shiftHeld, commandForAlt, tabStepped;
-    /** INPUT.md §12 "modifier translation", for every Mac: off sends the keys as they are on the keyboard. */
+    /** INPUT.md §12 "modifier translation": the global value, for Macs that follow it. Off sends the keys as they are. */
     static volatile boolean translateModifiers = true;
+    /** The global "keyboard through the phone's input method", for Macs that follow it. */
+    static volatile boolean keysViaIme = true;
     /**
      * The sending keyboard is a Mac keyboard (a receiver said KEYBOARD kind 1): its Command already arrives as Meta,
      * so this Mac gets the keys untranslated (INPUT.md §5.5 "Mac keyboard → Mac"). Per wireless session.
@@ -75,7 +77,7 @@ final class MacInput implements InputSink {
      * composes, and its candidates are in the picture, at the text. False: this Mac is set to the phone's input method.
      */
     boolean rawKeys() {
-        return !client.mac().phoneIme;
+        return !client.mac().phoneIme(keysViaIme);
     }
 
     // --- pointer ---
@@ -202,7 +204,9 @@ final class MacInput implements InputSink {
         if (scan == SCAN_SHIFT || scan == SCAN_RIGHT_SHIFT) shiftHeld = isDown;
         int usage = HidKeys.fromLinux(scan);
         if (usage == 0) return;
-        if (translateModifiers && !client.mac().macKeyboard && !sourceMacKeyboard && semantic == 0) usage = HidKeys.pcToMac(usage);
+        // This Mac's own choice, else the global one; a Mac keyboard's keys already are the Mac's
+        if (client.mac().translateModifiers(translateModifiers) && !sourceMacKeyboard && semantic == 0)
+            usage = HidKeys.pcToMac(usage);
         // Released as it was pressed: the translation may have changed in between (a session ending, the setting)
         if (isDown) pressedAs.put(scan, usage);
         else {

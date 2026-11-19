@@ -22,31 +22,42 @@ import com.termux.x11.mac.PairLink;
 import com.termux.x11.mac.PairScannerActivity;
 
 /**
- * XDesk settings › Mac: the paired Macs (remove, "fit to screen", "Mac keyboard") and "Add Mac" by address and the
- * 12-digit code Sill shows on the Mac (menu bar › Pair iPhone or iPad…), by scanning the pairing window's QR code,
- * or by a tapped sill://pair link (MacSettings.fromLink). Opened with MacSettings.open(activity).
+ * Pairing with a Mac: Add device › Mac (by address and the 12-digit code Sill shows on the Mac, or by scanning the
+ * pairing window's QR code), pairing a saved Mac again at its address (Settings › Devices › that Mac), and a tapped
+ * sill://pair link (fromLink). A Mac's own settings are on its device page (DeviceSettings); this is only the
+ * pairing flow.
  */
 final class MacSettings {
     private final Context c;
     private final SettingsUi s;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private Dialog page;
 
     private MacSettings(Context c) {
         this.c = c;
         s = new SettingsUi(c);
     }
 
-    /** The one call for XDesk's settings list. */
-    static Dialog open(Context c) {
-        MacSettings m = new MacSettings(c);
-        m.show();
-        return m.page;
+    /** Add a Mac by its address (Settings › Devices › Add device › Mac › Enter its address). */
+    static void add(Context c) {
+        new MacSettings(c).askAddress(null);
     }
 
-    /** Straight into pairing a new Mac (Settings › Connect device › Add device › Mac, DEVICES.md §5). */
-    static void add(Context c) {
-        new MacSettings(c).askAddress();
+    /** Add a Mac by scanning Sill's pairing window on it (Settings › Devices › Add device › Mac › Scan). */
+    static void scan(Context c) {
+        new MacSettings(c).askScan();
+    }
+
+    /**
+     * A saved Mac that must pair again (it removed XDesk, or its identity changed): its saved address is offered
+     * ready to use, and scanning is there as for a new Mac.
+     */
+    static void repair(Context c, String macId) {
+        MacStore.Mac m = MacStore.find(c, macId);
+        if (m == null) {
+            add(c);
+            return;
+        }
+        new MacSettings(c).askRepair(m);
     }
 
     /** A sill://pair link (tapped, or read from its QR code by a camera app): confirm the Mac, then pair. */
@@ -54,72 +65,31 @@ final class MacSettings {
         new MacSettings(c).offer(raw);
     }
 
-    private void show() {
-        LinearLayout content = new LinearLayout(c);
-        content.setOrientation(LinearLayout.VERTICAL);
-        fill(content);
-        page = s.page(c.getString(R.string.xd_mac_settings), content);
+    private void askRepair(final MacStore.Mac m) {
+        String[] options = {c.getString(R.string.xd_mac_scan), c.getString(R.string.xd_mac_repair_address, m.address())};
+        s.choice(c.getString(R.string.xd_mac_repair_title, m.name), null, options, -1, which -> {
+            if (which == 0) askScan();
+            else askAddress(c.getString(R.string.xd_mac_repair_title, m.name), m.address());
+        });
     }
 
-    private void refresh() {
-        if (page == null || !page.isShowing()) {
-            Devices.get(c).touch();
-            return;
-        }
-        Devices.get(c).touch();
-        page.dismiss();
-        show();
+    private void askAddress(String value) {
+        askAddress(c.getString(R.string.xd_mac_add), value);
     }
 
-    private void fill(LinearLayout content) {
-        LinearLayout add = s.section(content, c.getString(R.string.xd_mac_settings_note));
-        s.valueRow(add, c.getString(R.string.xd_mac_add), c.getString(R.string.xd_mac_add_note), "", this::askAddress);
-        s.valueRow(add, c.getString(R.string.xd_mac_scan), c.getString(R.string.xd_mac_scan_note), "", this::askScan);
-        for (final MacStore.Mac m : MacStore.all(c)) {
-            LinearLayout card = s.section(content, m.name);
-            s.infoRow(card, c.getString(R.string.xd_mac_address), null, m.address());
-            // Each switch writes its own option over what is saved now: the rows keep the Mac as it was when shown
-            s.switchRow(card, c.getString(R.string.xd_mac_fit), c.getString(R.string.xd_mac_fit_note), m.fit, on -> {
-                MacStore.Mac now = saved(m);
-                MacStore.setOptions(c, m.id, on, now.macKeyboard, now.phoneIme);
-                MacClients.savedChanged(c);
-            });
-            s.switchRow(card, c.getString(R.string.xd_mac_keyboard), c.getString(R.string.xd_mac_keyboard_note), m.macKeyboard, on -> {
-                MacStore.Mac now = saved(m);
-                MacStore.setOptions(c, m.id, now.fit, on, now.phoneIme);
-                MacClients.savedChanged(c);
-            });
-            s.switchRow(card, c.getString(R.string.xd_mac_phone_ime), c.getString(R.string.xd_mac_phone_ime_note), m.phoneIme, on -> {
-                MacStore.Mac now = saved(m);
-                MacStore.setOptions(c, m.id, now.fit, now.macKeyboard, on);
-                MacClients.savedChanged(c);
-            });
-            // Sill's own settings for this Mac (quality, frame rate, sound, ...) have a page of their own
-            s.valueRow(card, c.getString(R.string.xd_mac_stream), c.getString(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, m.id));
-            s.dangerRow(content, c.getString(R.string.xd_mac_remove, m.name), c.getString(R.string.xd_mac_remove_note), () ->
-                s.confirm(c.getString(R.string.xd_mac_remove, m.name), c.getString(R.string.xd_mac_remove_note), c.getString(R.string.xd_mac_remove_action), () -> {
-                    MacStore.remove(c, m.id);
-                    MacClients.savedChanged(c);
-                    refresh();
-                }));
-        }
-    }
-
-    private MacStore.Mac saved(MacStore.Mac shown) {
-        MacStore.Mac now = MacStore.find(c, shown.id);
-        return now != null ? now : shown;
-    }
-
-    private void askAddress() {
-        s.input(c.getString(R.string.xd_mac_add), c.getString(R.string.xd_mac_address_note), "100.64.0.1:7455", null,
+    private void askAddress(String title, final String value) {
+        s.input(title, c.getString(R.string.xd_mac_address_note), "100.64.0.1:7455", value,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, c.getString(R.string.xd_mac_next), address -> {
                     try {
                         MacPairing.parse(address);
                     } catch (IllegalArgumentException e) {
+                        // The sheet stays open with what was typed, so it can be fixed
                         toast(c.getString(R.string.xd_mac_bad_address));
-                        return;
+                        return false;
                     }
-                    askCode(address);
+                    // After the sheet has closed, as before
+                    ui.post(() -> askCode(address));
+                    return true;
                 }, null);
     }
 
@@ -160,6 +130,7 @@ final class MacSettings {
             try {
                 MacPairing.checkCode(code);
             } catch (IllegalArgumentException e) {
+                // The sheet stays open with what was typed, so it can be fixed
                 toast(c.getString(R.string.xd_mac_bad_code));
                 return;
             }
@@ -282,10 +253,7 @@ final class MacSettings {
             try {
                 MacStore.Mac m = MacPairing.pair(c, address, code, seenPin);
                 message = c.getString(R.string.xd_mac_paired, m.name);
-                ui.post(() -> {
-                    MacClients.savedChanged(c);
-                    refresh();
-                });
+                ui.post(() -> savedChanged());
             } catch (Exception e) {
                 String reason = MacPairing.refusal(e);
                 if ("code".equals(reason)) message = c.getString(R.string.xd_mac_wrong_code);
@@ -306,10 +274,7 @@ final class MacSettings {
             try {
                 MacStore.Mac m = MacPairing.pairLink(c, link);
                 message = c.getString(R.string.xd_mac_paired, m.name);
-                ui.post(() -> {
-                    MacClients.savedChanged(c);
-                    refresh();
-                });
+                ui.post(() -> savedChanged());
             } catch (Exception e) {
                 String reason = MacPairing.refusal(e);
                 if ("busy".equals(reason)) message = c.getString(R.string.xd_mac_busy);
@@ -318,6 +283,12 @@ final class MacSettings {
             final String m = message;
             ui.post(() -> toast(m));
         }, "mac-pair").start();
+    }
+
+    /** A Mac was paired: the clients take the new list, and any open device list or page is filled again. */
+    private void savedChanged() {
+        MacClients.savedChanged(c);
+        Devices.get(c).touch();
     }
 
     private void toast(String t) {

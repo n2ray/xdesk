@@ -594,15 +594,6 @@ final class NotifyCenter {
         changed();
     }
 
-    boolean bellShown() {
-        return prefs.getBoolean("bell", true);
-    }
-
-    void setBellShown(boolean on) {
-        prefs.edit().putBoolean("bell", on).apply();
-        changed();
-    }
-
     boolean lowBatteryBanners() {
         return prefs.getBoolean("low_battery", true);
     }

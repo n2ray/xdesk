@@ -258,19 +258,6 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         onModelChanged();
     }
 
-    private void showBell() {
-        if (bell != null || windows == null) return;
-        bell = new NotifyBell(dc, density, this::toggle);
-        try {
-            windows.addView(bell.view(), bell.params());
-            raiseArrows();  // the pointer stays above every window of the centre
-            bell.setUnread(center.unread());
-        } catch (RuntimeException e) {
-            Log.w(TAG, "no notification bell", e);
-            bell = null;
-        }
-    }
-
     private void hideBell() {
         NotifyBell b = bell;
         bell = null;

@@ -21,7 +21,7 @@ import java.util.Objects;
 
 /**
  * The devices of DEVICES.md: the phone (internal, always connected) and the external devices (Linux environments,
- * paired Macs; Windows and other Android devices later), each with a state. A Mac is remote: it is connected and
+ * paired Macs), each with a state. A Mac is remote: it is connected and
  * disconnected. A Linux environment is local, reached through the xdesk command: it has no connection, its programs
  * are always listed, it is running or not, and can be stopped. Keys of the content sources keep their format;
  * {@link #deviceOf} assigns every key to a device. Also keeps the launcher's hidden entries, the Macs the user
@@ -37,12 +37,13 @@ final class Devices {
     /** What forgetGoneTermux did. */
     static final int TERMUX_SAME = 0, TERMUX_FORGOTTEN = 1, TERMUX_REMOVED = 2, TERMUX_REINSTALLED = 3;
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
-        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime", PREF_TERMUX = "termux",
+        PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime",
+        PREF_PHONE_IME_ON = "linux_phone_ime_on", PREF_PHONE_IME_OFF = "linux_phone_ime_off", PREF_TERMUX = "termux",
         PREF_TERMUX_AT = "termux_installed_at";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
-    enum Type { PHONE, LINUX, MAC, WINDOWS, ANDROID }
+    enum Type { PHONE, LINUX, MAC }
 
     /** For a Linux device CONNECTED reads "running", CONNECTING "starting" and DISCONNECTED "not running" (stateLabel). */
     enum State { NOT_SET_UP, DISCONNECTED, CONNECTING, CONNECTED, FAILED }
@@ -138,8 +139,11 @@ final class Devices {
     private List<Env> envs = new ArrayList<>();
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private Actions actions;
-    /** The Linux environments (by name, Termux too) whose physical keyboard types with the phone's input method. */
-    private final LinkedHashSet<String> linuxPhoneIme = new LinkedHashSet<>();
+    /**
+     * The Linux environments (by name, Termux too) that chose the phone's input method for a physical keyboard, and
+     * those that chose their own. An environment in neither follows the global setting.
+     */
+    private final LinkedHashSet<String> phoneImeOn = new LinkedHashSet<>(), phoneImeOff = new LinkedHashSet<>();
     /** An input method runs on the X side (xdesk status says so): X can compose what a physical keyboard types. */
     private boolean xIme;
     /** The remembered X side keyboard layout (xdesk status: "Keyboard layout: NAME"), null when X's own is used. */
@@ -158,9 +162,35 @@ final class Devices {
         hidden.addAll(lines(prefs.getString(PREF_HIDDEN, "")));
         off.addAll(lines(prefs.getString(PREF_OFF, "")));
         addedLinux.addAll(lines(prefs.getString(PREF_LINUX, "")));
-        linuxPhoneIme.addAll(lines(prefs.getString(PREF_LINUX_PHONE_IME, "")));
+        loadPhoneIme();
         reportedEnvs = parseEnvs(lines(prefs.getString(PREF_ENVS, "")));
         rebuildEnvs();
+    }
+
+    /**
+     * The per-environment keyboard choices. Before each environment could follow the global setting, only the ones
+     * that chose the phone's input method were saved: one that equals the global value follows it from now on, one
+     * that differs stays an explicit choice. Written once, so a later change of the global setting does not
+     * reinterpret the old list.
+     */
+    private void loadPhoneIme() {
+        if (prefs.contains(PREF_PHONE_IME_ON) || prefs.contains(PREF_PHONE_IME_OFF)) {
+            phoneImeOn.addAll(lines(prefs.getString(PREF_PHONE_IME_ON, "")));
+            phoneImeOff.addAll(lines(prefs.getString(PREF_PHONE_IME_OFF, "")));
+            return;
+        }
+        boolean global = KeyboardSettings.keysViaIme(context);
+        // In the old list: this environment chose the phone's input method. Keep that choice only where it differs
+        // from the global setting; the others follow the global one from now on.
+        for (String env : lines(prefs.getString(PREF_LINUX_PHONE_IME, "")))
+            if (!global) phoneImeOn.add(env);
+        savePhoneIme();
+    }
+
+    private void savePhoneIme() {
+        prefs.edit().putString(PREF_PHONE_IME_ON, String.join("\n", phoneImeOn))
+            .putString(PREF_PHONE_IME_OFF, String.join("\n", phoneImeOff))
+            .remove(PREF_LINUX_PHONE_IME).apply();
     }
 
     private static List<String> lines(String s) {
@@ -251,16 +281,35 @@ final class Devices {
         changed();
     }
 
-    /** This Linux device is set to the phone's input method for a physical keyboard, whatever runs on the X side. */
-    boolean linuxPhoneIme(String deviceId) {
-        return deviceId != null && deviceId.startsWith(LINUX) && linuxPhoneIme.contains(deviceId.substring(LINUX.length()));
+    /**
+     * This Linux device uses the phone's input method for a physical keyboard, whatever runs on the X side: its own
+     * choice, else the global setting.
+     */
+    boolean linuxPhoneIme(String deviceId, boolean global) {
+        if (deviceId == null || !deviceId.startsWith(LINUX)) return false;
+        String env = deviceId.substring(LINUX.length());
+        return phoneImeOn.contains(env) || !phoneImeOff.contains(env) && global;
     }
 
-    void setLinuxPhoneIme(String deviceId, boolean on) {
+    /** This device's own choice: true the phone's input method, false its own, null follows the global setting. */
+    Boolean linuxPhoneImeChoice(String deviceId) {
+        if (deviceId == null || !deviceId.startsWith(LINUX)) return null;
+        String env = deviceId.substring(LINUX.length());
+        if (phoneImeOn.contains(env)) return Boolean.TRUE;
+        if (phoneImeOff.contains(env)) return Boolean.FALSE;
+        return null;
+    }
+
+    /** Set this device's own choice; null makes it follow the global setting again. */
+    void setLinuxPhoneIme(String deviceId, Boolean on) {
         if (deviceId == null || !deviceId.startsWith(LINUX)) return;
         String env = deviceId.substring(LINUX.length());
-        if (on ? !linuxPhoneIme.add(env) : !linuxPhoneIme.remove(env)) return;
-        prefs.edit().putString(PREF_LINUX_PHONE_IME, String.join("\n", linuxPhoneIme)).apply();
+        // Both sets, so the environment is never in both: | evaluates both removals
+        boolean moved = on == null ? (phoneImeOn.remove(env) | phoneImeOff.remove(env))
+            : on ? (phoneImeOn.add(env) | phoneImeOff.remove(env))
+            : (phoneImeOff.add(env) | phoneImeOn.remove(env));
+        if (!moved) return;
+        savePhoneIme();
         changed();
     }
 
@@ -339,7 +388,8 @@ final class Devices {
     /**
      * Termux is a device like the others, added when wanted: a first start of XDesk has the phone's apps only. It is
      * there by itself once xdesk has answered (it is set up: an update, or Termux was added before), and the user can
-     * add or remove it like any other. The other environments live in Termux, so none of them is there without it.
+     * add or remove it like any other. The proot and chroot environments run inside Termux but are devices of their
+     * own: removing Termux from XDesk does not remove them.
      */
     private boolean termuxAdded() {
         String p = prefs.getString(PREF_TERMUX, "");
@@ -348,9 +398,18 @@ final class Devices {
         return !reportedEnvs.isEmpty() || !sessions.isEmpty() || xRunning || runningSession != null;
     }
 
-    /** Whether Linux devices are shown at all: Termux is installed and added. Keys of Linux items are gone otherwise. */
+    /** Whether the Termux device itself is shown: Termux is installed and added as a device. */
+    boolean termuxShown() {
+        return termuxInstalled() && termuxAdded();
+    }
+
+    /**
+     * Whether any Linux device is shown: Termux is installed, and Termux itself or a proot/chroot environment was
+     * added. Removing Termux hides only its own device: the proot and chroot environments run inside Termux and stay
+     * until each is removed on its own page.
+     */
     boolean linuxShown() {
-        return termuxAdded() && termuxInstalled();
+        return termuxInstalled() && (termuxAdded() || !addedLinux.isEmpty());
     }
 
     /** Add device › Linux › an environment, or its removal. Nothing of the environment itself is touched. */
@@ -457,21 +516,22 @@ final class Devices {
         return null;
     }
 
-    /** The remote devices connected now. A local Linux environment is running or not, never "connected". */
+    /** The devices connected now: a Mac connected, a Linux environment whose desktop or programs run. */
     int connectedCount() {
         int n = 0;
-        for (Device d : external()) if (d.type != Type.LINUX && d.state == State.CONNECTED) n++;
+        for (Device d : external()) if (d.state == State.CONNECTED) n++;
         return n;
     }
 
     /**
-     * Termux, then the environments added as devices that xdesk still knows, in its order. None without Termux installed
-     * and added (Add device › Linux says how to install it), so someone who only uses Android apps and Macs has no Linux tabs.
+     * Termux (when it is a device), then the environments added as devices that xdesk still knows, in its order.
+     * Without Termux installed there are none (Add device › Linux says how to install it); removing the Termux
+     * device only takes Termux out, the proot and chroot devices stay.
      */
     private List<String> linuxIds() {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
-        if (!linuxShown()) return new ArrayList<>(ids);
-        ids.add(LINUX + TERMUX);
+        if (!termuxInstalled()) return new ArrayList<>(ids);
+        if (termuxAdded()) ids.add(LINUX + TERMUX);
         for (Env e : envs) if (addedLinux.contains(e.name)) ids.add(LINUX + e.name);
         return new ArrayList<>(ids);
     }
@@ -507,14 +567,16 @@ final class Devices {
         if (saved == -1 && at != 0) return TERMUX_SAME;
         boolean was = saved > 0 && termuxAdded();
         addedLinux.clear();
-        linuxPhoneIme.clear();
+        phoneImeOn.clear();
+        phoneImeOff.clear();
         reportedEnvs = new ArrayList<>();
         sessions = new ArrayList<>();
         defaultSession = runningSession = stoppingSession = termuxHint = termuxVersionHint = null;
         xRunning = false;
         linuxStarting = null;
         boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX));
-        SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS).remove(PREF_LINUX_PHONE_IME).putString(PREF_TERMUX, "off");
+        SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS)
+            .remove(PREF_LINUX_PHONE_IME).remove(PREF_PHONE_IME_ON).remove(PREF_PHONE_IME_OFF).putString(PREF_TERMUX, "off");
         if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden));
         String tab = boardTab();
         if (tab != null && tab.startsWith(LINUX)) ed.remove(PREF_BOARD_TAB).remove(PREF_OLD_TAB);

@@ -349,15 +349,16 @@ final class ItemCard {
             final AppSession apps = host.apps();
             if (!apps.canCloseApps()) return;
             action(R.string.xd_close, Style.SURFACE, Style.DANGER, () ->
-                s.confirm(c.getString(R.string.xd_card_close_title, app.label), str(R.string.xd_unsaved_may_be_lost), str(R.string.xd_close), () -> {
-                    card.dismiss();
-                    apps.closeApp(app);
-                }));
+                s.confirm(c.getString(R.string.xd_card_close_title, app.label), str(R.string.xd_unsaved_may_be_lost), str(R.string.xd_close),
+                    SettingsUi.LEVEL_DANGER, () -> {
+                        card.dismiss();
+                        apps.closeApp(app);
+                    }));
         } else if (session != null) {
             // A whole desktop ends with the X server all Linux environments share: the device's Stop, which asks first
             final Devices.Device d = device();
             if (d == null || !d.canStop || d.busy || !session.equals(devices.runningSession())) return;
-            action(R.string.xd_dev_stop, Style.SURFACE, Style.DANGER, () -> devices.stop(d.id));
+            action(R.string.xd_dev_stop, Style.SURFACE, Style.STOP, () -> devices.stop(d.id));
         } else if (isMac()) {
             // A Mac window's card only closes it, as on the Mac; quitting is the menu's, ⌘Q's and the Running app
             // item's (MACMENU.md §8). The app item quits for real, through Sill's menu protocol (MacSource.close
@@ -380,7 +381,7 @@ final class ItemCard {
     /** Quitting is asked first, with the same words about unsaved work as closing an app. */
     private void confirmQuit(String label) {
         s.confirm(c.getString(R.string.xd_card_quit_title, label), str(R.string.xd_unsaved_may_be_lost),
-            str(R.string.xd_dev_quit), () -> {
+            str(R.string.xd_dev_quit), SettingsUi.LEVEL_DANGER, () -> {
                 card.dismiss();
                 source.close(key);  // a Mac "app" key quits through MacClient.quitApp (MacSource.close)
             });
@@ -417,8 +418,9 @@ final class ItemCard {
 
     /**
      * Everything of a Linux environment or a Mac: its settings are the device's, so this is the way there. A Linux
-     * device's page has Stop and its desktops; a Mac's the quick quality modes, the whole picture page, its
-     * keyboard and fit, and a connected Mac can be disconnected here (SALL-SYNC.md "XDesk's own additions").
+     * device's page has Stop and its desktops; a Mac's the quick quality modes, its connection, the whole picture
+     * page, its keyboard and fit, its addresses and its removal. A connected Mac can be disconnected here too
+     * (SALL-SYNC.md "XDesk's own additions").
      */
     private void deviceRows(LinearLayout into, final Runnable refill) {
         if (isMac()) {
@@ -436,7 +438,10 @@ final class ItemCard {
             // The Mac's menus as a list on the phone (MACMENU.md §5), while the Mac is connected
             if (d.state == Devices.State.CONNECTED)
                 s.valueRow(rows, str(R.string.xd_mac_menu), str(R.string.xd_mac_menu_note), "", () -> MacMenuDialog.show(c, macId));
-            s.valueRow(rows, c.getString(R.string.xd_card_device_settings, d.name), str(R.string.xd_dev_mac_options), "", () -> MacSettings.open(c));
+            String state = str(Devices.stateLabel(d));
+            s.valueRow(rows, c.getString(R.string.xd_card_device_settings, d.name),
+                d.note != null && !d.note.isEmpty() ? state + " · " + d.note : state, "",
+                () -> DeviceSettings.openDevice(c, d.id));
             if (d.state == Devices.State.CONNECTED && !d.busy)
                 s.valueRow(rows, str(R.string.xd_dev_disconnect), null, "", () -> confirmDisconnect(c, d));
             return;
@@ -455,6 +460,6 @@ final class ItemCard {
     /** Disconnecting a Mac is asked first, wherever it is offered (the launcher's device bar, this card). */
     static void confirmDisconnect(final Context c, final Devices.Device d) {
         new SettingsUi(c).confirm(c.getString(R.string.xd_dev_disconnect_title, d.name), c.getString(R.string.xd_dev_disconnect_mac_note),
-            c.getString(R.string.xd_dev_disconnect), () -> Devices.get(c).disconnect(d.id));
+            c.getString(R.string.xd_dev_disconnect), SettingsUi.LEVEL_STOP, () -> Devices.get(c).disconnect(d.id));
     }
 }

@@ -23,8 +23,10 @@ import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import com.termux.x11.app.R;
+import java.util.ArrayList;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.util.function.Predicate;
 
 /**
  * 设置和应用卡片共用的组件：圆角卡片分组，每行有名称、需要时的说明、右边的当前值。开关和选择都用强调色，
@@ -34,6 +36,15 @@ final class SettingsUi {
     /** 大屏或横屏时内容不拉得太宽。 */
     private static final int MAX_WIDTH_DP = 640, SHEET_MAX_WIDTH_DP = 480;
     private static final int ROW_MIN_DP = 56;
+
+    /** 确认按钮的级别：平时的强调色、橙的停止和红的移除。 */
+    static final int LEVEL_NORMAL = 0, LEVEL_STOP = 1, LEVEL_DANGER = 2;
+
+    /**
+     * 所有用 page() 打开的整屏设置页。XDesk 关闭设置时要把它们一起关掉：设备页、画面和声音页这些不是
+     * XDeskActivity 自己开的，关设置时也得走。
+     */
+    private static final ArrayList<Dialog> openPages = new ArrayList<>();
 
     private final Context c;
 
@@ -47,7 +58,14 @@ final class SettingsUi {
 
     /** 整屏的设置页：标题栏加可以滚动的内容。 */
     Dialog page(String title, View content) {
-        final Dialog d = new Dialog(c, android.R.style.Theme_Material_NoActionBar);
+        // 关掉时从登记的页里去掉。用 onStop 而不是 setOnDismissListener：调用方还会设置自己的
+        // dismiss 监听，设置两次只会留下后一个。
+        final Dialog d = new Dialog(c, android.R.style.Theme_Material_NoActionBar) {
+            @Override protected void onStop() {
+                super.onStop();
+                openPages.remove(this);
+            }
+        };
         LinearLayout root = new LinearLayout(c);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Style.BACKGROUND);
@@ -82,8 +100,15 @@ final class SettingsUi {
         d.getWindow().setStatusBarColor(Style.BACKGROUND);
         d.getWindow().setNavigationBarColor(Style.BACKGROUND);
         d.getWindow().setWindowAnimations(android.R.style.Animation_Activity);
+        // 设置里的页都在这里登记，XDesk 关设置时一起关，不管是谁打开的
+        openPages.add(d);
         d.show();
         return d;
+    }
+
+    /** 关掉所有用 page() 打开的设置页：XDeskActivity.closeSettings 用它收走设备页这些不在自己栈里的页。 */
+    static void closePages() {
+        for (Dialog d : new ArrayList<>(openPages)) d.dismiss();
     }
 
     /** 浮在中间的圆角卡片，比如选一项或应用卡片。内容太长时可以滚动。 */
@@ -272,9 +297,14 @@ final class SettingsUi {
         return d[0];
     }
 
-    /** 确认一件不好撤销的事。 */
+    /** 确认一件平常的事：按钮用强调色。 */
     Dialog confirm(String title, String message, String action, final Runnable onConfirm) {
-        return confirm(title, message, action, c.getString(R.string.xd_cancel), onConfirm);
+        return confirm(title, message, action, LEVEL_NORMAL, c.getString(R.string.xd_cancel), onConfirm);
+    }
+
+    /** 确认一件要看级别的事：LEVEL_DANGER 红、LEVEL_STOP 橙、LEVEL_NORMAL 强调色。 */
+    Dialog confirm(String title, String message, String action, int level, final Runnable onConfirm) {
+        return confirm(title, message, action, level, c.getString(R.string.xd_cancel), onConfirm);
     }
 
     /** A PermitCard for a page on the phone; add it with addTo. */
@@ -313,8 +343,8 @@ final class SettingsUi {
         return d[0];
     }
 
-    /** confirm with its own word for not now. */
-    Dialog confirm(String title, String message, String action, String cancelLabel, final Runnable onConfirm) {
+    /** confirm with its own word for not now, and the action's level. */
+    Dialog confirm(String title, String message, String action, int level, String cancelLabel, final Runnable onConfirm) {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.END);
         final Dialog[] d = new Dialog[1];
@@ -323,7 +353,10 @@ final class SettingsUi {
             cancel.setOnClickListener(v -> d[0].dismiss());
             row.addView(cancel, pillParams());
         }
-        TextView go = pill(action, onConfirm != null ? Style.DANGER : Style.ACCENT);
+        // 只有真的破坏才用红色，停止用橙色，其余用强调色
+        int color = onConfirm == null ? Style.ACCENT
+            : level == LEVEL_DANGER ? Style.DANGER : level == LEVEL_STOP ? Style.STOP : Style.ACCENT;
+        TextView go = pill(action, color);
         go.setOnClickListener(v -> {
             d[0].dismiss();
             if (onConfirm != null) onConfirm.run();
@@ -334,11 +367,12 @@ final class SettingsUi {
     }
 
     /**
-     * A field and a button. onSubmit gets the trimmed text and the dialog closes; closing it any other way calls
-     * onCancel once, which may be null.
+     * A field and a button. onSubmit gets the trimmed text; returning false keeps the sheet and what was typed, so
+     * the caller can say why it is not taken. Accepting closes the sheet. Closing it any other way calls onCancel
+     * once, which may be null.
      */
     Dialog input(String title, String note, String hint, String value, int inputType, String action,
-                 final Consumer<String> onSubmit, final Runnable onCancel) {
+                 final Predicate<String> onSubmit, final Runnable onCancel) {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
         final EditText field = new EditText(c);
@@ -365,9 +399,10 @@ final class SettingsUi {
         final Runnable submit = () -> {
             String text = field.getText().toString().trim();
             if (text.isEmpty()) return;
+            // 先让调用方判断：不接受时页还开着，输过的文字还在
+            if (!onSubmit.test(text)) return;
             submitted[0] = true;
             d[0].dismiss();
-            onSubmit.accept(text);
         };
         go.setOnClickListener(v -> {
             Style.tick(v);
@@ -531,8 +566,16 @@ final class SettingsUi {
         card.addView(box, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    /** 百分比滑块，右边显示值。@param percent 50 到 200 */
+    /** 百分比滑块，50 到 200，右边显示值。 */
     void percentRow(LinearLayout card, String label, String description, int percent, final IntConsumer onChange) {
+        percentRow(card, label, description, percent, 50, 200, onChange);
+    }
+
+    /**
+     * 百分比滑块，右边显示值。min 和 max 是存这个值的范围：滑块要盖住整个范围，存过的值不能一拖就被改掉。
+     */
+    void percentRow(LinearLayout card, String label, String description, int percent, final int min, final int max,
+                    final IntConsumer onChange) {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(12), dp(8), dp(12), dp(4));
@@ -543,15 +586,16 @@ final class SettingsUi {
         head.addView(value);
         box.addView(head);
         SeekBar bar = new SeekBar(c);
-        bar.setMax(150);
-        bar.setProgress(percent - 50);
+        bar.setMax(max - min);
+        // 只是滑块位置要在范围内；外面的值原样留着，不动它
+        bar.setProgress(Math.max(min, Math.min(max, percent)) - min);
         bar.setProgressTintList(ColorStateList.valueOf(Style.ACCENT));
         bar.setThumbTintList(ColorStateList.valueOf(Style.ACCENT));
         bar.setProgressBackgroundTintList(ColorStateList.valueOf(Style.SURFACE_RAISED));
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                value.setText((p + 50) + "%");
-                if (user) onChange.accept(p + 50);
+                value.setText((p + min) + "%");
+                if (user) onChange.accept(p + min);
             }
             @Override public void onStartTrackingTouch(SeekBar s) { }
             @Override public void onStopTrackingTouch(SeekBar s) { }
@@ -627,13 +671,31 @@ final class SettingsUi {
         card.addView(box, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    /** 红色的动作行，单独一张卡片。 */
+    /** 红色的动作行，单独一张卡片：移除、忘记、结束 XDesk。 */
     void dangerRow(LinearLayout parent, String label, String description, final Runnable onTap) {
+        actionRow(parent, label, description, Style.DANGER, onTap);
+    }
+
+    /** 橙色的动作行，单独一张卡片：断开、停止这类可以再来的动作。 */
+    void stopRow(LinearLayout parent, String label, String description, final Runnable onTap) {
+        actionRow(parent, label, description, Style.STOP, onTap);
+    }
+
+    /** 橙色的动作行，加进已有的卡片，和那一页的其他行在一起。 */
+    void stopRowIn(LinearLayout card, String label, String description, final Runnable onTap) {
+        coloredRow(card, label, description, Style.STOP, onTap);
+    }
+
+    private void actionRow(LinearLayout parent, String label, String description, int color, final Runnable onTap) {
         LinearLayout card = card(parent);
         LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) card.getLayoutParams();
         p.topMargin = dp(16);
+        coloredRow(card, label, description, color, onTap);
+    }
+
+    private void coloredRow(LinearLayout card, String label, String description, int color, final Runnable onTap) {
         LinearLayout row = pressableRow();
-        row.addView(labels(label, description, Style.DANGER), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(labels(label, description, color), new LinearLayout.LayoutParams(0, -2, 1));
         row.setOnClickListener(v -> {
             Style.tick(v);
             onTap.run();

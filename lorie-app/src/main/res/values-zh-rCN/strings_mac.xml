@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="xd_mac_settings">Mac</string>
-    <string name="xd_mac_settings_note">经 Mac 上的 Sill，把 Mac 窗口和 Mac 桌面放到外接屏上</string>
     <string name="xd_mac_add">添加 Mac</string>
+    <string name="xd_mac_add_address">输入地址</string>
+    <string name="xd_mac_repair_title">重新配对「%1$s」？</string>
+    <string name="xd_mac_repair_address">用保存的地址（%1$s）</string>
+    <string name="xd_mac_repair_note">Mac 移除了 XDesk 或身份变了：用保存的地址重新配对，或扫它新显示的码</string>
     <string name="xd_mac_add_note">Mac 上要有 Sill 0.6.1 或更新版本。经 Tailscale 连时用 Mac 的 100.x 地址</string>
     <string name="xd_mac_scan">扫描二维码</string>
     <string name="xd_mac_scan_note">扫描 Mac 上 Sill 配对窗口里的二维码（配对 iPhone 或 iPad…）</string>
@@ -26,7 +28,6 @@
     <string name="xd_mac_scan_camera_error">打不开相机，请改用地址添加 Mac</string>
     <string name="xd_mac_scan_no_camera">这台设备没有相机，请改用地址添加 Mac</string>
     <string name="xd_mac_scan_denied">没有相机权限。请允许，或改用地址添加 Mac</string>
-    <string name="xd_mac_address">地址</string>
     <string name="xd_mac_address_note">Mac 的地址；Sill 远程访问的端口不是 7455 时加上端口</string>
     <string name="xd_mac_next">下一步</string>
     <string name="xd_mac_code">配对码</string>
@@ -42,13 +43,18 @@
     <string name="xd_mac_pair_failed">配对失败：%1$s</string>
     <string name="xd_mac_fit">适配屏幕</string>
     <string name="xd_mac_fit_note">把 Mac 窗口改成这块屏的大小。串流结束时 Sill 会改回去</string>
-    <string name="xd_mac_keyboard">Mac 键盘</string>
-    <string name="xd_mac_keyboard_note">关着时按 PC 键盘处理：Ctrl 当 ⌘，Win 当 Ctrl，Alt 当 ⌥</string>
     <string name="xd_mac_phone_ime">实体键盘用手机输入法打字</string>
-    <string name="xd_mac_phone_ime_note">关：手机上接的键盘用这台 Mac 自己的输入法，候选框在 Mac 画面里、紧挨着文字。开：由手机输入法拼字，候选在手机上。手机的软键盘始终用手机输入法</string>
-    <string name="xd_mac_remove">移除 %1$s</string>
+    <string name="xd_mac_phone_ime_note">跟随全局：用输入设置里的「键盘先交给手机输入法」。关：手机上接的键盘用这台 Mac 自己的输入法，候选框在 Mac 画面里、紧挨着文字。开：由手机输入法拼字，候选在手机上。手机的软键盘始终用手机输入法</string>
     <string name="xd_mac_remove_note">要再连就得重新配对。也请在 Mac 上 Sill 的设备列表里移除 XDesk</string>
-    <string name="xd_mac_remove_action">移除</string>
+    <string name="xd_mac_screen">屏幕</string>
+    <string name="xd_mac_addresses">地址</string>
+    <string name="xd_mac_paired_address">配对地址</string>
+    <string name="xd_mac_addr_lan">局域网</string>
+    <string name="xd_mac_addr_vpn">VPN</string>
+    <string name="xd_mac_addr_vpn_tailscale">VPN（Tailscale）</string>
+    <string name="xd_mac_addr_internet">互联网</string>
+    <string name="xd_mac_addr_remembered">以前用过的地址</string>
+    <string name="xd_mac_addr_last_worked">上次可用</string>
     <string name="xd_mac_section_one">Mac「%1$s」</string>
     <string name="xd_mac_desktop">%1$s 桌面</string>
     <string name="xd_mac_display">%1$s 显示器 %2$d</string>
@@ -82,7 +88,7 @@
     <string name="xd_mac_quit_no_item">这个应用的菜单里没有「退出」一项</string>
     <string name="xd_mac_quit_no_answer">Mac 没有回应菜单请求</string>
     <string name="xd_mac_quit_failed">没能退出 %1$s：%2$s</string>
-    <string name="xd_mac_unpaired">Mac 移除了 XDesk。请在 XDesk 设置 › Mac 里重新配对</string>
+    <string name="xd_mac_unpaired">Mac 移除了 XDesk。请在 XDesk 设置 › 设备里打开这台 Mac，在那里重新配对</string>
     <string name="xd_mac_identity_changed">Mac 的身份变了。请移除后重新配对</string>
     <string name="xd_mac_remote_off">Mac 上的远程访问已关闭</string>
     <string name="xd_mac_quit">Mac 上的 Sill 已退出</string>
@@ -149,6 +155,7 @@
     <string name="xd_mac_stream_about">关于这些设置</string>
     <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
     <string name="xd_mac_mode">快速画质</string>
+    <string name="xd_mac_mode_custom_now">当前：自定义（在 Mac 上或手动设的）</string>
     <string name="xd_mac_mode_note">清晰、平衡、流畅三档一键切换。改动的是 Mac 的设置，对连接它的所有设备生效；Mac 在外接屏上时，Ctrl+Alt+Q 可循环切换</string>
     <string-array name="xd_mac_mode_names">
         <item>清晰</item>

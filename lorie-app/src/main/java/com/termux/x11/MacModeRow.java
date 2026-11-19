@@ -16,8 +16,8 @@ import java.util.List;
 
 /**
  * The quick quality row (AutoQuality's three modes, SALL-SYNC.md "XDesk's own additions"): Sharp / Balanced /
- * Smooth as one segmented control, or Custom when the Mac's settings match none of the three. It sits at the top
- * of MacStreamSettings, of a Mac's device page (DeviceSettings) and of a Mac item's card (ItemCard); Ctrl+Alt+Q
+ * Smooth as one segmented control; a Mac whose settings match none of the three says Custom in the note. It sits at
+ * the top of a Mac's device page (DeviceSettings) and of a Mac item's card (ItemCard); Ctrl+Alt+Q
  * (XDeskActivity) cycles the same modes while a Mac is on the external screen. Picking a mode sends only the
  * fields that differ, together in one change (MacClient.changeAll), and tells the Mac's AutoQuality that this is
  * the user's mode now.
@@ -74,10 +74,12 @@ final class MacModeRow {
         HostSettings h = live != null ? live : HostSettings.saved(MacStore.stream(c, macId).host);
         if (h == null || h.bitrate == null || h.captureScale == null || h.prioritizeSpeed == null) return false;
         String[] names = c.getResources().getStringArray(R.array.xd_mac_mode_names);
-        String[] options = {names[0], names[1], names[2], c.getString(R.string.xd_mac_quality_custom)};
+        String[] options = {names[0], names[1], names[2]};
         int at = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
-        if (at < 0) at = 3;
         String note = c.getString(R.string.xd_mac_mode_note);
+        // None of the three matches: a setting made on the Mac or by hand. Said in words, not as a segment that
+        // could be picked (there is nothing to pick), and no segment is marked while it holds
+        if (at < 0) note = c.getString(R.string.xd_mac_mode_custom_now) + "\n" + note;
         String pending = client.pendingSetting();
         if (pending != null && (HostSettings.BITRATE.equals(pending) || HostSettings.CAPTURE_SCALE.equals(pending)
                 || HostSettings.PRIORITIZE_SPEED.equals(pending)))
@@ -87,10 +89,11 @@ final class MacModeRow {
         if (live != null && pending == null) {
             final int now = at;
             s.segmentedRow(card, c.getString(R.string.xd_mac_mode), note, options, now, which -> {
-                if (which < 3 && which != now) apply(which);
+                if (which != now) apply(which);
             });
         } else {
-            s.infoRow(card, c.getString(R.string.xd_mac_mode), note, options[at]);
+            String value = at >= 0 ? options[at] : c.getString(R.string.xd_mac_quality_custom);
+            s.infoRow(card, c.getString(R.string.xd_mac_mode), note, value);
         }
         return true;
     }
