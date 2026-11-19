@@ -359,7 +359,7 @@
     <string name="xd_density_need_injector">需要注入服务</string>
     <string name="xd_density_need_app">外接屏上有安卓应用时才能改</string>
     <string name="xd_density_range">%1$d 到 %2$d dpi，越小内容越多。只对安卓应用生效；X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。显示器默认 %3$s</string>
-    <string name="xd_section_phone">手机</string>
+    <string name="xd_section_phone">通用</string>
     <string name="xd_section_input">输入</string>
     <string name="xd_section_sound">声音</string>
     <string name="xd_section_display">外屏</string>
@@ -394,7 +394,7 @@
     <string name="xd_fullscreen_reset_action">撤销</string>
     <string name="xd_display_android">安卓应用</string>
     <string name="xd_display_linux">Linux 桌面</string>
-    <string name="xd_display_general">通用</string>
+    <string name="xd_display_general">整块外屏</string>
     <string name="xd_fullscreen_reset_message">XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。</string>
     <string name="xd_fullscreen_reset_need_injector">要先连上注入服务：运行一次安卓应用后再试</string>
     <string name="xd_cover">切到其他应用或锁屏时遮住外屏</string>

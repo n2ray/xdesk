@@ -380,7 +380,7 @@
     <string name="xd_density_need_injector">Needs the input service</string>
     <string name="xd_density_need_app">Only while an Android app is on the display</string>
     <string name="xd_density_range">%1$d to %2$d dpi, smaller fits more. Only Android apps follow it: X, Mac and XDesk\'s own screens follow the screen\'s Size. Display default: %3$s</string>
-    <string name="xd_section_phone">Phone</string>
+    <string name="xd_section_phone">General</string>
     <string name="xd_section_input">Input</string>
     <string name="xd_section_sound">Sound</string>
     <string name="xd_section_display">Display</string>
@@ -415,7 +415,7 @@
     <string name="xd_fullscreen_reset_action">Undo</string>
     <string name="xd_display_android">Android apps</string>
     <string name="xd_display_linux">Linux desktop</string>
-    <string name="xd_display_general">General</string>
+    <string name="xd_display_general">Whole screen</string>
     <string name="xd_fullscreen_reset_message">Apps that XDesk made full screen landscape go back to how they were, and the system stops each of them once. The default and every app\'s choice go back to off.</string>
     <string name="xd_fullscreen_reset_need_injector">Needs the input service: run an Android app once, then try again</string>
     <string name="xd_cover">Cover the display when you leave XDesk or lock the phone</string>
