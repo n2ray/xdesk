@@ -2629,7 +2629,9 @@ update)
         exit 1
     }
     if [ "$code" = 404 ]; then
-        echo "$v is older than xdesk update supports" >&2
+        # No install.sh there: no such release (a test build, they are never published, or one not out yet), or a
+        # release from before xdesk update existed. It said "too old" alone, also for a test build (2026-11-19)
+        echo "No install.sh for $v on GitHub: a test build, not published yet, or older than xdesk update supports" >&2
         exit 1
     fi
     [ "$code" = 200 ] || { echo "Could not download $base/install.sh (HTTP $code)" >&2; exit 1; }

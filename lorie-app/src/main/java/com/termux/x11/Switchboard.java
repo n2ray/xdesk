@@ -492,7 +492,9 @@ final class Switchboard {
                 if (hint != null) desktops.add(note(hint, null, () -> { if (host != null) host.termuxHint(); }));
                 // CLI.md §1: the command's version, its action named in the second line
                 String version = devices.termuxVersionHint();
-                if (version != null) desktops.add(note(version, str(R.string.xd_termux_update_command),
+                // The action is the line, the versions say why (owner, 2026-11-19: "更新命令" in the small grey line was
+                // not seen as something to tap)
+                if (version != null) desktops.add(note(str(R.string.xd_termux_update_command), version,
                     () -> { if (host != null) host.updateCommand(); }));
                 // Not set up yet (just added, or xdesk is missing): the install line, one tap from Termux
                 if (hint != null && devices.sessions().isEmpty())

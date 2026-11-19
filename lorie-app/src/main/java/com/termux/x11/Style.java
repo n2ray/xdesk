@@ -31,10 +31,14 @@ final class Style {
     static final int WARN = 0xFFF2B33D;
     static final int DANGER = 0xFFE5534B;
     /**
-     * 可以再来一次的停止：断开 Mac、停止 Linux 桌面、停止内置服务、停止投屏。比权限卡的琥珀色 WARN 更红，
-     * 在近黑的底上对比度约 7:1，和 DANGER 一样清楚，又不会和红色混。
+     * 可以再来一次的停止：断开 Mac、停止 Linux 桌面、停止内置服务、停止投屏。黄色字，不加底色（用户 2026-11-19：
+     * 停止和断开用黄字，只有移除才加底色）。比权限卡的琥珀色 WARN 更亮更黄，两者一眼分得开；黄底按钮上用深色字。
      */
-    static final int STOP = 0xFFFF7A1A;
+    static final int STOP = 0xFFFFDD55;
+    /** 黄色按钮上的字：深色，同权限卡琥珀按钮的字。 */
+    static final int ON_STOP = 0xFF1A1405;
+    /** 移除、忘记、结束这一行的淡红底：一眼看出是按钮，又不像实心红块那样抢眼。 */
+    static final int DANGER_TINT = 0x29E5534B;
     /**
      * 设备徽章的颜色盘（ExternalLauncher 的设备徽章）：同一个设备永远是同一个颜色。取中间明度的饱和色，
      * 在深色和浅色的表面上都清楚，彼此分得开。

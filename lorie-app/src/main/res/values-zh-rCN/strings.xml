@@ -448,7 +448,7 @@
     <string name="xd_termux_no_sessions">没有找到环境。在 Termux 里运行 xdesk setup 后点这里</string>
     <string name="xd_termux_cli_mismatch">xdesk 命令是 %1$s，App 是 %2$s</string>
     <string name="xd_termux_cli_old">旧版</string>
-    <string name="xd_termux_update_command">更新命令</string>
+    <string name="xd_termux_update_command">更新 xdesk 命令</string>
     <string name="xd_termux_cli_updating">正在更新 xdesk 命令…</string>
 
     <string name="xd_returning_to">正在回到 %1$s</string>

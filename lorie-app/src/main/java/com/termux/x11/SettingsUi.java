@@ -357,6 +357,7 @@ final class SettingsUi {
         int color = onConfirm == null ? Style.ACCENT
             : level == LEVEL_DANGER ? Style.DANGER : level == LEVEL_STOP ? Style.STOP : Style.ACCENT;
         TextView go = pill(action, color);
+        if (color == Style.STOP) go.setTextColor(Style.ON_STOP);
         go.setOnClickListener(v -> {
             d[0].dismiss();
             if (onConfirm != null) onConfirm.run();
@@ -690,6 +691,8 @@ final class SettingsUi {
         LinearLayout card = card(parent);
         LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) card.getLayoutParams();
         p.topMargin = dp(16);
+        // 移除这一级：整行淡红底，一眼看出是按钮（用户 2026-11-19）；停止只用黄字
+        if (color == Style.DANGER) card.setBackground(Style.rounded(c, Style.DANGER_TINT, 16));
         coloredRow(card, label, description, color, onTap);
     }
 

@@ -471,7 +471,7 @@
     <string name="xd_termux_no_sessions">No environments found. Run xdesk setup in Termux, then tap here</string>
     <string name="xd_termux_cli_mismatch">The xdesk command is %1$s, the app is %2$s</string>
     <string name="xd_termux_cli_old">too old</string>
-    <string name="xd_termux_update_command">Update command</string>
+    <string name="xd_termux_update_command">Update the xdesk command</string>
     <string name="xd_termux_cli_updating">Updating the xdesk command…</string>
 
     <string name="xd_returning_to">Going back to %1$s</string>
