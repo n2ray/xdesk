@@ -20,11 +20,12 @@
 #   xdesk enable-app-start   let the app's "start" button run commands in Termux
 #   xdesk apps [--refresh|--path]   list the programs XDesk can open one by one (from .desktop files); --path prints the catalog file
 #   xdesk launch [--startup-id ID] SCOPE/ID   open one of them on the display, in its session (Termux, proot or chroot)
-#   xdesk scale DPI          size XFCE for this X DPI: font DPI, panel, icons, cursor (the app runs it)
+#   xdesk scale DPI          set this X server's DPI and cursor size in memory (the app runs it; no XFCE settings)
 #   xdesk envs               list the environments (Termux, each proot or chroot) with their sessions, for the app
 #   xdesk app state          one JSON line with everything the app reads (sessions, X, environments)
 #   xdesk app catalog        the program list without icons, for the app before any X server runs
-#   xdesk ime [status|setup|start|stop|on|off|layout [NAME]]   the X side's input method and keyboard layout (fcitx5 in Termux)
+#   xdesk ime [status|setup|start|stop|on|off|layout [NAME]]   the X side's input method and keyboard layout (fcitx5 in Termux;
+#                            "setup" is the only command that writes its first config)
 #   xdesk help [all]         the commands above; "all" adds the ones only the app uses
 #   NAME+apps                as a session name (start, switch, use): only X, xfwm4 and xfsettingsd, no panel or desktop
 #                            ("termux+apps" needs no session: Termux's own xfwm4)
@@ -235,47 +236,63 @@ x_layout() {
     log "X keyboard layout: $s"
 }
 
-# CURSOR.md §2.4, §2.5: XDesk's own cursor is a black arrow with a white edge, 24 dp·b·u. X gets the same
-# from the "Adwaita" theme of the Termux package adwaita-icon-theme: a black arrow with a white edge. Its
-# size is 24·DPI/96 -- the X DPI is 96·b·u·R/N (DISPLAY.md §4.1), so 24 dp·b·u is 24·DPI/96 X pixels, which
-# the screen's R/N rendering turns back into 24 dp·b·u. Delivered two ways, both only to
-# xdesk's own X server and sessions: the Xcursor.theme/Xcursor.size resources merged into its X database, and
-# XCURSOR_THEME/XCURSOR_SIZE for the sessions it starts. ~/.Xresources and xfconf (shared with a desktop started another way) are left alone.
-CURSOR_THEME=Adwaita
-cursor_installed() { [ -d "$PREFIX/share/icons/$CURSOR_THEME/cursors" ]; }
-cursor_missing_msg() {
-    echo "Cursor theme: '$CURSOR_THEME' is not installed (pkg install adwaita-icon-theme has it, a black arrow with a white edge). Until then X keeps its current cursor theme."
-}
+# CURSOR.md §2.4, §2.5: XDesk's own cursor is a black arrow with a white edge, 24 dp·b·u. X gets the size for it,
+# 24·DPI/96 X pixels -- the X DPI is 96·b·u·R/N (DISPLAY.md §4.1), so 24 dp·b·u is 24·DPI/96 X pixels, which the
+# screen's R/N rendering turns back into 24 dp·b·u. The theme is the user's own and stays untouched (owner,
+# 2026-11-19): only the size is delivered, two ways, both only to xdesk's own X server and the sessions it starts:
+# Xcursor.size merged into its X resource database, and XCURSOR_SIZE for the programs it starts. ~/.Xresources,
+# xfconf and XCURSOR_THEME are left alone.
 
-# The cursor size in X pixels: 24 at 96 DPI, scaled by DPI/96 like the XFCE sizes in scale_commands. With no
-# dpi given, the one the app last asked for
+# The cursor size in X pixels: 24 at 96 DPI, scaled by DPI/96. With no dpi given, the one the app last asked for
 cursor_size() {  # dpi, or nothing
     local d=${1:-$(cut -d' ' -f1 "$RUN/scale" 2>/dev/null)}
     [[ $d =~ ^[0-9]{2,4}$ ]] || d=96
     awk -v d="$d" 'BEGIN { printf "%d", int(24 * d / 96 + 0.5) }'
 }
 
-# The cursor resources for xdesk's own X server only (owner, 2026-11-15): written to $RUN, never to $HOME/.Xresources,
+# The cursor size resource for xdesk's own X server only (owner, 2026-11-15): written to $RUN, never to $HOME/.Xresources,
 # so a desktop started some other way (startx.sh, official Termux:X11) keeps its own cursor. Gone with X.
 cursor_resources() {  # dpi, or nothing
     local f=$RUN/cursor.Xresources
-    cursor_installed || return 1
-    printf 'Xcursor.theme: %s\nXcursor.size: %s\n' "$CURSOR_THEME" "$(cursor_size "${1:-}")" >"$f" || return 1
+    printf 'Xcursor.size: %s\n' "$(cursor_size "${1:-}")" >"$f" || return 1
     echo "$f"
 }
 
 # The resources into this X server's database (on the root window): new programs read them from there, ones
-# already running keep what they loaded. Without xrdb the session environment still sets them
+# already running keep what they loaded. Without xrdb the session environment still sets the size
 cursor_apply() {  # dpi, or nothing
     local f
     f=$(cursor_resources "${1:-}") || return 0
-    command -v xrdb >/dev/null 2>&1 || { log "Cursor theme: xorg-xrdb is not installed, sessions set it through their environment"; return 0; }
+    command -v xrdb >/dev/null 2>&1 || { log "Cursor size: xorg-xrdb is not installed, programs keep X's own cursor size"; return 0; }
     x_up || return 0
-    DISPLAY=$DPY timeout 3 xrdb -merge "$f" 2>/dev/null || log "Cursor theme: xrdb could not merge $f"
+    DISPLAY=$DPY timeout 3 xrdb -merge "$f" 2>/dev/null || log "Cursor size: xrdb could not merge $f"
 }
 
-# What X gets as soon as it is up, and only then: the keyboard layout and the cursor resources
-x_ready() { x_layout; cursor_apply; }
+# The DPI in xdesk's own X server, in memory only (owner, 2026-11-19): xrandr --dpi gives X the DPI, and xfsettingsd
+# when the user has no /Xft/DPI of their own; xrdb merges Xft.dpi and Xcursor.size into this X server's resource
+# database, which dies with it. Nothing goes into xfconf or ~/.Xresources, so the user's desktop configuration and
+# preferences stay as they are and a crash leaves nothing behind. A /Xft/DPI the user set in xfconf wins (xfsettingsd
+# applies it); it is neither read nor changed here. Panel and desktop icon sizes are the user's own and never touched.
+scale_resources() {  # dpi
+    local f=$RUN/scale.Xresources
+    if command -v xrandr >/dev/null 2>&1; then
+        DISPLAY=$DPY timeout 3 xrandr --dpi "$1" >/dev/null 2>&1 || log "scale $1: xrandr --dpi did not take"
+    else
+        log "scale $1: xrandr is not installed, X keeps its DPI (pkg install xorg-xrandr)"
+    fi
+    printf 'Xft.dpi: %s\nXcursor.size: %s\n' "$1" "$(cursor_size "$1")" >"$f" || return 1
+    command -v xrdb >/dev/null 2>&1 || { log "scale $1: xorg-xrdb is not installed, programs keep X's own resources"; return 0; }
+    x_up || return 0
+    DISPLAY=$DPY timeout 3 xrdb -merge "$f" 2>/dev/null || log "scale $1: xrdb could not merge $f"
+}
+
+# What X gets as soon as it is up, and only then: the keyboard layout, the last DPI the app asked for, the cursor size
+x_ready() {
+    local d
+    x_layout
+    d=$(cut -d' ' -f1 "$RUN/scale" 2>/dev/null)
+    if [[ $d =~ ^[0-9]{2,4}$ ]]; then scale_resources "$d"; else cursor_apply; fi
+}
 
 start_x() {
     local up=0 p deadline
@@ -327,11 +344,14 @@ start_audio() {
         return 0
     fi
     unset PULSE_SERVER PULSE_COOKIE   # the local daemon, whatever this shell has set
+    local started=0 prev=""
     # Desktop audio goes to a null sink, the app reads it from a local port and picks the output device. A daemon
     # xdesk did not start is left running by xdesk stop, which removes only what xdesk loaded into it
     if ! timeout 3 pactl info >/dev/null 2>&1; then
         timeout 5 pulseaudio --start --exit-idle-time=-1 </dev/null 9>&- >>"$LOG" 2>&1
         : >"$RUN/pulse.ours"
+        started=1
+        rm -f "${RUN:?}/pulse.default"
     fi
     # Clients in proot or a chroot come in over TCP, so it needs the cookie: any app on the phone can reach 127.0.0.1.
     # The file below brings back the old way, without one, for setups that cannot pass PULSE_COOKIE
@@ -353,6 +373,16 @@ start_audio() {
     deadline=$((SECONDS + 5))
     while [ $SECONDS -lt $deadline ]; do $p info >/dev/null 2>&1 && break; sleep 0.5; done
     $p info >/dev/null 2>&1 || { log "PulseAudio not reachable, no audio"; return 0; }
+    # A daemon xdesk did not start: remember the user's default sink, so stop_audio puts it back and the null sink
+    # stays this session's only. Otherwise module-default-device-restore would remember "xdesk" as the user's default.
+    # An earlier start of this xdesk already remembered it (the default is "xdesk" now): that file is the user's.
+    if [ $started = 0 ] && [ ! -e "$RUN/pulse.ours" ] && [ ! -e "$RUN/pulse.default" ]; then
+        prev=$($p get-default-sink 2>/dev/null | head -1)
+        [ -n "$prev" ] || prev=$($p info 2>/dev/null | sed -n 's/^Default Sink: //p' | head -1)
+        if [ -n "$prev" ] && [ "$prev" != xdesk ]; then
+            printf '%s\n' "$prev" >"$RUN/pulse.default"
+        fi
+    fi
     $p list short sinks | grep -q '^[0-9]*[[:space:]]xdesk[[:space:]]' || \
         $p load-module module-null-sink sink_name=xdesk rate=48000 channels=2 >/dev/null
     # The app gets a connection to this from the X server (ICmdEntryInterface.getAudioConnection)
@@ -369,13 +399,22 @@ pactl_local() { env -u PULSE_SERVER -u PULSE_COOKIE timeout 3 pactl "$@"; }
 # Only the daemon xdesk started is killed; one that was running before keeps running, without the modules xdesk
 # loaded into it (CLI.md §5)
 stop_audio() {
-    local id
+    local id prev
     if [ -e "$RUN/pulse.ours" ]; then
         pulseaudio --kill 2>/dev/null
-        rm -f "${RUN:?}/pulse.ours" "${RUN:?}/pulse.tcp"
+        rm -f "${RUN:?}/pulse.ours" "${RUN:?}/pulse.tcp" "${RUN:?}/pulse.default"
         return 0
     fi
-    command -v pactl >/dev/null 2>&1 || { rm -f "${RUN:?}/pulse.tcp"; return 0; }
+    command -v pactl >/dev/null 2>&1 || { rm -f "${RUN:?}/pulse.tcp" "${RUN:?}/pulse.default"; return 0; }
+    # The user's default sink back first, and the streams on it, before xdesk's null sink goes: a daemon xdesk only
+    # borrowed keeps the user's own default (CLI.md §5.3)
+    prev=$(cat "$RUN/pulse.default" 2>/dev/null)
+    if [ -n "$prev" ]; then
+        pactl_local set-default-sink "$prev" 2>/dev/null
+        pactl_local list short sink-inputs 2>/dev/null | cut -f1 |
+            while read -r id; do pactl_local move-sink-input "$id" "$prev" 2>/dev/null; done
+    fi
+    rm -f "${RUN:?}/pulse.default"
     # The null sink and the unix simple protocol are xdesk's own (their names and socket say so)
     pactl_local list short modules 2>/dev/null | awk -F'\t' \
         '($2 == "module-null-sink" && index($3, "sink_name=xdesk")) ||
@@ -451,17 +490,18 @@ start_session() {
             f=$g
         fi
     fi
-    # The input method of the X side, when there is one (ime_later starts it): what the session's programs reach it
-    # with. A Termux session gets fcitx5 on its own bus; any other system only has X in common with it
+    # The input method of the X side, when the user has one (ime_later starts it): what the session's programs reach
+    # it with. A Termux session gets fcitx5 on its own bus; any other system only has X in common with it. Each
+    # variable is set only when it is not already there, and the session file's own lines come after these. Nothing
+    # here writes the user's fcitx5 config: only "xdesk ime setup" does that.
     local -a imev=()
-    if ime_enabled && [ -z "${XMODIFIERS:-}" ] && [ -z "${GTK_IM_MODULE:-}" ]; then
+    if ime_enabled; then
         if [ $termux_wm = 1 ] || [ "$(session_env "${name%+apps}")" = termux ]; then
             mapfile -t imev < <(ime_vars bus)
         else
             mapfile -t imev < <(ime_vars xim)
             g=$(ime_session_script "$f") && f=$g
         fi
-        [ -n "$(ime_pid)" ] || ime_profile
     fi
     env "${imev[@]}" DISPLAY=$DPY PULSE_SERVER=127.0.0.1 PULSE_COOKIE=$PULSE_COOKIE_FILE setsid nohup bash "$f" </dev/null >>"$LOG" 2>&1 9>&- &
     p=$!
@@ -551,29 +591,37 @@ locale_language() {  # tag
 }
 
 # Older setup wrote the environment into the session file; these are the exact lines it wrote. The runtime copy drops
-# them before adding the environment of this start. The user's file itself is never rewritten
+# them before adding the environment of this start. A LANGUAGE line is always left alone, so an older xdesk's frozen
+# one stays too unless the user removes it: when unsure, the user's setting wins. The user's file itself is never rewritten
 strip_frozen_termux_env() {  # file
-    { grep -vE '^(export LANGUAGE=[A-Za-z0-9_@.-]+|export XCURSOR_THEME=[^ ]+ XCURSOR_SIZE=[0-9]+|export ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0)$' "$1" || :; }
+    { grep -vE '^(export XCURSOR_THEME=[^ ]+ XCURSOR_SIZE=[0-9]+|export ZINK_DESCRIPTORS=lazy MESA_GLTHREAD=true MESA_VK_WSI_PRESENT_MODE=fifo vblank_mode=0)$' "$1" || :; }
 }
 
 # A copy of a Termux session script with the environment of this start in front (CLI.md §5)
 termux_runtime_script() {  # file
     local out=$RUN/termux-session.sh
-    { termux_env; strip_frozen_termux_env "$1"; } >"$out" || return 1
+    { termux_env "$1"; strip_frozen_termux_env "$1"; } >"$out" || return 1
     echo "$out"
 }
 
-termux_env() {  # export lines for programs on the display in Termux
+# Whether the user's session file sets LANGUAGE itself (export LANGUAGE=..., env LANGUAGE=..., anything): then the
+# phone's language is not added and the user's line stays as it is
+session_sets_language() {  # file
+    grep -qE '(^|[^A-Za-z0-9_])LANGUAGE=' "$1" 2>/dev/null
+}
+
+termux_env() {  # session file, or nothing
     local lang
-    # Menus follow the phone's language. LC_ALL is left alone, Termux sets it for the terminal
-    lang=$(getprop persist.sys.locale 2>/dev/null)
-    [ -n "$lang" ] && lang=$(locale_language "$lang")
-    [ -n "$lang" ] && echo "export LANGUAGE=$lang"
-    # The X side's cursor (CURSOR.md §2.4): the size here is the one known when this runs (the last scale
-    # the app asked); scale_later keeps the X resources at the current size afterwards
-    if cursor_installed; then
-        echo "export XCURSOR_THEME=$CURSOR_THEME XCURSOR_SIZE=$(cursor_size)"
+    # Menus follow the phone's language unless the session file sets its own (the user's setting wins). LC_ALL is left
+    # alone, Termux sets it for the terminal
+    if [ -z "${1:-}" ] || ! session_sets_language "$1"; then
+        lang=$(getprop persist.sys.locale 2>/dev/null)
+        [ -n "$lang" ] && lang=$(locale_language "$lang")
+        [ -n "$lang" ] && echo "export LANGUAGE=$lang"
     fi
+    # The cursor size XDesk's X server gets (CURSOR.md §2.4): the one known when this runs (the last scale the app
+    # asked); scale_resources keeps the X resources at the current size afterwards. The theme is the user's own.
+    echo "export XCURSOR_SIZE=$(cursor_size)"
     # With a Vulkan driver (Turnip on Adreno) Mesa runs OpenGL through zink by itself, and falls back to
     # software rendering when the driver finds no usable GPU. Forcing zink would break OpenGL there.
     # Broken graphics on some GPU: add export LIBGL_ALWAYS_SOFTWARE=1 to the session file
@@ -672,7 +720,6 @@ setup() {
     rm -f "$IGNORED"
     discover
     list
-    cursor_installed || cursor_missing_msg
     # chroot and proot scripts of other kinds cannot be found from here: say how to add one (CLI.md §3.4)
     echo "Other proot or chroot systems: xdesk add NAME --root DIR --launch 'entry command'"
 }
@@ -755,7 +802,7 @@ termux_desktop_script() {
     grep -qE '^exec dbus-run-session (startxfce4|startlxqt|mate-session)$' "$1" || return 1
     bus=$(apps_bus) || return 1
     { echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
-      termux_env
+      termux_env "$1"
       strip_frozen_termux_env "$1" | sed -E 's/^exec dbus-run-session (startxfce4|startlxqt|mate-session)$/exec \1/'
     } >"$out" || return 1
     echo "$out"
@@ -791,17 +838,23 @@ ime_pid() {
 
 ime_ours() { [ -n "$1" ] && pid_ours "$1" "$RUN/ime.started" && [ "$1" = "$(cat "$RUN/ime.pid" 2>/dev/null)" ]; }
 
-# What a program needs in its environment, NAME=value per line. "bus": it shares fcitx5's session bus (the modules,
-# where installed). "xim": it does not. Qt has no XIM: QT_IM_MODULE is left alone there, an unknown value would only
-# cost Qt its own dead keys. SDL falls back to XIM by itself
+# What a program needs in its environment, NAME=value per line, each only when the environment does not set it
+# already (then the user's own applies). "bus": it shares fcitx5's session bus (the modules, where installed).
+# "xim": it does not. Qt has no XIM: QT_IM_MODULE is left alone there, an unknown value would only cost Qt its own
+# dead keys. SDL falls back to XIM by itself
 ime_vars() {  # bus | xim
-    echo "XMODIFIERS=@im=fcitx"
+    [ -n "${XMODIFIERS:-}" ] || echo "XMODIFIERS=@im=fcitx"
     if [ "$1" = bus ]; then
-        if [ -e "$PREFIX/lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so" ]; then echo "GTK_IM_MODULE=fcitx"; else echo "GTK_IM_MODULE=xim"; fi
-        ls "$PREFIX"/lib/qt*/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so >/dev/null 2>&1 && echo "QT_IM_MODULE=fcitx"
-        echo "SDL_IM_MODULE=fcitx"
+        if [ -z "${GTK_IM_MODULE:-}" ]; then
+            if [ -e "$PREFIX/lib/gtk-3.0/3.0.0/immodules/im-fcitx5.so" ]; then echo "GTK_IM_MODULE=fcitx"; else echo "GTK_IM_MODULE=xim"; fi
+        fi
+        if [ -z "${QT_IM_MODULE:-}" ] &&
+                ls "$PREFIX"/lib/qt*/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so >/dev/null 2>&1; then
+            echo "QT_IM_MODULE=fcitx"
+        fi
+        [ -n "${SDL_IM_MODULE:-}" ] || echo "SDL_IM_MODULE=fcitx"
     else
-        echo "GTK_IM_MODULE=xim"
+        [ -n "${GTK_IM_MODULE:-}" ] || echo "GTK_IM_MODULE=xim"
     fi
     return 0
 }
@@ -831,10 +884,11 @@ ime_layout() {
     ime_x_layout
 }
 
-# fcitx5's keys, written once (never over a config that exists; like the profile, only while ours is not running):
-# Shift+Space besides Ctrl+Space. Android takes Ctrl+Space for its own input method switch before any app sees it, so
-# on a keyboard attached to the phone it never reaches X; and Left Shift alone only goes back to an input method that
-# was active before, which after a start is none. Without another key pinyin could not be reached at all.
+# fcitx5's keys, written once by "xdesk ime setup" (never over a config that exists; like the profile, only while
+# ours is not running): Shift+Space besides Ctrl+Space. Android takes Ctrl+Space for its own input method switch before
+# any app sees it, so on a keyboard attached to the phone it never reaches X; and Left Shift alone only goes back to
+# an input method that was active before, which after a start is none. Without another key pinyin could not be
+# reached at all.
 ime_keys() {
     local f=$HOME/.config/fcitx5/config
     [ -e "$f" ] && return 1
@@ -847,12 +901,13 @@ ime_keys() {
 [Hotkey/AltTriggerKeys]
 0=Shift_L
 KEYS
+    say "  wrote $f"
 }
 
-# Pinyin's letters at the caret while composing, written once (never over a file that exists). Built for Android,
-# pinyin defaults to PreeditMode "Do not show" (fcitx5-chinese-addons im/pinyin/pinyin.h): the letters would only be
-# in the candidate window; and to predict the next word after each one, where a digit then picks a word instead of
-# being typed. These are its defaults everywhere else
+# Pinyin's letters at the caret while composing, written once by "xdesk ime setup" (never over a file that exists).
+# Built for Android, pinyin defaults to PreeditMode "Do not show" (fcitx5-chinese-addons im/pinyin/pinyin.h): the
+# letters would only be in the candidate window; and to predict the next word after each one, where a digit then
+# picks a word instead of being typed. These are its defaults everywhere else
 ime_pinyin() {
     local f=$HOME/.config/fcitx5/conf/pinyin.conf
     [ -e "$f" ] && return 1
@@ -863,6 +918,7 @@ PreeditMode="Composing pinyin"
 PreeditCursorPositionAtBeginning=True
 Prediction=False
 PINYIN
+    say "  wrote $f"
 }
 
 # The candidate window. Termux builds fcitx5 for Android, and such a build starts in "on-screen keyboard" mode
@@ -899,9 +955,10 @@ stop_ime_panel() {
     rm -f "${RUN:?}/ime-panel.pid" "${RUN:?}/ime-panel.started"
 }
 
-# fcitx5's list of input methods, written once so that pinyin is there from the first start: the keyboard in the
-# layout X has, then pinyin (Shift+Space switches, see ime_keys). Never when a profile exists, and not without pinyin installed
-# (fcitx5's own default will do then). fcitx5 writes this file when it exits: only written while ours is not running
+# fcitx5's list of input methods, written once by "xdesk ime setup" so that pinyin is there from the first start:
+# the keyboard in the layout X has, then pinyin (Shift+Space switches, see ime_keys). Never when a profile exists,
+# and not without pinyin installed (fcitx5's own default will do then). fcitx5 writes this file when it exits: only
+# written while ours is not running. Only "xdesk ime setup" calls this; a session start never writes the user's config
 ime_profile() {
     local f=$HOME/.config/fcitx5/profile l
     ime_keys
@@ -934,7 +991,7 @@ Layout=
 [GroupOrder]
 0=Default
 PROFILE
-    log "Input method: wrote $f (keyboard-$l, pinyin)"
+    say "  wrote $f (keyboard-$l, pinyin)"
 }
 
 # Checks a layout name against this system's XKB files: "de-nodeadkeys" is symbols/de with a
@@ -1057,7 +1114,8 @@ start_ime_locked() {
         if [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$bus" ]; then ime_panel "$bus"; return 0; fi
         stop_ime
     fi
-    ime_profile
+    # No config is written here: "xdesk ime setup" is the only command that does that (fcitx5 uses its own defaults
+    # until then, or the user's own config)
     # Before fcitx5: it finds the name owned as it starts
     ime_panel "$bus"
     (
@@ -1098,18 +1156,17 @@ ime_later() {
 ime_session_script() {  # file
     local out=$RUN/ime-session.sh vars
     grep -q 'proot-distro login.* -- env ' "$1" || return 1
-    grep -qE '(XMODIFIERS|GTK_IM_MODULE)=' "$1" && return 1
+    grep -qE '(XMODIFIERS|GTK_IM_MODULE|QT_IM_MODULE|SDL_IM_MODULE)=' "$1" && return 1
     vars=$(ime_vars xim | tr '\n' ' ')
     sed "0,/\(proot-distro login.* -- env \)/s//\1$vars/" "$1" >"$out" || return 1
     echo "$out"
 }
 
 # For a Termux program about to start, with its environment already set: the modules when fcitx5 is on its session
-# bus, XIM when not. An input method the environment names already is left alone
+# bus, XIM when not. An input method the environment names already is left alone, variable by variable
 ime_export() {
     local p kind=xim line
     ime_enabled || return 0
-    [ -z "${XMODIFIERS:-}" ] && [ -z "${GTK_IM_MODULE:-}" ] || return 0
     if [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] && p=$(ime_pid) && [ "$(proc_env "$p" DBUS_SESSION_BUS_ADDRESS)" = "$DBUS_SESSION_BUS_ADDRESS" ]; then kind=bus; fi
     while IFS= read -r line; do export "$line"; done < <(ime_vars $kind)
 }
@@ -1142,7 +1199,7 @@ ime_status() {
             echo "  or with fcitx5 stopped (xdesk ime stop) edit 'Default Layout=' and 'Name=keyboard-...' in the profile"
         fi
     elif [ -e "$PREFIX/share/fcitx5/inputmethod/pinyin.conf" ]; then
-        echo "Profile: none yet (xdesk writes one with pinyin at the first start)"
+        echo "Profile: none yet (xdesk ime setup writes one with pinyin)"
     else
         echo "Profile: none yet (fcitx5's own default)"
     fi
@@ -1156,7 +1213,8 @@ ime_status() {
     fi
 }
 
-# Everything that needs no package: the profile, and fcitx5 on the display now if X is up. Says what the user has to do
+# "xdesk ime setup": writes the first fcitx5 config -- the only xdesk command that does, and never over a file that
+# exists -- and starts fcitx5 on the display now if X is up. Says what the user has to do
 ime_setup() {
     local p wm=""
     if ! ime_installed; then
@@ -1170,9 +1228,11 @@ ime_setup() {
     if x_up; then
         if p=$(ime_pid) && ! ime_ours "$p"; then
             echo "fcitx5 already runs here (pid $p, not started by xdesk): left as it is."
+            echo "Its config is not written while it runs: fcitx5 would write its own over it when it exits."
         else
             # Stopped first: a running fcitx5 would write its own list over the profile when it exits
             [ -e "$HOME/.config/fcitx5/profile" ] && [ -e "$HOME/.config/fcitx5/config" ] || stop_ime
+            ime_profile
             wm=$(session_wm_pid) || wm=""
             start_ime "$wm"
             sleep 1
@@ -1193,10 +1253,10 @@ apps_only_script() {  # file, session name
     local out=$RUN/apps-session.sh bus
     grep -qE '(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|$)' "$1" || return 1
     sed -E "s/(^|[[:space:]])(startxfce4|xfce4-session)([[:space:]]|\$)/\\1sh -c 'xfsettingsd \\& exec xfwm4'\\3/" "$1" >"$out.tmp" || return 1
-    # The cursor environment of a session in its own system (a Termux session has it from termux_env):
-    # into the env its script passes in. A XCURSOR_THEME of the user's own stays
-    if [ "$(session_env "$2")" != termux ] && cursor_installed && ! grep -q 'XCURSOR_THEME=' "$out.tmp"; then
-        sed -i -E "s/(^|[[:space:]])-- env /\1-- env XCURSOR_THEME=$CURSOR_THEME XCURSOR_SIZE=$(cursor_size) /" "$out.tmp"
+    # The cursor size of xdesk's X server for a session in its own system (a Termux session has it from termux_env):
+    # into the env its script passes in. An XCURSOR_SIZE the user's own line sets stays
+    if [ "$(session_env "$2")" != termux ] && ! grep -q 'XCURSOR_SIZE=' "$out.tmp"; then
+        sed -i -E "s/(^|[[:space:]])-- env /\1-- env XCURSOR_SIZE=$(cursor_size) /" "$out.tmp"
     fi
     if [ "$(session_env "$2")" = termux ] && grep -qE '(^|[[:space:]])dbus-run-session[[:space:]]' "$out.tmp" && bus=$(apps_bus); then
         { echo "export DBUS_SESSION_BUS_ADDRESS=$(sq "$bus")"
@@ -2184,70 +2244,31 @@ launch_app() {
     exit "$rc"
 }
 
-# XFCE follows the X DPI the app worked out for the screen (DISPLAY.md §4.1): with s = DPI / 96 the panel is 28·s, its
-# icons 16·s, the cursor 24·s and the desktop icons 48·s, as desktop-scale.sh did per resolution. The cursor size keeps
-# 24·DPI/96: 24 dp·b·u·R/N in X pixels, which the R/N rendering shows as 24 dp·b·u (CURSOR.md §2.5). The app asks through
-# the X server once the desktop is connected and whenever the screen's size factors change, before the session may be
-# up: a job in the background waits for it, and a newer request replaces an older one.
-scale_commands() {  # dpi
-    local dpi panel picon cursor dicon
-    read -r dpi panel picon cursor dicon < <(awk -v d="$1" 'BEGIN { s = d / 96;
-        printf "%d %d %d %d %d\n", d, int(28 * s + 0.5), int(16 * s + 0.5), int(24 * s + 0.5), int(48 * s + 0.5) }')
-    printf '%s; ' \
-        "xfconf-query -c xsettings -p /Xft/DPI -n -t int -s $dpi" \
-        "xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s $cursor" \
-        "xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t uint -s $panel" \
-        "xfconf-query -c xfce4-panel -p /panels/panel-1/icon-size -n -t uint -s $picon" \
-        "xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s $dicon"
-}
-
-# Runs a shell command where the running session's window manager runs, with its D-Bus: Termux, proot or chroot
-in_session() {  # wm pid, command
-    local wm=$1 cmd=$2 scope line prefix
-    unset CLASSPATH XDESK_AUDIO_SOCKET XDESK_CLI
-    if tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null | grep -q "^PREFIX=$PREFIX\$"; then
-        ( import_env "$wm"; export DISPLAY=$DPY; sh -c "$cmd" )
-        return
-    fi
-    scope=$(cat "$RUN/session.name" 2>/dev/null); scope=${scope%+apps}
-    [ -n "$scope" ] || return 1
-    local -a e=(DISPLAY=$DPY)
-    while IFS= read -r line; do e+=("$line"); done < <(tr '\0' '\n' <"/proc/$wm/environ" 2>/dev/null |
-        grep -E '^(DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR|HOME)=')
-    if [ -f "$SESSIONS/$scope.launch" ]; then
-        ( export "${e[@]}"; bash "$SESSIONS/$scope.launch" sh -c "$cmd" )
-        return
-    fi
-    line=$(grep -m1 'proot-distro login' "$SESSIONS/$scope.sh" 2>/dev/null) || return 1
-    line=${line#"${line%%[![:space:]]*}"}
-    line=${line#exec }
-    prefix=${line%% -- *}
-    ( eval "set -- $prefix"; "$@" -- env "${e[@]}" sh -c "$cmd" )
-}
-
+# The DPI the app worked out for the screen (DISPLAY.md §4.1). It goes to xdesk's own X server in memory only, see
+# scale_resources: xrandr --dpi, Xft.dpi and Xcursor.size, with no xfconf and no user configuration. The app asks
+# through the X server once the desktop is connected and whenever the screen's size factors change, and a session
+# start asks again for the session it starts. A job in the background waits for X (the session may still be starting);
+# a newer request replaces an older one. $RUN/scale keeps the DPI asked for; other code reads it for the cursor size.
 scale_later() {  # dpi
-    local dpi=$1 token wm
+    local dpi=$1 token
     token="$dpi $$"
     echo "$token" >"$RUN/scale"
     (
         mine() { [ "$(cat "$RUN/scale" 2>/dev/null)" = "$token" ]; }
-        # The cursor size in the X resources follows the new scale right away; it needs no window manager
-        cursor_apply "$dpi"
-        for _ in $(seq 90); do
+        # Missing, there is no way to tell X is up: one log line, and X keeps its DPI (start and sessions need it anyway)
+        if ! command -v xrandr >/dev/null 2>&1; then
+            log "scale $dpi: xrandr is not installed, X keeps its DPI (pkg install xorg-xrandr)"
+            exit 0
+        fi
+        for _ in $(seq 20); do
             mine || exit 0
-            wm=$(session_wm_pid) && break
-            sleep 1
+            x_up && break
+            sleep 0.5
         done
-        [ -n "${wm:-}" ] || { log "scale $dpi: no session to size"; exit 0; }
-        # xfsettingsd and the panel start a moment after the window manager; an autostarted script may set its own
-        # sizes then, so it is applied once more a little later
-        for pause in 2 6; do
-            sleep "$pause"
-            mine || exit 0
-            kill -0 "$wm" 2>/dev/null || exit 0
-            in_session "$wm" "$(scale_commands "$dpi")" || { log "scale $dpi: could not reach the session"; exit 0; }
-        done
-        log "XFCE sized for $dpi dpi"
+        mine || exit 0
+        x_up || { log "scale $dpi: no X server to size"; exit 0; }
+        scale_resources "$dpi"
+        log "X sized for $dpi dpi (in memory: Xft.dpi, Xcursor.size)"
     ) </dev/null >>"$LOG" 2>&1 9>&- &
 }
 
@@ -2395,12 +2416,6 @@ doctor() {
     else
         doctor_warn "Chinese fonts: none found (Chinese shows as boxes? pkg install otf-noto-sans-cjk)"
     fi
-    if cursor_installed; then
-        doctor_ok "cursor theme: $CURSOR_THEME"
-    else
-        doctor_warn "cursor theme: $CURSOR_THEME not installed (fix: pkg install adwaita-icon-theme)"
-    fi
-
     while IFS=$'\t' read -r n _ _ sessions; do
         [ "$n" = "#xdesk-envs 1" ] && continue
         [ -n "$n" ] || continue
@@ -2486,7 +2501,7 @@ xdesk: run desktops and programs on the XDesk display, from Termux, proot or chr
                            add a session, or without CMD an environment
   xdesk rm NAME            remove a session or an environment
   xdesk use NAME           choose the default session
-  xdesk ime ...            the X side's input method and keyboard layout
+  xdesk ime ...            the X side's input method and keyboard layout ("setup" writes fcitx5's first config)
   xdesk doctor             check the setup, one line per item
   xdesk version            print the xdesk command version
   xdesk update [beta|stable|VERSION]
@@ -2497,7 +2512,7 @@ USAGE
     cat <<'USAGE_ALL'
 
 The app's own commands (their names stay for older and newer apps):
-  xdesk scale DPI          size XFCE for this X DPI
+  xdesk scale DPI          set this X server's DPI and cursor size, in memory (no XFCE settings)
   xdesk envs               list the environments with their sessions
   xdesk recover [NAME]     like start, unless xdesk stop ran
   xdesk enable-app-start   let the app's "start" button run commands in Termux
@@ -2763,8 +2778,8 @@ status)
     DISPLAY=$DPY timeout 2 xrandr 2>/dev/null | sed -n 's/.*\(current [0-9]* x [0-9]*\).*/Resolution: \1/p'
     if [ -n "$(session_pid)" ]; then echo "Session: $(cat "$RUN/session.name")"; else echo "Session: none"; fi
     echo "Default: $(current)"
-    # CURSOR.md §2.4: the cursor theme of X, and which package gives it while it is not installed
-    if cursor_installed; then echo "Cursor theme: $CURSOR_THEME"; else cursor_missing_msg; fi
+    # CURSOR.md §2.4: the size XDesk gives X's cursor; the theme is the user's own and xdesk never sets it
+    echo "Cursor size: $(cursor_size) px"
     # Read by the app: with an input method on the X side a keyboard on the phone types as keys (INPUT.md §5.2)
     if x_up && imp=$(ime_pid); then echo "Input method: fcitx5 (pid $imp)"; else echo "Input method: none"; fi
     # Read by the app: the remembered X side keyboard layout (INPUT.md §5.2); "from X" without one

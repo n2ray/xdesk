@@ -28,10 +28,18 @@ has_line() { printf '%s\n' "$1" | grep -qxF -- "$2"; }
 lacks_line() { ! printf '%s\n' "$1" | grep -qxF -- "$2"; }
 has_text() { printf '%s\n' "$1" | grep -qF -- "$2"; }
 lacks_text() { ! printf '%s\n' "$1" | grep -qE -- "$2"; }
+# Call a function of the xdesk script itself, with this fake HOME and PREFIX: the script's own command line gets no
+# arguments, so it only prints its usage and defines every function
+xdesk_fn() {  # function, args...
+    local fn=$1
+    shift
+    bash -c 'x=$1; fn=$2; shift 2; args=("$@"); set --; . "$x" >/dev/null 2>&1; "$fn" "${args[@]}"' \
+        _ "$XDESK" "$fn" "$@" 2>&1
+}
 
 # Stubs: ps keeps xdesk from renice-ing itself, xrandr and pgrep say no X runs, timeout runs its command
 mkdir -p "$BIN" "$HOME/.termux" "$HOME/.local/libexec/xdesk" \
-    "$PREFIX/bin" "$PREFIX/tmp" "$PREFIX/share/applications" "$PREFIX/share/icons/Adwaita/cursors"
+    "$PREFIX/bin" "$PREFIX/tmp" "$PREFIX/share/applications"
 stub() {
     printf '#!/bin/sh\n%s\n' "$2" >"$BIN/$1"
     chmod +x "$BIN/$1"
@@ -671,6 +679,176 @@ out=$(bash "$XDESK" status 2>/dev/null)
 check "a pid file older than its process is not trusted" has_line "$out" "Session: none"
 kill "$old" 2>/dev/null; wait "$old" 2>/dev/null
 rm -f "$PREFIX/tmp/xdesk/session.pid" "$PREFIX/tmp/xdesk/session.name"
+
+# --- B, A (2026-11-19): scaling and the cursor stay in xdesk's own X server, never in xfconf ---
+export SCALE_LOG=$TMP/scale.log XRDB_MERGED=$TMP/merged.resources XFCONF_LOG=$TMP/xfconf.log
+cat >"$BIN/xrandr" <<'EOF'
+#!/bin/sh
+printf 'xrandr %s\n' "$*" >>"$SCALE_LOG"
+exit 0
+EOF
+cat >"$BIN/xrdb" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SCALE_LOG"
+for a; do f=$a; done
+cp "$f" "$XRDB_MERGED" 2>/dev/null
+exit 0
+EOF
+cat >"$BIN/xfconf-query" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$XFCONF_LOG"
+exit 0
+EOF
+chmod +x "$BIN/xrandr" "$BIN/xrdb" "$BIN/xfconf-query"
+: >"$SCALE_LOG"; : >"$XFCONF_LOG"; rm -f "$XRDB_MERGED"
+
+check "scale exits 0" bash "$XDESK" scale 144
+for _ in {1..50}; do [ -s "$XRDB_MERGED" ] && break; sleep 0.1; done
+check "scale records the DPI for later code" test "$(cut -d' ' -f1 "$PREFIX/tmp/xdesk/scale")" = 144
+check "scale gives X the DPI with xrandr --dpi" has_text "$(cat "$SCALE_LOG")" "xrandr --dpi 144"
+check "scale merges Xft.dpi into X's resources" has_line "$(cat "$XRDB_MERGED" 2>/dev/null)" "Xft.dpi: 144"
+check "scale merges the cursor size into X's resources" has_line "$(cat "$XRDB_MERGED" 2>/dev/null)" "Xcursor.size: 36"
+check "scale sets no Xcursor.theme" lacks_text "$(cat "$XRDB_MERGED" 2>/dev/null)" "Xcursor.theme"
+check "scale never calls xfconf-query" test ! -s "$XFCONF_LOG"
+check "xdesk never calls xfconf-query (session start uses the same path)" lacks_text "$(cat "$XDESK")" "xfconf-query"
+
+out=$(bash "$XDESK" status 2>/dev/null)
+check "status reports the cursor size" has_text "$out" "Cursor size: 36 px"
+check "status claims no cursor theme" lacks_text "$out" "Cursor theme"
+
+# Without xrandr there is no way to tell X is up: one log line, no failure
+mv "$BIN/xrandr" "$TMP/xrandr.stub"
+bash "$XDESK" scale 120 >/dev/null 2>&1
+for _ in {1..50}; do grep -q "scale 120: xrandr is not installed" "$PREFIX/tmp/xdesk.log" && break; sleep 0.1; done
+check "scale without xrandr logs one line and skips" \
+    has_text "$(cat "$PREFIX/tmp/xdesk.log")" "scale 120: xrandr is not installed"
+mv "$TMP/xrandr.stub" "$BIN/xrandr"
+printf '144 0\n' >"$PREFIX/tmp/xdesk/scale"
+
+# --- C, B: the user's LANGUAGE line stays, and only the cursor size is given ---
+lang_session=$TMP/session-env.sh
+cat >"$lang_session" <<'EOF'
+export LANGUAGE=de_DE
+export XCURSOR_THEME=Adwaita XCURSOR_SIZE=24
+exec true
+EOF
+stub getprop 'echo zh-Hans-CN'
+runtime=$(xdesk_fn termux_runtime_script "$lang_session")
+check "the runtime session keeps the user's LANGUAGE line" \
+    has_line "$(cat "$runtime" 2>/dev/null)" "export LANGUAGE=de_DE"
+check "the runtime session drops an old frozen cursor theme" \
+    lacks_text "$(cat "$runtime" 2>/dev/null)" "XCURSOR_THEME"
+check "the runtime session gives the cursor size" \
+    has_text "$(cat "$runtime" 2>/dev/null)" "export XCURSOR_SIZE=36"
+check "termux_env adds no LANGUAGE over the user's" \
+    lacks_text "$(xdesk_fn termux_env "$lang_session")" "^export LANGUAGE="
+no_lang_session=$TMP/session-nolang.sh
+printf 'exec true\n' >"$no_lang_session"
+check "termux_env adds the phone's language when the session sets none" \
+    has_text "$(xdesk_fn termux_env "$no_lang_session")" "export LANGUAGE=zh_CN"
+
+# An apps only session (window manager only) gets the cursor size too, and a user's own value stays
+apps_session=$(xdesk_fn apps_only_script \
+    "$HOME/.config/xdesk/sessions/proot-debian-xfce.sh" proot-debian-xfce)
+check "an apps only session gets the cursor size" \
+    has_text "$(cat "$apps_session" 2>/dev/null)" "XCURSOR_SIZE=36"
+check "an apps only session gets no cursor theme" \
+    lacks_text "$(cat "$apps_session" 2>/dev/null)" "XCURSOR_THEME"
+user_apps=$TMP/user-apps.sh
+printf 'exec proot-distro login debian --shared-tmp -- env XCURSOR_SIZE=48 DISPLAY=:1 startxfce4\n' >"$user_apps"
+apps_session=$(xdesk_fn apps_only_script "$user_apps" proot-debian-xfce)
+check "an apps only session keeps the user's XCURSOR_SIZE" \
+    lacks_text "$(cat "$apps_session" 2>/dev/null)" "XCURSOR_SIZE=36"
+
+fake_prog fake-xenv 'echo "LANGX=${LANGUAGE:-unset}"
+echo "CURSORX=${XCURSOR_THEME:-unset}/${XCURSOR_SIZE:-unset}"'
+fake_desktop fake-xenv fake-xenv
+launch_and_status termux/fake-xenv
+xenv_log=$(cat "$PREFIX/tmp/xdesk/launch/$LAUNCH_PID.log" 2>/dev/null)
+check "a Termux program gets the phone's language" has_text "$xenv_log" "LANGX=zh_CN"
+check "a Termux program gets the cursor size, no theme" has_text "$xenv_log" "CURSORX=unset/36"
+
+# --- D: only "xdesk ime setup" writes fcitx5's config; a session start does not ---
+mkdir -p "$PREFIX/share/fcitx5/inputmethod"
+: >"$PREFIX/share/fcitx5/inputmethod/pinyin.conf"
+fake_prog fcitx5 'exit 0'
+stub dbus-daemon 'exit 1'
+printf 'us\n' >"$HOME/.config/xdesk/keyboard-layout"
+rm -rf "$HOME/.config/fcitx5"
+out=$(bash "$XDESK" ime setup 2>&1); rc=$?
+check "ime setup exits 0 with fcitx5 installed" test "$rc" -eq 0
+check "ime setup writes fcitx5's config" test -f "$HOME/.config/fcitx5/config"
+check "ime setup writes fcitx5's pinyin config" test -f "$HOME/.config/fcitx5/conf/pinyin.conf"
+check "ime setup writes fcitx5's profile" test -f "$HOME/.config/fcitx5/profile"
+check "ime setup says which config file it wrote" has_text "$out" "wrote $HOME/.config/fcitx5/config"
+check "ime setup says which profile it wrote" has_text "$out" "wrote $HOME/.config/fcitx5/profile"
+rm -rf "$HOME/.config/fcitx5"
+xdesk_fn start_ime "" >/dev/null 2>&1
+check "starting the input method writes no fcitx5 config" test ! -e "$HOME/.config/fcitx5"
+out=$(xdesk_fn ime_vars bus)
+check "ime_vars gives XMODIFIERS when unset" has_line "$out" "XMODIFIERS=@im=fcitx"
+out=$(XMODIFIERS=@im=ibus xdesk_fn ime_vars bus)
+check "ime_vars leaves the user's XMODIFIERS alone" lacks_line "$out" "XMODIFIERS=@im=fcitx"
+out=$(GTK_IM_MODULE=ibus xdesk_fn ime_vars bus)
+check "ime_vars leaves the user's GTK_IM_MODULE alone" lacks_text "$out" "GTK_IM_MODULE="
+out=$(bash "$XDESK" ime status 2>&1)
+check "ime status says xdesk ime setup writes the first profile" has_text "$out" "xdesk ime setup"
+out=$(bash "$XDESK" help all 2>&1)
+check "help all says setup writes fcitx5's first config" has_text "$out" "writes fcitx5's first config"
+check "help no longer says scale sizes XFCE" lacks_text "$out" "size XFCE for this X DPI"
+out=$(bash "$XDESK" setup 2>&1)
+check "setup no longer asks for a cursor theme" lacks_text "$out" "cursor theme"
+out=$(bash "$XDESK" doctor 2>&1)
+check "doctor no longer checks a cursor theme" lacks_text "$out" "cursor theme"
+
+# --- E: a daemon xdesk did not start gets the user's default sink back when xdesk stops ---
+export PACTL_LOG=$TMP/pactl.log
+pulse_sock=$PREFIX/tmp/xdesk-audio
+cat >"$BIN/pactl" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"\$PACTL_LOG"
+case "\$1" in
+info)
+    echo "Server Name: test"
+    echo "Default Sink: speakers"
+    exit 0 ;;
+get-default-sink) echo speakers; exit 0 ;;
+set-default-sink|move-sink-input) exit 0 ;;
+list)
+    case "\$2 \$3" in
+    "short modules")
+        printf '7\tmodule-native-protocol-tcp\tlisten=127.0.0.1 auth-cookie-enabled=1 auth-anonymous=0\n'
+        printf '8\tmodule-null-sink\tsink_name=xdesk rate=48000 channels=2\n'
+        printf '9\tmodule-simple-protocol-unix\tsocket=$pulse_sock source=xdesk.monitor\n' ;;
+    "short sinks")
+        printf '0\tspeakers\tmodule-alsa-card.c\ts16le 2ch 48000Hz\tSUSPENDED\n'
+        printf '1\txdesk\tmodule-null-sink.c\ts16le 2ch 48000Hz\tIDLE\n' ;;
+    "short sink-inputs") printf '5\n' ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+EOF
+chmod +x "$BIN/pactl"
+rm -f "$PREFIX/tmp/xdesk/pulse.ours" "$PREFIX/tmp/xdesk/pulse.default"
+: >"$PACTL_LOG"
+xdesk_fn start_audio >/dev/null 2>&1
+check "start_audio remembers the user's default sink" \
+    test "$(cat "$PREFIX/tmp/xdesk/pulse.default" 2>/dev/null)" = speakers
+check "start_audio makes xdesk the default while it runs" has_line "$(cat "$PACTL_LOG")" "set-default-sink xdesk"
+xdesk_fn start_audio >/dev/null 2>&1
+check "a second start keeps the remembered user sink" \
+    test "$(cat "$PREFIX/tmp/xdesk/pulse.default" 2>/dev/null)" = speakers
+: >"$PACTL_LOG"
+xdesk_fn stop_audio >/dev/null 2>&1
+check "stop_audio puts the user's default sink back" has_line "$(cat "$PACTL_LOG")" "set-default-sink speakers"
+check "stop_audio moves the streams back" has_line "$(cat "$PACTL_LOG")" "move-sink-input 5 speakers"
+check "stop_audio forgets the saved sink" test ! -e "$PREFIX/tmp/xdesk/pulse.default"
+restore_line=$(grep -n '^set-default-sink speakers$' "$PACTL_LOG" | cut -d: -f1 | head -1)
+unload_line=$(grep -n '^unload-module 8$' "$PACTL_LOG" | cut -d: -f1 | head -1)
+check "stop_audio restores the default before unloading xdesk's sink" \
+    test -n "$restore_line" -a -n "$unload_line" -a "$restore_line" -lt "$unload_line"
+stub pactl 'exit 1'
 
 echo
 echo "$pass passed, $fail failed"

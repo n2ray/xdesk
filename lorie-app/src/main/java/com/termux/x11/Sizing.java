@@ -15,7 +15,8 @@ import java.util.Map;
  *   <li><b>u</b>, the user's choice: small 0.85, medium 1, large 1.15, extra large 1.3;</li>
  *   <li><b>R/N</b>, the pixels the content renders ÷ the screen's own pixels (the X desktop at 1920 on a 2560 screen).</li>
  * </ul>
- * From them: X DPI = 96·b·u·R/N, Android density = 160·b·u·R/N, and XFCE's panel, icons and cursor in the same ratio.
+ * From them: X DPI = 96·b·u·R/N, Android density = 160·b·u·R/N, and the X cursor size in the same ratio (XFCE's own
+ * panel and icon sizes are the user's settings and xdesk leaves them alone).
  * Pure arithmetic apart from reading a Display; nothing here runs per frame.
  */
 public final class Sizing {
