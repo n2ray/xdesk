@@ -88,7 +88,7 @@
     <string name="xd_linux_phone_ime">实体键盘用手机输入法打字</string>
     <string name="xd_linux_phone_ime_note">跟随全局：用输入设置里的「键盘先交给手机输入法」。关：Linux 这边有输入法（fcitx5）在运行时，手机上接的键盘用它打字，候选框在外屏上、紧挨着文字；没有时用手机输入法。开：始终用手机输入法，候选在手机上。手机的软键盘始终用手机输入法</string>
     <string name="xd_linux_x_ime_on">现在：Linux 这边有输入法在运行。</string>
-    <string name="xd_linux_x_ime_off">现在：Linux 这边没有输入法在运行。要装一个，在 Termux 里运行：xdesk ime setup</string>
+    <string name="xd_linux_x_ime_off">现在：Linux 这边没有输入法在运行。X 这边的输入法是你自己的：想用就在会话里自己启动（比如 fcitx5）。手机的输入法始终经 XDesk 的文字通道工作</string>
     <string name="xd_linux_x_layout">键盘布局（X 这边）</string>
     <string name="xd_linux_x_layout_note">实体键盘的原样键在 X 里按哪个布局出字。自动：X 现在的布局，新起的 X 是 us</string>
     <string name="xd_linux_x_layout_auto">自动</string>
@@ -114,4 +114,6 @@
         <item quantity="other">有 %1$d 个窗口开着。</item>
     </plurals>
     <string name="xd_starting_x_title">正在为应用启动 X</string>
+    <string name="xd_linux_session_edit_note">启动脚本：~/.config/xdesk/sessions/%1$s.sh。点按在 Termux 里编辑，文件里的注释写明了哪些能改</string>
+    <string name="xd_linux_session_edit_failed">没能打开 Termux 来编辑它</string>
 </resources>

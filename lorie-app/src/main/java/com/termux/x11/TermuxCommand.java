@@ -79,6 +79,42 @@ final class TermuxCommand {
         }
     }
 
+    /**
+     * A session's start script (~/.config/xdesk/sessions/NAME.sh, CLI.md §5) in an editor, in a Termux terminal the
+     * user sees: $EDITOR when the shell has one, else nano, else vi. The name is checked before it goes into the
+     * command; a file that does not exist is not created (xdesk setup writes it).
+     */
+    static boolean editSession(Context c, String name) {
+        if (name == null || !name.matches("[A-Za-z0-9._+-]+")) return false;
+        String f = "$HOME/.config/xdesk/sessions/" + name + ".sh";
+        String script = "f=" + f + "; if [ ! -e \"$f\" ]; then echo \"No $f: run xdesk setup first\"; read -r _; exit 1; fi; "
+                + "e=${EDITOR:-}; if [ -z \"$e\" ]; then if command -v nano >/dev/null; then e=nano; else e=vi; fi; fi; "
+                + "exec $e \"$f\"";
+        Intent i = new Intent("com.termux.RUN_COMMAND");
+        i.setClassName("com.termux", "com.termux.app.RunCommandService");
+        i.putExtra("com.termux.RUN_COMMAND_PATH", BASH);
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{"-c", script});
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false);
+        // 0: a new terminal session, shown in Termux's window
+        i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+        try {
+            c.startForegroundService(i);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "RUN_COMMAND (edit) failed", e);
+            return false;
+        }
+        // Termux brings its window up from the service only with its own overlay permission: XDesk is in front and may
+        Intent open = c.getPackageManager().getLaunchIntentForPackage("com.termux");
+        if (open != null) {
+            try {
+                c.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Opening Termux", e);
+            }
+        }
+        return true;
+    }
+
     /** 在 bash -c 里运行。结果回到主线程；Termux 不理就没有回调，调用方自己算超时。 */
     static boolean run(Context c, String script, Callback callback) {
         final int id;

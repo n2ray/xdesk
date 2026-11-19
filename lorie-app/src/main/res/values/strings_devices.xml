@@ -91,7 +91,7 @@
     <string name="xd_linux_phone_ime">Keyboard types with the phone\'s input method</string>
     <string name="xd_linux_phone_ime_note">Follow global: use the Input settings\' “Keyboard through the phone\'s input method”. Off: when an input method runs on the Linux side (fcitx5), a keyboard on the phone types with it, its candidates on the external screen, at the text; without one the phone\'s input method is used. On: always the phone\'s, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
     <string name="xd_linux_x_ime_on">Now: an input method runs on the Linux side.</string>
-    <string name="xd_linux_x_ime_off">Now: none runs on the Linux side. To set one up, in Termux: xdesk ime setup</string>
+    <string name="xd_linux_x_ime_off">Now: none runs on the Linux side. An X input method is your own: start it in your session if you want one (for example fcitx5). The phone\'s input method always works through XDesk\'s text channel</string>
     <string name="xd_linux_x_layout">Keyboard layout (X side)</string>
     <string name="xd_linux_x_layout_note">Which characters the raw keys of a physical keyboard become in X. Automatic: the layout X has now, us after a fresh start</string>
     <string name="xd_linux_x_layout_auto">Automatic</string>
@@ -118,4 +118,6 @@
         <item quantity="other">%1$d windows are open.</item>
     </plurals>
     <string name="xd_starting_x_title">Starting X for the app</string>
+    <string name="xd_linux_session_edit_note">Start script: ~/.config/xdesk/sessions/%1$s.sh. Tap to edit it in Termux; the comments in it say what you may change</string>
+    <string name="xd_linux_session_edit_failed">Could not open Termux to edit it</string>
 </resources>

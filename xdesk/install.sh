@@ -29,29 +29,57 @@ turnip=
 if [ -z "$CLI_ONLY" ] && [ -e /sys/class/kgsl/kgsl-3d0 ] && ! ls "$PREFIX"/share/vulkan/icd.d/*freedreno* >/dev/null 2>&1; then
     turnip=1
 fi
+# Ask before changing more than XDesk's own commands, the same way the allow-external-apps question works: y/N, and
+# with no terminal to ask on (a pipe, the app) the answer is No and the command is printed instead
+ask_yn() {  # question
+    local answer=
+    if [ -r /dev/tty ]; then
+        printf '%s [y/N] ' "$1"
+        { read -r answer </dev/tty; } 2>/dev/null || { answer=; echo; }
+    else
+        echo "$1 [y/N] No, no terminal to ask on"
+    fi
+    case "$answer" in [yY]*) return 0 ;; *) return 1 ;; esac
+}
 if [ -n "$CLI_ONLY" ]; then
     # xdesk update runs from the app, without a tty: pkg could wait for an answer and hang it. Only say what is missing
     if [ -n "$missing" ]; then
         echo "Missing commands. Install them with: pkg install${missing}"
     fi
 else
+    # The commands XDesk itself needs to run a display: say so before installing them
+    if [ -n "$missing" ]; then
+        echo "XDesk needs these Termux packages:$missing (x11-repo carries xorg-xrandr) -- installing them now."
+    fi
+    # Termux does not support partial upgrades: a new package against old libraries can break both. Upgrading all of
+    # Termux is far beyond XDesk, so it is the user's decision
+    # Only asked when something is going to be installed: nothing to install, nothing to keep in step
     if [ -n "$missing$turnip" ]; then
-        # Termux does not support partial upgrades: a new package against old libraries can break both
-        pkg upgrade -y
-        pkg install -y x11-repo
+        if ask_yn "Upgrade all Termux packages first (pkg upgrade -y, recommended before installing)?"; then
+            pkg upgrade -y
+        else
+            echo "Not upgrading. To upgrade later: pkg upgrade -y"
+        fi
     fi
     if [ -n "$missing" ]; then
-        echo "Installing:$missing"
+        # xorg-xrandr comes from x11-repo; it only adds a repository, no package of the user's changes
+        pkg install -y x11-repo
         # shellcheck disable=SC2086
         pkg install -y $missing
     fi
     if [ -n "$turnip" ]; then
-        echo "Installing Turnip, the Adreno Vulkan driver"
-        # Not fatal: without it the desktop uses software rendering
-        if pkg install -y mesa mesa-vulkan-icd-freedreno; then
-            echo "If the desktop shows broken graphics, remove it again: pkg uninstall mesa-vulkan-icd-freedreno"
+        # Turnip is Mesa's open Vulkan driver: it changes how every OpenGL program in Termux renders (through zink),
+        # not only XDesk's, so it is the user's decision too
+        if ask_yn "Install Turnip (Mesa's Adreno Vulkan driver) for GPU acceleration?"; then
+            # Not fatal: without it the desktop uses software rendering
+            if pkg install -y mesa mesa-vulkan-icd-freedreno; then
+                echo "If the desktop shows broken graphics, remove it again: pkg uninstall mesa-vulkan-icd-freedreno"
+            else
+                echo "Turnip was not installed; the desktop will use software rendering."
+            fi
         else
-            echo "Turnip was not installed; the desktop will use software rendering."
+            echo "Not installing it; the desktop will use software rendering. To install it later:"
+            echo "  pkg install mesa mesa-vulkan-icd-freedreno"
         fi
     fi
 fi
@@ -127,13 +155,16 @@ ASK
         *) echo "Not changed. To allow it later: xdesk enable-app-start" ;;
     esac
 fi
-"$PREFIX/bin/xdesk" setup
+# Discovery, not setup: new desktops and containers are found, and the user's list of removed ones (xdesk rm) stays as
+# it is. xdesk setup clears that list, which is a user's explicit choice, not an installer's
+"$PREFIX/bin/xdesk" discover
 
 cat <<DONE
 
 Done. Next:
  1. Install the app: $APK
     Open it from a file manager, or if that fails: adb install -r xdesk.apk
+    After installing it, that copy may be deleted.
  2. Open XDesk, Add device › Linux › Termux, and allow it to run commands in Termux.
  3. Plug in a display and choose a desktop or a program.
 

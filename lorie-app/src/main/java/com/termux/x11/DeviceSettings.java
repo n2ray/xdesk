@@ -159,9 +159,15 @@ final class DeviceSettings {
         LinearLayout sessions = s.section(content, c.getString(R.string.xd_linux_desktops));
         java.util.List<String> own = devices.sessionsOf(id);
         if (own.isEmpty()) s.infoRow(sessions, c.getString(R.string.xd_dev_linux_no_session), null, null);
-        for (String name : own)
-            s.infoRow(sessions, name, null, name.equals(devices.runningSession()) ? c.getString(R.string.xd_dev_state_running)
-                    : name.equals(devices.defaultSession()) ? c.getString(R.string.xd_chooser_default) : null);
+        // Each desktop's start script is the user's (CLI.md §5): a tap opens it in an editor in Termux
+        for (final String name : own)
+            s.valueRow(sessions, name, c.getString(R.string.xd_linux_session_edit_note, name),
+                    name.equals(devices.runningSession()) ? c.getString(R.string.xd_dev_state_running)
+                    : name.equals(devices.defaultSession()) ? c.getString(R.string.xd_chooser_default) : "",
+                    () -> {
+                        if (!TermuxCommand.editSession(c, name))
+                            android.widget.Toast.makeText(c, R.string.xd_linux_session_edit_failed, android.widget.Toast.LENGTH_LONG).show();
+                    });
         // INPUT.md §5.2: with an input method on the X side a keyboard on the phone types as keys and X composes.
         // The switch is this device's; the input method is the one X server's, so its state reads the same on all
         LinearLayout keys = s.section(content, c.getString(R.string.xd_linux_keyboard));

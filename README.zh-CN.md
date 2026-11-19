@@ -121,7 +121,7 @@ v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-安装脚本会先说明再询问，不会自己打开 `allow-external-apps`（Termux 里允许别的应用运行命令的开关），回答 `y` 才设置。然后它安装 `xdesk` 命令、加载器和窗口管理器（xfwm4），找出你已有的桌面和 proot-distro 容器，还会下载 App，已经装过的话不用管。
+安装脚本会先说明再询问，不会自己打开 `allow-external-apps`（Termux 里允许别的应用运行命令的开关），回答 `y` 才设置。升级整个 Termux（`pkg upgrade -y`）和安装 Turnip（Mesa 的 Adreno Vulkan 驱动）也会先问：没有终端可以问时默认不装，只把命令打出来让你自己运行。XDesk 自己需要的包（包括窗口管理器）会先用一行说明再安装。之后它安装 `xdesk` 命令和加载器，找出你已有的桌面和 proot-distro 容器（不会清掉你用 `xdesk rm` 删过的名单），还会下载 App，已经装过的话不用管；装完 App 后，下载目录里那份可以删掉。
 
 它装的是最新的正式版。要装测试版：`curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | XDESK_VERSION=beta bash`。XDesk 帮你复制的安装命令总是带着 App 自己的版本，所以 App 和命令一定对得上。
 
@@ -157,24 +157,26 @@ xdesk envs              # 列出环境（Termux、每个 proot / chroot）和它
 xdesk apps              # 列出 XDesk 可以逐个打开的程序（.desktop 文件）
 xdesk launch SCOPE/ID   # 打开其中一个，如 termux/org.xfce.mousepad
 xdesk start 名字+apps    # 只有窗口管理器的会话，没有面板和桌面
-xdesk ime setup         # 配置并启动 X 这边的输入法（fcitx5）
-xdesk ime layout 名字    # X 这边的键盘布局，如 de-nodeadkeys；auto 取消
+xdesk keyboard layout 名字   # XDesk 这台 X 的键盘布局，如 de-nodeadkeys；auto 取消
+xdesk ime               # 只读：显示上现在有没有输入法在运行
 ```
 
-一个会话就是一条命令，保存在 `~/.config/xdesk/sessions/名字.sh`。这些文件可以随便改，`xdesk setup` 不会覆盖。
+一个会话就是一个启动脚本：`~/.config/xdesk/sessions/名字.sh`。XDesk 在外屏上启动这个桌面时运行它，别的都不读它，你自己的 `startx.sh` 不受影响。它归你改，`xdesk setup` 不会覆盖；文件开头的注释写明了 XDesk 运行前已经设好的（`DISPLAY` 和声音那几个变量，别动）和可以加的（语言、你自己的输入法和它的变量、启动前要跑的命令）。在 XDesk 的 设置 › 设备 › 你的 Linux 设备 › Linux 桌面 里点一下，就在 Termux 里打开编辑。
 
 proot-distro 会话里的程序在它的系统里查找并运行。chroot 会话用 `xdesk add 名字 '命令' --root 目录 --launch '前缀'` 在 `名字.sh` 旁边写 `名字.root`（一行：根目录的路径；Termux 读不到时会警告——比如 `/data/local` 下面要 root——但照样写）和 `名字.launch`（一个脚本，在那个系统里运行传入的命令：`--launch` 给的是命令前缀，普通 chroot 就是 `chroot 目录`，`DISPLAY` 等变量继续传下去）。
 
 | 环境 | 怎么连接 |
 |---|---|
 | Termux | `xdesk setup` 会自动找到，或者直接 `xdesk run xterm` |
-| proot-distro | `xdesk setup` 会自动找到。手动添加：`xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
-| 手动 proot | 把 `$PREFIX/tmp` 绑定到 `/tmp`，设置 `DISPLAY=:1` |
-| chroot（要 root） | 把 `$PREFIX/tmp/.X11-unix` 绑定到 chroot 里的 `/tmp/.X11-unix`，设置 `DISPLAY=:1`。目前测试很少 |
+| proot-distro | `xdesk setup` 会自动找到。手动添加：`xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:9 PULSE_SERVER=127.0.0.1 PULSE_SINK=xdesk PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
+| 手动 proot | 把 `$PREFIX/tmp` 绑定到 `/tmp`，设置 `DISPLAY=:9` |
+| chroot（要 root） | 把 `$PREFIX/tmp/.X11-unix` 绑定到 chroot 里的 `/tmp/.X11-unix`，设置 `DISPLAY=:9`。目前测试很少 |
 
-GPU 加速只为骁龙（Adreno）手机上的 Termux 配好：安装脚本会装上 Turnip（Mesa 的开源 Vulkan 驱动），Mesa 再通过 zink 用真实 GPU 跑 OpenGL，GPU 太老不支持 Turnip 时自动退回软件渲染。proot 和 chroot 里默认是软件渲染，除非你自己配置 Mesa，调试够用，玩游戏不行。
+XDesk 的 X 服务器用显示号 `:9`，官方 Termux:X11 和你自己的 `startx.sh` 用的 `:1` 不再冲突；`XDESK_DISPLAY=:N` 可以换一个。XDesk 只改自己起的 X（`x_is_ours`），那个显示号上如果是别的 X 在应答，`xdesk start` 会拒绝并说明。
 
-proot 和 chroot 里的声音通过 `127.0.0.1` 上的 PulseAudio 传给 App。
+GPU 加速是可选项，只为骁龙（Adreno）手机上的 Termux 配：安装脚本会先问要不要装 Turnip（Mesa 的开源 Vulkan 驱动），Mesa 再通过 zink 用真实 GPU 跑 OpenGL，GPU 太老不支持 Turnip 时自动退回软件渲染；回答不装就只打印安装命令，桌面用软件渲染。proot 和 chroot 里默认是软件渲染，除非你自己配置 Mesa，调试够用，玩游戏不行。
+
+proot 和 chroot 里的声音通过 `127.0.0.1` 上的 PulseAudio 传给 App，每个由 xdesk 起的会话和程序都带 `PULSE_SINK=xdesk`；守护进程的默认 sink 和用户已有的声音流不会被改动。
 
 ### 从 App 启动
 
@@ -190,9 +192,9 @@ xdesk enable-app-start
 
 ### 输入法和键盘布局
 
-实体键盘在 Linux 里打字时，X 这边有输入法在跑就走它：在 Termux 里装好 fcitx5（运行一次 `xdesk ime setup`：没装 fcitx5 时会提示要装哪些包，然后写第一份配置并启动它），手机的实体键盘以按键进 X，由 fcitx5 拼字，候选框显示在外接屏上、紧挨着文字——Termux、proot、chroot 的程序都一样。Shift+空格切换输入法（Ctrl+空格被安卓自己的输入法切换占用了）。没有 fcitx5 时由手机输入法拼字，把定下来的字发过去。每个 Linux 设备页都有「**实体键盘用手机输入法打字**」开关，下面写着 X 这边现在有没有输入法在运行。
+实体键盘在 Linux 里打字时，X 这边有输入法在跑就走它。这个输入法**是你自己的**：在会话里像别的程序一样自己启动、自己配置（比如 Termux 里的 fcitx5，连同你自己的 `XMODIFIERS`、`GTK_IM_MODULE` 和 fcitx5 配置）；XDesk 不启动、不停止、不配置它，也不写 `~/.config/fcitx5`。有输入法在跑时，手机的实体键盘以按键进 X，由它拼字，候选框显示在外接屏上、紧挨着文字——Termux、proot、chroot 的程序都一样。`xdesk ime`（和 `xdesk status`）只报告有没有在跑。没有输入法时由手机输入法拼字，把定下来的字经 XDesk 的文字通道发过去，这条通道始终可用。每个 Linux 设备页都有「**实体键盘用手机输入法打字**」开关，下面写着 X 这边现在有没有输入法在运行。
 
-X 这边的键盘布局会被记住：`xdesk ime layout 名字`（fcitx5 的名字，如 `us`、`de`、`de-nodeadkeys`；`auto` 取消），也可以直接在 Linux 设备页那一行里改。新起的 X 服务器默认是 `us`，所以非美式键盘需要设一次。
+XDesk 这台 X 的键盘布局会被记住：`xdesk keyboard layout 名字`（XKB 的名字，如 `us`、`de`、`de-nodeadkeys`；`auto` 取消；`xdesk ime layout 名字` 是同一条命令），也可以直接在 Linux 设备页那一行里改。它用 `setxkbmap` 设在 XDesk 自己的 X 上：X 起来时，以及改的时候；同一个显示号上是别人的 X 时不改。新起的 X 默认是 `us`，所以非美式键盘需要设一次。用户自己的 fcitx5 profile 不会被改写。
 
 ## 连接接收器
 
@@ -250,11 +252,11 @@ X 这边的键盘布局会被记住：`xdesk ime layout 名字`（fcitx5 的名�
 
 - 手机当触摸板：移动、轻点、双指右键和滚动，长按或轻点后按住拖动
 - 软键盘支持输入法打字（包括中文），还有快捷键栏（Esc、Tab、Ctrl、Alt、Super、Shift、方向键）
-- 实体鼠标和键盘默认控制外接屏，按 Ctrl+Alt+M 交还手机，再按一次回到外屏。实体键盘打字走内容那一边的输入法：Linux 用 Termux 里的 fcitx5，候选框在外接屏上、紧挨着文字；Mac 用 Mac 自己的输入法。需要注入服务
+- 实体鼠标和键盘默认控制外接屏，按 Ctrl+Alt+M 交还手机，再按一次回到外屏。实体键盘打字走内容那一边的输入法：Linux 用你自己在会话里启动的 X 输入法（比如 fcitx5），候选框在外接屏上、紧挨着文字，也可以走手机输入法和 XDesk 的文字通道；Mac 用 Mac 自己的输入法。需要注入服务
 - 安卓应用在外接屏上全屏运行，通过无线调试或 Shizuku 激活
 - 一个交换台：手机上的列表、外接屏的首页（启动台）和 Dock 是一个模型，有正在运行、收藏、手机和每个设备的标签，两块屏共用，搜索覆盖所有设备。光标在屏幕底边停一下，就能在任何内容上打开 Dock
 - 设备按需添加：手机自己的应用开箱就有，再加 Termux 里的 Linux（每个 proot / chroot 各是一个设备）和 Mac，各有自己的标签、状态和设置
-- Linux 程序当应用：逐个打开，只起轻量 X、不起桌面；Adreno 手机上的 GPU 加速（Turnip、zink）由安装脚本配好
+- Linux 程序当应用：逐个打开，只起轻量 X、不起桌面；Adreno 手机上的 GPU 加速（Turnip、zink）安装脚本会先问要不要装
 - Mac 窗口、应用和桌面搬上外接屏，也可以装 XDesk Mac 版当大屏，文字和文件互传，见 [Mac](#mac)
 - 连接接收器：通过 Wi-Fi 把画面和声音投到投影、电视盒子或旧手机上，接收器的把手有返回、主页、总览和切换器
 - 声音输出可选：手机扬声器、HDMI、蓝牙、USB、有线耳机或系统默认，所有模式共用一个设置。注入服务运行时，它会设置系统的首选媒体设备，桌面、安卓应用和其他声音都生效，回到选择界面或退出时清除。没有注入服务时只能尽量指定桌面声音，在测试手机上，接着 HDMI 时没法切回手机扬声器。这里只是选择输出设备，不影响音质或蓝牙编码。如果 XDesk 被强行结束、来不及清除，在 XDesk 里选一次系统默认，或者重启手机
@@ -263,7 +265,7 @@ X 这边的键盘布局会被记住：`xdesk ime layout 名字`（fcitx5 的名�
 - 游戏：GeForce NOW 这类云游戏上大屏，手柄直接用；按 Ctrl+Alt+G 后真实的键盘鼠标也直接给游戏。见[游戏](#游戏手机就是一台游戏主机)
 - Android Auto（实验性，只能停车时用）：XDesk 会出现在车机的应用列表里，车机上显示时钟。可以把 Linux 桌面放到车机上，分辨率跟随车机屏，手机当触摸板和键盘，声音从车里出。YouTube、Chrome 等安卓应用也能上车机，可以直接点车机屏幕操作。同时接着外接屏时，优先用外接屏
 
-可以和官方 Termux:X11 同时安装，互不影响，但不要同时运行，两者都用 `:1`。
+可以和官方 Termux:X11 同时安装，也可以同时运行：XDesk 自己的 X 服务器用显示号 `:9`，官方那个用 `:1`，互不影响。
 
 ## 工作原理
 
@@ -283,7 +285,7 @@ X 这边的键盘布局会被记住：`xdesk ime layout 名字`（fcitx5 的名�
 - **一个 App，两个窗口。** 上游的 `MainActivity` 原样放在外接屏上，`XDeskActivity` 在手机屏上。两者在同一个进程，直接调用 `LorieView.sendMouseEvent`、`sendKeyEvent`、`sendTextEvent`。
 - **X 服务器在 Termux 里运行**，用的是为这个包名构建的加载器。
 - **安卓应用**由注入服务（`InjectorService`）放到外接屏上。它以 shell 身份运行，用 `injectInputEvent` 发送操作，光标由 `CursorOverlay` 绘制。
-- **声音**从 PulseAudio 的 null sink 经 Termux 私有目录里的 socket 传出，由 X 服务器把连接转交给 App，App 再用 `AudioTrack` 播放，所以不需要特殊权限就能选输出设备。proot 或 chroot 里的程序用 cookie 连接 `127.0.0.1:4713`，因为手机上所有 App 都能连到这个端口。`xdesk` 会为自己的会话和 proot-distro 会话设好 `PULSE_COOKIE`。自己配的 chroot 要把它设成从 chroot 里看到的 `$PREFIX/tmp/xdesk-pulse-cookie`。实在做不到的话，`touch ~/.config/xdesk/pulse-anonymous` 可以恢复不用 cookie 的旧方式，但手机上任何 App 都能录下桌面声音、控制 PulseAudio。
+- **声音**从 PulseAudio 的 null sink 经 Termux 私有目录里的 socket 传出，由 X 服务器把连接转交给 App，App 再用 `AudioTrack` 播放，所以不需要特殊权限就能选输出设备。`xdesk` 给每个由它起的会话和程序设 `PULSE_SINK=xdesk`，不改守护进程的默认 sink，也不移动别人已有的声音流，所以用户自己的声音照旧从原来的输出出声。proot 或 chroot 里的程序用 cookie 连接 `127.0.0.1:4713`，因为手机上所有 App 都能连到这个端口；已经有监听 `127.0.0.1` 的 native TCP 模块就直接复用，只卸载 xdesk 自己记下 id 的模块。`xdesk` 会为自己的会话和 proot-distro 会话设好 `PULSE_COOKIE`。自己配的 chroot 要把它设成从 chroot 里看到的 `$PREFIX/tmp/xdesk-pulse-cookie`（没有 chroot 时副本是 0600，配了 chroot 是 0644，stop 时删掉）。实在做不到的话，`touch ~/.config/xdesk/pulse-anonymous` 可以恢复不用 cookie 的旧方式，但手机上任何 App 都能录下桌面声音、控制 PulseAudio。
 - **连接接收器：** 注入服务创建一块公开显示器，画面直接进 MediaCodec H.264 编码器，再用 `REMOTE_SUBMIX` 录下手机的声音（`WirelessDisplay`、`OutputCapture`）。XDesk 连接接收器的 47140 端口，把这块显示器当外接屏用。
 
 改动几乎都在 `lorie-app/` 和 `xdesk/` 里，合并上游比较简单。
@@ -299,14 +301,14 @@ X 这边的键盘布局会被记住：`xdesk ime layout 名字`（fcitx5 的名�
 | 安卓应用列表不全 | 有些系统限制应用读取列表。小米手机检查“获取应用列表”权限 |
 | 注入服务启动不了 | 确认连着 Wi-Fi、无线调试开着，再回到 XDesk。手机重启后要重新激活。用 Shizuku 的话，确认它在运行 |
 | 配对失败，或者通知里输入不了 | 配对框要一直开着。在 XDesk 的激活页里输入配对码，离开设置配对框就关闭的话，用分屏或小窗 |
-| 提示 “Display :1 is used by another X server” | 官方 Termux:X11 在运行，先结束它，比如 `pkill -f termux-x11` |
+| 提示 “Display :9 is used by another X server” | 那个显示号上另有 X 在应答，先结束它（比如官方的 `pkill -f termux-x11`），或者设 `XDESK_DISPLAY=:N` 换一个空闲的 |
 | App 的启动按钮不起作用 | 运行 `xdesk enable-app-start`，再检查权限 |
 | 桌面没有铺满屏幕 | 桌面在 App 连上之前就启动了。先打开 App，再重启会话 |
 | 外接屏闲置几分钟后黑屏 | XFCE 的屏保。动一下鼠标，或者调大 xfconf `xfce4-screensaver` 的 `/saver/idle-activation/delay` |
 | 手机屏上出现安卓光标 | 鼠标抓取丢了，点一下 XDesk 的手机界面 |
 | 没有声音 | 看看顶部的声音输出，很多显示器没有喇叭 |
 | 软键盘上 Ctrl + 字母没反应 | 拼音模式下字母留在输入法里，切到英文布局或用实体键盘 |
-| Linux 里用实体键盘打不了中文 | 在 Termux 里运行 `xdesk ime setup` 配置 fcitx5；Shift+空格切换输入法 |
+| Linux 里用实体键盘打不了中文 | 在会话里自己启动输入法（比如 Termux 里的 fcitx5，连同它自己的环境变量和配置）；手机输入法经 XDesk 的文字通道始终能打中文 |
 | 小米手机上安卓应用收不到输入 | 在开发者选项里打开 **USB 调试（安全设置）** |
 | 车机上用 GPU 的程序出现闪烁的色块 | Android Auto 显示器的合成打断了 Turnip 的分块渲染。用 `TU_DEBUG=sysmem` 启动它们；Chromium 再加 `--use-angle=gl --disable-features=Vulkan` 还更快 |
 

@@ -101,7 +101,7 @@ This part needs [Termux](https://github.com/termux/termux-app). Run this in Term
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
 ```
 
-The installer asks before it turns on `allow-external-apps` (Termux's switch that lets other apps run commands): it explains, and waits for a `y`. Then it installs the `xdesk` command, its loader and a window manager (xfwm4), looks for desktops and proot-distro containers you already have, and downloads the app, which you can ignore if it is already installed.
+The installer asks before it turns on `allow-external-apps` (Termux's switch that lets other apps run commands): it explains, and waits for a `y`. It also asks before upgrading all of Termux (`pkg upgrade -y`) and before installing Turnip, Mesa's Adreno Vulkan driver: with no terminal to ask on, the answer is No and it prints the command to run instead. It installs the packages XDesk itself needs (a window manager among them) after saying which on one line, then installs the `xdesk` command and its loader, looks for desktops and proot-distro containers you already have (without clearing your list of removed ones), and downloads the app, which you can ignore if it is already installed; the copy in Downloads may be deleted after installing it.
 
 It installs the newest stable release. For the beta: `curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | XDESK_VERSION=beta bash`. The install line XDesk copies for you always names the app's own version, so app and command match.
 
@@ -137,22 +137,24 @@ xdesk envs              # the environments (Termux, each proot or chroot) and th
 xdesk apps              # the programs XDesk can open one by one (.desktop files)
 xdesk launch SCOPE/ID   # open one of them, e.g. termux/org.xfce.mousepad
 xdesk start NAME+apps   # a session with only the window manager, no panel or desktop
-xdesk ime setup         # set up and start the X side's input method (fcitx5)
-xdesk ime layout NAME   # the keyboard layout of the X side, e.g. de-nodeadkeys; auto to forget
+xdesk keyboard layout NAME   # the keyboard layout of XDesk's X, e.g. de-nodeadkeys; auto to forget
+xdesk ime               # whether an input method runs on the display (read-only)
 ```
 
-A session is one command, stored in `~/.config/xdesk/sessions/NAME.sh`. Edit these files freely, `xdesk setup` will not overwrite them.
+A session is a start script, `~/.config/xdesk/sessions/NAME.sh`: XDesk runs it to start that desktop on the external screen, and nothing else reads it, so your own `startx.sh` stays as it is. It is yours to edit, `xdesk setup` never overwrites it; the comments at its top say what XDesk sets before it runs (`DISPLAY` and the sound variables: leave those alone) and what you may add (language, your input method and its variables, anything to run first). In XDesk, Settings › Devices › your Linux device › Linux desktops opens it in an editor in Termux.
 
 Programs of a proot-distro session are found in its system and run in it. For a chroot session, `xdesk add NAME 'CMD' --root DIR --launch 'PREFIX'` writes `NAME.root` (one line: the path of its root; xdesk warns when it cannot read it, e.g. under `/data/local`, but writes it anyway) and `NAME.launch` (a script that runs `PREFIX` with the arguments it is called with — `--launch 'chroot DIR'` for a plain chroot — and passes `DISPLAY` and the other variables on) next to `NAME.sh`.
 
 | Environment | How to connect |
 |---|---|
 | Termux | Found by `xdesk setup`, or `xdesk run xterm` |
-| proot-distro | Found by `xdesk setup`. By hand: `xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:1 PULSE_SERVER=127.0.0.1 PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
-| Plain proot | Bind `$PREFIX/tmp` to `/tmp` and set `DISPLAY=:1` |
-| chroot (root) | Bind `$PREFIX/tmp/.X11-unix` to `/tmp/.X11-unix` in the chroot, set `DISPLAY=:1`. Little tested so far |
+| proot-distro | Found by `xdesk setup`. By hand: `xdesk add box "proot-distro login ubuntu --shared-tmp -- env DISPLAY=:9 PULSE_SERVER=127.0.0.1 PULSE_SINK=xdesk PULSE_COOKIE=/tmp/xdesk-pulse-cookie dbus-launch --exit-with-session startxfce4"` |
+| Plain proot | Bind `$PREFIX/tmp` to `/tmp` and set `DISPLAY=:9` |
+| chroot (root) | Bind `$PREFIX/tmp/.X11-unix` to `/tmp/.X11-unix` in the chroot, set `DISPLAY=:9`. Little tested so far |
 
-GPU acceleration is only set up for Termux on Adreno: the installer adds Turnip, Mesa's open Vulkan driver, and Mesa then runs OpenGL on the real GPU through zink, falling back to software rendering on GPUs too old for Turnip. Inside proot or chroot, expect software rendering unless you configure Mesa there yourself. That is fine for debugging, not for games.
+XDesk's X server runs on display `:9`; the official Termux:X11 and your own `startx.sh` use `:1`, so they no longer collide. `XDESK_DISPLAY=:N` picks another number. XDesk only changes the X server it started itself (`x_is_ours`); if another X answers on that display, `xdesk start` refuses and says so.
+
+GPU acceleration is optional and only set up for Termux on Adreno: the installer asks before adding Turnip, Mesa's open Vulkan driver, and Mesa then runs OpenGL on the real GPU through zink, falling back to software rendering on GPUs too old for Turnip. If you say no, it prints the command instead; without it the desktop uses software rendering. Inside proot or chroot, expect software rendering unless you configure Mesa there yourself. That is fine for debugging, not for games.
 
 Audio from proot and chroot reaches the app through PulseAudio on `127.0.0.1`.
 
@@ -170,9 +172,9 @@ This sets `allow-external-apps = true` in Termux, so apps can ask to run command
 
 ### Input method and keyboard layout
 
-A physical keyboard types into Linux through the input method of the X side when one runs there. With fcitx5 in Termux (run `xdesk ime setup` once, which says what to install if fcitx5 is missing, then writes a first config and starts it), the phone's keyboard types into X as keys and fcitx5 composes, with its candidates on the external screen, at the text — Termux, proot and chroot programs alike. Shift+Space switches the input method (Ctrl+Space belongs to Android's own). Without fcitx5, the phone's input method composes and the finished text is sent. Each Linux device page has the switch **Keyboard types with the phone's input method**, and says under it whether an input method runs on the X side now.
+A physical keyboard types into Linux through the input method of the X side when one runs there. That input method is your own: start it in your session like any other program (for example fcitx5 in Termux, with your own `XMODIFIERS`, `GTK_IM_MODULE` and fcitx5 profile). XDesk does not start, stop or configure it, and writes nothing in `~/.config/fcitx5`. When one runs on the display, the phone's keyboard types into X as keys and it composes, with its candidates on the external screen, at the text — Termux, proot and chroot programs alike. `xdesk ime` (and `xdesk status`) only reports whether one is running. Without one, the phone's input method composes and the finished text is sent through XDesk's text channel; that always works. Each Linux device page has the switch **Keyboard types with the phone's input method**, and says under it whether an input method runs on the X side now.
 
-The keyboard layout of the X side is remembered: `xdesk ime layout NAME` (fcitx5's name, e.g. `us`, `de`, `de-nodeadkeys`; `auto` to forget it), also set from the row on the Linux device page. A fresh X server starts with `us`, so a non-US keyboard needs this once.
+The keyboard layout of XDesk's keyboard is remembered: `xdesk keyboard layout NAME` (an XKB name such as `us`, `de`, `de-nodeadkeys`; `auto` to forget it; `xdesk ime layout` is the same command), also set from the row on the Linux device page. It is set with `setxkbmap` on XDesk's own X server, at X start and when changed, and never on another X answering on the same display. A fresh X server starts with `us`, so a non-US keyboard needs this once. Your fcitx5 profile is not edited.
 
 ## Wireless display
 
@@ -230,11 +232,11 @@ It shares its machinery with the wireless display, so there is one browser or re
 
 - Phone as touchpad: move, tap, two-finger right click and scroll, long press or tap-and-hold to drag
 - Soft keyboard with IME text input including Chinese, and a shortcut row (Esc, Tab, Ctrl, Alt, Super, Shift, arrows)
-- Physical mouse and keyboard go to the display while XDesk is open, Ctrl+Alt+M moves them back to the phone and again. A physical keyboard types through the input method of the content: fcitx5 in Termux for Linux, with its candidates at the text on the display; the Mac's own for a Mac. Needs the injector service
+- Physical mouse and keyboard go to the display while XDesk is open, Ctrl+Alt+M moves them back to the phone and again. A physical keyboard types through the input method of the content: your own X-side input method for Linux (fcitx5, if you start it in your session), its candidates at the text on the display, or the phone's input method through XDesk's text channel; the Mac's own for a Mac. Needs the injector service
 - Android apps full screen on the display, activated through wireless debugging or Shizuku
 - One switchboard: the list on the phone, the display's home (the Launchpad) and the docks are one model, with tabs for running items, favourites, the phone and every device, shared between the screens, and search across every device. Resting the pointer on the bottom edge opens the dock over any content
 - Devices added on demand: the phone's own apps come first, then Linux in Termux (each proot or chroot its own device), and Macs, each with its tab, status and settings
-- Linux programs as apps, opened one by one with a light X and no desktop, GPU acceleration on Adreno (Turnip, zink) set up by the installer
+- Linux programs as apps, opened one by one with a light X and no desktop, GPU acceleration on Adreno (Turnip, zink) offered by the installer
 - Mac windows, apps and the desktop on the display, and XDesk on the Mac as the big screen, with text and files shared. See [Mac](#mac)
 - Wireless display: the same over Wi-Fi to XDesk Receiver on a projector, TV box or old phone, with sound, and the receiver's handle has Back, Home, Launchpad and Switcher
 - Audio output you can switch: phone speaker, HDMI, Bluetooth, USB, wired, or system default. It is one setting for every mode and survives switching. With the injector service running, it sets the system's preferred media device, which covers desktops, Android apps and everything else, and clears it when you return to the chooser or exit. The next session applies your choice again. Without it, this is best effort for desktop audio only: on the test phone it could not bring sound back to the phone speaker while HDMI was connected. It only points output at the device, and says nothing about quality or Bluetooth codecs. If XDesk is killed so hard that it cannot clear the preference, choose system default in XDesk once, or reboot
@@ -243,7 +245,7 @@ It shares its machinery with the wireless display, so there is one browser or re
 - Games: cloud gaming such as GeForce NOW on the big screen with a gamepad, and with the real keyboard and mouse after Ctrl+Alt+G. See [Games](#games-the-phone-as-a-game-console)
 - Android Auto, parked only (experimental): XDesk appears among the car's apps and shows a clock on the car's screen. From the phone you can run a Linux desktop there, sized to the car's screen, with the phone as touchpad and keyboard, and its sound plays in the car. Android apps (YouTube, Chrome and others) run there too, on a display XDesk makes for them, and the car's touch screen works on them. With an external display also connected, the external display is used
 
-It installs next to the official Termux:X11 and does not touch it. Do not run both at once, since both use display `:1`.
+It installs next to the official Termux:X11 and does not touch it. They can run at the same time: XDesk's own X server uses display `:9`, the official one uses `:1`.
 
 ## How it works
 
@@ -263,7 +265,7 @@ It installs next to the official Termux:X11 and does not touch it. Do not run bo
 - **One app, two windows.** The upstream `MainActivity` runs unchanged on the external display. `XDeskActivity` runs on the phone in the same process and calls `LorieView.sendMouseEvent`, `sendKeyEvent` and `sendTextEvent` directly.
 - **The X server runs in Termux**, started with a loader built for this app id.
 - **Android apps** are started on the display with the injector (`InjectorService`), which runs as the shell user and sends events with `injectInputEvent`. `CursorOverlay` draws the pointer.
-- **Audio** goes from a PulseAudio null sink through a socket in Termux's private directory; the X server hands the app a connection to it. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. Clients in proot or a chroot reach PulseAudio on `127.0.0.1:4713` with its cookie, since every app on the phone can reach that port. `xdesk` sets `PULSE_COOKIE` for its sessions and adds it to proot-distro sessions. A chroot or other setup of your own needs `PULSE_COOKIE` set to `$PREFIX/tmp/xdesk-pulse-cookie` as seen from inside it. If that is not possible, `touch ~/.config/xdesk/pulse-anonymous` restores the old port without a cookie, which any app on the phone can use to record the desktop sound and control PulseAudio.
+- **Audio** goes from a PulseAudio null sink through a socket in Termux's private directory; the X server hands the app a connection to it. The app plays it with `AudioTrack`, which is how it can pick the output device without special permissions. `xdesk` gives every session and program it starts `PULSE_SINK=xdesk`, and never changes the daemon's default sink or moves anyone else's streams, so your other sound keeps playing where it was. Clients in proot or a chroot reach PulseAudio on `127.0.0.1:4713` with the cookie copy; a native TCP module already listening on `127.0.0.1` is reused, and only a module xdesk loaded itself is unloaded when it stops. `xdesk` sets `PULSE_COOKIE` for its sessions and adds it to proot-distro sessions. A chroot or other setup of your own needs `PULSE_COOKIE` set to `$PREFIX/tmp/xdesk-pulse-cookie` as seen from inside it; the copy is 0600, or 0644 when a chroot environment is configured. If passing the cookie is not possible, `touch ~/.config/xdesk/pulse-anonymous` restores the old port without a cookie, which any app on the phone can use to record the desktop sound and control PulseAudio.
 - **Wireless display:** the injector creates a public display whose surface is a MediaCodec H.264 encoder, and records the phone's output through `REMOTE_SUBMIX` (`WirelessDisplay`, `OutputCapture`). XDesk connects to the receiver on port 47140 and treats that display as its external display.
 
 Almost all changes live in `lorie-app/` and `xdesk/`, so merging upstream stays simple.
@@ -279,14 +281,14 @@ Logs are in `$PREFIX/tmp/xdesk.log`.
 | Android app list is short | Some ROMs limit what apps can see. On Xiaomi, check the permission to get installed apps |
 | Injector service does not start | Check that Wi-Fi is connected and wireless debugging is on, then return to XDesk. It has to be activated again after a reboot. With Shizuku, check that Shizuku is running |
 | Pairing fails or the notification takes no input | Keep the pairing dialog open. Enter the code on XDesk's activation page, using split screen or a small window if leaving Settings closes the dialog |
-| "Display :1 is used by another X server" | The official Termux:X11 is running. Stop it, for example with `pkill -f termux-x11` |
+| "Display :9 is used by another X server" | Another X server answers on the display number XDesk uses. Stop it, for example the official Termux:X11 with `pkill -f termux-x11`; or run XDesk with `XDESK_DISPLAY=:9` set to a free `:N` |
 | App's start button fails | Run `xdesk enable-app-start` and check the permission |
 | Desktop does not fit the screen | It started before the app connected. Open the app first, then restart the session |
 | External screen goes black after a few minutes | XFCE's screensaver. Move the mouse, or raise `/saver/idle-activation/delay` in the `xfce4-screensaver` xfconf channel |
 | Phone's own cursor appears | Mouse capture was lost. Tap the XDesk touch screen |
 | No sound | Check the output in the top bar. Many monitors have no speakers |
 | Ctrl + letter does nothing on the soft keyboard | Pinyin mode keeps the letter in the IME. Switch to the English layout or use a physical keyboard |
-| Chinese with a physical keyboard in Linux | Run `xdesk ime setup` in Termux to set up fcitx5; Shift+Space switches the input method |
+| Chinese with a physical keyboard in Linux | Start your own input method in the session (for example fcitx5 in Termux, with its environment and config); the phone's input method through XDesk's text channel always works too |
 | Android apps get no input on Xiaomi | Turn on **USB debugging (Security settings)** in Developer options |
 | Flickering blocks in GPU programs on the car | Turnip's tiled rendering is interrupted by the composition of Android Auto's display. Start them with `TU_DEBUG=sysmem`; for Chromium, `--use-angle=gl --disable-features=Vulkan` is also faster |
 

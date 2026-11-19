@@ -28,7 +28,8 @@
 | `run CMD…`、`x` | 任意程序；只起 X 和声音 |
 | `apps`、`launch ENV/ID` | 单个程序 |
 | `setup`、`list`、`add`、`rm`、`use` | 找环境、管会话 |
-| `ime …` | X 这边的输入法和键盘布局 |
+| `keyboard layout [NAME\|auto]` | XDesk 这台 X 的键盘布局（§5.5）；`ime layout` 是给 App 留的旧名字 |
+| `ime` | 只读：XDesk 的显示上现在有没有输入法在运行（§5.5） |
 | `doctor` | 体检（§3.3） |
 | `version`、`update` | §1 |
 
@@ -46,6 +47,7 @@
 ```
 
 - `running`、`default`、`layout` 没有时是 `null`；`x.started` 是 X 进程启动的 Unix 秒，没在跑时 `null`。
+- `ime` 只读：XDesk 的显示上现在有没有 fcitx5 在跑（谁启动的都算）。XDesk 不启动、不停止、不配置 X 这边的输入法。
 - 字符串按 JSON 转义（引号、反斜杠、控制字符）。
 - App 发的命令是 `xdesk app state 2>/dev/null || { 老的三段命令; }`：旧脚本不认 `app`，退出码非 0，同一次 RUN_COMMAND 里退回老格式，App 两种都会解析。输出以 `{` 开头就按 JSON 读。
 - 以后 App 要的新东西加进 JSON，不再往 `status` 的文字里加行。
@@ -79,7 +81,7 @@ Termux 和容器里都找：XFCE、LXQt、MATE，加上 LXDE（`startlxde`）、
 - 窗口管理器：Termux 里有没有 xfwm4；
 - 中文字体：有 `fc-list`（在 `fontconfig-utils` 里，很少有人装）就用 `fc-list :lang=zh`，没有就按常见中文字体的文件名找；都没有就提示 `pkg install otf-noto-sans-cjk`；
 - 每个环境：根目录在不在、进入命令能不能用（`proot-distro` 装没装）、有几个程序、有几个桌面；
-- 输入法 fcitx5（只报状态，不算错）。
+- X 这边的输入法（只报状态，不算错；XDesk 不启动、不配置它，用不用 fcitx5 是用户自己的事）。
 
 ### 3.4 认不出的环境
 chroot 要 root 才看得到，Andronix、AnLinux 和自己写的 proot 脚本各不相同，不自动登记。`setup` 结尾说一句：「别的 proot 或 chroot：xdesk add NAME --root DIR --launch '进入命令'」，`doctor` 同样提示。
@@ -100,14 +102,16 @@ chroot 要 root 才看得到，Andronix、AnLinux 和自己写的 proot 脚本�
 找不到就不启动，输出一行 `xdesk-error not-installed 命令` 后退出 1。App 把 `xdesk-error 代码 说明` 翻成本地化的话（§5.4）；旧 App 照原样显示这一行。
 
 ### 5.2 GPU
-- **Termux**：照旧，有 Vulkan 驱动（Turnip）就设 zink 相关变量，没有时 Mesa 自己用软件渲染。
+- **Termux**：XDesk 自己的启动环境，有 Vulkan 驱动（Turnip）就设 zink 相关变量（`ZINK_DESCRIPTORS`、`MESA_GLTHREAD`、`MESA_VK_WSI_PRESENT_MODE`、`vblank_mode`），没有时 Mesa 自己用软件渲染。这几行写在用户会话文件的前面，所以用户自己写的同名 `export` 在后面，会盖掉它们；XDesk 不加 `LANGUAGE` 之类的语言变量，语言由用户的 locale 和会话文件决定。
 - **容器**：根目录里有 freedreno 的 Vulkan ICD（`usr/share/vulkan/icd.d/*freedreno*`）就设和 Termux 一样的变量；没有就什么都不设（软件渲染）。`doctor` 每个环境报一行「GPU：硬件（Turnip）/ 软件渲染」，软件渲染时提示可以装 Turnip（Debian/Ubuntu 一类给出包名提示即可，不替用户装）。
 - **退路**：程序启动后 10 秒内退出、退出码非 0，且输出里有 GPU 初始化失败的特征（`EGL`、`GLX`、`glXCreateContext`、`Failed to create .*context`、`zink`、`vkCreateInstance`、`MESA.*error`、`kgsl` 一类），又不是已经在用软件渲染：用 `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe` 再起一次，状态里记下 `retried=software`。只重试一次。
 
 ### 5.3 声音
 已有：Termux 里接本机 PulseAudio，容器和 chroot 经 127.0.0.1 带 cookie。补：`doctor` 查每个容器里有没有 PulseAudio 客户端库（`libpulse.so.0`，在 `usr/lib`、`usr/lib/*-linux-gnu`、`usr/lib64` 下找）。没有就提示装哪个包，按容器 `etc/os-release` 的 `ID`：debian/ubuntu `apt install libpulse0`，arch `pacman -S libpulse`，fedora `dnf install pulseaudio-libs`，alpine `apk add libpulse`，其他只说「装 PulseAudio 的客户端库」。
 
-守护进程不是 xdesk 起的（本机原来就有一个）时，`start_audio` 先记下它当前的默认 sink（`pactl get-default-sink`，取不到就用 `pactl info` 的 `Default Sink`；重复 start 时保留第一次记下的）；`stop_audio` 先把它设回默认、把流移回去，再卸掉 xdesk 自己加载的 null sink（和它加载的 TCP 模块）。这样 `module-default-device-restore` 不会把 `xdesk` 记成用户的默认设备。xdesk 自己起的守护进程照旧整个停掉。
+声音是 XDesk 给用户的一块声卡，但守护进程和它的默认输出是用户的：`start_audio` **不改默认 sink，也不移动任何流**。每个由 xdesk 拉起的会话和程序（Termux 会话、`+apps`、`run`、`launch`、proot 和 chroot 的环境）都在环境里拿到 `PULSE_SINK=xdesk`，所以只有它们新起的流进 XDesk 的 null sink，用户自己的播放器和其他 Termux 程序照旧从原来的输出出声；崩溃也不会在守护进程或 `~/.config/pulse` 里留下改过的默认值。
+
+TCP 模块只复用、不卸别人的：已经有 `module-native-protocol-tcp` 监听 `127.0.0.1` 时直接用；没有才加载 xdesk 自己的，记下模块 id（`$RUN/pulse.tcp`），`stop_audio` 只卸这个记录过的 id。旧版 xdesk 留在 47130 端口上的 `module-simple-protocol-tcp` 照旧清掉。cookie 副本 `$PREFIX/tmp/xdesk-pulse-cookie` 每次 start 重新生成：没有 chroot 环境时 0600，配了 chroot（会话或 `NAME.launch` 里有 `chroot`/`unshare`/`nsenter`）时 0644，让那个系统里的用户能读；`stop_audio` 删掉它。xdesk 自己起的守护进程照旧整个停掉。
 
 ### 5.4 说清楚为什么起不来
 现在程序起来以后自己退出了（找不到、缺库、闪退），App 要等 15 秒才说「没有打开窗口，日志见 xdesk.log」。改成：
@@ -132,3 +136,16 @@ chroot 要 root 才看得到，Andronix、AnLinux 和自己写的 proot 脚本�
   - `retried=software` 且窗口出来了：提示一次「%1$s 用软件渲染打开了（GPU 不可用）」。
   - 日志最后几行写进 logcat（`XDeskLinux`），方便查。
 - `xdesk launch` 启动前就失败的（§5.1、找不到程序、进不了环境），照旧打印一行原因后退出；`xdesk-error 代码 说明` 的代码同样按上面翻译（`not-installed` 用 `not-found` 的说法）。
+
+### 5.5 X 服务器、显示号和 X 这边的输入法（2026-11-19）
+
+- **显示号是 `:9`**：官方 Termux:X11 和用户自己的 `startx.sh` 都用 `:1`，XDesk 不再和它们抢。环境变量 `XDESK_DISPLAY=:N` 可以换（第二个 XDesk、测试），只接受 `:数字`，别的值直接报错退出。
+- **只动自己的 X**：`x_is_ours` 确认 `$DPY` 上应答的 X 就是 xdesk 起的 `xdesk-x11`（`x_pid`，并且显示的锁文件里也是这个 pid）。`setxkbmap`、`xrandr --dpi`、`xrdb -merge`、`scale`、键盘布局都先过这一关；`$DPY` 上是别人的 X 时什么都不写。`xdesk start` 发现 `$DPY` 被别的 X 占着会拒绝并说明；`xdesk status` / `app state` 也不把它当成 XDesk 的 X。
+- **从 `:1` 搬过来**：`xdesk stop` 照旧按进程名 `^xdesk-x11 ` 结束所有 XDesk 的 X，包括还在 `:1` 上的旧版；`xdesk start` 会先结束旧版留在 `:1` 上的 `xdesk-x11`（只认这个名字和 `:1`，别的 `XDESK_DISPLAY` 上的第二个 XDesk 不动）。
+- **X 服务器的环境**：`LD_PRELOAD`、`LD_LIBRARY_PATH` 和官方启动器用的 `TERMUX_X11_XSTARTUP` 都不带进去；只有 X 服务器自己 `renice -10`（Chromium 的渲染进程是 -8，X 要排在它前面），会话和程序都是默认优先级。
+- **X 这边的输入法归用户**：XDesk 不启动、不停止、不配置、不监视 fcitx5 或其他 X 输入法。`xdesk ime` 只读地报告显示上有没有 fcitx5 在跑（App 用它决定实体键盘是原样发键还是走手机输入法）；`xdesk ime layout` 仍是 App 调的名字，实际是 `xdesk keyboard layout`：把布局存进 `~/.config/xdesk/keyboard-layout`，用 `setxkbmap` 设在 XDesk 自己的 X 上（X 起来时，以及改的时候）；`auto` 取消。用户自己的 fcitx5 profile 不再被改写。手机的输入法始终经 XDesk 的文字通道进 X，与 X 这边有没有输入法无关。
+- **不改用户的会话文件**：旧会话缺的 `PULSE_COOKIE`/`PULSE_SINK` 只在 `$RUN` 的运行时副本里补，`sed -i` 不再碰 `~/.config/xdesk/sessions`；旧版 setup 冻结进文件的环境行也原样留着（文件里的行在后面，本来就盖过 XDesk 加的）。
+- **读命令不删文件**：`app state`、`envs`、`app catalog` 只做新增式的 `discover`；容器暂时不在时它生成的会话和环境文件留着，等 `xdesk setup`（用户明确要找）或 `add`/`rm` 再处理。
+- **apps 总线**：`+apps` 和生成的 Termux 桌面共用的长期 D-Bus 总线只活到没有会话、也没有 xdesk 起的程序为止（会话结束、最后一个程序退出、`xdesk stop` 都会检查并关掉；桌面自己结束时，App 下一次读 `app state` 也会检查），不会在桌面结束后把 xfconfd 之类留在用户另起的桌面旁边。
+- **`+apps` 的外观**：容器（proot/chroot）的 `+apps` 只起 `xfwm4`，不起 `xfsettingsd`，Termux 的 XFCE 主题、DPI 和字体不会盖到容器的程序上；Termux 自己的 `+apps` 照旧带 `xfsettingsd`。
+- **会话文件是用户的 XDesk 启动脚本**：`~/.config/xdesk/sessions/NAME.sh` 由 `xdesk setup` 找到桌面时生成一次，之后归用户，xdesk 不改写也不覆盖；用户自己的 `startx.sh`、官方 Termux:X11 都不读它，所以“在外屏上怎么起这个桌面”的定制（语言、X 输入法的变量和启动、ssh-agent、先跑的命令、换桌面）都写在这里。新生成的文件开头带注释，写明 XDesk 运行前已经设好的（`DISPLAY`、`PULSE_SERVER`/`PULSE_COOKIE`/`PULSE_SINK`，有 GPU 驱动时的 Mesa/zink 变量）、哪些不能动（`DISPLAY` 和声音那几个：动了画面或声音就不在 XDesk 上）、哪些随便加；最后一行保持 `exec dbus-run-session startxfce4` 原样时，XDesk 把它接到自己的长期 D-Bus 上（切换会话时已开的程序不关），改了就照用户写的执行。proot 的会话把这些变量写在 `env` 后面，文件里旧的 `DISPLAY=:1` 在运行时副本里换成当前显示号。设置 › 设备 › 某台 Linux 的“Linux 桌面”里点一个桌面，就在 Termux 里用 `$EDITOR`（没有就 nano，再没有 vi）打开它。
