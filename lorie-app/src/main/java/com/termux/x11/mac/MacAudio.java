@@ -47,7 +47,8 @@ final class MacAudio {
     // by dropping decoded PCM, only as many frames as needed, so the sound never runs late and never drops all at once.
     private static final int PREFILL_MIN_MS = 60, PREFILL_MAX_MS = 300, PREFILL_STEP_MS = 40,
         BACKLOG_EXTRA_MS = 250, QUEUE_EXTRA_MS = 40;
-    private static final long CALM_MS = 30_000;
+    /** A calm this long takes PREFILL_STEP_MS / 2 off the cushion: back from the most to the least in about 2 minutes. */
+    private static final long CALM_MS = 10_000;
     // A gap this long is the Mac going quiet, not a late packet
     private static final long IDLE_PAUSE_MS = 500, IDLE_CLOSE_MS = 10_000, ROUTE_CHECK_MS = 500;
     /** AudioMessage.maxFormatPayload and maxPacketsPayload: a larger message is dropped whole. */
@@ -84,6 +85,7 @@ final class MacAudio {
     /** The least queued since the last re-base: the output's own latency (a Bluetooth headset's 200 ms and more),
      *  which is not a backlog and must never be dropped. Long.MAX_VALUE: not measured yet. */
     private long queueFloor = Long.MAX_VALUE;
+    private long lastReport;
     private short[] pcm = new short[2048];
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
 
@@ -404,17 +406,29 @@ final class MacAudio {
         lastQueueCheck = now;
         AudioTimestamp stamp = new AudioTimestamp();
         if (!t.getTimestamp(stamp)) return;
+        // The stamp is the sound card's position at stamp.nanoTime, which can be a good while ago (the HDMI output
+        // updates it seldom): what it has played by now is more. Read as now, the queue looked longer than it was,
+        // the drop below took too much and an underrun followed, which raised the cushion; to 300 ms in a minute
+        // (2026-11-19: every "dropping" line was followed by "underrun, cushion now ...")
+        long age = Math.max(0, System.nanoTime() - stamp.nanoTime);
+        long played = stamp.framePosition + Math.min(age, 1_000_000_000L) * RATE / 1_000_000_000L;
         if (queueBasePending) {
             // A flush may reset the position or continue it: whatever it says, what is queued from here is measured
             // from this stamp
             queueBasePending = false;
             queueBaseWritten = framesWritten;
-            queueBaseFrame = stamp.framePosition;
+            queueBaseFrame = played;
             queueFloor = Long.MAX_VALUE;
             return;
         }
-        long queued = (framesWritten - queueBaseWritten) - (stamp.framePosition - queueBaseFrame);
+        long queued = (framesWritten - queueBaseWritten) - (played - queueBaseFrame);
         if (queued <= 0) return;
+        if (now - lastReport >= 60_000) {
+            // A line a minute: how late the sound is (what waits in the track, the output's own part in it too)
+            lastReport = now;
+            Log.i(TAG, "Mac sound: " + (queued * 1000 / RATE) + " ms queued, cushion " + prefillMs + " ms, "
+                    + t.getUnderrunCount() + " underruns so far");
+        }
         // What the output itself holds (its latency) is in this count too: only what grew over the steady least is late
         if (queued < queueFloor) queueFloor = queued;
         long over = queued - queueFloor;
