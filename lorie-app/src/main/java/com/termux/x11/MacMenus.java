@@ -459,6 +459,10 @@ final class MacMenus {
             return left;
         }
         if (over == SURFACE_BUTTON) {
+            if (button == null) {  // the ≡ went under the arrow: the pointer is the picture's again (see Notify)
+                endDriven();
+                return null;
+            }
             if (buttonHolds(x, y)) return null;
             button.bounds(rect);
             int[] left = grab.release(rect.left, rect.top, rect.right, rect.bottom, x, y);

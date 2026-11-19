@@ -566,7 +566,20 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
 
     /** True while the centre has the pointer (DockPointer.open). */
     boolean driven() {
+        if (driven && surfaceGone()) endDriven();
         return driven;
+    }
+
+    /**
+     * The window the centre's pointer is over has gone: the banner was clicked away (its index no longer in banners),
+     * the panel closed, the bell hidden. Driven on, every move went to a window that was not there and none came
+     * back: the screen took no clicks, no Dock, no centre (owner, 2026-11-19, a notification clicked over a Mac).
+     */
+    private boolean surfaceGone() {
+        if (over == SURFACE_PANEL) return panel == null || panel.closing();
+        if (over == SURFACE_BELL) return bell == null;
+        if (over >= 0) return over >= banners.size();
+        return false;
     }
 
     /** The content under it ended or changed: the pointer is the content's again (DockPointer.open). */
@@ -632,6 +645,11 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
      */
     int[] moveBy(int dx, int dy) {
         if (!driven || windows == null) return null;
+        // Its window went (a click took it away): the pointer is the content's again, with this move
+        if (surfaceGone()) {
+            endDriven();
+            return new int[] {dx, dy};
+        }
         px = Math.max(0f, Math.min(width - 1, px + dx));
         py = Math.max(0f, Math.min(height - 1, py + dy));
         int x = Math.round(px), y = Math.round(py);
@@ -666,6 +684,10 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
     /** A click of the centre's own pointer, as the Android pointer's click would land. */
     void clickDriven() {
         if (!driven) return;
+        if (surfaceGone()) {
+            endDriven();
+            return;
+        }
         int x = Math.round(px), y = Math.round(py);
         if (over == SURFACE_BELL) toggle();
         else if (over == SURFACE_PANEL) panel.clickAt(x, y);
