@@ -4294,6 +4294,10 @@ public class XDeskActivity extends Activity {
         updateCapture();
         if (displayGoing) return;  // its display is gone: nothing to show instead (DISPLAY.md §5.4)
         String previous = previousKey(key);
+        // A Linux whole desktop that is not running would be started for it (xdesk switch from the apps-only X): a
+        // program closing is no reason to bring up a desktop (owner, 2026-11-19). One that runs is shown again
+        if (previous != null && previous.startsWith(ChooserView.recentKey(""))
+                && !ChooserView.sessionOf(previous).equals(runningSession)) previous = null;
         if (previous != null && Switchboard.get(this).exists(previous)) {
             chooseKey(previous);
             return;
