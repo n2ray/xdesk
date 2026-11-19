@@ -52,6 +52,13 @@ final class MacVideo {
         void videoSize(int width, int height);
     }
 
+    /** When each picture reached the screen (System.nanoTime's clock), by its capture stamp: the sound follows it. */
+    interface RenderListener {
+        void rendered(long ptsUs, long renderNanos);
+    }
+
+    volatile RenderListener renderListener;
+
     private final SizeListener sizes;
     private final HashSet<String> failed = new HashSet<>();
     private boolean softwareOnly, unavailable;
@@ -328,6 +335,11 @@ final class MacVideo {
             }
             Long arrival = arrivals.remove(presentationTimeUs);
             if (arrival != null && nanoTime >= arrival) renderSamples.add(nanoTime - arrival);
+            // A render time this decoder got wrong (one released at once reads 0.6 s late, see the clock above) is
+            // not given on: only one within a second of its arrival
+            RenderListener l = renderListener;
+            if (l != null && arrival != null && nanoTime >= arrival && nanoTime - arrival < 500_000_000L)
+                l.rendered(presentationTimeUs, nanoTime);
             report(nanoTime);
         }
     };
