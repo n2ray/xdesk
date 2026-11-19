@@ -52,7 +52,11 @@ final class SyncedAudioDevice implements SyncedAudioRuntime.Device {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(48000)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).build())
-                .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(Math.max(minimum, 960 * 8)).build();
+                .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(Math.max(minimum, 960 * 8))
+                // The fast mixer's output, as MacAudio's: without it the track went to the deep-buffer output, whose
+                // own latency on HDMI was over 300 ms (dumpsys: 328 ms, MacAudio's 21 ms). The schedule counts what
+                // the device holds, so the sound came 100 to 200 ms after the picture (owner, 2026-11-19)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY).build();
         if (track.getState() != AudioTrack.STATE_INITIALIZED) throw new IllegalStateException("AudioTrack unavailable");
         track.setVolume(muted ? 0f : 1f);
         applyPreferred();
