@@ -216,7 +216,6 @@
     <string name="xd_end">结束</string>
     <string name="xd_stop">停止</string>
     <string name="xd_close">关闭</string>
-    <string name="xd_restore">恢复</string>
     <string name="xd_reset">恢复默认</string>
     <string name="xd_retry">重试</string>
     <string name="xd_ok">知道了</string>
@@ -325,7 +324,7 @@
     <string name="xd_share_failed">发送失败：%1$s</string>
     <string name="xd_launcher_need_phone">先打开手机上的 XDesk</string>
     <string name="xd_external_dock">外接屏底部 Dock</string>
-    <string name="xd_external_dock_note">光标到屏幕底边后继续往下推，安卓应用、Linux 和 Mac 都一样。只有手机自己在管的鼠标（键鼠在本机）是移到底边停一下</string>
+    <string name="xd_external_dock_note">光标在屏幕底边停一下就出现，安卓应用、Linux 和 Mac 都一样</string>
     <string name="xd_wireless">连接接收器</string>
     <string name="xd_wireless_note">通过 Wi-Fi 把 XDesk 显示到装了 XDesk 接收器的另一台设备上</string>
     <string name="xd_wireless_off">关</string>
@@ -389,9 +388,13 @@
     <string name="xd_always_cursor_note">RustDesk 会话里判断错时打开</string>
     <string name="xd_fullscreen_default">应用强制横屏全屏</string>
     <string name="xd_fullscreen_default_note">忽略竖屏锁定，在外屏和其他大屏上都生效，手机屏不受影响。应用下次启动时生效，第一次会重启。可在应用设置里单独改</string>
-    <string name="xd_fullscreen_reset">恢复所有应用</string>
-    <string name="xd_fullscreen_reset_note">去掉 XDesk 给应用设过的横屏全屏</string>
-    <string name="xd_fullscreen_reset_title">恢复所有应用？</string>
+    <string name="xd_fullscreen_reset">撤销所有横屏全屏</string>
+    <string name="xd_fullscreen_reset_note">去掉 XDesk 给安卓应用设过的横屏全屏</string>
+    <string name="xd_fullscreen_reset_title">撤销所有横屏全屏？</string>
+    <string name="xd_fullscreen_reset_action">撤销</string>
+    <string name="xd_display_android">安卓应用</string>
+    <string name="xd_display_linux">Linux 桌面</string>
+    <string name="xd_display_general">通用</string>
     <string name="xd_fullscreen_reset_message">XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。</string>
     <string name="xd_fullscreen_reset_need_injector">要先连上注入服务：运行一次安卓应用后再试</string>
     <string name="xd_cover">切到其他应用或锁屏时遮住外屏</string>

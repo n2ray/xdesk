@@ -228,7 +228,6 @@
     <string name="xd_end">End</string>
     <string name="xd_stop">Stop</string>
     <string name="xd_close">Close</string>
-    <string name="xd_restore">Restore</string>
     <string name="xd_reset">Reset</string>
     <string name="xd_retry">Retry</string>
     <string name="xd_ok">OK</string>
@@ -346,7 +345,7 @@
     <string name="xd_share_failed">Could not send: %1$s</string>
     <string name="xd_launcher_need_phone">Open XDesk on the phone first</string>
     <string name="xd_external_dock">Dock at the bottom of the display</string>
-    <string name="xd_external_dock_note">Keep pushing the pointer down at the bottom edge, the same over Android apps, Linux and Mac. Only a mouse the phone handles itself (keys on phone) opens it by resting at the edge</string>
+    <string name="xd_external_dock_note">Rest the pointer on the bottom edge and it comes up, over Android apps, Linux and a Mac alike</string>
     <string name="xd_wireless">Connect to a receiver</string>
     <string name="xd_wireless_note">Show XDesk over Wi-Fi on another device running XDesk Receiver</string>
     <string name="xd_wireless_off">Off</string>
@@ -410,9 +409,13 @@
     <string name="xd_always_cursor_note">Turn on if it guesses wrong in a RustDesk session</string>
     <string name="xd_fullscreen_default">Force apps to full screen landscape</string>
     <string name="xd_fullscreen_default_note">Ignores portrait locks on the display and other large screens; the phone screen is not affected. Applies the next time an app starts, and restarts it the first time. Can be changed per app in its card</string>
-    <string name="xd_fullscreen_reset">Restore all apps</string>
-    <string name="xd_fullscreen_reset_note">Undo the full screen landscape XDesk set for apps</string>
-    <string name="xd_fullscreen_reset_title">Restore all apps?</string>
+    <string name="xd_fullscreen_reset">Undo all landscape fullscreen</string>
+    <string name="xd_fullscreen_reset_note">Removes the landscape fullscreen XDesk gave Android apps</string>
+    <string name="xd_fullscreen_reset_title">Undo all landscape fullscreen?</string>
+    <string name="xd_fullscreen_reset_action">Undo</string>
+    <string name="xd_display_android">Android apps</string>
+    <string name="xd_display_linux">Linux desktop</string>
+    <string name="xd_display_general">General</string>
     <string name="xd_fullscreen_reset_message">Apps that XDesk made full screen landscape go back to how they were, and the system stops each of them once. The default and every app\'s choice go back to off.</string>
     <string name="xd_fullscreen_reset_need_injector">Needs the input service: run an Android app once, then try again</string>
     <string name="xd_cover">Cover the display when you leave XDesk or lock the phone</string>
