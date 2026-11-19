@@ -263,17 +263,6 @@ public final class MacClient {
         context = c.getApplicationContext();
         this.mac = mac;
         video = new MacVideo(this::videoSize);
-        // The playout aligns the sound with when each picture really reached the screen. Sall's model takes a
-        // picture to show 1.5 refreshes and 4 ms after the time it is given (its client shows a frame as it
-        // arrives); XDesk paces them (smooth playback adds tens of ms), so it is given the render time less that,
-        // not the arrival: the sound came about 50 ms before the picture (owner, 2026-11-19: out of sync)
-        video.renderListener = (ptsUs, renderNanos) -> {
-            SyncedAudio player = synced;
-            if (player == null) return;
-            int fps = viewportFps();
-            double refresh = 1.0 / (fps > 0 ? fps : 60);
-            player.videoFrame(ptsUs / 1e6, renderNanos - (long) ((1.5 * refresh + 0.004) * 1e9));
-        };
         video.setSmooth(MacStore.smooth(context, mac.id));
     }
 
@@ -1002,6 +991,9 @@ public final class MacClient {
         switch (m.kind) {
         case SillWire.FRAME: {
             Surface target = surface;
+            SyncedAudio player = synced;
+            // The playout aligns the sound with this picture's capture stamp (only while a screen shows this Mac)
+            if (player != null && target != null) player.videoFrame(m.timestamp, arrivalNanos);
             // Only another user's session hides the picture; a locked screen is shown, so the desktop can be unlocked (as sall)
             if (locked && offConsole && !offConsoleView || target == null) return;
             resumePass();
