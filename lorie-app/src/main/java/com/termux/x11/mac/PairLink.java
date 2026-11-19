@@ -172,6 +172,11 @@ public final class PairLink {
         return p;
     }
 
+    /** Sill's MacID (Sall's PairLink.macId): the first 10 bytes of the fingerprint in Crockford base 32. */
+    static String macId(byte[] fp) {
+        return SillTls.macId(fp);
+    }
+
     static Address address(String raw) throws Exception {
         String host = raw;
         int p = 0;

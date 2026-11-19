@@ -57,6 +57,20 @@ public final class MacDiscovery {
         if (d != null) d.releaseOne();
     }
 
+    /** When discovery started, in uptime millis; 0 while it is not running. */
+    synchronized long startedAt() {
+        return active ? startedAt : 0;
+    }
+
+    /** Hear every door that resolves, on the main thread. Adding the same listener twice adds it once. */
+    void addDoorListener(DoorListener l) {
+        if (l != null) listeners.addIfAbsent(l);
+    }
+
+    void removeDoorListener(DoorListener l) {
+        listeners.remove(l);
+    }
+
     /** A resolved home door: where to dial, what Bonjour calls it, and how it speaks. */
     static final class Door {
         final String name, host, tag;
@@ -81,6 +95,11 @@ public final class MacDiscovery {
         }
     }
 
+    /** Hears about every resolved door, on the main thread: a Mac connected by another address can move home. */
+    interface DoorListener {
+        void doorResolved(Door door);
+    }
+
     private static final class Pending {
         final NsdServiceInfo service;
 
@@ -98,7 +117,11 @@ public final class MacDiscovery {
     /** Resolved services by Bonjour name. Guarded by state; changed on the main thread. */
     private final LinkedHashMap<String, Door> doors = new LinkedHashMap<>();
     private final Object state = new Object();
+    private final java.util.concurrent.CopyOnWriteArrayList<DoorListener> listeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean active;
+    /** When discovery actually started (uptime), so a connect knows whether the home door is still worth waiting for. */
+    private long startedAt;
     private int users;
     private boolean resolving;
     private NsdManager.DiscoveryListener discovery;
@@ -121,6 +144,7 @@ public final class MacDiscovery {
     private synchronized void start() {
         if (active || nsd == null) return;
         active = true;
+        startedAt = SystemClock.uptimeMillis();
         discovery = new NsdManager.DiscoveryListener() {
             @Override public void onStartDiscoveryFailed(String type, int error) {
                 Log.w(TAG, "local discovery failed: " + error);
@@ -143,6 +167,7 @@ public final class MacDiscovery {
         } catch (RuntimeException e) {
             Log.w(TAG, "local discovery could not start", e);
             active = false;
+            startedAt = 0;
             discovery = null;
         }
     }
@@ -150,6 +175,7 @@ public final class MacDiscovery {
     private synchronized void stop() {
         if (!active) return;
         active = false;
+        startedAt = 0;
         resolving = false;
         pending.clear();
         known.clear();
@@ -233,6 +259,8 @@ public final class MacDiscovery {
             doors.put(name, door);
             state.notifyAll();
         }
+        // Already on the main thread (resolveNext posts each resolution there): a client can act at once.
+        for (DoorListener l : listeners) l.doorResolved(door);
     }
 
     /**

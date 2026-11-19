@@ -32,8 +32,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * One paired Mac: its connection, what it has (windows, installed apps, icons) and the one stream it sends.
@@ -49,7 +52,21 @@ public final class MacClient {
     private static final long IDLE_MS = 10 * 60_000, LAUNCH_MS = 15_000, PONG_DEADLINE_MS = 12_000;
     /** While a screen shows this Mac: the least silence that ends the connection, and how long discovery may wait. */
     private static final long MIN_DEADLINE_MS = 6_000, HOME_DISCOVERY_WAIT_MS = 300;
+    /**
+     * Right after discovery started, the home door is worth waiting for: until this much has passed since it
+     * started. A fresh start used to dial the saved address after 300 ms while discovery was still resolving, and
+     * nothing looked at the home door again.
+     */
+    private static final long HOME_DISCOVERY_LONG_WAIT_MS = 1_500;
     private static final int CONNECT_MS = 8_000, HOME_CONNECT_MS = 1_500, HANDSHAKE_MS = 10_000;
+    /** A dial with several addresses must not spend CONNECT_MS on each: one silent this long is passed over. */
+    private static final int DIAL_CONNECT_MS = 3_000;
+    /** A session is not moved to the home door while the user sent it input this recently. */
+    private static final long HOME_MOVE_IDLE_MS = 3_000;
+    /** The home door is retried at most this often per Mac, so a stale Bonjour record cannot make a loop. */
+    private static final long HOME_MOVE_EVERY_MS = 60_000;
+    /** Sill's kind 18 payload ceiling. */
+    private static final int MAX_MAC_INFO = 98_304;
     /** Reconnect pauses: the old 1→30 s, or at most this while a screen shows the Mac (someone is watching). */
     private static final long BACKOFF_MAX_MS = 30_000, SHOWN_BACKOFF_MAX_MS = 2_000;
 
@@ -149,6 +166,30 @@ public final class MacClient {
     private boolean networkSeen;
     /** WiFi high-performance lock while a screen shows this Mac (and out of low latency). */
     private WifiManager.WifiLock wifiLock;
+
+    // The Mac's signed addresses (kind 18) and moving a session to the home door
+    /** When input (kind 8) was last queued, in uptime: the home door is not tried while someone is typing. */
+    private volatile long lastInputAt;
+    /** This session was dialled through the home door, so there is nothing for a later discovery to move. */
+    private volatile boolean sessionAtHome;
+    /** Where this session connected, to tell whether a resolved home door is already it. */
+    private volatile String sessionHost = "";
+    private volatile int sessionPort;
+    /** A door resolved while this attempt was still connecting: look again once the session is up. */
+    private volatile boolean homeWhileConnecting;
+    /** The last time a session was closed to move it home (main thread; at most once a minute per Mac). */
+    private long lastHomeMoveAt;
+    /**
+     * When the home door last did not answer a dial: a door Bonjour lists but that refuses (a firewall, a stale
+     * record) must not cut a working session every minute. No move home for HOME_FAILED_QUIET_MS after it.
+     */
+    private volatile long lastHomeFailAt;
+    private static final long HOME_FAILED_QUIET_MS = 10 * 60_000;
+    /** MacDiscovery tells this client, on the main thread, about doors as they resolve. */
+    private final MacDiscovery.DoorListener doorListener = door -> {
+        if (state == State.CONNECTED) maybeMoveHome();
+        else if (state == State.CONNECTING) homeWhileConnecting = true;
+    };
 
     // The screen
     private final Object surfaceLock = new Object();
@@ -605,37 +646,152 @@ public final class MacClient {
         }
     }
 
+    /** One address to dial, with why it is there: the session log says which one answered. */
+    private static final class Dial {
+        final String host;
+        final int port;
+        final String why;
+
+        Dial(String host, int port, String why) {
+            this.host = host;
+            this.port = port;
+            this.why = why;
+        }
+
+        String address() {
+            return (host.indexOf(':') >= 0 ? "[" + host + "]" : host) + ":" + port;
+        }
+    }
+
+    /**
+     * The addresses to dial after the home door, as Sall's RemoteDial.order: what last worked first; then what the
+     * Mac advertised and the pairing address, ranked so VPN and CGNAT addresses go before the LAN (the home door's
+     * job); then the VPN addresses a newer list dropped but that are remembered for a while. One address is tried
+     * once, however it was spelled.
+     */
+    private List<Dial> dialCandidates(MacStore.Mac m) {
+        ArrayList<Dial> ranked = new ArrayList<>();
+        for (MacStore.Address a : m.advertised) ranked.add(new Dial(a.host, a.port, "advertised " + a.kind));
+        ranked.add(new Dial(m.host, m.port, "pairing address"));
+        Collections.sort(ranked, (a, b) -> Integer.compare(rank(a.host), rank(b.host)));
+        ArrayList<Dial> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (m.lastWorked != null)
+            addDial(out, seen, new Dial(m.lastWorked.host, m.lastWorked.port, "last worked"));
+        for (Dial d : ranked) addDial(out, seen, d);
+        double now = System.currentTimeMillis() / 1000.0;
+        for (MacStore.Remembered r : m.remembered) {
+            double age = now - r.listedAt;
+            if (age >= 0 && age <= MacStore.REMEMBER_FOR)
+                addDial(out, seen, new Dial(r.address.host, r.address.port, "remembered"));
+        }
+        return out;
+    }
+
+    private static void addDial(List<Dial> out, Set<String> seen, Dial d) {
+        if (d.port < 1 || d.port > 65535) return;
+        if (seen.add(d.host.toLowerCase(Locale.ROOT) + "|" + d.port)) out.add(d);
+    }
+
+    /** Sall's RemoteDial.rank: lower is tried first. The LAN is last; finding it is the home door's job. */
+    private static int rank(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        if (h.equals("::1") || h.startsWith("127.")) return 0;
+        if (h.endsWith(".ts.net") || h.endsWith(".ts.net.")) return 1;
+        String[] parts = h.split("\\.");
+        if (parts.length == 4) try {
+            int first = Integer.parseInt(parts[0]), second = Integer.parseInt(parts[1]);
+            if (first == 100 && second >= 64 && second <= 127) return 2;
+            if (first == 10 || first == 172 && second >= 16 && second <= 31
+                    || first == 192 && second == 168 || first == 169 && second == 254) return 6;
+            return 5;
+        } catch (NumberFormatException ignored) { }
+        if (h.startsWith("fd7a:115c:a1e0:")) return 3;
+        if (h.endsWith(".local") || h.equals("localhost") || h.startsWith("fd") && h.contains(":")
+                || h.startsWith("fe8") && h.contains(":")) return 6;
+        return h.contains(":") ? 5 : 4;
+    }
+
+    /** A dial failure another address may share: a socket, EOF or DNS failure, not a refusal or a wrong key. */
+    private static boolean networkFailure(Throwable e) {
+        for (int i = 0; e != null && i < 8; i++, e = e.getCause()) {
+            if (e instanceof java.io.EOFException || e instanceof java.net.SocketException
+                    || e instanceof java.net.SocketTimeoutException || e instanceof java.net.UnknownHostException)
+                return true;
+        }
+        return false;
+    }
+
     private void session(MacStore.Mac m) throws Exception {
         long epoch = networkEpoch;
         SillTls s = null;
+        MacDiscovery discovery = MacDiscovery.get(context);
+        boolean recognisable = m.recognition != null && m.recognition.length == 32;
+        homeWhileConnecting = false;
+        // A door that resolves while this attempt dials is heard here rather than looked for again later.
+        if (recognisable) discovery.addDoorListener(doorListener);
         // The Mac on this network, found by its Bonjour recognition tag: its home door takes the same paired key
         // as the remote one (Sill's DoorPolicy.trusts: a paired key is trusted for "sill/1" at home), with the home
         // quality and the home link's immediate keyframe recovery. A Mac paired before Sill sent a recognition key
-        // has none, and is never sought: the 300 ms wait would only delay its saved address.
-        MacDiscovery.Door home = m.recognition != null && m.recognition.length == 32
-                ? MacDiscovery.get(context).homeDoor(m.recognition, HOME_DISCOVERY_WAIT_MS) : null;
+        // has none, and is never sought: the wait would only delay its saved address.
+        long wait = HOME_DISCOVERY_WAIT_MS;
+        long started = discovery.startedAt();
+        if (started != 0) {
+            long since = SystemClock.uptimeMillis() - started;
+            // Discovery has just started (a fresh app start): wait until 1500 ms after it began, not the usual
+            // 300 ms; an old start keeps the usual wait.
+            if (since >= 0 && since < HOME_DISCOVERY_LONG_WAIT_MS)
+                wait = HOME_DISCOVERY_LONG_WAIT_MS - since;
+        }
+        MacDiscovery.Door home = recognisable ? discovery.homeDoor(m.recognition, wait) : null;
+        boolean atHome = false;
         if (home != null) {
             try {
                 // A LAN answers at once: a stale Bonjour record must not hold the saved address back for 8 s
                 s = SillTls.connect(home.host, home.port, SillTls.SESSION, m.pin, HOME_CONNECT_MS, HANDSHAKE_MS);
+                atHome = true;
                 Log.i(TAG, m.name + ": connected at home (" + home.name + ", " + home.address() + ")");
             } catch (Exception e) {
+                lastHomeFailAt = SystemClock.uptimeMillis();
                 Log.i(TAG, m.name + ": home door " + home.address() + " did not answer, using the saved address: " + e);
             }
         }
+        Dial used = null;
         if (s == null) {
-            s = SillTls.connect(m.host, m.port, SillTls.SESSION, m.pin, CONNECT_MS, HANDSHAKE_MS);
-            Log.i(TAG, m.name + ": connected at the saved address " + m.address());
+            // The pairing address, what the Mac last advertised and what last worked, in the order to dial them.
+            List<Dial> candidates = dialCandidates(m);
+            int connectMs = candidates.size() > 1 ? DIAL_CONNECT_MS : CONNECT_MS;
+            Exception last = null;
+            for (Dial d : candidates) {
+                try {
+                    s = SillTls.connect(d.host, d.port, SillTls.SESSION, m.pin, connectMs, HANDSHAKE_MS);
+                    used = d;
+                    break;
+                } catch (Exception e) {
+                    last = e;
+                    // A wrong key or a Mac refusing this connection is not the next address's to fix: stop and
+                    // let the runner surface it as it always did.
+                    if (!networkFailure(e)) throw e;
+                    Log.i(TAG, m.name + ": " + d.address() + " (" + d.why + ") did not answer: " + e);
+                }
+            }
+            if (s == null) throw last != null ? last : new IOException("No address for " + m.name);
+            Log.i(TAG, m.name + ": connected at " + used.address() + " (" + used.why + ")");
         }
         // The network changed while this session was dialled: start the next one on the new one
         if (networkEpoch != epoch) {
             s.close();
             throw new IOException("network changed");
         }
+        // Only once the session stands: an address dialled just as the network changed is not the one that works.
+        if (used != null) MacStore.setLastWorked(context, m.id, used.host, used.port);
         final SillTls opened = s;
         inputsQueued.set(0);
         rtt = new Rtt();
         session = opened;
+        sessionAtHome = atHome;
+        sessionHost = atHome ? home.host : used.host;
+        sessionPort = atHome ? home.port : used.port;
         // A change between the check above and here: the callback could not close a session it did not see yet
         if (networkEpoch != epoch) {
             opened.close();
@@ -680,6 +836,12 @@ public final class MacClient {
     }
 
     private void clearSession() {
+        // Only a connection listens for the home door; a new session registers again before it dials.
+        MacDiscovery.get(context).removeDoorListener(doorListener);
+        sessionAtHome = false;
+        sessionHost = "";
+        sessionPort = 0;
+        homeWhileConnecting = false;
         video.reset();
         videoW = videoH = 0;
         lastCursor = null;
@@ -806,7 +968,10 @@ public final class MacClient {
         b[0] = (byte) kind;
         System.arraycopy(payload, 0, b, 1, payload.length);
         synchronized (out) {
-            if (kind == SillWire.INPUT) inputsQueued.incrementAndGet();
+            if (kind == SillWire.INPUT) {
+                lastInputAt = SystemClock.uptimeMillis();
+                inputsQueued.incrementAndGet();
+            }
             out.add(b);
             out.notifyAll();
         }
@@ -914,6 +1079,9 @@ public final class MacClient {
         case SillWire.CLIPBOARD:
             clipboardFromMac(new JSONObject(m.text()).optString("text", ""));
             return;
+        case SillWire.MAC_INFO:
+            macInfo(s, m);
+            return;
         case SillWire.GOODBYE: {
             JSONObject g = new JSONObject(m.text());
             String reason = g.optString("reason", "");
@@ -930,7 +1098,60 @@ public final class MacClient {
             throw new Ended(text, again, removed);
         }
         default:
-            // Thumbnails (3), Mac info (18): not used
+            // Thumbnails (3): not used
+        }
+    }
+
+    /**
+     * Kind 18: the Mac's signed addresses and its remote port, on every session. It is believed only when it is
+     * signed by the key this session is pinned to and is newer than what is saved, so a replayed or foreign list
+     * can never roll the saved addresses back. Anything malformed is one log line, never a session error.
+     */
+    private void macInfo(SillTls s, SillWire.Message m) {
+        if (m.length > MAX_MAC_INFO) {
+            Log.w(TAG, mac.name + ": ignored oversized Mac info (" + m.length + " bytes)");
+            return;
+        }
+        try {
+            byte[] pin = s.peer();
+            SignedMacInfo.Info info = SignedMacInfo.parse(m.copy(), pin);
+            if (MacStore.updateInfo(context, mac.id, pin, info.issuedAt, info.addresses)) {
+                // The next reconnect of this client uses the new list: no need to wait for a refresh from the UI.
+                MacStore.Mac updated = MacStore.find(context, mac.id);
+                if (updated != null) mac = updated;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, mac.name + ": ignored invalid Mac info: " + e);
+        }
+    }
+
+    /**
+     * The Mac's home door resolved while this session is up. If the session is not through that door and the user
+     * has not sent input for a moment, close it so the runner redials with the home door first. At most once a
+     * minute, so a stale Bonjour record cannot turn into a reconnect loop. Main thread (the discovery listener).
+     */
+    private void maybeMoveHome() {
+        if (state != State.CONNECTED || session == null || sessionAtHome) return;
+        MacStore.Mac m = mac;
+        if (m.recognition == null || m.recognition.length != 32) return;
+        MacDiscovery.Door door = MacDiscovery.get(context).homeDoor(m.recognition, 0);
+        if (door == null) return;
+        if (door.host.equalsIgnoreCase(sessionHost) && door.port == sessionPort) {
+            // This session already is at the home door, however it was dialled.
+            sessionAtHome = true;
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        if (lastHomeFailAt != 0 && now - lastHomeFailAt < HOME_FAILED_QUIET_MS) return;
+        if (now - lastInputAt < HOME_MOVE_IDLE_MS) return;
+        if (lastHomeMoveAt != 0 && now - lastHomeMoveAt < HOME_MOVE_EVERY_MS) return;
+        lastHomeMoveAt = now;
+        Log.i(TAG, m.name + ": home door " + door.address() + " appeared, moving the session home");
+        SillTls s = session;
+        if (s != null) {
+            // Redial at once rather than after the reconnect pause: the home door is here now.
+            reconnectAtOnce = true;
+            s.close();
         }
     }
 
@@ -1063,6 +1284,12 @@ public final class MacClient {
         }
         if (first) {
             setState(State.CONNECTED, null);
+            if (homeWhileConnecting) {
+                // The home door showed up while this connection was being dialled (perhaps after its wait):
+                // now that the session is up, move it there if that is not where it is.
+                homeWhileConnecting = false;
+                ui.post(this::maybeMoveHome);
+            }
             if (surface != null && want != NONE) {
                 switchAt = SystemClock.uptimeMillis();
                 selectSource(want);
@@ -2534,6 +2761,8 @@ public final class MacClient {
         pointerX = Math.max(0, Math.min(1, x));
         pointerY = Math.max(0, Math.min(1, y));
         if (session == null) return;
+        // A move, coalesced or not, is input too: moving home waits for the user to stop.
+        lastInputAt = SystemClock.uptimeMillis();
         synchronized (out) {
             Object last = out.peekLast();
             if (last instanceof Move) {
