@@ -44,6 +44,8 @@ final class CoverMute {
             int sp = line.indexOf(' ');
             if (sp <= 0) continue;
             String pkg = line.substring(0, sp), before = line.substring(sp + 1);
+            // A list from the first build wrote "default" for an app with none set: allow is what that meant
+            if (before.equals("default")) before = "allow";
             String[] r = InjectorService.exec(APPOPS_TIMEOUT_MS, "/system/bin/cmd", "appops", "set", pkg, "PLAY_AUDIO", before);
             if (r[0] != null) Log.w(TAG, "cover unmute " + pkg + ": " + r[0]);
         }
@@ -51,19 +53,29 @@ final class CoverMute {
         if (!SAVED.delete()) write(new ArrayList<>());
     }
 
-    /** The app's PLAY_AUDIO mode as appops prints it ("allow", "ignore", ...), "default" when it has none set. */
+    /**
+     * The app's PLAY_AUDIO mode to put back: what appops prints for it ("allow", "ignore", ...), or for an app with
+     * none set ("No operations.") the op's own default it names ("Default mode: allow"). Never "default": set
+     * explicitly, the audio system takes it as not allowed and the app stayed silent after the cover (2026-11-19).
+     */
     private static String mode(String pkg) {
         String[] r = InjectorService.exec(APPOPS_TIMEOUT_MS, "/system/bin/cmd", "appops", "get", pkg, "PLAY_AUDIO");
         if (r[0] != null) return null;
+        String fallback = "allow";
         for (String line : r[1].split("\n")) {
             line = line.trim();
+            if (line.startsWith("Default mode:")) {
+                String m = line.substring("Default mode:".length()).trim();
+                if (!m.isEmpty() && !m.equals("default")) fallback = m;
+                continue;
+            }
             if (!line.startsWith("PLAY_AUDIO:")) continue;
             String rest = line.substring("PLAY_AUDIO:".length()).trim();
             int end = rest.indexOf(';');
             String m = (end >= 0 ? rest.substring(0, end) : rest).trim();
-            return m.isEmpty() ? "default" : m;
+            if (!m.isEmpty() && !m.equals("default")) return m;
         }
-        return "default";
+        return fallback;
     }
 
     private static boolean listed(List<String> lines, String pkg) {
