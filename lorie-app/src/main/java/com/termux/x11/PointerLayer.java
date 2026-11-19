@@ -48,6 +48,7 @@ final class PointerLayer {
                 Method setStack = SurfaceControl.Transaction.class.getMethod("setLayerStack", SurfaceControl.class, int.class);
                 setStack.invoke(t, layer, s);
                 surface = new Surface(layer);
+                passTouches(layer);
                 stack = s;
                 width = image.getWidth();
                 height = image.getHeight();
@@ -118,6 +119,33 @@ final class PointerLayer {
         layer = null;
         stack = -1;
         visible = false;
+    }
+
+    /**
+     * Touches must go through the pointer to what is under it. A layer without a window is still an occluder to the
+     * input system: owned by the shell's uid, at full opacity, every tap at the pointer was dropped as an untrusted
+     * touch (2026-11-19, beta.4: "Untrusted touch due to occlusion by /2000/[BBQ] XDesk pointer"). A trusted overlay
+     * (the shell may make one) never occludes; when the system refuses that, the layer goes to the most opacity an
+     * untrusted overlay may have and still let touches pass (0.8, the window's own as Android set it).
+     */
+    private void passTouches(SurfaceControl sc) {
+        try {
+            SurfaceControl.Transaction.class.getMethod("setTrustedOverlay", SurfaceControl.class, boolean.class)
+                    .invoke(t, sc, true);
+            t.apply();
+            Log.i(TAG, "pointer layer is a trusted overlay");
+            return;
+        } catch (Throwable ignored) { }
+        try {
+            // Android 15 and later: the state is an int (TrustedOverlay.ENABLED is 2)
+            SurfaceControl.Transaction.class.getMethod("setTrustedOverlay", SurfaceControl.class, int.class)
+                    .invoke(t, sc, 2);
+            t.apply();
+            Log.i(TAG, "pointer layer is a trusted overlay");
+            return;
+        } catch (Throwable ignored) { }
+        t.setAlpha(sc, 0.8f).apply();
+        Log.i(TAG, "pointer layer: not trusted, at 0.8 opacity so touches pass");
     }
 
     /** The display's layer stack, from the display manager's hidden DisplayInfo; -1 when the display is gone. */
