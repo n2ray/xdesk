@@ -135,7 +135,8 @@ final class ExternalDock implements AppSession.EdgeListener {
     }
 
     /** Resting at the bottom edge over an Android app: how long until the dock opens. */
-    private static final long ANDROID_DWELL_MS = 500, DWELL_FRAME_MS = 16;
+    static final long ANDROID_DWELL_MS = 500;
+    private static final long DWELL_FRAME_MS = 16;
     private long dwellStart, dwellMs;
     /** A button was held at the edge (a drag): no rest counts until the pointer leaves the edge. */
     private boolean dwellHeld;

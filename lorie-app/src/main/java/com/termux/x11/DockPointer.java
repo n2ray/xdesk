@@ -14,11 +14,11 @@ import io.github.n2ray.xdesk.input.Caps;
  * content, only moves, buttons and the wheel of these devices turn to the Dock or the centre. Only Esc is taken from
  * the keyboard, to close them.
  *
- * When it opens. The content's pointer is at the edge (InputSink.pointerPlace, read before each move is sent on, so
- * what counts is only what goes beyond the edge) and is pushed further out: the rule is EdgePush, the same one an
- * Android app's Dock and centre open by (there the injector reports the pushes, ExternalDock.pushed, Notify.pushed).
- * The Dock pushes down, the centre right or up inside the top-right corner's 48 shell dp (Notify.cornerEdge). A whole
- * desktop gets the rule's longer push. Never with a button held: a drag to the edge is a drag.
+ * When it opens. The Dock: the content's pointer rests on the bottom edge for ExternalDock.ANDROID_DWELL_MS, as over
+ * an Android app (owner, 2026-11-19: one way everywhere, no pushing down). Every move starts the wait again; after the
+ * last one restCheck reads where the content's pointer is (InputSink.pointerPlace). The centre: the pointer is inside
+ * the top-right corner's 48 shell dp (Notify.cornerEdge) and is pushed further out, the rule EdgePush, as over an app
+ * (Notify.pushed); the Mac menu the same at the top left. Never with a button held: a drag to the edge is a drag.
  *
  * While the centre's windows are up (its panel open, a banner or the bell under the pointer) the pointer is theirs
  * the same way (Notify.grab): moves and clicks work their views, the content's pointer stays where it was.
@@ -50,7 +50,7 @@ final class DockPointer {
     private InputSink over;
     /** Whose the pointer is: SURFACE_DOCK, SURFACE_NOTIFY, or 0 for the content's. */
     private int surface;
-    private final EdgePush rule = new EdgePush();
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
     /** The centre's corner rule (NOTIFY.md §4.1), TOP and RIGHT edges. */
     private final EdgePush corner = new EdgePush();
     /** The Mac menu's corner rule (MACMENU.md §3), TOP and LEFT edges. */
@@ -104,7 +104,7 @@ final class DockPointer {
     }
 
     private void forget() {
-        rule.forget();
+        ui.removeCallbacks(restCheck);
         corner.forget();
         menuCorner.forget();
     }
@@ -129,24 +129,27 @@ final class DockPointer {
         d.move(dx, dy);
     }
 
-    /** Counts a move that is about to be sent, and opens the Dock when that is the push it waits for. */
+    /** A move is about to be sent: the wait for a rest at the bottom edge starts again. */
     private void pushed(int dx, int dy) {
-        InputSink t = host.target();
+        ui.removeCallbacks(restCheck);
         ExternalDock dock = host.dock();
-        if (dy < 0 || t == null || dock == null || !dock.attached() || holding() || !t.pointerPlace(place) || place[1] < 1f) {
-            rule.forget();
-            if (dock != null) dock.pushProgress(0);
-            return;
-        }
-        Caps caps = t.caps();
-        boolean desktop = caps != null && caps.scope == Caps.DESKTOP;
-        boolean open = rule.pushed(dx, dy, desktop);
-        dock.pushProgress(open ? 0 : rule.progress(desktop));
-        if (open && dock.openDriven(place[0])) {
-            over = t;
-            surface = SURFACE_DOCK;
-        }
+        if (dock == null || !dock.attached()) return;
+        ui.postDelayed(restCheck, ExternalDock.ANDROID_DWELL_MS);
     }
+
+    /** The pointer has not moved for the dwell: on the bottom edge, with no button held, the Dock opens. */
+    private final Runnable restCheck = new Runnable() {
+        @Override public void run() {
+            if (open()) return;
+            InputSink t = host.target();
+            ExternalDock dock = host.dock();
+            if (t == null || dock == null || !dock.attached() || holding() || !t.pointerPlace(place) || place[1] < 1f) return;
+            if (dock.openDriven(place[0])) {
+                over = t;
+                surface = SURFACE_DOCK;
+            }
+        }
+    };
 
     /**
      * The centre's corner over X and a Mac (NOTIFY.md §4.1): the content's pointer is inside the top-right corner's
