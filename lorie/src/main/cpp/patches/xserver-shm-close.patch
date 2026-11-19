@@ -1,0 +1,16 @@
+XDesk: MIT-SHM's CloseScreen freed its screen private but left pScreen->DestroyPixmap pointing at
+ShmDestroyPixmap. A pixmap destroyed later in the close chain (glamor_close_screen frees its glyph
+atlases) then read the freed private (NULL + 0x10: destroyPixmap) and the X server crashed on every
+stop after text had been drawn. Give the slot back to the procedure it wrapped, as CloseScreen is.
+--- a/Xext/shm.c
++++ b/Xext/shm.c
+@@ -199,6 +199,9 @@
+     ShmScrPrivateRec *screen_priv = ShmGetScreenPriv(pScreen);
+ 
+     pScreen->CloseScreen = screen_priv->CloseScreen;
++    /* XDesk: unwrap DestroyPixmap too, or later pixmaps reach the freed private */
++    if (pScreen->DestroyPixmap == ShmDestroyPixmap)
++        pScreen->DestroyPixmap = screen_priv->destroyPixmap;
+     dixSetPrivate(&pScreen->devPrivates, shmScrPrivateKey, NULL);
+     free(screen_priv);
+     return (*pScreen->CloseScreen) (pScreen);

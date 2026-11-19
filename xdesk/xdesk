@@ -429,8 +429,14 @@ start_x() {
     # TERMUX_X11_XSTARTUP is the official launcher's startup program: a user's shell may have it set for :1, and it
     # must not start a second desktop on XDesk's X (the app's own session is what runs here)
     # XDESK_CLI: the X server runs this same script for the app (xdesk apps, xdesk launch), see XWindows.java
-    env -u LD_PRELOAD -u LD_LIBRARY_PATH -u TERMUX_X11_XSTARTUP "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" XDESK_CLI="$(realpath "$0" 2>/dev/null || echo "$0")" CLASSPATH="$LOADER" setsid nohup /system/bin/app_process \
-        -Xnoimage-dex2oat / --nice-name="xdesk-x11 $DPY" com.termux.x11.Loader "$DPY" -ac -nolisten tcp -nolisten local \
+    # A small shell waits for the server and writes how it ended into the log: an exit status, or the signal that
+    # killed it (owner, 2026-11-19: an X that vanished without a trace could not be explained). It only waits;
+    # stopping is unchanged (xdesk stop ends the server by its name, the shell then logs and exits)
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH -u TERMUX_X11_XSTARTUP "${xenv[@]}" XDESK_AUDIO_SOCKET="$AUDIO_SOCK" XDESK_CLI="$(realpath "$0" 2>/dev/null || echo "$0")" CLASSPATH="$LOADER" setsid nohup bash -c '
+        /system/bin/app_process -Xnoimage-dex2oat / --nice-name="xdesk-x11 $1" com.termux.x11.Loader "$1" -ac -nolisten tcp -nolisten local
+        s=$?
+        if [ $s -gt 128 ]; then how="killed by signal $((s - 128)) ($(kill -l $((s - 128)) 2>/dev/null))"; else how="exit status $s"; fi
+        echo "$(date +%T) X server $1 ended: $how"' _ "$DPY" \
         </dev/null >>"$LOG" 2>&1 9>&- &
     # 20 s at most, even when each xrandr call uses its own timeout
     deadline=$((SECONDS + 20))

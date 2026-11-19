@@ -303,4 +303,5 @@ target_compile_options(Xlorie PRIVATE ${compile_options} "$<$<COMPILE_LANGUAGE:C
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver.patch")
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver-glamor.patch")
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver-glamor-xdesk.patch")
+target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/xserver" "${CMAKE_CURRENT_SOURCE_DIR}/patches/xserver-shm-close.patch")
 target_apply_patch(Xlorie "${CMAKE_CURRENT_SOURCE_DIR}/libepoxy" "${CMAKE_CURRENT_SOURCE_DIR}/patches/libepoxy.patch")
