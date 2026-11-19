@@ -202,10 +202,9 @@ final class ExternalDock implements AppSession.EdgeListener {
      * when no push comes for a while.
      */
     void pushProgress(float f) {
-        // Over an Android app the rest draws the bar (dwellTick): a move there that is no push does not clear it
-        // (audit: it flickered between 0 and the rest's progress at the input's rate)
-        if (f == 0 && dwellStart != 0) return;
-        if (strip instanceof PushBar) ((PushBar) strip).set(f);
+        // No bar any more (owner, 2026-11-19: speed before looks; resting at the edge opens the dock as before). The
+        // strip draws nothing and is fully transparent, so SurfaceFlinger leaves it out of every composition: drawn,
+        // even as a 5 px strip, it was one more layer composed on the GPU over a video or anything that moves
     }
 
     /** The edge strip, drawing the push's progress (pushProgress). */
@@ -229,10 +228,7 @@ final class ExternalDock implements AppSession.EdgeListener {
         }
 
         @Override protected void onDraw(android.graphics.Canvas c) {
-            if (progress <= 0) return;
-            float full = Math.min(getWidth() * 0.4f, dp(240)), w = Math.max(getHeight(), full * progress);
-            float x = (getWidth() - w) / 2f, h = getHeight();
-            c.drawRoundRect(x, 0, x + w, h, h / 2f, h / 2f, paint);
+            // Nothing: no push bar any more (pushProgress)
         }
     }
 
@@ -419,6 +415,8 @@ final class ExternalDock implements AppSession.EdgeListener {
             return true;
         });
         WindowManager.LayoutParams p = params(WindowManager.LayoutParams.MATCH_PARENT, Math.max(MIN_EDGE_PX, dp(EDGE_DP)), "XDesk dock edge");
+        // Invisible to the compositor (an alpha of 0 is skipped), still there for the hover and the refresh rate it asks
+        p.alpha = 0f;
         fastMode = fastestMode(d);
         fast = false;
         stripParams = p;

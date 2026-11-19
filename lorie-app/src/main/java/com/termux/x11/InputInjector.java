@@ -39,8 +39,8 @@ final class InputInjector {
 
     private static final String TAG = "XDeskInjector";
     private static final int FOCUS_SETTLE_MS = 150;
-    /** How far apart the right button's two fingers are, as a part of the display height: 60 pixels on 1508. */
-    private static final float TWO_FINGER_GAP_OF_HEIGHT = 60f / 1508f;
+    /** The right button's long press in touch mode: past Android's long-press timeout (400 to 500 ms) with room. */
+    private static final long RIGHT_PRESS_MS = 650;
     /** One wheel tick in touch mode, as a part of the display height. Raise it to scroll further per tick. */
     private static final float SWIPE_STEP_FRACTION = 1f / 16f;
     private static final int SWIPE_MOVES_PER_TICK = 3;
@@ -251,8 +251,11 @@ final class InputInjector {
     }
 
     /**
-     * Left is one finger: press, hold and drag follow the button, so a hold is a long press. Right is two fingers, see
-     * twoFingers. Other buttons do nothing.
+     * Left is one finger: press, hold and drag follow the button, so a hold is a long press. Right is a long press at
+     * the cursor (owner, 2026-11-19): a quick right click holds the finger for RIGHT_PRESS_MS, the long press a
+     * tablet's apps take for what a right click is to a computer (the context menu); held longer it stays down, and
+     * drags as a held finger does. It was two fingers side by side, which many apps took for a plain tap. Other buttons
+     * do nothing.
      */
     private void touchButton(int bit, boolean down) throws ReflectiveOperationException {
         endSwipe();
@@ -263,51 +266,23 @@ final class InputInjector {
             if (pressBit != 0) return;
             pressBit = bit;
             downTime = SystemClock.uptimeMillis();
-            if (bit == MotionEvent.BUTTON_PRIMARY) {
-                finger(MotionEvent.ACTION_DOWN);
-            } else {
-                touchDevice = touchDeviceId();
-                twoFingers(MotionEvent.ACTION_DOWN, 1);
-                twoFingers(MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2);
-            }
+            finger(MotionEvent.ACTION_DOWN);
         } else if (pressBit == bit) {
-            pressBit = 0;
-            if (bit == MotionEvent.BUTTON_PRIMARY) {
-                finger(MotionEvent.ACTION_UP);
-            } else {
-                twoFingers(MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2);
-                twoFingers(MotionEvent.ACTION_UP, 1);
+            if (bit == MotionEvent.BUTTON_SECONDARY) {
+                // A quick click still becomes a long press: the finger stays until the apps' long press has passed.
+                // The injector's worker waits here, as it does between button changes; input after it follows in order
+                long left = downTime + RIGHT_PRESS_MS - SystemClock.uptimeMillis();
+                if (left > 0) {
+                    try {
+                        Thread.sleep(left);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
+            pressBit = 0;
+            finger(MotionEvent.ACTION_UP);
         }
-    }
-
-    /**
-     * The right button is two fingers side by side at the cursor, moving together, so one button gives a two-finger tap,
-     * long press or drag by how it is used. What that does is up to the app: many do nothing with two fingers, or read
-     * them as a pinch or a scroll. At the display's edge the pair stops as one, and the spacing never changes.
-     *
-     * @param count pointers in this event: 1 is only id 0, 2 is ids 0 and 1
-     */
-    private void twoFingers(int action, int count) throws ReflectiveOperationException {
-        float half = height * TWO_FINGER_GAP_OF_HEIGHT / 2;
-        float center = Math.max(half, Math.min(width - 1 - half, x));
-        MotionEvent.PointerProperties[] props = new MotionEvent.PointerProperties[count];
-        MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[count];
-        for (int i = 0; i < count; i++) {
-            props[i] = new MotionEvent.PointerProperties();
-            props[i].id = i;
-            props[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
-            coords[i] = new MotionEvent.PointerCoords();
-            coords[i].x = i == 0 ? center - half : center + half;
-            coords[i].y = y;
-            coords[i].size = 1f;
-            coords[i].pressure = 1f;
-        }
-        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, count, props, coords,
-            0, 0, 1f, 1f, touchDevice, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
-        setDisplayMotion.invoke(e, display);
-        send(e);
-        e.recycle();
     }
 
     private void directEvent(int action, int count) throws ReflectiveOperationException {
@@ -444,8 +419,7 @@ final class InputInjector {
         if (pressBit == 0) return;
         int bit = pressBit;
         pressBit = 0;
-        if (bit == MotionEvent.BUTTON_PRIMARY) finger(MotionEvent.ACTION_CANCEL);
-        else twoFingers(MotionEvent.ACTION_CANCEL, 2);
+        finger(MotionEvent.ACTION_CANCEL);
     }
 
     private boolean inPress() {
@@ -458,8 +432,7 @@ final class InputInjector {
         x = Math.max(0, Math.min(width - 1, x + dx));
         y = Math.max(0, Math.min(height - 1, y + dy));
         if (touching()) {
-            if (pressBit == MotionEvent.BUTTON_PRIMARY) finger(MotionEvent.ACTION_MOVE);
-            else if (pressBit == MotionEvent.BUTTON_SECONDARY) twoFingers(MotionEvent.ACTION_MOVE, 2);
+            if (pressBit != 0) finger(MotionEvent.ACTION_MOVE);
             reportCursor();
             return;
         }
