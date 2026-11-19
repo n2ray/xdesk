@@ -127,7 +127,23 @@ final class DockPointer {
         if (!open()) menuPushed(dx, dy);
         // Sent on also when one of them opened: the content's pointer stays at its edge either way
         d.move(dx, dy);
+        noteBottom();
     }
+
+    /**
+     * Where the content's pointer is right after a move was sent: on the bottom edge or not. A Mac then reports its
+     * pointer back a pixel or so short of the edge (MacInput.pointerPlace), and the rest's check came after that
+     * report: over a letterboxed Mac desktop the pointer rested on the picture's bottom and the Dock never opened
+     * (owner, 2026-11-19). The place just after the move is the one the user left it at.
+     */
+    private void noteBottom() {
+        InputSink t = host.target();
+        restAtBottom = t != null && t.pointerPlace(place) && place[1] >= 1f;
+        restX = place[0];
+    }
+
+    private boolean restAtBottom;
+    private float restX;
 
     /** A move is about to be sent: the wait for a rest at the bottom edge starts again. */
     private void pushed(int dx, int dy) {
@@ -143,8 +159,10 @@ final class DockPointer {
             if (open()) return;
             InputSink t = host.target();
             ExternalDock dock = host.dock();
-            if (t == null || dock == null || !dock.attached() || holding() || !t.pointerPlace(place) || place[1] < 1f) return;
-            if (dock.openDriven(place[0])) {
+            if (t == null || dock == null || !dock.attached() || holding()) return;
+            boolean now = t.pointerPlace(place) && place[1] >= 1f;
+            if (!now && !restAtBottom) return;
+            if (dock.openDriven(now ? place[0] : restX)) {
                 over = t;
                 surface = SURFACE_DOCK;
             }

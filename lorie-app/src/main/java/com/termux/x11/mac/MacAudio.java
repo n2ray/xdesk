@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
  * Like XDesk's own AudioPlayer for the Linux desktop: a prefill before the track starts (here adapting to the link),
  * and the oldest of what piles up past it is dropped so the sound never runs late. A failure here never ends the connection.
  */
-final class MacAudio {
+final class MacAudio implements SoundPlayer {
     private static final String TAG = "XDeskMac";
     private static final int RATE = 48000, FRAME = 4;
     // The cushion before the track starts adapts to the link: PREFILL_MIN_MS on a steady one, one PREFILL_STEP_MS more
@@ -137,7 +137,7 @@ final class MacAudio {
     }
 
     /** The mute changed (AudioMute): the decoder stays in step, nothing is written to the track. */
-    void setMuted(boolean muted) {
+    @Override public void setMuted(boolean muted) {
         this.muted = muted;
     }
 

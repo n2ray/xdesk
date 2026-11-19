@@ -4206,6 +4206,10 @@ public class XDeskActivity extends Activity {
             contentKey = key;
             // A Linux program alone on the screen is a window (WindowScopedInput), not the whole desktop
             setTarget(input != null ? input : new WindowScopedInput(session.input()));
+            // A Mac's sound goes where XDesk's sound setting says only through the system route the injector sets:
+            // with a monitor on HDMI the system ignored a track's own preferred device (2026-11-19: "the phone"
+            // chosen, the Mac still played on the monitor). The Linux desktop connects it the same way
+            if (input instanceof MacInput) apps.connectForAudio();
             showOpened();
             ui.removeCallbacks(regainFocus);
             regainTries = 3;

@@ -18,8 +18,9 @@ import java.util.function.Consumer;
 /**
  * This device's mute of the Mac's sound (Sall's LocalAudioControl and AudioMutePolicy in one): the "mute this
  * device" switch, and Android's ACTION_AUDIO_BECOMING_NOISY for when the wired or Bluetooth headphones the sound
- * goes to are pulled. Muted, the packets still come and MacAudio decodes them but plays nothing, so the sound
- * does not jump to the loudspeaker. Local to this device; the Mac's own settings are not touched.
+ * goes to are pulled. Muted, the packets still come and the player (the synced playout, or MacAudio after it
+ * failed) decodes them but plays nothing, so the sound does not jump to the loudspeaker. Local to this device;
+ * the Mac's own settings are not touched.
  *
  * Owned by a MacClient, from its first session with sound to shutdown. The mute holds across sessions. Callbacks
  * run on the UI thread (the switch and the receiver both live there).
@@ -31,7 +32,7 @@ final class AudioMute {
     /** The headphones went away and the sound was muted because of it. UI thread. */
     private final Runnable headphonesOut;
 
-    private MacAudio player;
+    private SoundPlayer player;
     private boolean closed;
     // AudioMutePolicy's state. audible() = hasPlayer && watched && !muted
     private boolean muted, watched, hasPlayer, receivedAudio;
@@ -61,7 +62,7 @@ final class AudioMute {
     }
 
     /** The player that plays (or, muted, holds) this Mac's sound; null between sessions. A new one starts unheard. */
-    synchronized void setPlayer(MacAudio player) {
+    synchronized void setPlayer(SoundPlayer player) {
         if (closed) return;
         this.player = player;
         hasPlayer = player != null;
@@ -92,7 +93,7 @@ final class AudioMute {
     }
 
     private void apply() {
-        MacAudio p = player;
+        SoundPlayer p = player;
         if (p != null) p.setMuted(!hasPlayer || !watched || muted);
     }
 

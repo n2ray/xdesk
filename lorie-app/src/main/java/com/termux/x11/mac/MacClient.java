@@ -986,9 +986,14 @@ public final class MacClient {
     private void handle(SillTls s, SillWire.Message m) throws Exception {
         // Any message at all is the Mac still there: pongs, frames, a list. Only silence is a dead link.
         lastPong = SystemClock.uptimeMillis();
+        // Sall's audio arrival: when this message came off the link, for the playout's stamp-vs-arrival jitter.
+        long arrivalNanos = System.nanoTime();
         switch (m.kind) {
         case SillWire.FRAME: {
             Surface target = surface;
+            SyncedAudio player = synced;
+            // The playout aligns the sound with this picture's capture stamp (only while a screen shows this Mac)
+            if (player != null && target != null) player.videoFrame(m.timestamp, arrivalNanos);
             // Only another user's session hides the picture; a locked screen is shown, so the desktop can be unlocked (as sall)
             if (locked && offConsole && !offConsoleView || target == null) return;
             resumePass();
@@ -1012,6 +1017,10 @@ public final class MacClient {
                 Rtt r = rtt;
                 if (r != null && Double.isFinite(elapsed) && elapsed >= 0 && elapsed <= 60)
                     r.add(elapsed, SystemClock.uptimeMillis());
+                // Sall feeds the playout's median round trip from the same pong (AudioPlayer.rttSample)
+                SyncedAudio player = synced;
+                if (player != null && Double.isFinite(elapsed) && elapsed >= 0 && elapsed <= 60)
+                    player.rttSample(elapsed, arrivalNanos);
             }
             return;
         case SillWire.WINDOW_LIST:
@@ -1074,7 +1083,7 @@ public final class MacClient {
             return;
         }
         case SillWire.AUDIO:
-            audioMessage(m);
+            audioMessage(m, arrivalNanos);
             return;
         case SillWire.CLIPBOARD:
             clipboardFromMac(new JSONObject(m.text()).optString("text", ""));
@@ -1139,6 +1148,7 @@ public final class MacClient {
         if (door.host.equalsIgnoreCase(sessionHost) && door.port == sessionPort) {
             // This session already is at the home door, however it was dialled.
             sessionAtHome = true;
+            updateAudioRemote();
             return;
         }
         long now = SystemClock.uptimeMillis();
@@ -1574,6 +1584,8 @@ public final class MacClient {
                 pass = null;
             }
         }
+        // The panel's rate may have changed: the playout's picture-stay estimate follows it
+        updateAudioTiming();
         // A screen showing this Mac gets the Wi-Fi radio's low-latency mode; no screen, no lock
         setWifiLock(s != null);
         if (ended != null) offUi(ended::end);
@@ -1829,7 +1841,14 @@ public final class MacClient {
     /** Every field the pending change asked for, with its expected value, for the one answer. */
     private volatile java.util.List<AutoQuality.Change> pendingSettingsChanges;
     private volatile MacStore.Stream streamOptions;
+    /** The synced playout of this session (Sall's, SyncedAudio); null when sound is off or after it failed. */
+    private volatile SyncedAudio synced;
+    /** The MacAudio playout: this session's sound after the synced one failed; null while it plays. */
     private volatile MacAudio audio;
+    /** Serializes session sound setup and teardown: helloAudio, the fallback switch, closeAudio. */
+    private final Object audioLock = new Object();
+    /** The last kind 43 type 1 payload of this session, replayed into the fallback first. */
+    private volatile byte[] lastAudioFormat;
     /** This device's mute (Sall's LocalAudioControl), from the first session with sound to shutdown. */
     private volatile AudioMute mute;
     /** Where XDesk's sound setting sends sound (AudioRoute, set by MacSource); null: the system's choice. */
@@ -1861,7 +1880,7 @@ public final class MacClient {
         autoTickFollow();
         SillTls s = session;
         if (s == null || state != State.CONNECTED) return;
-        if (wantsAudio() != (audio != null)) {
+        if (wantsAudio() != (synced != null || audio != null)) {
             // Whether this device plays sound is said in the hello: connect again (the runner does, in a second)
             s.close();
             return;
@@ -1889,6 +1908,9 @@ public final class MacClient {
         HostSettings before = hostState;
         hostState = h;
         MacStore.setHostSettings(context, mac.id, h.settingsJson);
+        // The playout's stream rate and its away cushion follow the Mac's settings
+        updateAudioTiming();
+        updateAudioRemote();
         // Away or home now: the rate asked for follows it, also when it changed mid-stream
         if (state == State.CONNECTED && surface != null && (before == null || before.thisConnectionAway != h.thisConnectionAway))
             sendViewport();
@@ -2103,6 +2125,9 @@ public final class MacClient {
     /** Whether this phone can play the Mac's sound at all (an AAC-ELD decoder). */
     public static boolean soundSupported() { return MacAudio.supported(); }
 
+    /** Sall's playout takes a kind 43 type 1 of at most its format ceiling; MacAudio's is MAX_FORMAT. */
+    private static final int MAX_AUDIO_FORMAT = 4096;
+
     /** The hello's `audio`: the codecs this device plays. The Mac sends kind 43 only to a device that lists one. */
     private void helloAudio(JSONObject hello) throws JSONException {
         closeAudio();
@@ -2114,10 +2139,12 @@ public final class MacClient {
         }
         Log.i(TAG, mac.name + ": hello asks for sound (aac-eld, decoder " + MacAudio.decoderName() + ")");
         hello.put("audio", new JSONArray().put("aac-eld"));
-        audio = new MacAudio(() -> {
-            java.util.function.Supplier<android.media.AudioDeviceInfo> d = audioDevice;
-            return d != null ? d.get() : null;
-        });
+        // Sall's playout schedules the sound against the video's capture stamps (SyncedAudio); the reader
+        // thread feeds it below. A failure switches this session to MacAudio (syncedAudioFailed).
+        SyncedAudio player = new SyncedAudio(audioOutput(), this::syncedAudioFailed);
+        synchronized (audioLock) {
+            synced = player;
+        }
         // The mute holds across sessions (MacStore.Stream.muted); the receiver is one for this Mac's lifetime.
         // Made under the lock shutdown() takes, and never after it: the abandoned audio above is closed with the
         // session (clearSession), and a mute made past a shutdown would register a receiver nobody unregisters
@@ -2127,27 +2154,91 @@ public final class MacClient {
             if (m == null) {
                 m = mute = new AudioMute(context, MacStore.stream(context, mac.id).muted, this::audioMuteChanged, this::audioMuteToast);
             }
-            m.setPlayer(audio);
+            m.setPlayer(player);
             m.setWatched(surface != null);
         }
+        updateAudioTiming();
+        updateAudioRemote();
+    }
+
+    /** Where the Mac's sound goes: the device XDesk's sound setting names, or null for the system's choice. */
+    private static MacAudio.Output audioOutput() {
+        return () -> {
+            java.util.function.Supplier<android.media.AudioDeviceInfo> d = audioDevice;
+            return d != null ? d.get() : null;
+        };
     }
 
     /** Kind 43. Formats always; packets only while a screen shows this Mac (the idle connection stays silent). */
-    private void audioMessage(SillWire.Message m) {
-        MacAudio a = audio;
-        if (a == null || m.length < 1) return;
+    private void audioMessage(SillWire.Message m, long arrivalNanos) {
+        if (m.length < 1 || synced == null && audio == null) return;
         AudioMute mu = mute;
         if (mu != null) mu.received(m.payload);
+        if (m.payload[0] == 1 && m.length <= MAX_AUDIO_FORMAT)
+            lastAudioFormat = java.util.Arrays.copyOf(m.payload, m.length);
         if (m.payload[0] == 2 && surface == null) return;
-        a.receive(m.payload, m.length);
+        SyncedAudio s = synced;
+        if (s != null) { s.receive(m.payload, m.length, m.timestamp, arrivalNanos); return; }
+        MacAudio a = audio;
+        if (a != null) a.receive(m.payload, m.length);
+    }
+
+    /** The synced playout failed: say why, and continue this session with the MacAudio playout. */
+    private void syncedAudioFailed(SyncedAudio failed, String reason) {
+        synchronized (audioLock) {
+            if (synced != failed) return;  // closed with its session, or a newer player took over
+            synced = null;
+            Log.w(TAG, mac.name + ": synced sound failed (" + reason + "), using the MacAudio playout");
+            failed.close();
+            MacAudio fallback = new MacAudio(audioOutput());
+            // The Mac sends the format again at every epoch; the last one lets the fallback start now.
+            byte[] format = lastAudioFormat;
+            if (format != null) fallback.receive(format, format.length);
+            // Apply this device's mute before the reader can hand the fallback its first packet.
+            AudioMute m = mute;
+            if (m != null) m.setPlayer(fallback);
+            audio = fallback;
+        }
     }
 
     private void closeAudio() {
-        MacAudio a = audio;
-        audio = null;
+        SyncedAudio s;
+        MacAudio a;
+        synchronized (audioLock) {
+            s = synced;
+            a = audio;
+            synced = null;
+            audio = null;
+            lastAudioFormat = null;
+        }
+        if (s != null) s.close();
         if (a != null) a.close();
         AudioMute m = mute;
         if (m != null) m.setPlayer(null);
+    }
+
+    /**
+     * Sall's timing: how long a picture stays on the panel (the viewport rate XDesk asks the Mac for) and the
+     * stream's own rate, with AudioRuntime.streamFPS's fallback to the rate asked for.
+     */
+    private void updateAudioTiming() {
+        SyncedAudio player = synced;
+        if (player == null) return;
+        int viewport = viewportFps();
+        if (viewport <= 0) viewport = 60;
+        HostSettings h = hostState;
+        player.timing(1.0 / viewport, SyncedAudioRuntime.streamFPS(h != null ? h.fps : 0, viewport));
+    }
+
+    /**
+     * Whether this connection counts as away for the playout's cushion: the home door is home, otherwise what
+     * the Mac's away quality says about this connection (HostSettings.thisConnectionAway).
+     */
+    private void updateAudioRemote() {
+        SyncedAudio player = synced;
+        if (player == null) return;
+        HostSettings h = hostState;
+        player.setRemote(!sessionAtHome && h != null && h.thisConnectionAway);
     }
 
     // --- auto quality (AutoQuality, SALL-SYNC.md "XDesk's own additions"): the machine's tick and its notices ---
