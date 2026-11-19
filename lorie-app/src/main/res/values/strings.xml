@@ -306,8 +306,8 @@
     <string name="xd_orientation_system">System</string>
     <string name="xd_orientation_portrait">Portrait</string>
     <string name="xd_orientation_landscape">Landscape</string>
-    <string name="xd_resolution">Desktop resolution</string>
-    <string name="xd_resolution_note">Of the Termux desktop. Auto is the screen\'s own up to 1600 high, half of a 4K one: sharp, and not drawing more than it shows</string>
+    <string name="xd_resolution">X desktop resolution</string>
+    <string name="xd_resolution_note">One resolution for the desktops of Termux and every proot or chroot in it; Android apps are not affected. Auto is the screen\'s own up to 1600 high, half of a 4K one: sharp, and not drawing more than it shows</string>
     <string name="xd_density">Android apps\' interface size</string>
     <string name="xd_language">Language</string>
     <string name="xd_language_system">System</string>

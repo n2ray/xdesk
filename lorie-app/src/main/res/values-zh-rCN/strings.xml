@@ -287,8 +287,8 @@
     <string name="xd_orientation_system">跟随系统</string>
     <string name="xd_orientation_portrait">竖屏</string>
     <string name="xd_orientation_landscape">横屏</string>
-    <string name="xd_resolution">桌面分辨率</string>
-    <string name="xd_resolution_note">Termux 桌面的分辨率。自动：1600 高以内用屏幕原生，4K 屏用一半，清晰又不白费电</string>
+    <string name="xd_resolution">X 桌面分辨率</string>
+    <string name="xd_resolution_note">Termux 和里面所有 proot、chroot 的桌面共用这一个分辨率，安卓应用不受影响。自动：1600 高以内用屏幕原生，4K 屏用一半，清晰又不白费电</string>
     <string name="xd_density">安卓应用界面大小</string>
     <string name="xd_language">语言</string>
     <string name="xd_language_system">跟随系统</string>
