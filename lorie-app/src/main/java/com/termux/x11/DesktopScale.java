@@ -16,9 +16,10 @@ import com.termux.x11.app.R;
  * The X desktop's size on its screen, DISPLAY.md §4.1 (glue for XDeskActivity, main thread):
  * <ul>
  *   <li>the X screen's DPI, in the display's Prefs next to its resolution, so LorieView sends both together;</li>
- *   <li>XFCE's font DPI, panel, icons and cursor: xdesk scale in the X server's process (ICmdEntryInterface.setScale),
- *       once the desktop is connected and whenever the DPI changes, never while a size is dragged (XDeskActivity
- *       commits a size only once it has settled);</li>
+ *   <li>the X server's DPI and the cursor size, in memory only (no XFCE setting and no preference is written):
+ *       xdesk scale in the X server's process (ICmdEntryInterface.setScale), once the desktop is connected and
+ *       whenever the DPI changes, never while a size is dragged (XDeskActivity commits a size only once it has
+ *       settled);</li>
  *   <li>the screen's kind and size u in the display settings, and the question a new wired screen gets once.</li>
  * </ul>
  */
@@ -27,7 +28,7 @@ final class DesktopScale {
     private static final long RETRY_MS = 2000;
     private static final Handler ui = new Handler(Looper.getMainLooper());
 
-    /** The DPI XFCE should have, and the X server that was last told it. */
+    /** The DPI the X server should have, and the X server that was last told it. */
     private static int wanted;
     private static IBinder told;
     private static int toldDpi;
@@ -48,20 +49,20 @@ final class DesktopScale {
         // Unchanged values change nothing: SharedPreferences only tells listeners about real changes
         p.putInt("xdeskDpi", dpi);
         wanted = dpi;
-        tellXfce();
+        tellX();
     }
 
     /**
-     * The desktop connected. A new X server gets the DPI; the same one already has it, and xdesk itself sizes a session
-     * it starts later (xdesk switch) with the last DPI it was given.
+     * The desktop connected. A new X server gets the DPI; the same one already has it, and xdesk itself gives a
+     * session it starts later (xdesk switch) the last DPI it was given, in that X server's memory.
      */
     static void connected() {
-        tellXfce();
+        tellX();
     }
 
-    private static final Runnable retry = DesktopScale::tellXfce;
+    private static final Runnable retry = DesktopScale::tellX;
 
-    private static void tellXfce() {
+    private static void tellX() {
         ui.removeCallbacks(retry);
         if (wanted <= 0) return;
         ICmdEntryInterface s = MainActivity.verifiedServer;

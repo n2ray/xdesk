@@ -185,8 +185,9 @@ final class XWindows {
     }
 
     /**
-     * xdesk scale: XFCE follows the X DPI. xdesk waits for the session itself in the background, so this only starts
-     * it; a oneway call must not hold up the ones after it on this binder.
+     * xdesk scale: the X server's DPI and cursor size, in memory only (xfconf and the user's desktop settings are
+     * never written). xdesk applies it in the background, so this only starts it; a oneway call must not hold up the
+     * ones after it on this binder.
      */
     static void scale(int dpi) {
         if (dpi < 30 || dpi > 1000) return;

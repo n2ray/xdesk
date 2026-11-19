@@ -78,7 +78,6 @@ Termux 和容器里都找：XFCE、LXQt、MATE，加上 LXDE（`startlxde`）、
 - X：在不在跑、socket 在不在、是不是 App 更新前启动的（看 X 进程映射的 `base.apk` 是否已被删掉：App 更新会换掉它；不用 `pm`，Termux 身份跑它会卡住）；
 - 窗口管理器：Termux 里有没有 xfwm4；
 - 中文字体：有 `fc-list`（在 `fontconfig-utils` 里，很少有人装）就用 `fc-list :lang=zh`，没有就按常见中文字体的文件名找；都没有就提示 `pkg install otf-noto-sans-cjk`；
-- 光标主题（已有的 `cursor_installed`）；
 - 每个环境：根目录在不在、进入命令能不能用（`proot-distro` 装没装）、有几个程序、有几个桌面；
 - 输入法 fcitx5（只报状态，不算错）。
 
@@ -107,6 +106,8 @@ chroot 要 root 才看得到，Andronix、AnLinux 和自己写的 proot 脚本�
 
 ### 5.3 声音
 已有：Termux 里接本机 PulseAudio，容器和 chroot 经 127.0.0.1 带 cookie。补：`doctor` 查每个容器里有没有 PulseAudio 客户端库（`libpulse.so.0`，在 `usr/lib`、`usr/lib/*-linux-gnu`、`usr/lib64` 下找）。没有就提示装哪个包，按容器 `etc/os-release` 的 `ID`：debian/ubuntu `apt install libpulse0`，arch `pacman -S libpulse`，fedora `dnf install pulseaudio-libs`，alpine `apk add libpulse`，其他只说「装 PulseAudio 的客户端库」。
+
+守护进程不是 xdesk 起的（本机原来就有一个）时，`start_audio` 先记下它当前的默认 sink（`pactl get-default-sink`，取不到就用 `pactl info` 的 `Default Sink`；重复 start 时保留第一次记下的）；`stop_audio` 先把它设回默认、把流移回去，再卸掉 xdesk 自己加载的 null sink（和它加载的 TCP 模块）。这样 `module-default-device-restore` 不会把 `xdesk` 记成用户的默认设备。xdesk 自己起的守护进程照旧整个停掉。
 
 ### 5.4 说清楚为什么起不来
 现在程序起来以后自己退出了（找不到、缺库、闪退），App 要等 15 秒才说「没有打开窗口，日志见 xdesk.log」。改成：

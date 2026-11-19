@@ -257,7 +257,7 @@ Windows（以后）┘
 由此推出：
 - X 的 DPI = 96 · b · u · R/N
 - Android 密度 = 160 · b · u · R/N
-- XFCE 面板、图标、光标按同一比例单独设
+- X 的 DPI 和光标大小按同一比例设，只写进 xdesk 自己的 X 服务器内存（xrandr、Xft.dpi、Xcursor.size），不写 xfconf；XFCE 面板和桌面图标大小是用户自己的设置，不动
 - XDesk 外壳和光标 = b · u 个 dp
 - Mac 窗口：每个 Mac 点 = max(b · u · R/N, 1.5) 个屏幕像素（`MacClient.pointScale`），窗口长边最多 2320 点。
   Sill 的虚拟显示器按 viewport 的长边 ÷ 0.5 做成正方形、2 倍像素，太大建不出来（M4 上 4096 点失败，最大成功过 2316 点），
