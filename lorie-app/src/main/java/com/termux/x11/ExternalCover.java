@@ -38,9 +38,14 @@ final class ExternalCover {
         WindowManager wm = dc.getSystemService(WindowManager.class);
         DashboardView v = new DashboardView(dc, dc.getString(R.string.xd_dash_cover), false);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            // Touchable on purpose: an overlay that lets touches through is held at 0.8 opacity by the system ("setting
+            // alpha to 0.80 to let touches pass through"), and the app showed through the cover. Covered means fully
+            // covered (owner, 2026-11-19); the keys and the mouse are the phone's then, and nothing on the screen can
+            // be clicked under it either
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.OPAQUE);
+        p.alpha = 1f;
         p.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         p.setFitInsetsTypes(0);
         p.setTitle("XDesk cover");

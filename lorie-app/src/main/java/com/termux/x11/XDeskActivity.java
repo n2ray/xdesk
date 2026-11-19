@@ -2979,23 +2979,10 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         boolean appMode = apps.isActive();
-        DesktopScale.addSettings(this, s, c, externalDisplay(), this::screenSizingChanged);
-        // Grouped by what a row is for (owner, 2026-11-19): Android apps, the Linux desktop, the whole screen
-        LinearLayout android = s.section(c, getString(R.string.xd_display_android));
-        addDensitySetting(s, android);
-        if (AppSession.fullscreenSupported()) {
-            s.switchRow(android, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
-            s.valueRow(android, getString(R.string.xd_fullscreen_reset), getString(R.string.xd_fullscreen_reset_note), "", () ->
-                s.confirm(getString(R.string.xd_fullscreen_reset_title), getString(R.string.xd_fullscreen_reset_message), getString(R.string.xd_fullscreen_reset_action), () -> {
-                    if (!apps.resetFullscreen()) Toast.makeText(this, R.string.xd_fullscreen_reset_need_injector, Toast.LENGTH_LONG).show();
-                }));
-        }
-        if (!appMode) {
-            LinearLayout linux = s.section(c, getString(R.string.xd_display_linux));
-            final TextView[] resolution = new TextView[1];
-            resolution[0] = s.valueRow(linux, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
-        }
-        LinearLayout external = s.section(c, getString(R.string.xd_display_general));
+        // The whole screen's rows first, in one card without a title; then Android apps and the Linux desktop
+        // (owner, 2026-11-19)
+        LinearLayout external = s.card(c);
+        DesktopScale.addSettings(this, s, external, externalDisplay(), this::screenSizingChanged);
         s.switchRow(external, getString(R.string.xd_external_dock), getString(R.string.xd_external_dock_note), prefs.getBoolean(PREF_EXTERNAL_DOCK, true), on -> {
             prefs.edit().putBoolean(PREF_EXTERNAL_DOCK, on).apply();
             updateExternalDock();
@@ -3013,6 +3000,20 @@ public class XDeskActivity extends Activity {
                         showDisplaySettings();
                     }
                 }).addTo(external);
+        }
+        LinearLayout android = s.section(c, getString(R.string.xd_display_android));
+        addDensitySetting(s, android);
+        if (AppSession.fullscreenSupported()) {
+            s.switchRow(android, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
+            s.valueRow(android, getString(R.string.xd_fullscreen_reset), getString(R.string.xd_fullscreen_reset_note), "", () ->
+                s.confirm(getString(R.string.xd_fullscreen_reset_title), getString(R.string.xd_fullscreen_reset_message), getString(R.string.xd_fullscreen_reset_action), () -> {
+                    if (!apps.resetFullscreen()) Toast.makeText(this, R.string.xd_fullscreen_reset_need_injector, Toast.LENGTH_LONG).show();
+                }));
+        }
+        if (!appMode) {
+            LinearLayout linux = s.section(c, getString(R.string.xd_display_linux));
+            final TextView[] resolution = new TextView[1];
+            resolution[0] = s.valueRow(linux, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
         }
         page[0] = settingsPage(getString(R.string.xd_section_display), c, null);
     }

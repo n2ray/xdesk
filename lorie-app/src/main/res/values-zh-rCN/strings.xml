@@ -397,9 +397,9 @@
     <string name="xd_display_general">整块外屏</string>
     <string name="xd_fullscreen_reset_message">XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。</string>
     <string name="xd_fullscreen_reset_need_injector">要先连上注入服务：运行一次安卓应用后再试</string>
-    <string name="xd_cover">切到其他应用或锁屏时遮住外屏</string>
-    <string name="xd_cover_note">外屏显示时钟，键鼠交给手机。应用继续运行，声音不停</string>
-    <string name="xd_cover_note_no_overlay">外屏显示时钟，键鼠交给手机。应用继续运行，声音不停。没有悬浮窗权限，现在不会遮住</string>
+    <string name="xd_cover">外屏隐私</string>
+    <string name="xd_cover_note">切到其他应用或锁屏时，把外屏整块遮住，只显示时钟，旁人看不到上面的内容；这时键鼠交给手机。应用继续运行，声音不停</string>
+    <string name="xd_cover_note_no_overlay">切到其他应用或锁屏时，把外屏整块遮住，只显示时钟，旁人看不到上面的内容；这时键鼠交给手机。应用继续运行，声音不停。没有悬浮窗权限，现在遮不住</string>
     <string name="xd_diag_setting">显示诊断信息</string>
     <string name="xd_diag_setting_note">在控制界面上显示焦点和事件计数</string>
     <string name="xd_builtin">内置注入服务</string>
@@ -549,7 +549,6 @@
     <string name="xd_web_no_service">手机不让 XDesk 在后台启动。请在手机上打开 XDesk，再重新连接。</string>
     <string name="xd_web_pairing_closed">失败次数太多，网页显示的配对已关闭。在设置里把网页显示关掉再打开即可恢复；已配对的浏览器不受影响。</string>
     <string name="xd_web_pairing_paused">浏览器输错配对码太多次：网页显示的配对暂停 10 分钟，已配对的浏览器不受影响。</string>
-    <string name="xd_section_this_screen">当前屏幕</string>
     <string name="xd_screen_kind">屏幕种类</string>
     <string name="xd_screen_kind_note">按观看距离调整：电视、投影机上的字更大</string>
     <string name="xd_kind_monitor">显示器</string>
