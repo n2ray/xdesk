@@ -153,6 +153,9 @@ final class AudioPlayer {
         return true;
     }
 
+    /** 这条音轨现在是否因外屏隐私静音；新音轨从有声开始。 */
+    private boolean coverQuiet;
+
     private void loop() {
         byte[] buf = new byte[CHUNK], scratch = new byte[CHUNK];
         while (running) {
@@ -162,6 +165,7 @@ final class AudioPlayer {
                 InputStream in = c.in;
                 AudioTrack t = newTrack();
                 track = t;
+                coverQuiet = false;
                 try {
                     int have = 0, n;
                     int written = 0, underruns = 0;
@@ -203,6 +207,12 @@ final class AudioPlayer {
                                     written = 0;
                                 }
                             } else {
+                                // 外屏隐私盖着：音量 0，流照常走（SoundCover）
+                                boolean quiet = SoundCover.covered();
+                                if (quiet != coverQuiet) {
+                                    coverQuiet = quiet;
+                                    t.setVolume(quiet ? 0f : 1f);
+                                }
                                 t.write(buf, 0, whole);
                                 if (!playing) {
                                     written += whole;

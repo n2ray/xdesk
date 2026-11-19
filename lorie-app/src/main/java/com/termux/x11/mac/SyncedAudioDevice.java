@@ -58,7 +58,8 @@ final class SyncedAudioDevice implements SyncedAudioRuntime.Device {
                 // the device holds, so the sound came 100 to 200 ms after the picture (owner, 2026-11-19)
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY).build();
         if (track.getState() != AudioTrack.STATE_INITIALIZED) throw new IllegalStateException("AudioTrack unavailable");
-        track.setVolume(muted ? 0f : 1f);
+        coverQuiet = com.termux.x11.SoundCover.covered();
+        track.setVolume(muted || coverQuiet ? 0f : 1f);
         applyPreferred();
         track.play(); route = null;
     }
@@ -139,6 +140,12 @@ final class SyncedAudioDevice implements SyncedAudioRuntime.Device {
     }
     @Override public int write(float[] pcm, int offset, int count) {
         checkRoute();
+        // The privacy cover silences it as the mute does: the clock and the schedule go on underneath
+        boolean quiet = com.termux.x11.SoundCover.covered();
+        if (quiet != coverQuiet) {
+            coverQuiet = quiet;
+            track.setVolume(muted || quiet ? 0f : 1f);
+        }
         return track.write(pcm, offset, count, AudioTrack.WRITE_NON_BLOCKING);
     }
     @Override public int bufferFrames() { return track.getBufferSizeInFrames(); }
@@ -154,8 +161,11 @@ final class SyncedAudioDevice implements SyncedAudioRuntime.Device {
     @Override public void muted(boolean on) {
         muted = on;
         AudioTrack t = track;
-        if (t != null) t.setVolume(on ? 0f : 1f);
+        if (t != null) t.setVolume(on || coverQuiet ? 0f : 1f);
     }
+
+    /** Silenced for the privacy cover (SoundCover); together with the local mute. */
+    private boolean coverQuiet;
     private void releaseDecoder() {
         if (codec == null) return;
         try { codec.stop(); } catch (RuntimeException ignored) { }

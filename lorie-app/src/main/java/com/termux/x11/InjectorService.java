@@ -81,6 +81,9 @@ public class InjectorService extends IInjector.Stub {
     private volatile int displayId = -1;
     /** The pointer over apps, drawn here when XDesk asks (pointerLayer); moved with every place the injector makes. */
     private final PointerLayer pointer = new PointerLayer();
+    /** The privacy cover's mute of the external screen's apps; whatever a crash left silenced goes back at once. */
+    private final CoverMute coverMute = new CoverMute();
+    { new Thread(coverMute::restore, "xdesk-cover-restore").start(); }
     private Thread sessionWatcher;
     private String ownPackage;
     private boolean linked;
@@ -1098,6 +1101,7 @@ public class InjectorService extends IInjector.Stub {
         closeWebKeyboard();
         gamepad.close();
         pointer.release();
+        coverMute.restore();
         enabled = false;
         listener = null;
         ShellClipboard c = clipboard;
@@ -1118,6 +1122,17 @@ public class InjectorService extends IInjector.Stub {
     @Override public boolean pointerLayer(android.graphics.Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y) {
         if (sessionOver || displayId < 0) return false;
         return pointer.set(displayId, image, offsetX, offsetY, visible, x, y);
+    }
+
+    @Override public void muteApps(final boolean on) {
+        if (sessionOver) return;
+        final int d = displayId;
+        final String own = ownPackage;
+        // appops is a process per call: off the binder thread, in order
+        new Thread(() -> {
+            if (on && d >= 0 && own != null) coverMute.mute(TaskMover.packagesOn(d, own));
+            else coverMute.restore();
+        }, "xdesk-cover-mute").start();
     }
 
     @Override public void pointerAt(int x, int y) {

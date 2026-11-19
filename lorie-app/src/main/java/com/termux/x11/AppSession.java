@@ -1629,6 +1629,14 @@ final class AppSession {
     }
 
 
+    /** The privacy cover: the external screen's apps silent while it is up (InjectorService.muteApps). */
+    void muteApps(boolean on) {
+        IInjector i = injector;
+        try {
+            if (i != null) i.muteApps(on);
+        } catch (RemoteException ignored) { }
+    }
+
     void setHotkeyAllowed(boolean allowed) {
         IInjector i = injector;
         try {

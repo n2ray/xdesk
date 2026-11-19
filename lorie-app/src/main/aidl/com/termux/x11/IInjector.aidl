@@ -115,4 +115,6 @@ interface IInjector {
     boolean pointerLayer(in Bitmap image, int offsetX, int offsetY, boolean visible, int x, int y) = 50;
     // A place for it that the injector did not make itself (XDesk put the pointer somewhere).
     oneway void pointerAt(int x, int y) = 51;
+    // The privacy cover: the external screen's Android apps without sound while it hides them (CoverMute).
+    oneway void muteApps(boolean on) = 52;
 }

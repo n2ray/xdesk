@@ -86,6 +86,8 @@ final class MacAudio implements SoundPlayer {
      *  which is not a backlog and must never be dropped. Long.MAX_VALUE: not measured yet. */
     private long queueFloor = Long.MAX_VALUE;
     private long lastReport;
+    /** This track silenced for the privacy cover. */
+    private boolean coverQuiet;
     private short[] pcm = new short[2048];
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
 
@@ -290,6 +292,7 @@ final class MacAudio implements SoundPlayer {
             preferredId = want != null ? want.getId() : -1;
             t.setPreferredDevice(want);
             track = t;
+            coverQuiet = false;
             prefilled = 0;
             framesWritten = 0;
             queueBaseWritten = 0;
@@ -378,6 +381,12 @@ final class MacAudio implements SoundPlayer {
             return;
         }
         // Blocks while the track is full: that is what paces this thread to the sound card
+        // The external screen is covered for privacy (SoundCover): silent, the stream goes on underneath
+        boolean quiet = com.termux.x11.SoundCover.covered();
+        if (quiet != coverQuiet) {
+            coverQuiet = quiet;
+            t.setVolume(quiet ? 0f : 1f);
+        }
         t.write(pcm, skip * 2, (frames - skip) * 2);
         framesWritten += frames - skip;
         if (t.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {

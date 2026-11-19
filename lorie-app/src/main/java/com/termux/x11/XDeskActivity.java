@@ -1558,6 +1558,9 @@ public class XDeskActivity extends Activity {
             takenBeforeCover = desktopTaken;
             if (takenBeforeCover) setDesktopTaken(false);
             apps.setHotkeyAllowed(false);
+            // Privacy covers the sound too (owner, 2026-11-19): XDesk's own players go quiet, the apps' sound is off
+            SoundCover.set(true);
+            apps.muteApps(true);
         }
     }
 
@@ -1576,6 +1579,8 @@ public class XDeskActivity extends Activity {
     private void removeCover() {
         if (!cover.isShown()) return;
         cover.hide();
+        SoundCover.set(false);
+        apps.muteApps(false);
         apps.setHotkeyAllowed(true);
         if (forwardingBeforeCover) apps.setForwarding(true);
         forwardingBeforeCover = false;

@@ -142,6 +142,24 @@ final class TaskMover {
         }
     }
 
+    /** Every normal app with a task on the display (not XDesk, not a launcher); empty when it cannot be read. */
+    static List<String> packagesOn(int display, String ownPackage) {
+        List<String> out = new java.util.ArrayList<>();
+        try {
+            Object atm = taskManager();
+            List<?> infos = (List<?>) atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class).invoke(atm, display);
+            for (Object info : infos) {
+                if (!movable(info, ownPackage)) continue;
+                ComponentName c = (ComponentName) info.getClass().getField("topActivity").get(info);
+                if (c == null) c = (ComponentName) info.getClass().getField("baseActivity").get(info);
+                if (c != null && !out.contains(c.getPackageName())) out.add(c.getPackageName());
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.i(TAG, "no tasks on " + display + ": " + e);
+        }
+        return out;
+    }
+
     static boolean visible(Object info) {
         for (String name : new String[]{"visible", "isVisible"}) {
             try {
