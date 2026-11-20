@@ -195,7 +195,7 @@ final class ChooserView extends LinearLayout {
         FrameLayout searchBox = new FrameLayout(c);
         int searchH = Style.dp(c, landscape ? 40 : Style.TARGET);
         search = new EditText(c);
-        search.setHint(R.string.xd_chooser_search);
+        Style.fitHint(search, R.string.xd_chooser_search, R.string.xd_chooser_search_short);
         search.setHintTextColor(Style.TEXT_DIM);
         search.setTextColor(Style.TEXT);
         search.setTextSize(landscape ? Style.TEXT_SMALL + 1 : Style.TEXT_BODY);

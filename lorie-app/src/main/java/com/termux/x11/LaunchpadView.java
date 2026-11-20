@@ -143,7 +143,7 @@ final class LaunchpadView extends LinearLayout {
         statusRow.addView(statusText, sp);
 
         search = new EditText(c);
-        search.setHint(R.string.xd_chooser_search);
+        Style.fitHint(search, R.string.xd_chooser_search, R.string.xd_chooser_search_short);
         search.setHintTextColor(Style.TEXT_DIM);
         search.setTextColor(Style.TEXT);
         search.setTextSize(13);

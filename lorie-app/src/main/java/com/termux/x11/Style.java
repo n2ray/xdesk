@@ -281,4 +281,19 @@ final class Style {
             canvas.drawCircle(cx, cy, d, badgePaint);
         }
     }
+
+    /**
+     * The long hint where it fits on one line, the short one where it does not: a single-line field cuts its hint at
+     * the edge, which left "（可用拼音首字母" without its closing bracket in narrow search fields.
+     */
+    static void fitHint(android.widget.EditText field, int longHint, int shortHint) {
+        final String full = field.getContext().getString(longHint), brief = field.getContext().getString(shortHint);
+        field.setHint(full);
+        field.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int room = (r - l) - field.getCompoundPaddingLeft() - field.getCompoundPaddingRight();
+            if (room <= 0) return;
+            String want = field.getPaint().measureText(full) <= room ? full : brief;
+            if (!want.contentEquals(field.getHint() != null ? field.getHint() : "")) field.post(() -> field.setHint(want));
+        });
+    }
 }

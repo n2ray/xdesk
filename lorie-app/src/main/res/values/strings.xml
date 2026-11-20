@@ -166,6 +166,7 @@
     <string name="xd_chooser_favourites">Favourites</string>
     <string name="xd_chooser_all_apps">All apps</string>
     <string name="xd_chooser_search">Search every device</string>
+    <string name="xd_chooser_search_short">Search</string>
     <string name="xd_chooser_clear">Clear</string>
     <string name="xd_chooser_no_display">No display. Plug one into USB-C, use a car, or tap here to show on XDesk Receiver over Wi-Fi.</string>
     <string name="xd_chooser_stopping">Stopping, please wait…</string>
