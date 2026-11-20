@@ -1,6 +1,6 @@
 # XDesk manual
 
-<p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="XDesk on a portable display: an Android desktop with a dock, the phone in a stand as touchpad, a keyboard and a mouse"></p>
+<p align="center"><img src="docs/img/hero.svg" width="760" alt="A monitor showing XDesk's Launchpad, the phone beside it as a touchpad, a keyboard and mouse in front"></p>
 
 **Put Android apps on the big screen from your phone, with no root.** Install one APK, activate it once, connect a screen, and your Android apps run full screen on it, with the phone as touchpad and keyboard. The display's home is the same launcher as on the phone, and resting the pointer on the bottom edge raises a dock, so it feels much like a computer. From there you can add Linux desktops through Termux, bring Mac windows and the Mac desktop onto the display, cast over Wi-Fi to another Android device, use XDesk on a Mac as the big screen, or use any browser as the display. With a gamepad, or a keyboard and mouse, and a cloud gaming app such as GeForce NOW, the phone becomes a [game console](#games-the-phone-as-a-game-console) on the big screen.
 
@@ -41,7 +41,6 @@ On Xiaomi phones, also turn on **USB debugging (Security settings)** in Develope
 
 Connect a monitor with a USB-C to HDMI cable or dock, and open **XDesk**. The phone needs **video output over USB-C** (DisplayPort Alt Mode): if plugging in a monitor mirrors the screen, it qualifies. Then tap an app. Nothing starts until you choose.
 
-<p align="center"><img src="docs/img/app-android.jpg" width="560" alt="An Android browser full screen on the display"> <img src="docs/img/phone-touchpad.jpg" width="150" alt="The phone as a touchpad"></p>
 
 ### Then add what you want
 

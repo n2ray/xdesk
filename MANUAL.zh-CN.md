@@ -1,6 +1,6 @@
 # XDesk 使用手册
 
-<p align="center"><img src="docs/img/readme-desk.jpg" width="720" alt="便携显示器上的 XDesk：带 Dock 的安卓桌面，手机立在支架上当触摸板，配键盘和鼠标"></p>
+<p align="center"><img src="docs/img/hero.svg" width="760" alt="大屏上是 XDesk 的启动台，旁边的手机当触摸板，前面是键盘鼠标"></p>
 
 **手机里的应用，搬上大屏，不用 root。** 装个 APK，激活一次，插上显示器，应用就能在大屏上全屏运行，手机拿来当触摸板和键盘。外接屏首页和手机上的启动器是同一个，光标在屏幕底边停一下就会升起 Dock，用起来很像一台电脑。想要更多的话，还可以用 Termux 跑 Linux 桌面，把 Mac 的窗口和桌面搬到大屏上，用 Wi-Fi 投到另一台安卓设备，用 Mac 上的 XDesk 当大屏，或者用浏览器当显示器。配上手柄或键鼠，再开 GeForce NOW 这类云游戏，手机就是大屏上的一台[游戏主机](#游戏手机就是一台游戏主机)。
 
@@ -41,7 +41,6 @@ v0.2.0 起 APK 换了 XDesk 自己的签名。v0.1.x 用的是上游公开的测
 
 用 USB-C 转 HDMI 线或扩展坞连上显示器，打开 **XDesk**，点一个应用。手机要支持 **USB-C 视频输出**（DisplayPort Alt Mode），插上显示器能镜像手机画面，就说明支持。
 
-<p align="center"><img src="docs/img/app-android.jpg" width="560" alt="安卓浏览器在大屏上全屏运行"> <img src="docs/img/phone-touchpad.jpg" width="150" alt="手机当触摸板"></p>
 
 ### 想要更多的话
 

@@ -143,7 +143,7 @@ TCP 模块只复用、不卸别人的：已经有 `module-native-protocol-tcp` �
 - **只动自己的 X**：`x_is_ours` 确认 `$DPY` 上应答的 X 就是 xdesk 起的 `xdesk-x11`（`x_pid`，并且显示的锁文件里也是这个 pid）。`setxkbmap`、`xrandr --dpi`、`xrdb -merge`、`scale`、键盘布局都先过这一关；`$DPY` 上是别人的 X 时什么都不写。`xdesk start` 发现 `$DPY` 被别的 X 占着会拒绝并说明；`xdesk status` / `app state` 也不把它当成 XDesk 的 X。
 - **从 `:1` 搬过来**：`xdesk stop` 照旧按进程名 `^xdesk-x11 ` 结束所有 XDesk 的 X，包括还在 `:1` 上的旧版；`xdesk start` 会先结束旧版留在 `:1` 上的 `xdesk-x11`（只认这个名字和 `:1`，别的 `XDESK_DISPLAY` 上的第二个 XDesk 不动）。
 - **X 服务器的环境**：`LD_PRELOAD`、`LD_LIBRARY_PATH` 和官方启动器用的 `TERMUX_X11_XSTARTUP` 都不带进去；只有 X 服务器自己 `renice -10`（Chromium 的渲染进程是 -8，X 要排在它前面），会话和程序都是默认优先级。
-- **X 怎么结束的有记录**（0.6.7）：X 由一个小 shell 启动并等着它，结束时往 `xdesk.log` 写一行 `X server :9 ended: exit status N` 或 `killed by signal N (名字)`。之前 X 无声消失时查不出原因（2026-11-19）。停止的方式不变。
+- **X 怎么结束的有记录**（0.7.0）：X 由一个小 shell 启动并等着它，结束时往 `xdesk.log` 写一行 `X server :9 ended: exit status N` 或 `killed by signal N (名字)`。之前 X 无声消失时查不出原因（2026-11-19）。停止的方式不变。
 - **X 这边的输入法归用户**：XDesk 不启动、不停止、不配置、不监视 fcitx5 或其他 X 输入法。`xdesk ime` 只读地报告显示上有没有 fcitx5 在跑（App 用它决定实体键盘是原样发键还是走手机输入法）；`xdesk ime layout` 仍是 App 调的名字，实际是 `xdesk keyboard layout`：把布局存进 `~/.config/xdesk/keyboard-layout`，用 `setxkbmap` 设在 XDesk 自己的 X 上（X 起来时，以及改的时候）；`auto` 取消。用户自己的 fcitx5 profile 不再被改写。手机的输入法始终经 XDesk 的文字通道进 X，与 X 这边有没有输入法无关。
 - **不改用户的会话文件**：旧会话缺的 `PULSE_COOKIE`/`PULSE_SINK` 只在 `$RUN` 的运行时副本里补，`sed -i` 不再碰 `~/.config/xdesk/sessions`；旧版 setup 冻结进文件的环境行也原样留着（文件里的行在后面，本来就盖过 XDesk 加的）。
 - **读命令不删文件**：`app state`、`envs`、`app catalog` 只做新增式的 `discover`；容器暂时不在时它生成的会话和环境文件留着，等 `xdesk setup`（用户明确要找）或 `add`/`rm` 再处理。

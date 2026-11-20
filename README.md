@@ -73,7 +73,7 @@ Better said before you install. XDesk shows the same list on first start, and Se
 | Permission | Level | What for | Without it |
 |---|---|---|---|
 | Wireless debugging (or [Shizuku](https://shizuku.rikka.app/)) | Required | Runs a small service as the shell user that sends keyboard, mouse and touch to Android apps on the big screen | Android apps on the big screen can be watched, not used |
-| Display over other apps | Recommended | Draws the cursor and the Launchpad on the big screen | No pointer on the big screen |
+| Display over other apps | Required | Draws the cursor and the Launchpad on the big screen | No pointer on the big screen, so barely usable |
 | Notifications | Recommended | Type the pairing code right in the notification; a notification while the service runs | Type the code in the app instead |
 | Notification access | When needed | Your phone's notifications on the big screen | They only show on the phone |
 | Run Termux commands | When needed | Start a Linux desktop in one tap | Ignore it if you don't use Linux |
