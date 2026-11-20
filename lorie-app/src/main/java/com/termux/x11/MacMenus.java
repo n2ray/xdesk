@@ -74,7 +74,6 @@ final class MacMenus {
     private MacClient client;
     private CornerButton button;
     private TextView hint;
-    private WindowManager.LayoutParams hintParams;
     private MacMenuBar bar;
     private final Runnable barLeave = this::closeBar;
 
@@ -240,6 +239,7 @@ final class MacMenus {
             bar = null;
             return;
         }
+        if (button != null) button.setJoined(true);
         bar.setTop(client.menuTop());
         raiseButton();
         if (arrow != null) arrow.raise();  // the bar's window came after the arrow's
@@ -250,6 +250,7 @@ final class MacMenus {
         ui.removeCallbacks(barLeave);
         MacMenuBar b = bar;
         bar = null;
+        if (button != null) button.setJoined(false);
         if (b != null) b.close(null);
         if (driven && over == SURFACE_BAR) endDriven();
     }
@@ -361,45 +362,8 @@ final class MacMenus {
         py = y;
         grab.grabbed(x, y);  // the arrow starts under the content's pointer
         arrowAt();
-        showHint(surface == SURFACE_BUTTON);
+        // No app name on hover any more (owner, 2026-11-20): the bar says whose menus they are by opening
         return true;
-    }
-
-    /** The app name while the pointer rests on the ≡ (MACMENU.md §3). */
-    private void showHint(boolean on) {
-        if (!on) {
-            hideHint();
-            return;
-        }
-        String name = appName();
-        if (name.isEmpty()) return;
-        if (hint == null) {
-            hint = new TextView(dc);
-            hint.setTextColor(Style.TEXT);
-            hint.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(12 * density));
-            hint.setPadding(dp(8), dp(3), dp(8), dp(3));
-            GradientDrawable back = new GradientDrawable();
-            back.setColor(0xF61B1E24);
-            back.setCornerRadius(dp(6));
-            hint.setBackground(back);
-            hintParams = new WindowManager.LayoutParams(-2, -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT);
-            hintParams.gravity = Gravity.TOP | Gravity.START;
-            hintParams.x = dp(CornerButton.SIZE_DP + 8) - 1;
-            hintParams.y = dp(6);
-            hintParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-            hintParams.setFitInsetsTypes(0);
-            hintParams.windowAnimations = 0;
-            hintParams.setTitle("XDesk Mac menu app");
-        }
-        hint.setText(name);
-        try {
-            if (hint.getParent() == null) windows.addView(hint, hintParams);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "no menu hint", e);
-        }
     }
 
     private void hideHint() {
@@ -408,13 +372,6 @@ final class MacMenus {
             windows.removeViewImmediate(hint);
         } catch (RuntimeException ignored) { }
         hint = null;
-    }
-
-    private String appName() {
-        MacClient c = client;
-        if (c == null) return "";
-        String app = c.menuTop().app;
-        return app != null && !app.isEmpty() ? app : c.name();
     }
 
     private int dp(float v) {

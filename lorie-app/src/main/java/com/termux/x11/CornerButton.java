@@ -52,6 +52,8 @@ final class CornerButton {
     private long fadeAt;
     /** Whether the pointer is near (the hover, the driven pointer, a placed one): it does not fade then. */
     private boolean near;
+    /** The Mac menu bar is open and runs on from the button: the bar draws the plate, the button only its glyph. */
+    private boolean joined;
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable fadeTick = this::fadeTick;
 
@@ -111,6 +113,12 @@ final class CornerButton {
         lit();  // something new: say so while it is there
     }
 
+    void setJoined(boolean j) {
+        if (j == joined) return;
+        joined = j;
+        view.invalidate();
+    }
+
     private void lit() {
         if (!faded) return;
         faded = false;
@@ -161,13 +169,15 @@ final class CornerButton {
         // A dark plate under the glyph (the notification panel's surface, a hairline edge): white lines alone were lost
         // over a light picture (owner, 2026-11-15). The bell and the ≡ share it
         float r = dp(6), edge = Math.max(1f, dp(0.5f));
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(PLATE);
-        c.drawRoundRect(0, 0, w, h, r, r, paint);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(edge);
-        paint.setColor(PLATE_EDGE);
-        c.drawRoundRect(edge / 2f, edge / 2f, w - edge / 2f, h - edge / 2f, r, r, paint);
+        if (!joined) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(PLATE);
+            c.drawRoundRect(0, 0, w, h, r, r, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(edge);
+            paint.setColor(PLATE_EDGE);
+            c.drawRoundRect(edge / 2f, edge / 2f, w - edge / 2f, h - edge / 2f, r, r, paint);
+        }
         paint.setColor(Style.TEXT);
         paint.setStyle(Paint.Style.FILL);
         // The glyph a little smaller, centred, so the plate shows round it
