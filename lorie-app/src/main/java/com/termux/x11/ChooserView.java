@@ -202,7 +202,7 @@ final class ChooserView extends LinearLayout {
         search.setSingleLine(true);
         search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         search.setBackground(Style.rounded(c, Style.SURFACE, Style.RADIUS));
-        search.setPadding(Style.dp(c, 12), 0, Style.dp(c, searchH), 0);
+        search.setPadding(Style.dp(c, 12), 0, searchH, 0);
         search.setOnTouchListener((v, e) -> {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) host.onSearchTouched();
             return false;
