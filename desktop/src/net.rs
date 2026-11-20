@@ -121,6 +121,8 @@ pub struct Notice {
 
 static OUT: OnceLock<Sender<Out>> = OnceLock::new();
 static NOTICE: Mutex<Option<Notice>> = Mutex::new(None);
+/// MacWait.dc.html's orange card under how to connect: what the cable is waiting for. Empty: nothing to say.
+static CABLE_NOTE: Mutex<String> = Mutex::new(String::new());
 static LAYOUT: Mutex<String> = Mutex::new(String::new());
 static WANTED: Mutex<(u32, u32)> = Mutex::new((1280, 720));
 static CURRENT: Mutex<Option<TcpStream>> = Mutex::new(None);
@@ -311,6 +313,11 @@ pub fn notice() -> Notice {
 /// The phone of the connection in use, as it gave its name in HELLO; None while there is none.
 pub fn current_phone() -> Option<String> {
     CURRENT_PHONE.lock().unwrap().clone()
+}
+
+/// What the cable waits for, shown as a card under the waiting words; empty while there is nothing to say.
+pub fn cable_note() -> String {
+    CABLE_NOTE.lock().unwrap().clone()
 }
 
 /// The usual words of waiting before anyone connects (MacWait.dc.html): a title, then how to connect.
@@ -1094,13 +1101,16 @@ fn watch_usb(path: Option<String>, name: String) {
                 KEEP_PICTURE.store(false, Ordering::Relaxed);
             }
             if !lost && !pairing {
-                if unauthorized {
-                    say(tr("在手机上点“允许”这台电脑的 USB 调试", "On the phone, allow USB debugging for this computer"), "");
+                // The waiting words stay; what the cable needs goes in a card under them (MacWait.dc.html)
+                let cable = if unauthorized {
+                    tr("已插线，在手机上点「允许」这台电脑的 USB 调试", "Cable in: on the phone, allow USB debugging for this computer")
                 } else if up {
-                    say(tr("已插线，在手机的 XDesk 里连接这台电脑，或者重新插一次线", "Cable in: connect to this computer in XDesk on the phone, or plug the cable in again"), "");
+                    tr("已插线，在手机的 XDesk 里连接这台电脑，或者重新插一次线", "Cable in: connect to this computer in XDesk on the phone, or plug the cable in again")
                 } else {
-                    say(how_to_connect(), "");
-                }
+                    ""
+                };
+                *CABLE_NOTE.lock().unwrap() = cable.to_string();
+                say(how_to_connect(), "");
             }
         }
         std::thread::sleep(Duration::from_secs(2));

@@ -47,6 +47,10 @@ const PANEL_EVERY: Duration = Duration::from_millis(500);
 const SCREEN_LOOK: Duration = Duration::from_millis(500);
 /// A hidden pointer is hidden again this often: macOS shows it again on its own now and then.
 const CURSOR_AGAIN: Duration = Duration::from_secs(1);
+/// The same, as MacWait.dc.html's grey card under the waiting words.
+fn access_note() -> &'static str {
+    tr("键盘交给手机要在 系统设置 › 隐私与安全性 › 辅助功能 里打开 XDesk", "To give the keyboard to the phone, allow XDesk in System Settings › Privacy & Security › Accessibility")
+}
 fn needs_access() -> &'static str {
     tr("请在 系统设置 → 隐私与安全性 → 辅助功能 里打开 XDesk，键盘才能交给手机", "Allow XDesk in System Settings › Privacy & Security › Accessibility, so the keyboard can go to the phone")
 }
@@ -328,6 +332,7 @@ fn main() -> Result<(), String> {
     let mut cursor_said = Instant::now();
     let words = overlay::Overlay::new();
     let mut shown = (String::new(), String::new());
+    let mut shown_cards: Vec<(String, bool)> = Vec::new();
     let mut notice = net::Notice::default();
     let mut notice_image: Option<Words> = None;
     let mut notice_width = 0u32;
@@ -632,7 +637,20 @@ fn main() -> Result<(), String> {
             dirty = true;
         }
         let current = net::notice();
-        let wanted = if !tap_ready {
+        // MacWait.dc.html: the logo, the title over how to connect, and under them the two notes as cards (the cable
+        // waiting for "allow" in orange, the keyboard's Accessibility switch in grey); not while a toast has the place
+        let waiting_now = !streaming && net::waiting() && net::current_toast().is_empty();
+        let mut cards: Vec<(String, bool)> = Vec::new();
+        if waiting_now {
+            let cable = net::cable_note();
+            if !cable.is_empty() {
+                cards.push((cable, true));
+            }
+            if !tap_ready {
+                cards.push((access_note().to_string(), false));
+            }
+        }
+        let wanted = if !tap_ready && !waiting_now {
             (needs_access().to_string(), String::new())
         } else if streaming {
             (net::current_toast(), String::new())
@@ -641,9 +659,10 @@ fn main() -> Result<(), String> {
             let toast = net::current_toast();
             (if toast.is_empty() { current.line.clone() } else { toast }, current.big.clone())
         };
-        if current != notice || area.0 != notice_width || streaming != was_streaming || wanted != shown {
+        if current != notice || area.0 != notice_width || streaming != was_streaming || wanted != shown || cards != shown_cards {
             notice = current;
             shown = wanted;
+            shown_cards = cards;
             notice_width = area.0;
             was_streaming = streaming;
             dirty = true;
@@ -661,10 +680,8 @@ fn main() -> Result<(), String> {
                 title = format!("{title} — {}{v}", tr("有新版本 ", "update "));
             }
             canvas.window_mut().set_title(&title).map_err(|e| e.to_string())?;
-            // MacWait.dc.html's title over how to connect, but not while a toast has the picture's place
-            let waiting = !streaming && tap_ready && net::waiting() && net::current_toast().is_empty();
-            let image = if waiting {
-                words.waiting(&shown.0, area.0)
+            let image = if waiting_now {
+                words.waiting(&shown.0, &shown_cards, area.0, bar_scale.max(1.0))
             } else {
                 words.render(&shown.0, &shown.1, area.0)
             };
