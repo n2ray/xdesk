@@ -365,8 +365,13 @@
     <string name="xd_section_display">外屏</string>
     <string name="xd_section_about">关于</string>
     <string name="xd_orientation">触控界面方向</string>
-    <string name="xd_dim">闲置时调暗手机屏</string>
-    <string name="xd_dim_note">1 分钟没碰就调暗，外接屏不受影响</string>
+    <string name="xd_dim">自动调暗</string>
+    <string name="xd_dim_note">只在接着外屏时调暗，碰一下恢复</string>
+    <string name="xd_dim_30s">30 秒</string>
+    <string name="xd_dim_1m">1 分钟</string>
+    <string name="xd_dim_5m">5 分钟</string>
+    <string name="xd_dim_10m">10 分钟</string>
+    <string name="xd_dim_now">调暗</string>
     <string name="xd_pad_speed">触摸板灵敏度</string>
     <string name="xd_scroll_speed">双指滚动速度</string>
     <string name="xd_scroll_speed_note">键鼠模式的触摸板和接在手机上的鼠标滚轮；电脑那边来的滚动按电脑自己的设置</string>
@@ -380,7 +385,9 @@
     <string name="xd_translate_modifiers_note">PC 键盘用在 Mac 上：Ctrl 当 ⌘，Alt 当 ⌥。每台 Mac 可以跟随这里，也可以在自己的页面上单独设</string>
     <string name="xd_keys_external">键鼠在外屏</string>
     <string name="xd_keys_phone">键鼠在本机</string>
-    <!-- The button's label; its icon and colour say where they are (xd_keys_external / xd_keys_phone, read aloud) -->
+    <!-- The button's short label; xd_keys_external / xd_keys_phone are read aloud -->
+    <string name="xd_keys_display_short">在外屏</string>
+    <string name="xd_keys_phone_short">在手机</string>
     <string name="xd_keys_short">键鼠</string>
     <string name="xd_mouse_speed">实体鼠标速度</string>
     <string name="xd_mouse_speed_note" formatted="false">所有内容都用；100% 是各自的默认速度</string>

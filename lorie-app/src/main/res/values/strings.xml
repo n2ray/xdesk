@@ -386,8 +386,13 @@
     <string name="xd_section_display">Display</string>
     <string name="xd_section_about">About</string>
     <string name="xd_orientation">Control screen orientation</string>
-    <string name="xd_dim">Dim the phone when idle</string>
-    <string name="xd_dim_note">After 1 minute without a touch. The display is not affected</string>
+    <string name="xd_dim">Dim automatically</string>
+    <string name="xd_dim_note">Only while an external screen is connected. A touch brings it back</string>
+    <string name="xd_dim_30s">30 s</string>
+    <string name="xd_dim_1m">1 min</string>
+    <string name="xd_dim_5m">5 min</string>
+    <string name="xd_dim_10m">10 min</string>
+    <string name="xd_dim_now">Dim</string>
     <string name="xd_pad_speed">Touchpad sensitivity</string>
     <string name="xd_scroll_speed">Two-finger scroll speed</string>
     <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode and a mouse wheel on the phone; scrolling from a computer keeps its own settings</string>
@@ -401,7 +406,9 @@
     <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. Each Mac can follow this or choose its own on its page</string>
     <string name="xd_keys_external">Keys on display</string>
     <string name="xd_keys_phone">Keys on phone</string>
-    <!-- The button's label; its icon and colour say where they are (xd_keys_external / xd_keys_phone, read aloud) -->
+    <!-- The button's short label; xd_keys_external / xd_keys_phone are read aloud -->
+    <string name="xd_keys_display_short">Display</string>
+    <string name="xd_keys_phone_short">Phone</string>
     <string name="xd_keys_short">Input</string>
     <string name="xd_mouse_speed">Physical mouse speed</string>
     <string name="xd_mouse_speed_note" formatted="false">For everything on the screen; 100% is the usual speed</string>

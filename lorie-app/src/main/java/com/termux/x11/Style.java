@@ -23,16 +23,24 @@ final class Style {
     static final int BACKGROUND = 0xFF0B0D10;
     static final int SURFACE = 0xFF15181D;
     static final int SURFACE_RAISED = 0xFF21252C;
+    static final int LINE = 0xFF242931;
     static final int RIPPLE = 0x33FFFFFF;
     static final int TEXT = 0xFFE8ECF1;
     static final int TEXT_DIM = 0xFF8D97A3;
+    static final int FAINT = 0xFF5C6470;
     static final int ACCENT = 0xFF3D7EF5;
+    static final int ACCENT_2 = 0xFF7FABFA;
+    static final int ACCENT_SOFT = 0x293D7EF5;
     static final int OK = 0xFF3FCF7F;
-    static final int WARN = 0xFFF2B33D;
+    static final int WARN = 0xFFF0883E;
     static final int DANGER = 0xFFE5534B;
+    /** The external shell and its dialogs: see xd.css. */
+    static final int SHELL = 0xE011141A, SHELL_LINE = 0x14FFFFFF, SCRIM = 0x9E050608;
+    /** Device marks: a Mac and a Linux program. */
+    static final int MAC = 0xFF8DB8FF, LINUX = 0xFF3FCF7F;
     /**
      * 可以再来一次的停止：断开 Mac、停止 Linux 桌面、停止内置服务、停止投屏。黄色字，不加底色（用户 2026-11-19：
-     * 停止和断开用黄字，只有移除才加底色）。比权限卡的琥珀色 WARN 更亮更黄，两者一眼分得开；黄底按钮上用深色字。
+     * 停止和断开用黄字，只有移除才加底色）。比权限卡的橙色 WARN 更亮更黄，两者一眼分得开；黄底按钮上用深色字。
      */
     static final int STOP = 0xFFFFDD55;
     /** 黄色按钮上的字：深色，同权限卡琥珀按钮的字。 */
@@ -78,6 +86,16 @@ final class Style {
 
     static Drawable ripple(Context c, int color, float radiusDp) {
         GradientDrawable shape = rounded(c, color, radiusDp);
+        return new RippleDrawable(ColorStateList.valueOf(RIPPLE), shape, rounded(c, Color.WHITE, radiusDp));
+    }
+
+    /**
+     * A button that can be on: the on state is an accent-soft fill with a 1dp accent border, the off state its normal
+     * colour. The state is shown by the look alone, never by "on"/"off" in the label.
+     */
+    static Drawable toggle(Context c, boolean on, int offColor, float radiusDp) {
+        GradientDrawable shape = rounded(c, on ? ACCENT_SOFT : offColor, radiusDp);
+        if (on) shape.setStroke(dp(c, 1), ACCENT);
         return new RippleDrawable(ColorStateList.valueOf(RIPPLE), shape, rounded(c, Color.WHITE, radiusDp));
     }
 
@@ -171,10 +189,8 @@ final class Style {
             setHapticFeedbackEnabled(true);
             setMinimumHeight(dp(c, TARGET));
             setMinimumWidth(dp(c, TARGET));
-            setBackground(ripple(c, color, RADIUS));
             icon = new ImageView(c);
             icon.setImageResource(iconId);
-            icon.setColorFilter(TEXT);
             int size = dp(c, 22);
             addView(icon, new LayoutParams(size, size));
             text = new TextView(c);
@@ -186,6 +202,7 @@ final class Style {
             addView(text, new LayoutParams(-2, -2));
             setLabel(label);
             setContentDescription(label);
+            setActive(false);
         }
 
         void setLabel(String label) {
@@ -197,9 +214,11 @@ final class Style {
             icon.setImageResource(iconId);
         }
 
-        /** 强调色表示开着，比如接管了键鼠。 */
+        /** On, such as the keys taken by the display: accent-soft with a border, off its usual surface. */
         void setActive(boolean on) {
-            setBackground(ripple(getContext(), on ? ACCENT : color, RADIUS));
+            setBackground(toggle(getContext(), on, color, RADIUS));
+            icon.setColorFilter(on ? ACCENT_2 : TEXT);
+            text.setTextColor(on ? ACCENT_2 : TEXT);
         }
 
         void onTap(final Runnable action) {

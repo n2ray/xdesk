@@ -308,7 +308,7 @@ final class ChooserView extends LinearLayout {
     void setKeys(String said, boolean onDisplay) {
         keys.setVisibility(said != null ? VISIBLE : GONE);
         if (said == null) return;
-        keys.setLabel(getContext().getString(R.string.xd_keys_short));
+        keys.setLabel(getContext().getString(onDisplay ? R.string.xd_keys_display_short : R.string.xd_keys_phone_short));
         keys.setIcon(onDisplay ? R.drawable.xd_ic_keys_external : R.drawable.xd_ic_keys_phone);
         keys.setContentDescription(said);
         keys.setActive(onDisplay);
