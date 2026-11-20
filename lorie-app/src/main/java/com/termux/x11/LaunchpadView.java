@@ -79,7 +79,7 @@ final class LaunchpadView extends LinearLayout {
     private final FrameLayout gridBox;
     private final Pager grid;
     private final LinearLayout footer;
-    private Style.IconButton outputBtn, keysBtn;
+    private Style.IconButton outputBtn, keysBtn, settingsBtn;
     private final List<Style.IconButton> barButtons = new ArrayList<>();
 
     /** The model's items of the phone's tab (or its search): the tiles, over all pages. */
@@ -91,6 +91,8 @@ final class LaunchpadView extends LinearLayout {
     private String empty;
     /** A line about the screen or the shell, above the grid (the list's notice). */
     private String notice;
+    /** What tapping the notice does (the no-display line opens the receiver picker, as the list's banner does). */
+    private Runnable noticeAction;
 
     private int rows = -1, page;
     private String tabsShown = "", barShown = "", shownTab, shownQuery;
@@ -309,6 +311,7 @@ final class LaunchpadView extends LinearLayout {
         barButtons.add(b);
         if (at == 2) keysBtn = b;          // whose the physical keyboard and mouse are
         else if (at == 3) outputBtn = b;   // its label says where the sound goes (setOutputLabel)
+        else if (at == 5) settingsBtn = b; // the last button; its red dot is a missing required permission
     }
 
     private int dp(float v) {
@@ -355,10 +358,30 @@ final class LaunchpadView extends LinearLayout {
         statusDot.setBackground(Style.dot(color));
     }
 
+    /** The line's tap (the injector-loss page), or null when it is only words. */
+    void setStatusAction(Runnable action) {
+        statusRow.setClickable(action != null);
+        statusRow.setOnClickListener(action == null ? null : v -> {
+            Style.tick(v);
+            action.run();
+        });
+    }
+
+    /** PermExpired's red dot on the settings button while a required permission is off. */
+    void setSettingsBadge(boolean on) {
+        if (settingsBtn != null) settingsBtn.setBadge(on);
+    }
+
     /** A line above the grid: no display, a shell problem, the desktop ended. Null takes it away. */
     void setNotice(String text) {
+        setNotice(text, null);
+    }
+
+    /** The same, with what a tap does (the no-display line opens the receiver picker). */
+    void setNotice(String text, Runnable action) {
         if (text != null ? text.equals(notice) : notice == null) return;
         notice = text;
+        noticeAction = action;
         showNotes();
     }
 
@@ -556,7 +579,8 @@ final class LaunchpadView extends LinearLayout {
         notes.removeAllViews();
         boolean any = false;
         if (notice != null) {
-            notes.addView(noteLine(notice, null, Style.WARN));
+            // The no-display line opens the receiver picker here too, as the console list's banner does
+            notes.addView(noteLine(notice, noticeAction, noticeAction != null ? Style.ACCENT : Style.WARN));
             any = true;
         }
         for (Switchboard.Item it : noteItems) {

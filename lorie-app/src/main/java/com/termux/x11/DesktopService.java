@@ -7,17 +7,21 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.os.IBinder;
 import android.os.PowerManager;
 import com.termux.x11.app.R;
 
 /** 前台服务：切到别的 App 或界面被回收时，保住进程里的 DesktopSession。 */
 public class DesktopService extends Service {
-    /** Also the channel the lost-permission reminder posts on (Permissions): one channel for XDesk's own notices. */
+    /** The running notification's channel. The lost-permission reminder has its own (Permissions.CHANNEL). */
     static final String CHANNEL = "desktop";
     private static final int NOTIFICATION = 1;
     /** 通知的标题，不给就是桌面。 */
     static final String EXTRA_TITLE = "title";
+    /** PhoneNotify.dc.html's two actions: the Launchpad on the display, and the way to end XDesk. */
+    static final String EXTRA_LAUNCHPAD = "launchpad", EXTRA_END = "end";
+    private static final int REQUEST_LAUNCHPAD = 10, REQUEST_END = 11;
     private static final Object WAKE_GUARD = new Object();
     private static PowerManager.WakeLock wakeLock;
     private static boolean ending, running;
@@ -67,12 +71,28 @@ public class DesktopService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0,
             new Intent(this, XDeskActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE);
+        // PhoneNotify.dc.html: the two actions go through the activity's existing paths (showSwitcher, End XDesk)
+        PendingIntent launchpad = PendingIntent.getActivity(this, REQUEST_LAUNCHPAD,
+            new Intent(this, XDeskActivity.class)
+                .setAction("com.termux.x11.action.LAUNCHPAD")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra(EXTRA_LAUNCHPAD, true),
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent end = PendingIntent.getActivity(this, REQUEST_END,
+            new Intent(this, XDeskActivity.class)
+                .setAction("com.termux.x11.action.END")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra(EXTRA_END, true),
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Icon actionIcon = Icon.createWithResource(this, R.drawable.xdesk_ic_mono);
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         Notification n = new Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
             .setContentTitle(title != null ? title : getString(R.string.xd_service_title))
             .setContentText(getString(R.string.xd_service_text))
             .setContentIntent(open)
+            .addAction(new Notification.Action.Builder(actionIcon, getString(R.string.xd_switcher_short), launchpad).build())
+            .addAction(new Notification.Action.Builder(actionIcon, getString(R.string.xd_end_xdesk), end).build())
             .setOngoing(true)
             .build();
         startForeground(NOTIFICATION, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -136,6 +137,8 @@ public class XDeskActivity extends Activity {
     private InputManager inputs;
     private InputMethodManager ime;
     private SharedPreferences prefs;
+    /** The prefs file held a key from before 0.7.0 when this window opened (read before the first 0.7.0 write). */
+    private boolean oldPrefsAtStart;
 
     private FrameLayout screens;
     private ExternalCover cover;
@@ -182,6 +185,8 @@ public class XDeskActivity extends Activity {
     private boolean launchpadPage;
     /** The line above the launchers (a warning, no display): the grid is rebuilt on a turn and says it again. */
     private String launcherNotice;
+    /** What tapping the launcher's line does (the no-display line opens the receiver picker). */
+    private Runnable launcherNoticeAction;
     /** 启动器上的提示现在是 NO_DISPLAY。 */
     private boolean displayNoticeShown;
     private AppSession apps;
@@ -1492,6 +1497,13 @@ public class XDeskActivity extends Activity {
     private View dimHint;
     private int dimMoves;
     private static final long DIM_MOVE_MS = 60_000;
+    /** Dimmed.dc.html: the hint shows for a few seconds after dimming, and after each move (the screen stays dim). */
+    private static final long DIM_HINT_MS = 4_000;
+    private final Runnable dimHintHide = new Runnable() {
+        @Override public void run() {
+            if (dimmed && dimHint != null) dimHint.setVisibility(View.GONE);
+        }
+    };
     private final Runnable dimMove = new Runnable() {
         @Override public void run() {
             if (!dimmed || dimHint == null) return;
@@ -1500,9 +1512,17 @@ public class XDeskActivity extends Activity {
             int[] at = steps[dimMoves++ % steps.length];
             dimHint.setTranslationX(dp(at[0]));
             dimHint.setTranslationY(dp(at[1]));
+            showDimHint();
             ui.postDelayed(this, DIM_MOVE_MS);
         }
     };
+
+    private void showDimHint() {
+        if (dimHint == null) return;
+        dimHint.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(dimHintHide);
+        ui.postDelayed(dimHintHide, DIM_HINT_MS);
+    }
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -1531,6 +1551,8 @@ public class XDeskActivity extends Activity {
         ime = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         cover = new ExternalCover(this);
         prefs = getPreferences(MODE_PRIVATE);
+        // Read before the 0.7.0 migrations and first writes: these were here before this version
+        oldPrefsAtStart = hasPrefsFromBefore070();
         migrateDimPref();
         // The Launchpad mode's home is the grid, also when a session is already running at start
         launchpadPage = launchpadMode();
@@ -1582,6 +1604,8 @@ public class XDeskActivity extends Activity {
         inputs.registerInputDeviceListener(deviceListener, ui);
         tryStart();
         ensureDashboard();
+        // Started from the running notification's action: the Launchpad, or the end (all fields are up by now)
+        if (handleServiceIntent(getIntent())) return;
         // A recreation replays the old intent; its link was already offered once
         if (b == null) handlePairingLink(getIntent());
         ui.post(this::maybeShowPermissionOnboard);
@@ -1589,8 +1613,31 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        handlePairingLink(intent);
+        if (!handleServiceIntent(intent)) handlePairingLink(intent);
         setIntent(intent);
+    }
+
+    /**
+     * The running notification's actions (PhoneNotify.dc.html): the Launchpad on the display, or the existing end.
+     * @return true when the activity ended and must do nothing more
+     */
+    private boolean handleServiceIntent(Intent intent) {
+        if (intent == null) return false;
+        if (intent.getBooleanExtra(DesktopService.EXTRA_END, false)) {
+            intent.removeExtra(DesktopService.EXTRA_END);
+            // confirmEndXDesk's work, without a question: the action already said what it does
+            releaseLatches();
+            client = null;
+            router.cancelAll();
+            DesktopService.endAll(this);
+            finishAndRemoveTask();
+            return true;
+        }
+        if (intent.getBooleanExtra(DesktopService.EXTRA_LAUNCHPAD, false)) {
+            intent.removeExtra(DesktopService.EXTRA_LAUNCHPAD);
+            ui.post(() -> showSwitcher(false));  // the Dock's All / the Launchpad action
+        }
+        return false;
     }
 
     /** A tapped sill://pair link (a camera app read its QR code): confirm the Mac and pair, on the phone. */
@@ -1616,11 +1663,11 @@ public class XDeskActivity extends Activity {
         ui.postDelayed(PermitCard::recheck, 1500);
         ui.postDelayed(PermitCard::recheck, 4500);
         // The permission pages say what is true now; a lost required permission is told once, after the injector had
-        // its moment to come back (the delayed checks)
+        // its moment to come back (the delayed checks judge it, not the immediate one)
         refreshPermissionPages();
-        ui.post(this::checkPermissionAlerts);
-        ui.postDelayed(this::checkPermissionAlerts, 2500);
-        ui.postDelayed(this::checkPermissionAlerts, 5000);
+        ui.post(() -> checkPermissionAlerts(false));
+        ui.postDelayed(() -> checkPermissionAlerts(false), 2500);
+        ui.postDelayed(() -> checkPermissionAlerts(true), 5000);
         // Back on this window, perhaps from a terminal where the X side's input method was set up or stopped
         if (session.isActive()) ui.post(syncTermux);
         ensureDashboard();
@@ -1797,9 +1844,15 @@ public class XDeskActivity extends Activity {
 
     /** A line on every launcher (the list's notice, and the Launchpad grid's line above it). */
     private void setLauncherNotice(String text) {
+        setLauncherNotice(text, null);
+    }
+
+    /** The same, with what a tap does (the no-display line opens the receiver picker on both launchers). */
+    private void setLauncherNotice(String text, Runnable action) {
         launcherNotice = text;
+        launcherNoticeAction = text != null ? action : null;
         if (chooser != null) chooser.setNotice(text);
-        if (launchpad != null) launchpad.setNotice(text);
+        if (launchpad != null) launchpad.setNotice(text, launcherNoticeAction);
     }
 
     /**
@@ -2455,7 +2508,7 @@ public class XDeskActivity extends Activity {
         screens.removeView(launchpad);
         launchpad = new LaunchpadView(this, launchpadHost);
         launchpad.setVisibility(shown ? View.VISIBLE : View.GONE);
-        launchpad.setNotice(launcherNotice);
+        launchpad.setNotice(launcherNotice, launcherNoticeAction);
         screens.addView(launchpad, at, new FrameLayout.LayoutParams(-1, -1));
         updateChooserTop();
         updateAudioChip();
@@ -2725,6 +2778,7 @@ public class XDeskActivity extends Activity {
 
     private void setStatus(int color, String s) {
         Log.i(TAG, s);
+        setStatusAction(null);
         // The Launchpad grid's top line is the same line; there it stays while the page does (it is the home)
         if (launchpad != null) launchpad.setStatus(color, s);
         statusText.setText(s);
@@ -2737,6 +2791,18 @@ public class XDeskActivity extends Activity {
         d.setShape(GradientDrawable.OVAL);
         d.setColor(color);
         statusDot.setBackground(d);
+    }
+
+    /** The status line as a way in (the injector-loss page), or only words again. */
+    private void setStatusAction(Runnable action) {
+        if (statusText != null) {
+            statusText.setClickable(action != null);
+            statusText.setOnClickListener(action == null ? null : v -> {
+                Style.tick(v);
+                action.run();
+            });
+        }
+        if (launchpad != null) launchpad.setStatusAction(action);
     }
 
     /** 接管在两种模式下都有：应用模式抓实体键鼠，桌面模式把键盘焦点和输入法放到外接屏上。 */
@@ -2826,6 +2892,8 @@ public class XDeskActivity extends Activity {
             setStatus(Style.WARN, getString(R.string.xd_status_no_app));
         } else if (!apps.hasInjector()) {
             setStatus(Style.DANGER, getString(apps.usesShell() ? R.string.xd_status_injector_gone_shell : R.string.xd_status_injector_gone_shizuku));
+            // ConnectFail.dc.html: the red line opens the way to fix it, then comes back to the touchpad
+            setStatusAction(this::showInjectorLoss);
         } else if (!apps.hasDisplay()) {
             setStatus(Style.WARN, getString(R.string.xd_status_display_gone_app, apps.label()));
         } else if (wireless.reconnecting()) {
@@ -2845,6 +2913,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void updateStatus() {
+        updatePermissionBadges();
         if (wireless != null) {
             wireless.setDesktopShown(session.isConnected() && !apps.isActive());
             // The desktop content's cursor is in the picture: a Mac, the switchboard's arrow, the driven Dock's
@@ -3101,14 +3170,18 @@ public class XDeskActivity extends Activity {
         WindowManager.LayoutParams p = getWindow().getAttributes();
         p.screenBrightness = d ? DIM_BRIGHTNESS : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         getWindow().setAttributes(p);
-        // Dimmed.dc.html's hint: only while dimmed; it moves every minute so nothing burns in
+        // Dimmed.dc.html's hint: a few seconds after dimming then gone (still dimmed); it moves every minute so
+        // nothing burns in, and says its piece again after each move
         ui.removeCallbacks(dimMove);
+        ui.removeCallbacks(dimHintHide);
         if (dimHint != null) {
-            dimHint.setVisibility(d ? View.VISIBLE : View.GONE);
             if (d) {
                 dimHint.setTranslationX(0);
                 dimHint.setTranslationY(0);
+                showDimHint();
                 ui.postDelayed(dimMove, DIM_MOVE_MS);
+            } else {
+                dimHint.setVisibility(View.GONE);
             }
         }
     }
@@ -3733,6 +3806,7 @@ public class XDeskActivity extends Activity {
 
     /** The pages above stay in step with the system: XDesk came back, or the system's ask was answered. */
     private void refreshPermissionPages() {
+        updatePermissionBadges();
         if (permDetail != null && permDetail.isShowing()) {
             Permissions.Item item = permDetailItem;
             // The centre behind it is stale too; built first so the rebuilt detail stays on top
@@ -3773,6 +3847,14 @@ public class XDeskActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
         boolean seen = prefs.getBoolean(PREF_PERM_ONBOARD_SEEN, false);
         boolean done = prefs.getBoolean(PREF_PERM_ONBOARD_DONE, false);
+        // An install that was here before 0.7.0 (updated, or with settings from those versions) is an existing
+        // user: the checklist never comes up by itself for them, whatever their permissions are now. This also
+        // covers a Shizuku user whose Shizuku has not started yet: nothing looks missing on their first 0.7.0 run.
+        if (!done && (installWasUpdated() || (!seen && oldPrefsAtStart))) {
+            prefs.edit().putBoolean(PREF_PERM_ONBOARD_SEEN, true)
+                .putBoolean(PREF_PERM_ONBOARD_DONE, true).apply();
+            return;
+        }
         // A paired injector counts as set up even while its server is still starting: an updating user must not be
         // taken for a first start just because onCreate ran before the wireless-debugging server came back
         boolean injector = Permissions.INJECTOR.granted(this) || apps.shell().isPaired();
@@ -3788,6 +3870,29 @@ public class XDeskActivity extends Activity {
         } else if (!done && !requiredOn) {
             showPermissionOnboard();
         }
+    }
+
+    /** The APK was installed over an older one: lastUpdateTime is firstInstallTime only for a fresh install. */
+    private boolean installWasUpdated() {
+        try {
+            PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return p.lastUpdateTime > p.firstInstallTime;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The prefs file held a key from before 0.7.0. The 0.7.0-only keys are its first-start state, the phone
+     * interface and the dim choice (a 0.6.6 dim_idle is migrated to it by onCreate, hence the read before that).
+     */
+    private boolean hasPrefsFromBefore070() {
+        for (String key : prefs.getAll().keySet()) {
+            if (key.equals(PREF_PERM_ONBOARD_SEEN) || key.equals(PREF_PERM_ONBOARD_DONE)
+                || key.equals(PREF_PHONE_UI) || key.equals(PREF_DIM)) continue;
+            return true;
+        }
+        return false;
     }
 
     private void showPermissionOnboard() {
@@ -3912,18 +4017,27 @@ public class XDeskActivity extends Activity {
 
     /**
      * Once per app start for each required permission: the mockup's orange bar at the top, a notification, and a
-     * button that opens the item. The delayed calls give the injector its moment to come back after a reboot.
+     * button that opens the item. The delayed calls give the injector its moment to come back after a reboot; the
+     * bar itself is rebuilt from every reminded item still off, so it survives the window being recreated.
      */
-    private void checkPermissionAlerts() {
+    private void checkPermissionAlerts(boolean judgeInjector) {
         if (screens == null || isFinishing() || isDestroyed()) return;
-        java.util.List<Permissions.Item> lost = Permissions.lost(this);
-        if (!lost.isEmpty()) {
-            Permissions.notifyLost(this, lost);
-            permAlerts.addAll(lost);
-        }
-        for (int i = permAlerts.size() - 1; i >= 0; i--) if (permAlerts.get(i).granted(this)) permAlerts.remove(i);
+        java.util.List<Permissions.Item> lost = Permissions.lost(this, judgeInjector);
+        java.util.List<Permissions.Item> stillOff = Permissions.remindedOff(this);
+        // A new loss posts the notification, once per item per process; it lists every reminded item still off
+        if (!lost.isEmpty()) Permissions.notifyLost(this, stillOff);
+        permAlerts.clear();
+        permAlerts.addAll(stillOff);
         if (permAlerts.isEmpty()) Permissions.cancelLost(this);
         showPermissionBanner();
+        updatePermissionBadges();
+    }
+
+    /** PermExpired.dc.html's red dot: the console's settings button and the Launchpad bar's, while required is off. */
+    private void updatePermissionBadges() {
+        boolean off = Permissions.requiredOff(this);
+        if (settingsBtn != null) settingsBtn.setBadge(off);
+        if (launchpad != null) launchpad.setSettingsBadge(off);
     }
 
     private void showPermissionBanner() {
@@ -5078,8 +5192,9 @@ public class XDeskActivity extends Activity {
         if (padFullscreen) setFullscreenWanted(false);
         else if (launchpadMode()) {
             // Back from the touchpad page goes to the Launchpad grid (LaunchpadTouchpad*.dc.html); from the grid,
-            // the phone's home, it leaves the app as usual
-            if (launchpadPage && !launcherShown() && setupScreen.getVisibility() != View.VISIBLE) showLaunchpad();
+            // the phone's home, it leaves the app as usual. The touchpad page is not launchpadPage: showRunning()
+            // clears that, so what says "the grid is not the page now" is launcherShown() alone.
+            if (!launcherShown() && setupScreen.getVisibility() != View.VISIBLE) showLaunchpad();
             else super.onBackPressed();
         }
         else if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
@@ -5618,7 +5733,8 @@ public class XDeskActivity extends Activity {
             if (apps.isActive() || session.isActive()) openChooserOverSession();
             else showChooser();
         }
-        setLauncherNotice(getString(NO_DISPLAY));
+        // The console's banner and the Launchpad's line open the receiver picker (NoDisplay.dc.html)
+        setLauncherNotice(getString(NO_DISPLAY), this::showWirelessPicker);
         displayNoticeShown = true;
     }
 
@@ -6550,6 +6666,32 @@ public class XDeskActivity extends Activity {
         awaitingRunCommand = AWAIT_DESKTOP;  // allowed on the details page: the desktop starts when XDesk is back
         showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
             getString(R.string.xd_permit_run_command_denied_path), getString(R.string.xd_permit_details), v -> openAppDetails());
+    }
+
+    /**
+     * ConnectFail.dc.html's injector page, while an Android app is on the display and the injector is gone: the red
+     * status line opens it. Separate from the Linux desktop's page (showConnectFailure): this one is about the
+     * injector, and its Retry is the existing activation/reconnect flow.
+     */
+    private void showInjectorLoss() {
+        showSetup(getString(R.string.xd_injector_lost_title), getString(R.string.xd_injector_lost_line), false,
+            getString(R.string.xd_act_open_wireless), new View.OnClickListener() {
+                @Override public void onClick(View v) { openWirelessSettings(); }
+            });
+        setupBrand.setVisibility(View.GONE);
+        setupIconBox.setVisibility(View.VISIBLE);
+        setupMessage.setTextColor(Style.TEXT_SOFT);
+        setupMessage.setTextSize(14);
+        setupNote2.setText(getString(R.string.xd_injector_lost_note));
+        setupNote2.setVisibility(View.VISIBLE);
+        addSetupChoice(getString(R.string.xd_retry), new View.OnClickListener() {
+            @Override public void onClick(View v) { openInjectorFlow(); }
+        });
+        stretchSetup();
+        // The quiet way back at the bottom, centred and without a fill, as the mockup draws it
+        setupBack.setLayoutParams(stretchable(dp(44), dp(12), -2));
+        setupBack.setTextColor(Style.ACCENT_2);
+        setupBack.setBackground(Style.ripple(this, 0x00000000, 12));
     }
 
     private void showConnectFailure() {

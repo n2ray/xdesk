@@ -68,10 +68,15 @@
     <string name="xd_perm_onboard_intro">Turn these three on and you are ready. The rest are asked for when used.</string>
     <string name="xd_perm_onboard_skip">Go in; turn them on later in Settings › Permissions</string>
     <string name="xd_perm_reminder_fix">Fix ›</string>
+    <string name="xd_perm_channel">Permission reminders</string>
     <string name="xd_perm_lost_notification">Permission needs attention</string>
     <string name="xd_perm_lost_many">%1$d permissions need attention</string>
     <string name="xd_perm_lost_injector">The injector went away; the keys and mouse do not reach Android apps</string>
     <string name="xd_perm_lost_overlay">Display over other apps is off; the cursor and privacy cover on the external screen cannot show</string>
+    <!-- ConnectFail.dc.html: the injector went away while an Android app is on the display -->
+    <string name="xd_injector_lost_title">The injector disconnected</string>
+    <string name="xd_injector_lost_line">The keys and mouse for Android apps go through it. Turn on wireless debugging and come back to XDesk; it reconnects by itself.</string>
+    <string name="xd_injector_lost_note">The app keeps running on the external screen; it just cannot be used for now.</string>
     <string name="xd_perm_copied">Command copied</string>
     <string name="xd_perm_no_page">This phone has no settings page for it</string>
     <string name="xd_perm_run_sheet_default">the Linux desktop</string>

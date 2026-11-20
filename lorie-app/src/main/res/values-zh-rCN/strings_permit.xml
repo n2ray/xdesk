@@ -68,10 +68,15 @@
     <string name="xd_perm_onboard_intro">开这三项就能用。其他的用到时再问。</string>
     <string name="xd_perm_onboard_skip">先进去，之后在 设置 › 权限 里开</string>
     <string name="xd_perm_reminder_fix">处理 ›</string>
+    <string name="xd_perm_channel">权限提醒</string>
     <string name="xd_perm_lost_notification">权限需要处理</string>
     <string name="xd_perm_lost_many">%1$d 项权限需要处理</string>
     <string name="xd_perm_lost_injector">注入服务断开了，安卓应用的键鼠用不了</string>
     <string name="xd_perm_lost_overlay">「显示在其他应用上层」被关掉了，外屏的光标和隐私遮罩用不了</string>
+    <!-- ConnectFail.dc.html：安卓应用在外屏上时注入服务断开了 -->
+    <string name="xd_injector_lost_title">注入服务断开了</string>
+    <string name="xd_injector_lost_line">安卓应用的键鼠要靠它。打开无线调试后回到 XDesk，它会自己连上。</string>
+    <string name="xd_injector_lost_note">应用还在外屏上运行，只是暂时不能操作。</string>
     <string name="xd_perm_copied">命令已复制</string>
     <string name="xd_perm_no_page">这台手机上没有这个设置页</string>
     <string name="xd_perm_run_sheet_default">Linux 桌面</string>

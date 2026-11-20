@@ -362,7 +362,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         t.setTextColor(color);
         t.setGravity(Gravity.CENTER);
         t.setIncludeFontPadding(false);
-        t.setCompoundDrawables(null, icon, null, null);
+        // A drawable in a compound slot is not measured: without bounds Chrome.Icon.draw returns at once (no icon)
+        icon.setBounds(0, 0, icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
+        t.setCompoundDrawablesWithIntrinsicBounds(null, icon, null, null);
         t.setCompoundDrawablePadding(dp(4));
         t.setMinWidth(dp(76));
         t.setMinHeight(dp(58));
@@ -900,7 +902,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         control.setTouchpad(pad);
         modeTool.setText(pad ? R.string.bar_touchpad : R.string.bar_direct);
         modeIcon.setIcon(pad ? Chrome.COMPUTER : Chrome.TABLET);
-        modeTool.setCompoundDrawables(null, modeIcon, null, null);
+        // Intrinsic bounds on every switch: a compound drawable with empty bounds draws nothing
+        modeTool.setCompoundDrawablesWithIntrinsicBounds(null, modeIcon, null, null);
     }
 
     /** Overview and Switcher in the handle only for a phone that said FEATURES bit 0. */
@@ -1036,7 +1039,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         row.setClickable(true);
         row.setOnClickListener(click);
         ImageView mark = new ImageView(this);
-        mark.setImageDrawable(new Chrome.Icon(this, icon, color));
+        Chrome.Icon markIcon = new Chrome.Icon(this, icon, color);
+        markIcon.setBounds(0, 0, markIcon.getIntrinsicWidth(), markIcon.getIntrinsicHeight());
+        mark.setImageDrawable(markIcon);
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(20), dp(20));
         markParams.rightMargin = dp(14);
         row.addView(mark, markParams);

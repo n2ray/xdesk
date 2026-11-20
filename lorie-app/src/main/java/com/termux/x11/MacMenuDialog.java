@@ -1,7 +1,9 @@
 package com.termux.x11;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -33,7 +35,10 @@ import java.util.List;
 final class MacMenuDialog {
     private static AlertDialog shown;
     private static MacClient client;
+    /** The application context: strings, toasts and the listener may outlive this window. */
     private static Context context;
+    /** The activity whose window the dialog is on: an application context has no window token (BadTokenException). */
+    private static Activity activity;
     private static long pendingToken;
     /** After a press the dialog is gone: its answer is still heard (a refusal is said), then the listener goes. */
     private static boolean waitingPress;
@@ -65,11 +70,29 @@ final class MacMenuDialog {
 
     private MacMenuDialog() { }
 
+    /** The activity inside a context (ItemCard's is the phone's activity): null when there is none. */
+    private static Activity activityOf(Context c) {
+        Context cur = c;
+        while (cur != null) {
+            if (cur instanceof Activity) return (Activity) cur;
+            if (!(cur instanceof ContextWrapper)) return null;
+            cur = ((ContextWrapper) cur).getBaseContext();
+        }
+        return null;
+    }
+
     static void show(Context c, String macId) {
+        Activity a = activityOf(c);
+        context = c.getApplicationContext();
+        if (a == null) {
+            // A dialog needs an activity's window token: without one, say so on the phone instead
+            Toast.makeText(context, context.getString(R.string.xd_mac_menu_unavailable), Toast.LENGTH_SHORT).show();
+            return;
+        }
         MacClient m = MacClients.get(c, macId);
         if (m == null) return;
+        activity = a;
         client = m;
-        context = c.getApplicationContext();
         pendingToken = 0;
         waitingPress = false;
         m.addMenuListener(listener);
@@ -79,7 +102,7 @@ final class MacMenuDialog {
         if (top.version == null) {
             // Not connected, or the top level has not come: the listener shows it when it does
             waitingTop = true;
-            message(c.getString(R.string.xd_mac_menu_loading), null);
+            message(context.getString(R.string.xd_mac_menu_loading), null);
             return;
         }
         topLevel(top);
@@ -96,15 +119,16 @@ final class MacMenuDialog {
     }
 
     private static void rows(List<List<MacMenuState.Row>> sections, String title, Runnable back) {
+        if (activity == null) return;  // the window is gone; nothing to show a dialog on
         if (shown != null) {
             try {
                 shown.dismiss();
             } catch (RuntimeException ignored) { }
             shown = null;
         }
-        AlertDialog.Builder b = new AlertDialog.Builder(context);
+        AlertDialog.Builder b = new AlertDialog.Builder(activity);
         b.setTitle(title);
-        b.setAdapter(new Adapter(context, MacMenuState.flat(MacMenuState.Content.sections(sections, 0))),
+        b.setAdapter(new Adapter(activity, MacMenuState.flat(MacMenuState.Content.sections(sections, 0))),
             (d, which) -> picked(which));
         if (back != null) b.setNegativeButton(R.string.xd_mac_menu_back, (d, w) -> back.run());
         shown = b.create();
@@ -135,6 +159,8 @@ final class MacMenuDialog {
         waitingPress = true;
         shown.dismiss();  // the item was pressed: the dialog goes (as the bar does)
         shown = null;
+        // Nothing more is drawn for this press: the answer is a toast at most
+        activity = null;
         if (sent != null && sent.refusal != null) {
             waitingPress = false;
             removeListener();
@@ -162,6 +188,7 @@ final class MacMenuDialog {
     }
 
     private static void removeListener() {
+        activity = null;
         if (client != null) {
             client.removeMenuListener(listener);
             client = null;

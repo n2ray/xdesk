@@ -39,6 +39,8 @@ final class Permissions {
     private static final Set<String> reminded = new HashSet<>();
     /** One reminder notification: a later one replaces it instead of piling up. */
     private static final int REMINDER_ID = 700;
+    /** The reminder's own channel, so its importance is not the running notification's (DesktopService.CHANNEL). */
+    static final String CHANNEL = "perm";
 
     /** One permission: its words and one way to test it. */
     static final class Item {
@@ -227,8 +229,11 @@ final class Permissions {
      * Required permissions that were on and are off now: found once per item per process (the user asked not to be
      * told more than once per app start), and every time they are on, the remembered state is refreshed. The injector
      * is not called lost while its server is starting or pairing: that is a wait, not a loss.
+     *
+     * @param judgeInjector false on the checks right after coming back: the injector gets time to come back (the
+     *     5-second check judges it). Shizuku users whose binder has not arrived yet are waiting, not lost.
      */
-    static List<Item> lost(Context c) {
+    static List<Item> lost(Context c, boolean judgeInjector) {
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         List<Item> out = new ArrayList<>();
         for (Item i : ALL) {
@@ -240,8 +245,10 @@ final class Permissions {
             }
             if (!p.getBoolean(WAS_ON + i.id, false) || reminded.contains(i.id)) continue;
             if (i == INJECTOR) {
+                if (!judgeInjector) continue;
                 ShellActivation shell = AppSession.get(c).shell();
                 if (shell.isStarting() || shell.isPairing() || shell.isStoppedByUser()) continue;
+                if (AppSession.get(c).shizukuArriving()) continue;
             }
             reminded.add(i.id);
             out.add(i);
@@ -249,14 +256,35 @@ final class Permissions {
         return out;
     }
 
-    /** The notification the mockup draws for a lost permission; the existing desktop channel is reused. */
+    /**
+     * The required items reminded in this process that are still off: the phone's orange bar shows all of them, also
+     * after the window is rebuilt. Only the notification is once per process.
+     */
+    static List<Item> remindedOff(Context c) {
+        List<Item> out = new ArrayList<>();
+        for (Item i : ALL) {
+            if (i.level != Level.REQUIRED || !i.visible(c)) continue;
+            if (reminded.contains(i.id) && i.state(c) == State.OFF) out.add(i);
+        }
+        return out;
+    }
+
+    /** A required permission that is off: the settings button's red dot (PermExpired.dc.html). */
+    static boolean requiredOff(Context c) {
+        for (Item i : ALL) {
+            if (i.level == Level.REQUIRED && i.visible(c) && i.state(c) == State.OFF) return true;
+        }
+        return false;
+    }
+
+    /** The notification the mockup draws for a lost permission, on its own "perm" channel. */
     static void notifyLost(Context c, List<Item> items) {
         if (items.isEmpty()) return;
         try {
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (nm == null) return;
-            nm.createNotificationChannel(new NotificationChannel(DesktopService.CHANNEL,
-                c.getString(R.string.xd_service_channel), NotificationManager.IMPORTANCE_DEFAULT));
+            nm.createNotificationChannel(new NotificationChannel(CHANNEL,
+                c.getString(R.string.xd_perm_channel), NotificationManager.IMPORTANCE_DEFAULT));
             StringBuilder text = new StringBuilder();
             for (Item i : items) {
                 if (text.length() > 0) text.append(" · ");
@@ -265,7 +293,7 @@ final class Permissions {
             Intent open = new Intent(c, XDeskActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             PendingIntent tap = PendingIntent.getActivity(c, 0, open, PendingIntent.FLAG_IMMUTABLE);
-            Notification n = new Notification.Builder(c, DesktopService.CHANNEL)
+            Notification n = new Notification.Builder(c, CHANNEL)
                 .setSmallIcon(R.drawable.xdesk_ic_mono)
                 .setContentTitle(c.getString(R.string.xd_perm_lost_notification))
                 .setContentText(text)

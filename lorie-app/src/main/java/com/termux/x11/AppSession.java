@@ -118,6 +118,9 @@ final class AppSession {
     /** Displays, by density key, XDesk showed on their whole panel (PanelFit). */
     private final android.content.SharedPreferences fittedPanels;
     private final android.content.SharedPreferences fullscreenPrefs;
+    /** The injector's last source across processes: a Shizuku user whose binder is not here yet is waiting, not lost. */
+    private final android.content.SharedPreferences sourcePrefs;
+    private static final String PREFS_SOURCE = "injector_source", PREF_ON_SHIZUKU = "on_shizuku";
     private final Object densityLock = new Object();
     /** 我们现在设在外接屏上的值。0 是没设。-1 是不知道：注入服务死了，它设的值可能还留着。 */
     private int appliedDensity;
@@ -436,6 +439,7 @@ final class AppSession {
         forcedDensities = c.getSharedPreferences("density_forced", Context.MODE_PRIVATE);
         fittedPanels = c.getSharedPreferences("panel_fitted", Context.MODE_PRIVATE);
         fullscreenPrefs = c.getSharedPreferences("app_fullscreen", Context.MODE_PRIVATE);
+        sourcePrefs = c.getSharedPreferences(PREFS_SOURCE, Context.MODE_PRIVATE);
         shell = ShellActivation.get(c);
         shell.setListener(this::sourceChanged);
         CarActivity.setAppScreen(carScreen);
@@ -646,6 +650,22 @@ final class AppSession {
     /** One of the two sources can give an injector right now. */
     boolean injectorReady() { return shizukuState() == SHIZUKU_READY || shell.isRunning(); }
 
+    /**
+     * Shizuku is installed and was this app's injector before, but its binder has not arrived in this process yet:
+     * a wait, not a lost permission.
+     */
+    boolean shizukuArriving() {
+        if (!installed()) return false;
+        // Was on Shizuku before: it is remembered, or the built-in server is not paired, so nothing else could have
+        // given the injector that was on
+        if (!sourcePrefs.getBoolean(PREF_ON_SHIZUKU, false) && shell.isPaired()) return false;
+        try {
+            return !Shizuku.pingBinder();
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
     /** XDesk came to the front: with Shizuku there is nothing to do, otherwise start the built-in server if it can be. */
     void activateIfPaired() {
         if (shizukuState() != SHIZUKU_READY) shell.retry();
@@ -806,6 +826,8 @@ final class AppSession {
     /** Answers on connection, whichever source gives the injector. Shizuku first when it can be used. */
     private void connectInjector() {
         viaShell = shizukuState() != SHIZUKU_READY;
+        // Remembered for the next process: a Shizuku user whose binder has not arrived yet is waiting, not lost
+        if (!viaShell) sourcePrefs.edit().putBoolean(PREF_ON_SHIZUKU, true).apply();
         if (viaShell) shell.openSession(connection);
         else Shizuku.bindUserService(serviceArgs(), connection);
     }

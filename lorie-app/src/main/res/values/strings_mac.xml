@@ -81,6 +81,7 @@
     <string name="xd_mac_menu_loading">Loading…</string>
     <string name="xd_mac_menu_changed">The menus changed. Open the menu again.</string>
     <string name="xd_mac_menu_no_answer">The Mac did not answer.</string>
+    <string name="xd_mac_menu_unavailable">Open the Mac menu in XDesk on the phone</string>
     <string name="xd_mac_menu_no_access">Turn on “Accessibility”: on the Mac, allow Sill under System Settings › Privacy &amp; Security › Accessibility</string>
     <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
     <string name="xd_mac_quitting">Quitting %1$s…</string>

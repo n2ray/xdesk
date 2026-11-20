@@ -2,6 +2,7 @@ package com.termux.x11;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
@@ -205,6 +206,9 @@ final class Style {
         private final ImageView icon;
         private final TextView text;
         private final int color;
+        private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        /** PermExpired: a red dot on the top-right corner, for a required permission that is off. */
+        private boolean badge;
 
         IconButton(Context c, int iconId, String label, int color) {
             super(c);
@@ -253,6 +257,25 @@ final class Style {
                 tick(v);
                 action.run();
             });
+        }
+
+        /** A small DANGER dot in the top-right corner (PermExpired.dc.html): a required permission is off. */
+        void setBadge(boolean on) {
+            if (badge == on) return;
+            badge = on;
+            invalidate();
+        }
+
+        @Override protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if (!badge) return;
+            float d = dp(getContext(), 4.5f), ring = dp(getContext(), 2), margin = dp(getContext(), 6);
+            float cx = getWidth() - margin - d, cy = margin + d;
+            badgePaint.setStyle(Paint.Style.FILL);
+            badgePaint.setColor(color);  // the button's own surface: the dot reads as cut out of it
+            canvas.drawCircle(cx, cy, d + ring, badgePaint);
+            badgePaint.setColor(DANGER);
+            canvas.drawCircle(cx, cy, d, badgePaint);
         }
     }
 }
