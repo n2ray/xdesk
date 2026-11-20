@@ -48,13 +48,15 @@ p{margin:0;overflow-wrap:break-word}
 .band2{background:#0F1216}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-/* ===== Background X ===== */
-#bgx{position:fixed;left:50%;top:50%;width:160vmax;height:160vmax;z-index:1;pointer-events:none;transform:translate(-50%,-50%) rotate(0deg);will-change:transform;--xw:.045;--xb:.06;--tile:0}
+/* ===== Background X (also the hero and credit logos) ===== */
+#bgx{position:fixed;left:0;top:0;width:160vmax;height:160vmax;z-index:1;pointer-events:none;visibility:hidden;transform:translate(0,0);will-change:transform;--xw:.045;--xb:.06;--tile:0}
 #bgx svg{display:block;width:100%;height:100%}
 #bgx .xw{stroke-opacity:var(--xw)}
 #bgx .xb{stroke-opacity:var(--xb)}
 #bgx .bgtile{opacity:var(--tile)}
-.landed #bgx{visibility:hidden}
+html.xready #bgx{visibility:visible}
+html.xready #s-hero svg,html.xready #s-end svg{visibility:hidden}
+html:not(.motion) #bgx{display:none}
 
 /* ===== Fixed morph stage (motion only) ===== */
 #stage{position:fixed;inset:0;z-index:30;display:none;pointer-events:none;overflow:hidden;perspective:1600px;perspective-origin:50% 30%}
@@ -185,17 +187,14 @@ p{margin:0;overflow-wrap:break-word}
 .rv{will-change:opacity,transform}
 
 /* ===== Logo slots ===== */
-.slot{display:flex;justify-content:center;position:relative;z-index:3}
+.slot{display:flex;justify-content:center;position:relative;z-index:3;margin:0 auto}
 .slot svg{display:block}
-.slot-hero{height:76px}
+.slot-hero{height:76px;width:76px}
 .slot-hero svg{width:76px;height:76px}
-.slot-end{height:64px}
+.slot-end{height:64px;width:64px}
 .slot-end svg{width:64px;height:64px}
 .anim-slot{display:none}
 .anim .anim-slot{display:block;width:56px;height:56px;margin:0 auto 18px}
-.anim #s-hero svg{visibility:hidden}
-.anim #s-end svg{visibility:hidden}
-.anim.landed #s-end svg{visibility:visible}
 
 /* ===== Hero ===== */
 .hero{padding:80px 0 0}
@@ -422,7 +421,7 @@ p{margin:0;overflow-wrap:break-word}
   .nav .brand{font-size:14px}
   .lang{height:30px;padding:0 10px;font-size:12px}
   .hero{padding:48px 0 0}
-  .slot-hero{height:60px}
+  .slot-hero{height:60px;width:60px}
   .slot-hero svg{width:60px;height:60px}
   .hero h1{font-size:clamp(36px,9.7vw,40px);line-height:1.12;margin-top:20px}
   .hero .lead{font-size:19px;margin-top:16px;line-height:1.5}
@@ -1232,6 +1231,8 @@ p{margin:0;overflow-wrap:break-word}
   var heroCopyEl = document.querySelector('.hero-copy');
   var tileEl = document.getElementById('tile');
   var bgx = document.getElementById('bgx');
+  var heroLogoSvg = document.querySelector('#s-hero svg');
+  var endLogoSvg = document.querySelector('#s-end svg');
   var barEls = [document.getElementById('b0'), document.getElementById('b1'), document.getElementById('b2')];
   var scenePin = document.getElementById('scenes-pin');
   var controlPin = document.getElementById('control');
@@ -1253,15 +1254,14 @@ p{margin:0;overflow-wrap:break-word}
   var heroPhone = { left: 0, top: 0, w: 1, h: 1 };
   var heroStand = { left: 0, top: 0, w: 1, h: 1 };
   var heroSlotBox = { left: 0, top: 0, w: 76, h: 76 };
-  var endSlotBox = { left: 0, top: 0, w: 64, h: 64 };
   var yHeroCached = 600;
   var heroHoldCached = 0;
-  var landStart = 0, xSize = 1;
+  var xSize = 0;
   var labelKey = '';
   var labels = { hero: { zh: '', en: '' }, scenes: [], control: { zh: '', en: '' } };
   var clonesBuilt = false;
   var rvData = [];
-  var WHITE = [232, 236, 241], LOGO_WHITE = [255, 255, 255], BLUE = [61, 126, 245], FRAME = [42, 47, 55], TILE = [17, 21, 28];
+  var WHITE = [232, 236, 241], FRAME = [42, 47, 55], TILE = [17, 21, 28];
   var SPEC = [
     { ar: 16 / 9, w: .58, phone: 'portrait' },
     { ar: 1.62, w: .56, phone: 'portrait' },
@@ -1353,17 +1353,9 @@ p{margin:0;overflow-wrap:break-word}
     return { x: x, y: y, w: Math.max(1, w), h: Math.max(1, h), r: r, ry: ry, rad: rad, c: c, op: clamp(op, 0, 1) };
   }
   function tilePose(cx, cy, w, h, op) { return pose(cx, cy, w, h, 0, 0, w * (24 / 108), TILE, op); }
-
-  function logoPoses(box, y, op, tileOp) {
-    var s = box.w / 108;
-    var cx = box.left + box.w / 2;
-    var cy = box.top + box.h / 2 - y;
-    return [
-      pose(cx, cy, 61.91 * s, 11 * s, 45, 0, 5.5 * s, LOGO_WHITE, op),
-      pose(cx + 13.7 * s, cy - 13.7 * s, 23.16 * s, 11 * s, -45, 0, 5.5 * s, BLUE, op),
-      pose(cx - 13.7 * s, cy + 13.7 * s, 23.16 * s, 11 * s, -45, 0, 5.5 * s, BLUE, op),
-      tilePose(cx, cy, box.w, box.h, tileOp)
-    ];
+  function dimPoses(poses) {
+    for (var i = 0; i < poses.length; i++) poses[i].op = 0;
+    return poses;
   }
 
   function heroPoses(y, op) {
@@ -1442,8 +1434,10 @@ p{margin:0;overflow-wrap:break-word}
     var heroHold = Math.min(H * .06, yHero * .5);
     heroHoldCached = heroHold;
     var fallback0 = { x: W / 2, y: H - 40, w: 28, h: 4 };
-    at(0, logoPoses(heroSlotBox, 0, 1, 1));
-    at(heroHold, logoPoses(heroSlotBox, heroHold, 1, 1));
+    /* The hero logo is the travelling X (#bgx); the stage only draws the
+       illustration that the hero copy turns into, so it stays invisible up top. */
+    at(0, dimPoses(heroPoses(0, 1)));
+    at(heroHold, dimPoses(heroPoses(heroHold, 1)));
     at(yHero, heroPoses(yHero, 1));
     if (yHold > yHero) at(yHold, heroPoses(yHold, 1));
     at(sceneStart + sceneRange * .01, scenePoses(0, dotsScene[0] || fallback0, 1));
@@ -1458,20 +1452,10 @@ p{margin:0;overflow-wrap:break-word}
       at(controlStart + controlRange * ((j + .22) / 3), controlPoses(j, cm, 1));
       at(controlStart + controlRange * ((j + .78) / 3), controlPoses(j, cm, 1));
     }
-    var boxStart = slotBox('s-start');
-    var yStart = clamp(boxStart.top + boxStart.h / 2 - H * .22, 0, maxY);
-    at(yStart - H * .12, logoPoses(boxStart, yStart - H * .12, 1, 1));
-    at(yStart + H * .12, logoPoses(boxStart, yStart + H * .12, 1, 1));
-    var boxHonest = slotBox('s-honest');
-    var yHonest = clamp(boxHonest.top + boxHonest.h / 2 - H * .22, 0, maxY);
-    at(yHonest - H * .12, logoPoses(boxHonest, yHonest - H * .12, 1, 1));
-    at(yHonest + H * .12, logoPoses(boxHonest, yHonest + H * .12, 1, 1));
-    var lastY = P.length ? P[P.length - 1].y : 0;
-    var endTrack1 = Math.min(Math.max(lastY + H * .12, maxY - H * .7), Math.max(lastY + 1, maxY - 2));
-    var endTrack2 = Math.min(Math.max(endTrack1 + H * .06, maxY - H * .16), Math.max(endTrack1 + 1, maxY - 1));
-    at(endTrack1, logoPoses(endSlotBox, endTrack1, 1, 1));
-    at(endTrack2, logoPoses(endSlotBox, endTrack2, 1, 1));
-    at(maxY, logoPoses(endSlotBox, maxY, 0, 0));
+    /* No separate logo anywhere while #bgx travels: the illustration fades
+       out as the phone pin ends and the X alone carries on to the credit. */
+    at(controlStart + controlRange, dimPoses(controlPoses(2, dotsControl[2] || fallback0, 1)));
+    at(maxY, dimPoses(controlPoses(2, dotsControl[2] || fallback0, 1)));
   }
 
   function targetPose(y) {
@@ -1574,20 +1558,72 @@ p{margin:0;overflow-wrap:break-word}
     stageLabel(key);
   }
 
+  function viewportBox() {
+    var vv = window.visualViewport;
+    if (vv) return { w: vv.width, h: vv.height, left: vv.offsetLeft || 0, top: vv.offsetTop || 0 };
+    return { w: window.innerWidth, h: window.innerHeight, left: 0, top: 0 };
+  }
+
+  function slotRect(el, view) {
+    var r = el.getBoundingClientRect();
+    return { cx: r.left - view.left + r.width / 2, cy: r.top - view.top + r.height / 2, w: r.width, h: r.height };
+  }
+
   function paintX(y) {
     if (!bgx) return;
-    var p = clamp(y / Math.max(1, maxY), 0, 1);
-    var t = clamp((y - landStart) / Math.max(1, maxY - landStart), 0, 1);
-    var e = smooth(t);
-    var rot = p * 180 * (1 - e) + 180 * e;
-    var scale = 1 + (endSlotBox.w / Math.max(1, xSize) - 1) * e;
-    var dx = (endSlotBox.left + endSlotBox.w / 2 - W / 2) * e;
-    var dy = (endSlotBox.top + endSlotBox.h / 2 - y - H / 2) * e;
-    bgx.style.transform = 'translate(-50%,-50%) translate(' + npx(dx) + ',' + npx(dy) + ') rotate(' + (Math.round(rot * 100) / 100) + 'deg) scale(' + (Math.round(scale * 10000) / 10000) + ')';
-    bgx.style.setProperty('--xw', (0.045 + 0.955 * e).toFixed(3));
-    bgx.style.setProperty('--xb', (0.06 + 0.94 * e).toFixed(3));
-    bgx.style.setProperty('--tile', e.toFixed(3));
-    root.classList.toggle('landed', t > .995);
+    /* Measured fresh every frame: a toolbar showing or hiding changes the
+       viewport without necessarily changing width or firing a useful resize. */
+    var view = viewportBox();
+    var de = document.documentElement;
+    var maxYNow = Math.max(1, de.scrollHeight - de.clientHeight);
+    y = clamp(y, 0, maxYNow);
+    var size = Math.max(1, Math.max(view.w, view.h) * 1.6);
+    if (Math.abs(size - xSize) > .5) {
+      xSize = size;
+      bgx.style.width = npx(xSize);
+      bgx.style.height = npx(xSize);
+    }
+    var hero = heroLogoSvg ? slotRect(heroLogoSvg, view) : { cx: view.w / 2, cy: view.h / 2, w: 76 };
+    var end = endLogoSvg ? slotRect(endLogoSvg, view) : { cx: view.w / 2, cy: view.h * .85, w: 64, h: 64 };
+
+    /* In the hero slot at the top; rolling down pulls the same X out and grows
+       it into the fixed background X. It fades to the background strength
+       quickly so it never washes over the hero copy, and its tile goes first. */
+    var grow = smooth(clamp(y / Math.max(1, view.h * .55), 0, 1));
+    var fade = smooth(clamp(y / Math.max(1, view.h * .18), 0, 1));
+    var cx = lerp(hero.cx, view.w / 2, grow);
+    var cy = lerp(hero.cy, view.h / 2, grow);
+    var side = lerp(hero.w, size, grow);
+    var xw = lerp(1, .045, fade);
+    var xb = lerp(1, .06, fade);
+    var tile = 1 - smooth(clamp(y / Math.max(1, view.h * .055), 0, 1));
+
+    /* At the credit slot: start when the slot rises into view and finish as it
+       nears the top, from the live slot rect each frame. Reaching the last
+       scrollable pixel always counts as finished, whatever the toolbar did. */
+    var startTop = view.h * .85;
+    var endTop = end.cy - (end.h || end.w) / 2;
+    var landPos = smooth(clamp((startTop - endTop) / Math.max(1, startTop - view.h * .2), 0, 1));
+    var endTopAtBottom = endTop - Math.max(0, maxYNow - y);
+    var landEnd = smooth(clamp((startTop - endTop) / Math.max(1, startTop - endTopAtBottom), 0, 1));
+    var land = Math.max(landPos, landEnd);
+    cx = lerp(cx, end.cx, land);
+    cy = lerp(cy, end.cy, land);
+    side = lerp(side, end.w, land);
+    /* It stays background-faint while it shrinks, then lights up into the
+       credit logo only once it is nearly at the slot's size. */
+    var lit = land > .001 ? 1 - smooth(clamp((side - end.w) / Math.max(1, view.h * .22), 0, 1)) : 0;
+    xw = lerp(xw, 1, lit);
+    xb = lerp(xb, 1, lit);
+    tile = lerp(tile, 1, lit);
+
+    var rot = lerp(clamp(y / maxYNow, 0, 1) * 180, 180, land);
+    var scale = side / Math.max(1, xSize);
+    bgx.style.transform = 'translate(' + npx(cx - xSize / 2) + ',' + npx(cy - xSize / 2) + ') rotate(' + (Math.round(rot * 100) / 100) + 'deg) scale(' + (Math.round(scale * 1000000) / 1000000) + ')';
+    bgx.style.setProperty('--xw', xw.toFixed(4));
+    bgx.style.setProperty('--xb', xb.toFixed(4));
+    bgx.style.setProperty('--tile', tile.toFixed(4));
+    root.classList.toggle('landed', land > .995);
   }
 
   function measureReveals() {
@@ -1619,11 +1655,8 @@ p{margin:0;overflow-wrap:break-word}
 
   function buildX() {
     if (!bgx) return;
-    xSize = Math.max(W, H) * 1.6;
-    bgx.style.width = npx(xSize);
-    bgx.style.height = npx(xSize);
-    endSlotBox = slotBox('s-end');
-    landStart = clamp(endSlotBox.top + endSlotBox.h / 2 - H * .85, 0, Math.max(0, maxY - 80));
+    root.classList.add('xready');
+    xSize = 0;
   }
 
   function build() {
@@ -1695,6 +1728,21 @@ p{margin:0;overflow-wrap:break-word}
 
   function kick() { if (!frame) frame = requestAnimationFrame(paint); }
 
+  /* Re-measure the X for a short while after load and after the visual
+     viewport changes, so the first frames of a toolbar slide are exact too. */
+  var settleUntil = 0, settleOn = false;
+  function settleX() {
+    if (!motion || !bgx) return;
+    settleUntil = Date.now() + 700;
+    if (settleOn) return;
+    settleOn = true;
+    (function tick() {
+      paintX(currentY());
+      if (Date.now() < settleUntil) requestAnimationFrame(tick);
+      else { settleOn = false; paintX(currentY()); }
+    })();
+  }
+
   each(document.querySelectorAll('[data-scene]'), function (a) {
     a.addEventListener('click', function (e) {
       if (!anim || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -1730,22 +1778,30 @@ p{margin:0;overflow-wrap:break-word}
   window.addEventListener('scroll', kick, { passive: true });
   var lastW = 0, lastH = 0, resizeTimer = 0;
   window.addEventListener('resize', function () {
+    kick();
+    settleX();
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
-      if (innerWidth === lastW && Math.abs(innerHeight - lastH) < 130) return;
+      if (innerWidth === lastW && Math.abs(innerHeight - lastH) < 130) { paint(); return; }
       lastW = innerWidth; lastH = innerHeight;
       build();
     }, 120);
   });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', settleX);
+    window.visualViewport.addEventListener('scroll', kick);
+  }
   window.addEventListener('load', function () {
     if (location.hash && !userMoved) hashPending = true;
     build();
+    settleX();
     root.classList.remove('booting');
   });
   if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
     document.fonts.ready.then(function () {
       if (location.hash && !userMoved) hashPending = true;
       build();
+      settleX();
       root.classList.remove('booting');
     });
   }
@@ -1760,6 +1816,7 @@ p{margin:0;overflow-wrap:break-word}
   lastH = innerHeight;
   started = true;
   build();
+  settleX();
 })();
 </script>
 </body>
