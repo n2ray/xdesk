@@ -192,22 +192,28 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         java.util.List<NotifyPanel.Tile> t = new ArrayList<>();
         Actions a = actions;
         if (a != null) {
-            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_launchpad), false, () -> ui.post(a::launchpad), false));
-            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_keys_to_phone), false, a::keysToPhone, false));
+            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_launchpad), false, R.drawable.xd_ic_apps, false,
+                () -> ui.post(a::launchpad), false));
+            t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_keys_to_phone), false, R.drawable.xd_ic_keys_phone, false,
+                a::keysToPhone, false));
+            // A mode: the words say which output is in use, the tile never takes the on look (Components.dc.html)
             boolean phone = a.soundOnPhone();
             t.add(new NotifyPanel.Tile(context.getString(phone ? R.string.xd_side_sound_phone : R.string.xd_side_sound_screen), phone,
-                a::toggleSound, true));
+                R.drawable.xd_ic_sound, true, a::toggleSound, true));
         }
-        // On in any of the phone's modes (priority only, alarms only, total silence), not just total silence
+        // On in any of the phone's modes (priority only, alarms only, total silence), not just total silence; the label
+        // stays "勿扰" and the on state is the toggle's look alone
         int filter = center.interruptionFilter();
         boolean dndOn = filter != NotificationManager.INTERRUPTION_FILTER_ALL && filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN;
-        t.add(new NotifyPanel.Tile(context.getString(dndOn ? R.string.xd_notify_dnd_on : R.string.xd_notify_dnd), dndOn,
+        t.add(new NotifyPanel.Tile(context.getString(R.string.xd_notify_dnd), dndOn, R.drawable.xd_ic_moon, false,
             () -> dnd(!dndOn), true));
         if (a != null) {
             Boolean game = a.gameMode();
-            if (game != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_game), game, a::toggleGameMode, false));
+            if (game != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_game), game, R.drawable.xd_ic_gamepad, false,
+                a::toggleGameMode, false));
             String q = a.macQuality();
-            if (q != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_quality, q), false, a::nextMacQuality, true));
+            if (q != null) t.add(new NotifyPanel.Tile(context.getString(R.string.xd_side_quality, q), false, R.drawable.xd_ic_settings, true,
+                a::nextMacQuality, true));
         }
         return t;
     }
@@ -433,8 +439,7 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
         NotifyBanner b = new NotifyBanner(dc, density, this, windows, 0);
         banners.add(0, b);
         batteryBannerView = b;
-        Drawable icon = Style.letterIcon(dc, context.getString(R.string.xd_notify_battery_short), density);
-        b.showNotice(icon, context.getString(R.string.xd_notify_battery_app), context.getString(R.string.xd_notify_battery, level), System.currentTimeMillis());
+        b.showBatteryNotice(context.getString(R.string.xd_notify_battery, level));
         try {
             windows.addView(b.view(), b.params());
             raiseArrows();  // the pointer stays above every window of the centre

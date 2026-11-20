@@ -44,7 +44,8 @@ import java.util.List;
 final class NotifyBanner {
     static final float WIDTH_DP = 360, MARGIN_DP = 16, GAP_DP = 8;
     static final int MAX = 3;
-    private static final int PANEL = 0xF01B1E24, EDGE = 0x33FFFFFF;
+    /** The banner's action buttons: white at 8%, 12 dp corners (ExtNotify.dc.html). */
+    private static final int ACTION = 0x14FFFFFF;
     private static final long STAY_MS = 5000, LEAVE_MS = 2000, SLIDE_MS = 180;
 
     interface Host {
@@ -68,10 +69,14 @@ final class NotifyBanner {
     private final LinearLayout root;
     private final WindowManager.LayoutParams params;
     private final ImageView icon;
+    private final LinearLayout header, column;
+    private final LinearLayout.LayoutParams iconAt;
     private final TextView app, time, title, text;
     private final LinearLayout actions;
     private final FrameLayout replyBox;
     private final EditText replyField;
+    /** The low-battery banner has no notification's header, title or actions (ExtNotify.dc.html's third banner). */
+    private boolean noticeMode;
     private final Rect rect = new Rect();
     private final List<NotifyCenter.Entry> entries = new ArrayList<>();
     private Notification.Action[] acts;
@@ -89,14 +94,13 @@ final class NotifyBanner {
         this.host = host;
         this.windows = windows;
 
+        // ExtNotify.dc.html: the app's icon on the left, and to its right the app and the time, the title, the body and
+        // the actions, all in one column. The shell's own colours (Style.SHELL / SHELL_LINE), 16 dp corners.
         root = new LinearLayout(dc);
-        root.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable surface = new GradientDrawable();
-        surface.setColor(PANEL);
-        surface.setCornerRadius(dp(14));
-        surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
-        root.setBackground(surface);
-        root.setPadding(dp(12), dp(10), dp(10), dp(10));
+        root.setOrientation(LinearLayout.HORIZONTAL);
+        root.setGravity(Gravity.TOP);
+        root.setBackground(Style.shell(density, 16));
+        root.setPadding(dp(14), dp(12), dp(14), dp(12));
         root.setOnClickListener(v -> host.bannerTap(NotifyBanner.this));
         // The Android pointer's hover keeps the banner (NOTIFY.md §3); the driven pointer's does the same in Notify
         root.setOnHoverListener((v, e) -> {
@@ -109,41 +113,60 @@ final class NotifyBanner {
             return false;
         });
 
-        LinearLayout head = new LinearLayout(dc);
-        head.setGravity(Gravity.CENTER_VERTICAL);
         icon = new ImageView(dc);
-        int iconSize = dp(34);
-        head.addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
-        LinearLayout names = new LinearLayout(dc);
-        names.setOrientation(LinearLayout.VERTICAL);
-        names.setPadding(dp(8), 0, 0, 0);
-        app = label(Style.TEXT_DIM, 11, true);
+        iconAt = new LinearLayout.LayoutParams(dp(40), dp(40));
+        iconAt.rightMargin = dp(12);
+        root.addView(icon, iconAt);
+
+        column = new LinearLayout(dc);
+        column.setOrientation(LinearLayout.VERTICAL);
+        root.addView(column, new LinearLayout.LayoutParams(0, -2, 1));
+
+        header = new LinearLayout(dc);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        app = label(Style.TEXT_DIM, 12, true);
         app.setSingleLine(true);
         app.setEllipsize(TextUtils.TruncateAt.END);
-        names.addView(app, new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(app, new LinearLayout.LayoutParams(-2, -2));
+        time = label(Style.TEXT_DIM, 12, true);
+        time.setPadding(dp(4), 0, 0, 0);
+        header.addView(time, new LinearLayout.LayoutParams(0, -2, 1));
+        // The ×: only the banner goes, the notification stays in the centre (NOTIFY.md §3)
+        ImageView close = new ImageView(dc);
+        close.setImageResource(R.drawable.xd_ic_close);
+        close.setColorFilter(Style.TEXT_DIM);
+        close.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        close.setPadding(dp(7), dp(7), dp(7), dp(7));
+        close.setContentDescription(dc.getString(R.string.xd_close));
+        close.setOnClickListener(v -> {
+            Style.tick(v);
+            host.bannerClose(NotifyBanner.this);
+        });
+        header.addView(close, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        column.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
         title = label(Style.TEXT, 14, false);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setMaxLines(1);
         title.setEllipsize(TextUtils.TruncateAt.END);
-        names.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        head.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
-        time = label(Style.TEXT_DIM, 11, true);
-        head.addView(time);
-        View close = smallButton("×", () -> host.bannerClose(NotifyBanner.this));
-        head.addView(close);
-        root.addView(head, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams titleAt = new LinearLayout.LayoutParams(-1, -2);
+        titleAt.topMargin = dp(3);
+        column.addView(title, titleAt);
 
-        text = label(Style.TEXT_DIM, 12, false);
+        text = label(Style.TEXT_SOFT, 13, false);
         text.setMaxLines(2);
         text.setEllipsize(TextUtils.TruncateAt.END);
+        text.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams textAt = new LinearLayout.LayoutParams(-1, -2);
-        textAt.topMargin = dp(4);
-        root.addView(text, textAt);
+        textAt.topMargin = dp(3);
+        column.addView(text, textAt);
 
         actions = new LinearLayout(dc);
-        actions.setGravity(Gravity.END);
+        actions.setGravity(Gravity.START);
         actions.setVisibility(View.GONE);
-        root.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams actionsAt = new LinearLayout.LayoutParams(-1, -2);
+        actionsAt.topMargin = dp(6);
+        column.addView(actions, actionsAt);
 
         replyBox = new FrameLayout(dc);
         replyBox.setVisibility(View.GONE);
@@ -158,7 +181,7 @@ final class NotifyBanner {
         replyBox.addView(replyField, new FrameLayout.LayoutParams(-1, dp(30)));
         LinearLayout.LayoutParams replyAt = new LinearLayout.LayoutParams(-1, -2);
         replyAt.topMargin = dp(6);
-        root.addView(replyBox, replyAt);
+        column.addView(replyBox, replyAt);
 
         params = new WindowManager.LayoutParams(dp(WIDTH_DP), -2, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -187,12 +210,12 @@ final class NotifyBanner {
         b.setTextColor(Style.TEXT);
         b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(12 * density));
         b.setGravity(Gravity.CENTER);
-        b.setPadding(dp(8), dp(2), dp(8), dp(2));
-        GradientDrawable back = new GradientDrawable();
-        back.setColor(0x22FFFFFF);
-        back.setCornerRadius(dp(8));
-        b.setBackground(back);
+        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setBackground(Style.ripple(dc, ACTION, 12));
         b.setOnClickListener(v -> onTap.run());
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, dp(30));
+        at.rightMargin = dp(8);
+        b.setLayoutParams(at);
         return b;
     }
 
@@ -236,13 +259,51 @@ final class NotifyBanner {
     void showNotice(Drawable appIcon, String label, String message, long when) {
         entries.clear();
         acts = null;
+        noticeMode = false;
         fill(appIcon, label, label, message, when, false);
     }
 
+    /**
+     * ExtNotify.dc.html's third banner: the phone's battery, one line in the shell, the amber battery icon at its left,
+     * no app, time, title or buttons.
+     */
+    void showBatteryNotice(String message) {
+        entries.clear();
+        acts = null;
+        noticeMode = true;
+        icon.setImageResource(R.drawable.xd_ic_battery);
+        icon.setColorFilter(Style.WARN);
+        iconAt.width = iconAt.height = dp(28);
+        iconAt.rightMargin = dp(12);
+        icon.setLayoutParams(iconAt);
+        header.setVisibility(View.GONE);
+        title.setVisibility(View.GONE);
+        text.setText(message);
+        text.setTextColor(Style.TEXT);
+        text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(14 * density));
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setMaxLines(1);
+        actions.setVisibility(View.GONE);
+        replyBox.setVisibility(View.GONE);
+        root.setGravity(Gravity.CENTER_VERTICAL);
+    }
+
     private void fill(Drawable appIcon, String appLabel, String titleText, String bodyText, long when, boolean nameOnly) {
+        noticeMode = false;
         icon.setImageDrawable(appIcon);
+        icon.setColorFilter(null);
+        iconAt.width = iconAt.height = dp(40);
+        icon.setLayoutParams(iconAt);
+        header.setVisibility(View.VISIBLE);
+        title.setVisibility(View.VISIBLE);
+        text.setTextColor(Style.TEXT_SOFT);
+        text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
+        text.setTypeface(Typeface.DEFAULT);
+        text.setMaxLines(2);
+        root.setGravity(Gravity.TOP);
         app.setText(appLabel);
-        time.setText(android.text.format.DateFormat.format("HH:mm", when));
+        // "微信 · 刚刚" as the mockup has it: the app, then the time it came, relative
+        time.setText(" · " + whenText(dc, when));
         if (nameOnly) {
             title.setText(appLabel);
             text.setText(dc.getString(R.string.xd_notify_new_message));
@@ -251,6 +312,14 @@ final class NotifyBanner {
             text.setText(bodyText);
         }
         fillActions();
+    }
+
+    /** "刚刚" under a minute, then the system's relative words ("2 分钟前", "2 min. ago"). */
+    static CharSequence whenText(Context c, long when) {
+        long age = System.currentTimeMillis() - when;
+        if (age < 60_000) return c.getString(R.string.xd_notify_now);
+        return android.text.format.DateUtils.getRelativeTimeSpanString(when, System.currentTimeMillis(),
+            android.text.format.DateUtils.MINUTE_IN_MILLIS, android.text.format.DateUtils.FORMAT_ABBREV_RELATIVE);
     }
 
     NotifyCenter.Entry newest() {

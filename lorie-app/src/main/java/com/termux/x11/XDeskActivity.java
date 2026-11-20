@@ -232,7 +232,16 @@ public class XDeskActivity extends Activity {
     private TextView setupTitle, setupMessage, setupAction, setupSecond, setupBack;
     /** The key over the title when the setup page asks for a permission (PermitCard's look). */
     private ImageView setupKey;
+    /** The XDesk wordmark over the page; the mockups' waiting and failure pages do not have it. */
+    private TextView setupBrand;
+    /** A big round icon over the title (the failure page's red link-off, ExtCover/ConnectFail). */
+    private FrameLayout setupIconBox;
+    private ImageView setupIcon;
+    /** The waiting page's command and the line under it, and the failure page's second line (Waiting, ConnectFail). */
+    private TextView setupCode, setupNote2;
     private ProgressBar setupProgress;
+    /** The waiting page's spinner above the title (Waiting.dc.html), apart from the pages' progress line. */
+    private ProgressBar setupSpinTop;
     private TextView statusText, diagText;
     /** Holds the status dot and text: shown only for warnings and errors, the buttons already say the rest. */
     private View statusRow;
@@ -252,6 +261,8 @@ public class XDeskActivity extends Activity {
     private AppCatalog.App pendingApp;
     /** 正开着的激活页。 */
     private ActivationPage activation;
+    /** The “Use Shizuku” page while it is open (Shizuku.dc.html). */
+    private ShizukuPage shizukuPage;
     /** 从启动器的激活提示进来、还没完成：启动好了要回到启动器。 */
     private boolean activationFlow;
     /** 用户刚点了要启动：showActivation 这时才重试注入服务。 */
@@ -703,6 +714,7 @@ public class XDeskActivity extends Activity {
             boolean pairedNow = activation != null && activation.isShowing() && shell.isPaired() && !shell.isPairing();
             if (pairedNow) closeActivation();
             else if (activation != null && activation.isShowing()) activation.refresh();
+            if (shizukuPage != null && shizukuPage.isShowing()) shizukuPage.refresh();
             updateActivationPrompt();
             if (pendingApp != null) {
                 startApp(pendingApp);
@@ -1884,14 +1896,14 @@ public class XDeskActivity extends Activity {
         s.setClickable(true);  // 挡住下面的触摸板，启动时误碰不会点到桌面
         s.setPadding(dp(32), dp(32), dp(32), dp(32));
 
-        TextView name = new TextView(this);
-        name.setText("XDesk");
-        name.setTextColor(Style.ACCENT);
-        name.setTextSize(15);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setLetterSpacing(0.1f);
-        name.setGravity(Gravity.CENTER);
-        s.addView(name, new LinearLayout.LayoutParams(-2, -2));
+        setupBrand = new TextView(this);
+        setupBrand.setText("XDesk");
+        setupBrand.setTextColor(Style.ACCENT);
+        setupBrand.setTextSize(15);
+        setupBrand.setTypeface(Typeface.DEFAULT_BOLD);
+        setupBrand.setLetterSpacing(0.1f);
+        setupBrand.setGravity(Gravity.CENTER);
+        s.addView(setupBrand, new LinearLayout.LayoutParams(-2, -2));
 
         setupKey = new ImageView(this);
         setupKey.setImageDrawable(new PermitCard.KeyIcon(Style.WARN));
@@ -1900,9 +1912,31 @@ public class XDeskActivity extends Activity {
         kp.topMargin = dp(24);
         s.addView(setupKey, kp);
 
+        // The failure page's round red icon (ConnectFail.dc.html): the reason at a glance, before the words
+        setupIconBox = new FrameLayout(this);
+        setupIconBox.setVisibility(View.GONE);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(Style.DANGER_TINT);
+        setupIconBox.setBackground(circle);
+        setupIcon = new ImageView(this);
+        setupIcon.setImageResource(R.drawable.xd_ic_link_off);
+        setupIcon.setColorFilter(Style.DANGER);
+        setupIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        setupIconBox.addView(setupIcon, new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(64), dp(64));
+        ip.topMargin = dp(24);
+        s.addView(setupIconBox, ip);
+
+        setupSpinTop = new ProgressBar(this);
+        setupSpinTop.setVisibility(View.GONE);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        stp.topMargin = dp(8);
+        s.addView(setupSpinTop, stp);
+
         setupTitle = new TextView(this);
         setupTitle.setTextColor(Style.TEXT);
-        setupTitle.setTextSize(24);
+        setupTitle.setTextSize(20);
         setupTitle.setTypeface(Typeface.DEFAULT_BOLD);
         setupTitle.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
@@ -1911,37 +1945,60 @@ public class XDeskActivity extends Activity {
 
         setupMessage = new TextView(this);
         setupMessage.setTextColor(Style.TEXT_DIM);
-        setupMessage.setTextSize(15);
+        setupMessage.setTextSize(14);
         setupMessage.setGravity(Gravity.CENTER);
         setupMessage.setLineSpacing(dp(4), 1f);
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-2, -2);
         mp.topMargin = dp(12);
         s.addView(setupMessage, mp);
 
+        // "xdesk start" in a mono box (Waiting.dc.html)
+        setupCode = new TextView(this);
+        setupCode.setTextColor(Style.TEXT_SOFT);
+        setupCode.setTextSize(14);
+        setupCode.setTypeface(Typeface.MONOSPACE);
+        setupCode.setGravity(Gravity.CENTER);
+        setupCode.setPadding(dp(12), 0, dp(12), 0);
+        setupCode.setBackground(Style.rounded(this, Style.SURFACE, 12));
+        setupCode.setVisibility(View.GONE);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(46));
+        cp.topMargin = dp(10);
+        s.addView(setupCode, cp);
+
+        setupNote2 = new TextView(this);
+        setupNote2.setTextColor(Style.TEXT_DIM);
+        setupNote2.setTextSize(12);
+        setupNote2.setGravity(Gravity.CENTER);
+        setupNote2.setVisibility(View.GONE);
+        LinearLayout.LayoutParams n2p = new LinearLayout.LayoutParams(-2, -2);
+        n2p.topMargin = dp(10);
+        s.addView(setupNote2, n2p);
+
         setupProgress = new ProgressBar(this);
-        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(40), dp(40));
-        pp.topMargin = dp(28);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        pp.topMargin = dp(20);
         s.addView(setupProgress, pp);
 
-        setupAction = Style.button(this, "", Style.ACCENT, 15, 24);
-        setupAction.setPadding(dp(28), dp(12), dp(28), dp(12));
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2);
-        ap.topMargin = dp(28);
+        setupAction = Style.button(this, "", Style.ACCENT, 14, 12);
+        setupAction.setTypeface(Typeface.DEFAULT_BOLD);
+        setupAction.setPadding(dp(28), 0, dp(28), 0);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, dp(44));
+        ap.topMargin = dp(24);
         s.addView(setupAction, ap);
 
-        setupSecond = Style.button(this, "", Style.SURFACE_RAISED, 14, 24);
-        setupSecond.setPadding(dp(28), dp(10), dp(28), dp(10));
+        setupSecond = Style.button(this, "", Style.SURFACE_RAISED, 14, 12);
+        setupSecond.setPadding(dp(28), 0, dp(28), 0);
         setupSecond.setVisibility(View.GONE);
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, dp(44));
         sp.topMargin = dp(12);
         s.addView(setupSecond, sp);
 
-        setupBack = Style.button(this, getString(R.string.xd_back_to_launcher), Style.SURFACE_RAISED, 14, 24);
-        setupBack.setPadding(dp(28), dp(10), dp(28), dp(10));
+        setupBack = Style.button(this, getString(R.string.xd_back_to_launcher), Style.SURFACE_RAISED, 14, 12);
+        setupBack.setPadding(dp(28), 0, dp(28), 0);
         setupBack.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToChooser(); }
         });
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, dp(44));
         bp.topMargin = dp(12);
         s.addView(setupBack, bp);
         return s;
@@ -2839,10 +2896,24 @@ public class XDeskActivity extends Activity {
         displayNoticeShown = false;
         setupScreen.setVisibility(View.VISIBLE);
         applyFullscreen();
+        setupBrand.setVisibility(View.VISIBLE);
         setupKey.setVisibility(View.GONE);
+        setupIconBox.setVisibility(View.GONE);
+        setupSpinTop.setVisibility(View.GONE);
+        setupCode.setVisibility(View.GONE);
+        setupNote2.setVisibility(View.GONE);
         setupTitle.setTextColor(Style.TEXT);
-        setupAction.setBackground(Style.ripple(this, Style.ACCENT, 24));
+        setupTitle.setTextSize(20);
+        setupMessage.setTextColor(Style.TEXT_DIM);
+        setupMessage.setTextSize(14);
+        setupAction.setBackground(Style.ripple(this, Style.ACCENT, 12));
         setupAction.setTextColor(Style.TEXT);
+        setupAction.setLayoutParams(stretchable(dp(44), dp(24), -2));
+        setupSecond.setLayoutParams(stretchable(dp(44), dp(12), -2));
+        setupBack.setText(getString(R.string.xd_back_to_launcher));
+        setupBack.setTextColor(Style.TEXT);
+        setupBack.setBackground(Style.ripple(this, Style.SURFACE_RAISED, 12));
+        setupBack.setLayoutParams(stretchable(dp(44), dp(12), -2));
         setupTitle.setText(title);
         setupMessage.setText(message);
         setupProgress.setVisibility(progress ? View.VISIBLE : View.GONE);
@@ -2852,6 +2923,30 @@ public class XDeskActivity extends Activity {
             setupAction.setOnClickListener(onAction);
         }
         setupSecond.setVisibility(View.GONE);
+    }
+
+    /** The setup buttons' layout: the mockups' pages draw them full width, the generic ones only as wide as their words. */
+    private LinearLayout.LayoutParams stretchable(int height, int top, int width) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(width, height);
+        p.topMargin = top;
+        return p;
+    }
+
+    /** Waiting and ConnectFail: full-width buttons, as those pages are drawn. */
+    private void stretchSetup() {
+        setupAction.setLayoutParams(stretchable(dp(44), dp(24), -1));
+        if (setupSecond.getVisibility() == View.VISIBLE)
+            setupSecond.setLayoutParams(stretchable(dp(44), dp(12), -1));
+        setupBack.setLayoutParams(stretchable(dp(44), dp(12), -1));
+    }
+
+    /** The waiting page's command box and the line under it (Waiting.dc.html). */
+    private void setupExtras(String command, String note) {
+        setupCode.setText(command);
+        setupCode.setVisibility(View.VISIBLE);
+        setupNote2.setText(note);
+        setupNote2.setVisibility(View.VISIBLE);
+        setupBrand.setVisibility(View.GONE);
     }
 
     /**
@@ -5900,6 +5995,7 @@ public class XDeskActivity extends Activity {
         pendingApp = null;
         shizukuScreens = false;
         closeActivation();
+        closeShizukuPage();
         pendingSession = null;
         ui.removeCallbacks(connectTimeout);
         if (apps.isActive() && !apps.isStarted()) {
@@ -6048,6 +6144,7 @@ public class XDeskActivity extends Activity {
             });
         } else {
             closeActivation();
+            closeShizukuPage();
             pendingApp = null;
             shizukuScreens = false;
             rememberRecent(ChooserView.recentKey(app));
@@ -6176,38 +6273,44 @@ public class XDeskActivity extends Activity {
         updateActivationPrompt();
     }
 
-    /** 用户选了 Shizuku，或者系统太旧用不了无线调试。 */
+    /**
+     * 用户选了 Shizuku，或者系统太旧用不了无线调试：Shizuku.dc.html 的整页。页面上三步都看得见，缺哪一步、哪一步有事做
+     * 就写在哪一步上；“其他情况”只列当前这种。状态变了（装好、启动、授权）由 onInjectorSourceChanged 再画一次。
+     */
     private void showShizukuSetup() {
-        int shizuku = apps.shizukuState();
-        if (shizuku == AppSession.SHIZUKU_NOT_INSTALLED) {
-            showSetup(getString(R.string.xd_shizuku_missing_title), getString(R.string.xd_shizuku_missing), false, getString(R.string.xd_shizuku_website), new View.OnClickListener() {
-                @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
-            });
-        } else if (shizuku == AppSession.SHIZUKU_NOT_RUNNING) {
-            showSetup(getString(R.string.xd_shizuku_stopped_title), getString(R.string.xd_shizuku_stopped), false, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
-                    if (open != null) startActivity(open);
-                }
-            });
-        } else if (shizuku == AppSession.SHIZUKU_TOO_OLD) {
-            showSetup(getString(R.string.xd_shizuku_old_title), getString(R.string.xd_shizuku_old), false, getString(R.string.xd_shizuku_website), new View.OnClickListener() {
-                @Override public void onClick(View v) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME))); }
-            });
-        } else if (shizuku == AppSession.SHIZUKU_NO_PERMISSION) {
-            if (apps.permissionDeniedForGood()) {
-                showPermitSetup(getString(R.string.xd_permit_shizuku), getString(R.string.xd_shizuku_denied), null, getString(R.string.xd_open_shizuku), new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
-                        if (open != null) startActivity(open);
-                    }
-                });
-            } else {
-                showPermitSetup(getString(R.string.xd_permit_shizuku), getString(R.string.xd_shizuku_ask), null, null, new View.OnClickListener() {
-                    @Override public void onClick(View v) { apps.requestPermission(); }
-                });
-            }
+        if (shizukuPage != null && shizukuPage.isShowing()) {
+            shizukuPage.refresh();
+            return;
         }
+        showSetup(getString(R.string.xd_act_use_shizuku), "", false, null, null);
+        setupBrand.setVisibility(View.GONE);
+        shizukuPage = new ShizukuPage(this, ui(), apps, new ShizukuPage.Actions() {
+            @Override public void download() {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_HOME)));
+            }
+            @Override public void openShizuku() {
+                Intent open = getPackageManager().getLaunchIntentForPackage(AppSession.SHIZUKU_PACKAGE);
+                if (open != null) startActivity(open);
+            }
+            @Override public void requestPermission() {
+                apps.requestPermission();
+            }
+            @Override public void useWireless() {
+                shizukuScreens = false;
+                closeShizukuPage();
+                if (pendingApp != null) startApp(pendingApp);
+                else showActivation(null);
+            }
+            @Override public void cancelled() {
+                shizukuPage = null;
+                backToChooser();
+            }
+        });
+    }
+
+    private void closeShizukuPage() {
+        if (shizukuPage != null) shizukuPage.close();
+        shizukuPage = null;
     }
 
     /** 把外接屏让给安卓应用。桌面窗口留在后面，桌面继续运行，切回来直接放到前面；这期间桌面没有声音。 */
@@ -6263,9 +6366,14 @@ public class XDeskActivity extends Activity {
     }
 
     private void showWaiting() {
-        showSetup(getString(R.string.xd_waiting_title), getString(R.string.xd_waiting), false, getString(R.string.xd_waiting_action), new View.OnClickListener() {
+        // Waiting.dc.html: the spinner, the title, "在 Termux 里运行", the command, and the two full-width buttons
+        showSetup(getString(R.string.xd_waiting_title), getString(R.string.xd_waiting_run), false, getString(R.string.xd_waiting_action), new View.OnClickListener() {
             @Override public void onClick(View v) { launchDesktop(null, false); }
         });
+        setupSpinTop.setVisibility(View.VISIBLE);
+        setupExtras("xdesk start", getString(R.string.xd_waiting_any));
+        setupMessage.setTextSize(13);
+        stretchSetup();
     }
 
     /**
@@ -6446,9 +6554,20 @@ public class XDeskActivity extends Activity {
 
     private void showConnectFailure() {
         desktopFailedToConnect();
-        showSetup(getString(R.string.xd_desktop_no_start_title), getString(R.string.xd_desktop_no_start), false, getString(R.string.xd_retry), new View.OnClickListener() {
-            @Override public void onClick(View v) { launchDesktop(pendingSession, pendingReplace); }
-        });
+        // ConnectFail.dc.html's look (red round icon, quiet way back). The words stay the desktop's: this page is the
+        // Linux desktop not answering, not the injector (the mockup's text is for the injector).
+        showSetup(getString(R.string.xd_desktop_no_start_title), getString(R.string.xd_desktop_no_start), false,
+            getString(R.string.xd_retry), new View.OnClickListener() {
+                @Override public void onClick(View v) { launchDesktop(pendingSession, pendingReplace); }
+            });
+        setupBrand.setVisibility(View.GONE);
+        setupIconBox.setVisibility(View.VISIBLE);
+        setupMessage.setTextColor(Style.TEXT_SOFT);
+        setupMessage.setTextSize(14);
+        stretchSetup();
+        // The quiet way out at the bottom, as the mockup draws it
+        setupBack.setTextColor(Style.ACCENT_2);
+        setupBack.setBackground(Style.ripple(this, 0x00000000, 12));
     }
 
     /** 界面重建时接回还在运行的会话。 */

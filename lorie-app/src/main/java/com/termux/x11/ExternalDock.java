@@ -51,13 +51,15 @@ final class ExternalDock implements AppSession.EdgeListener {
     private static final long DWELL_MS = 250, LEAVE_MS = 450, SLIDE_MS = 180;
     /** No hover heard at the edge: the pointer's place is the only sign, and over the input method it has far to go to the dock. */
     private static final long EDGE_DWELL_MS = 350, LONG_WAY_MS = 1800;
-    private static final float EDGE_DP = 3, ICON_DP = 54, ITEM_GAP_DP = 8, PAD_DP = 10, ROOM_BELOW_DP = 10, RADIUS_DP = 24;
-    private static final float HOVER_ZOOM = 1.16f, WIDTH_USED = 0.9f;
+    // ExtDock.dc.html: 44 dp icons in a 64 dp bar, 10 dp apart, 18 dp corners, 14 dp above the screen's bottom edge.
+    private static final float EDGE_DP = 3, ICON_DP = 44, ITEM_GAP_DP = 10, PAD_DP = 10, ROOM_BELOW_DP = 14, RADIUS_DP = 18;
+    private static final float HOVER_ZOOM = 1.12f, HOVER_LIFT_DP = 6, WIDTH_USED = 0.9f;
     private static final long ZOOM_MS = 110;
     private static final int MIN_EDGE_PX = 4;
-    private static final int PANEL = 0xEB1B1E24, EDGE = 0x33FFFFFF, BUBBLE = 0xF02A2E36, DOT = 0xFFFFFFFF;
-    /** The badge's ring is drawn in the dock's surface colour: PANEL made opaque, or the ring would show the icon through. */
-    private static final int PANEL_OPAQUE = 0xFF1B1E24;
+    private static final int DOT = Style.TEXT;
+    private static final float NAME_TEXT_SP = 12;
+    /** The badge's ring is drawn in the dock's surface colour: the shell made opaque, or the ring would show the icon through. */
+    private static final int PANEL_OPAQUE = 0xFF11141A;
 
     private final Context context;
     private final Runnable shown;
@@ -605,31 +607,26 @@ final class ExternalDock implements AppSession.EdgeListener {
             // label must never re-measure the Panel or the window, which is what shifted the bar. The bubble itself
             // is the wrap-content text inside it, centred and ellipsized; the box around it stays invisible
             bubble = new FrameLayout(dc);
-            name = Style.label(dc, "", Style.TEXT, 13);
+            name = Style.label(dc, "", Style.TEXT, NAME_TEXT_SP);
             // The shell's text factor (b·u, no font scale): sp from the display context would follow the density override
-            name.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
+            name.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.round(NAME_TEXT_SP * density));
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
-            name.setPadding(dp(10), dp(4), dp(10), dp(4));
-            GradientDrawable back = new GradientDrawable();
-            back.setColor(BUBBLE);
-            back.setCornerRadius(dp(8));
-            name.setBackground(back);
+            name.setPadding(dp(10), dp(5), dp(10), dp(5));
+            // The name in a small shell card above the bar (ExtDock.dc.html), not a bubble of its own colour
+            name.setBackground(Style.shell(density, 8));
             bubble.addView(name, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
             bubble.setAlpha(0f);
-            LayoutParams nameAt = new LayoutParams(0, Math.round(13 * density * 1.4f) + dp(8));
+            LayoutParams nameAt = new LayoutParams(0, Math.round(NAME_TEXT_SP * density * 1.4f) + dp(12));
             nameAt.bottomMargin = dp(8);
             addView(bubble, nameAt);
             bar = new LinearLayout(dc);
             bar.setGravity(Gravity.BOTTOM);
             bar.setClipChildren(false);
             bar.setClipToPadding(false);
-            bar.setPadding(dp(PAD_DP), dp(PAD_DP), dp(PAD_DP), dp(4));
-            GradientDrawable surface = new GradientDrawable();
-            surface.setColor(PANEL);
-            surface.setCornerRadius(dp(RADIUS_DP));
-            surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
-            bar.setBackground(surface);
+            // 64 dp high: the icons and their running dots, with the mockup's 5 dp above and 4 dp below
+            bar.setPadding(dp(PAD_DP), dp(5), dp(PAD_DP), dp(4));
+            bar.setBackground(Style.shell(density, RADIUS_DP));
             // A click between the boxes (their margins, the divider) lands on the bar itself: it opens the nearest box
             bar.setClickable(true);
             bar.setFocusable(false);
@@ -703,7 +700,7 @@ final class ExternalDock implements AppSession.EdgeListener {
         /** The hairline between what is on the screen and the favourites; its margins shrink with the icons. */
         private View divider() {
             View divider = new View(dc);
-            divider.setBackgroundColor(EDGE);
+            divider.setBackgroundColor(Style.SHELL_LINE);
             LayoutParams at = new LayoutParams(Math.max(1, dp(1)), dp(ICON_DP * 0.72f * scale));
             at.leftMargin = at.rightMargin = dp((ITEM_GAP_DP / 2 + 2) * scale);
             at.bottomMargin = dp(12 * scale);
@@ -783,13 +780,14 @@ final class ExternalDock implements AppSession.EdgeListener {
 
         private void setOver(View v) {
             if (v == over) return;
-            if (over != null) ((View) over.getTag()).animate().scaleX(1f).scaleY(1f).setDuration(ZOOM_MS).start();
+            if (over != null) ((View) over.getTag()).animate().scaleX(1f).scaleY(1f).translationY(0f).setDuration(ZOOM_MS).start();
             over = v;
             if (v == null) {
                 bubble.animate().alpha(0f).setDuration(ZOOM_MS).start();
                 return;
             }
-            ((View) v.getTag()).animate().scaleX(HOVER_ZOOM).scaleY(HOVER_ZOOM).setDuration(ZOOM_MS).start();
+            // The mockup's hover: the icon rises a little and grows, as the Mac's dock does (ExtDock.dc.html)
+            ((View) v.getTag()).animate().scaleX(HOVER_ZOOM).scaleY(HOVER_ZOOM).translationY(-dp(HOVER_LIFT_DP)).setDuration(ZOOM_MS).start();
             CharSequence label = v.getContentDescription();
             showName(label != null ? label.toString() : "", v);
         }

@@ -136,7 +136,7 @@
     <string name="xd_dash_input_display">键鼠在外接屏，Ctrl+Alt+M 交还手机</string>
     <string name="xd_dash_input_phone_hotkey">键鼠在手机，Ctrl+Alt+M 接管</string>
     <string name="xd_dash_input_phone">键鼠在手机</string>
-    <string name="xd_dash_input_home">键鼠在这块屏上</string>
+    <string name="xd_dash_input_home">键鼠在外接屏</string>
 
     <!-- DockBar -->
     <string name="xd_dock_empty">点列表右边的星把常用的加到这里</string>
@@ -624,4 +624,42 @@
     <string name="xd_pad_hide">隐藏</string>
     <string name="xd_pad_show">显示</string>
     <string name="xd_pad_reset_one">默认</string>
+
+    <!-- 0.7.0, A5a: 设置页、隐私遮罩和手柄编辑器按设计稿 -->
+    <string name="xd_act_intro">安卓应用的键鼠转发要靠一个 shell 权限的小服务。不用 root，也不用装别的 App。配对只要做一次。</string>
+    <string name="xd_act_step1">连上 Wi-Fi。激活时必须连着，手机自己的热点可能不算。</string>
+    <string name="xd_act_step2">进入开发者选项，打开「无线调试」，再点「使用配对码配对设备」。</string>
+    <string name="xd_act_step3">配对框里有 6 位配对码。XDesk 的通知里可以直接输入，也可以填在下面。</string>
+    <string name="xd_act_later_short">打开 XDesk 时，只要无线调试开着，它会自己启动服务。重启手机后要重新激活：系统允许的话，XDesk 会在连着 Wi-Fi 时自己打开无线调试。</string>
+    <string name="xd_waiting_run">在 Termux 里运行</string>
+    <string name="xd_waiting_any">也可以运行任意程序：xdesk run 命令</string>
+    <string name="xd_dash_cover_hint">外屏已遮住 · 回到 XDesk 就恢复</string>
+    <string name="xd_dash_cover_note">内容每分钟轻微挪动，防烧屏</string>
+    <string name="xd_dash_cover_status">电量 %1$d%% · 声音已暂停 · 键鼠在手机</string>
+    <string name="xd_dash_sound_paused">声音已暂停</string>
+    <string name="xd_pad_selected">已选：%1$s</string>
+    <string name="xd_pad_edit_hint">拖动控件改位置 · 点一个再用上面的按钮改大小或隐藏 · 布局「%1$s」</string>
+    <string name="xd_pad_menu_layout">布局</string>
+    <string name="xd_pad_menu_opacity">透明度</string>
+    <string name="xd_pad_haptics_label">按键振动</string>
+
+    <!-- 0.7.0, A5a: 「改用 Shizuku」页（Shizuku.dc.html） -->
+    <string name="xd_shizuku_intro">安卓应用的键鼠也可以经 Shizuku 转发，不用 root。Linux 桌面不需要它。</string>
+    <string name="xd_shizuku_step_install">安装 Shizuku</string>
+    <string name="xd_shizuku_installed">已安装 %1$s</string>
+    <string name="xd_shizuku_not_installed">还没安装</string>
+    <string name="xd_shizuku_step_start">启动 Shizuku</string>
+    <string name="xd_shizuku_start_note">在 Shizuku 里用无线调试启动，回来会自动继续</string>
+    <string name="xd_shizuku_step_allow">允许 XDesk 使用</string>
+    <string name="xd_shizuku_allow_note">Shizuku 会弹窗问一次</string>
+    <string name="xd_shizuku_other">其他情况（同一个位置换成这样）</string>
+    <string name="xd_shizuku_download">去下载</string>
+    <string name="xd_shizuku_open">打开</string>
+    <string name="xd_shizuku_old_row">Shizuku 版本太旧</string>
+    <string name="xd_shizuku_old_row_note">升级后回到这里</string>
+    <string name="xd_shizuku_denied_row">之前拒绝过</string>
+    <string name="xd_shizuku_denied_row_note">在 Shizuku 的应用管理里允许 XDesk</string>
+    <string name="xd_shizuku_restart_row">重启后停了</string>
+    <string name="xd_shizuku_restart_row_note">再启动一次 Shizuku</string>
+    <string name="xd_shizuku_back">改回无线调试 ›</string>
 </resources>

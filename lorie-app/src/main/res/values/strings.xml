@@ -144,7 +144,7 @@
     <string name="xd_dash_input_display">Mouse &amp; keyboard on the display, Ctrl+Alt+M gives them back</string>
     <string name="xd_dash_input_phone_hotkey">Mouse &amp; keyboard on the phone, Ctrl+Alt+M takes them over</string>
     <string name="xd_dash_input_phone">Mouse &amp; keyboard on the phone</string>
-    <string name="xd_dash_input_home">Mouse &amp; keyboard on this screen</string>
+    <string name="xd_dash_input_home">Mouse &amp; keyboard on the external screen</string>
 
     <!-- DockBar -->
     <string name="xd_dock_empty">Tap the star next to an app to add it here</string>
@@ -648,4 +648,42 @@
     <string name="xd_pad_hide">Hide</string>
     <string name="xd_pad_show">Show</string>
     <string name="xd_pad_reset_one">Default</string>
+
+    <!-- 0.7.0, A5a: the setup pages, the privacy cover and the gamepad editor follow the design file -->
+    <string name="xd_act_intro">Forwarding mouse and keyboard to Android apps needs a small service with shell permissions. No root, and no other app to install. You only pair once.</string>
+    <string name="xd_act_step1">Connect to Wi-Fi. It must be connected while you activate; the phone\'s own hotspot may not count.</string>
+    <string name="xd_act_step2">Open Developer options, turn on “Wireless debugging”, then tap “Pair device with pairing code”.</string>
+    <string name="xd_act_step3">The pairing dialog has a 6-digit code. You can type it in XDesk\'s notification, or fill it in below.</string>
+    <string name="xd_act_later_short">When you open XDesk with wireless debugging on, it starts the service by itself. After a restart, activate again: if the system allows it, XDesk turns on wireless debugging by itself while on Wi-Fi.</string>
+    <string name="xd_waiting_run">Run in Termux</string>
+    <string name="xd_waiting_any">Or run any program: xdesk run command</string>
+    <string name="xd_dash_cover_hint">External screen hidden · Back in XDesk it comes back</string>
+    <string name="xd_dash_cover_note">Content moves slightly every minute, against burn-in</string>
+    <string name="xd_dash_cover_status">Battery %1$d%% · Sound paused · Mouse &amp; keyboard on the phone</string>
+    <string name="xd_dash_sound_paused">Sound paused</string>
+    <string name="xd_pad_selected">Selected: %1$s</string>
+    <string name="xd_pad_edit_hint">Drag a control to move it · Tap one, then use the buttons above to resize or hide it · Layout “%1$s”</string>
+    <string name="xd_pad_menu_layout">Layout</string>
+    <string name="xd_pad_menu_opacity">Opacity</string>
+    <string name="xd_pad_haptics_label">Vibrate on press</string>
+
+    <!-- 0.7.0, A5a: the “Use Shizuku” page (Shizuku.dc.html) -->
+    <string name="xd_shizuku_intro">Android apps’ mouse and keyboard can also go through Shizuku, without root. The Linux desktop doesn’t need it.</string>
+    <string name="xd_shizuku_step_install">Install Shizuku</string>
+    <string name="xd_shizuku_installed">Installed %1$s</string>
+    <string name="xd_shizuku_not_installed">Not installed</string>
+    <string name="xd_shizuku_step_start">Start Shizuku</string>
+    <string name="xd_shizuku_start_note">Start it with wireless debugging in Shizuku; XDesk continues when you come back</string>
+    <string name="xd_shizuku_step_allow">Allow XDesk to use it</string>
+    <string name="xd_shizuku_allow_note">Shizuku asks once</string>
+    <string name="xd_shizuku_other">Other cases (the same place shows these)</string>
+    <string name="xd_shizuku_download">Download</string>
+    <string name="xd_shizuku_open">Open</string>
+    <string name="xd_shizuku_old_row">Shizuku is too old</string>
+    <string name="xd_shizuku_old_row_note">Update it and come back here</string>
+    <string name="xd_shizuku_denied_row">Denied before</string>
+    <string name="xd_shizuku_denied_row_note">Allow XDesk in Shizuku’s app management</string>
+    <string name="xd_shizuku_restart_row">Stopped after a restart</string>
+    <string name="xd_shizuku_restart_row_note">Start Shizuku again</string>
+    <string name="xd_shizuku_back">Use wireless debugging instead ›</string>
 </resources>

@@ -161,7 +161,7 @@ final class GamepadLayout {
 
     static float corner(int i, float[] b) {
         float m = Math.min(b[2], b[3]);
-        return CONTROLS[i].round() || CONTROLS[i].kind == DPAD ? m : m * 0.35f;
+        return CONTROLS[i].round() || CONTROLS[i].kind == DPAD ? m : m * 0.7f;
     }
 
     /** Signed distance from (px, py) to control i's edge, negative inside. */

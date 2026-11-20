@@ -30,8 +30,8 @@ import java.util.List;
  * from Sizing.shell, the notification panel's dark style.
  */
 final class MacMenuBar {
-    /** The bar's height, and the dropdown's width, in shell dp. */
-    static final float HEIGHT_DP = 30, DROPDOWN_DP = 280;
+    /** The bar's height, and the dropdown's width, in shell dp (ExtMacMenu.dc.html: 40 and 280). */
+    static final float HEIGHT_DP = 40, DROPDOWN_DP = 280;
     /** How long a refusal is said in the bar; the no-Accessibility line stays while the Mac has none. */
     static final long NOTE_MS = 3000;
 
@@ -47,8 +47,10 @@ final class MacMenuBar {
         void dropdownShown();
     }
 
-    private static final int PANEL = 0xF61B1E24, SELECT = 0x223D7EF5, EDGE = 0x33FFFFFF;
-    private static final int SEPARATOR = 0x26FFFFFF;
+    private static final int SELECT = Style.ACCENT;
+    private static final int SEPARATOR = Style.SHELL_LINE;
+    /** The open menu's raised tab and the dropdown under it (ExtMacMenu.dc.html's #2C313B). */
+    private static final int RAISED = Style.SURFACE_RAISED;
 
     private final Context dc;
     private final float density;
@@ -92,12 +94,8 @@ final class MacMenuBar {
 
         root = new LinearLayout(dc);
         root.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable surface = new GradientDrawable();
-        surface.setColor(PANEL);
-        surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
-        surface.setCornerRadius(dp(8));
-        root.setBackground(surface);
-        root.setPadding(dp(6), dp(2), dp(6), dp(2));
+        root.setBackground(Style.shell(density, 12));
+        root.setPadding(dp(6), dp(6), dp(6), dp(6));
         root.setOnHoverListener((v, e) -> {
             hover(e.getActionMasked() != MotionEvent.ACTION_HOVER_EXIT);
             return false;
@@ -105,7 +103,7 @@ final class MacMenuBar {
 
         barRow = new LinearLayout(dc);
         barRow.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(barRow, new LinearLayout.LayoutParams(-2, dp(HEIGHT_DP - 6)));
+        root.addView(barRow, new LinearLayout.LayoutParams(-2, dp(HEIGHT_DP - 12)));
 
         note = new TextView(dc);
         note.setTextColor(Style.TEXT_DIM);
@@ -202,6 +200,12 @@ final class MacMenuBar {
         barRow.setVisibility(View.VISIBLE);
         hideNote();  // the loading line, once the menus are there
         nav.setBar(top);
+        // The app whose menus these are, in bold at the bar's left (ExtMacMenu.dc.html's 访达)
+        if (t.app != null && !t.app.isEmpty()) {
+            TextView name = pill(t.app);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            barRow.addView(name, new LinearLayout.LayoutParams(-2, -1));
+        }
         for (int i = 0; i < top.size(); i++) {
             final int at = i;
             TextView pill = pill(top.get(i).title);
@@ -209,7 +213,7 @@ final class MacMenuBar {
             if (top.get(i).enabled) pill.setOnClickListener(v -> openMenu(at));
             else pill.setAlpha(0.45f);
             pills.add(pill);
-            barRow.addView(pill);
+            barRow.addView(pill, new LinearLayout.LayoutParams(-2, -1));
         }
         selectPill(nav.selected(0), false);
         if (again >= 0 && again < top.size()) openMenu(again);  // the same menu under the new version
@@ -289,12 +293,13 @@ final class MacMenuBar {
         if (dropdown == null) {
             dropdown = new LinearLayout(dc);
             dropdown.setOrientation(LinearLayout.VERTICAL);
+            // Joined under the open menu's tab: square at the top-left, rounded elsewhere (ExtMacMenu.dc.html)
             GradientDrawable surface = new GradientDrawable();
-            surface.setColor(PANEL);
-            surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
-            surface.setCornerRadius(dp(8));
+            surface.setColor(RAISED);
+            float r = dp(12);
+            surface.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
             dropdown.setBackground(surface);
-            dropdown.setPadding(dp(6), dp(4), dp(6), dp(4));
+            dropdown.setPadding(dp(6), dp(6), dp(6), dp(6));
             dropdown.setOnHoverListener((v, e) -> {
                 hover(e.getActionMasked() != MotionEvent.ACTION_HOVER_EXIT);
                 return false;
@@ -331,7 +336,7 @@ final class MacMenuBar {
     private View rowView(MacMenuState.Row row) {
         LinearLayout line = new LinearLayout(dc);
         line.setGravity(Gravity.CENTER_VERTICAL);
-        line.setPadding(dp(8), dp(5), dp(8), dp(5));
+        line.setPadding(dp(12), dp(5), dp(12), dp(5));
         line.setMinimumHeight(dp(30));
         boolean noteRow = row.kind == MacMenuState.Kind.NOTE;
         MacMenuState.NoteText nt = noteRow ? MacMenuState.noteText(row.title) : null;
@@ -344,14 +349,14 @@ final class MacMenuBar {
                     ? row.mark == MacMenuState.Mark.ON ? "✓" : row.mark == MacMenuState.Mark.MIXED ? "−" : ""
                     : "");
             mark.setGravity(Gravity.CENTER);
-            line.addView(mark, new LinearLayout.LayoutParams(dp(16), -2));
+            line.addView(mark, new LinearLayout.LayoutParams(dp(14), -2));
         }
-        TextView words = text(noteRow ? 13 : 14, noteRow ? Style.TEXT_DIM : Style.TEXT);
+        TextView words = text(13, noteRow ? Style.TEXT_DIM : Style.TEXT);
         words.setMaxLines(2);
         words.setEllipsize(TextUtils.TruncateAt.END);
         words.setText(title);
         line.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView keyText = text(11, Style.TEXT_DIM);
+        TextView keyText = text(12, Style.TEXT_DIM);
         keyText.setText(key == null ? "" : key);
         keyText.setVisibility(key == null || key.isEmpty() ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams keyAt = new LinearLayout.LayoutParams(-2, -2);
@@ -504,9 +509,10 @@ final class MacMenuBar {
 
     private void selectPill(int index, boolean open) {
         for (int i = 0; i < pills.size(); i++) {
+            // The open menu's tab is raised, joined to its dropdown; the others have no fill (ExtMacMenu.dc.html)
             GradientDrawable back = new GradientDrawable();
-            back.setColor(i == index && open ? SELECT : 0x00000000);
-            back.setCornerRadius(dp(6));
+            back.setColor(i == index && open ? RAISED : 0x00000000);
+            back.setCornerRadii(new float[]{dp(9), dp(9), dp(9), dp(9), 0, 0, 0, 0});
             pills.get(i).setBackground(back);
         }
     }
@@ -519,7 +525,7 @@ final class MacMenuBar {
             if (i == at) {
                 GradientDrawable back = new GradientDrawable();
                 back.setColor(SELECT);
-                back.setCornerRadius(dp(6));
+                back.setCornerRadius(dp(7));
                 v.setBackground(back);
             } else {
                 v.setBackground(null);
@@ -588,7 +594,8 @@ final class MacMenuBar {
         t.setTextColor(Style.TEXT);
         t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
         t.setSingleLine(true);
-        t.setPadding(dp(8), dp(3), dp(8), dp(3));
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(10), 0, dp(10), 0);
         return t;
     }
 }

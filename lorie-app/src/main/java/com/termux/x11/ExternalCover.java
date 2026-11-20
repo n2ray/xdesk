@@ -36,7 +36,7 @@ final class ExternalCover {
         }
         Context dc = context.createDisplayContext(display);
         WindowManager wm = dc.getSystemService(WindowManager.class);
-        DashboardView v = new DashboardView(dc, dc.getString(R.string.xd_dash_cover), false);
+        DashboardView v = new DashboardView(dc, dc.getString(R.string.xd_dash_cover_hint), false, DashboardView.COVER);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // Touchable on purpose: an overlay that lets touches through is held at 0.8 opacity by the system ("setting
             // alpha to 0.80 to let touches pass through"), and the app showed through the cover. Covered means fully

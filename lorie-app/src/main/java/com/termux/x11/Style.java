@@ -27,7 +27,11 @@ final class Style {
     static final int RIPPLE = 0x33FFFFFF;
     static final int TEXT = 0xFFE8ECF1;
     static final int TEXT_DIM = 0xFF8D97A3;
+    /** The second line on the shell and the setup pages: brighter than TEXT_DIM, dimmer than TEXT (xd.css' #C9D0D8). */
+    static final int TEXT_SOFT = 0xFFC9D0D8;
     static final int FAINT = 0xFF5C6470;
+    /** A raised row or tile on the shell: white at 5–6%. */
+    static final int SHELL_ROW = 0x0DFFFFFF, SHELL_TILE = 0x0FFFFFFF;
     static final int ACCENT = 0xFF3D7EF5;
     static final int ACCENT_2 = 0xFF7FABFA;
     static final int ACCENT_SOFT = 0x293D7EF5;
@@ -81,6 +85,29 @@ final class Style {
         GradientDrawable g = new GradientDrawable();
         g.setColor(color);
         g.setCornerRadius(dp(c, radiusDp));
+        return g;
+    }
+
+    /**
+     * The shell every external panel shares (xd.css .shell): SHELL with a SHELL_LINE hairline, rounded by radiusDp. Takes
+     * the caller's density (Sizing.shell on the external screen) so the corners follow b·u and not the display's
+     * Android density override.
+     */
+    static GradientDrawable shell(float density, float radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(SHELL);
+        g.setCornerRadius(radiusDp * density);
+        g.setStroke(Math.max(1, Math.round(density)), SHELL_LINE);
+        return g;
+    }
+
+    /** The same with a corner radius per corner (top-left, top-right, bottom-right, bottom-left), for an edge panel. */
+    static GradientDrawable shell(float density, float tl, float tr, float br, float bl) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(SHELL);
+        float[] r = {tl * density, tl * density, tr * density, tr * density, br * density, br * density, bl * density, bl * density};
+        g.setCornerRadii(r);
+        g.setStroke(Math.max(1, Math.round(density)), SHELL_LINE);
         return g;
     }
 

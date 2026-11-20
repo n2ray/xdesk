@@ -123,7 +123,7 @@ public class CarActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setDecorFitsSystemWindows(false);
-        view = new DashboardView(this, getString(R.string.xd_dash_car), true);
+        view = new DashboardView(this, getString(R.string.xd_dash_car), true, DashboardView.CAR);
         appView = buildAppView();
         FrameLayout root = new FrameLayout(this);
         root.addView(appView, new FrameLayout.LayoutParams(-1, -1));

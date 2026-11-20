@@ -2,7 +2,10 @@ package com.termux.x11;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -10,7 +13,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
 
-/** 第一次激活注入服务：怎么打开无线调试，还有一个输入配对码的地方。通知里输不了时全靠这里。 */
+/**
+ * 第一次激活注入服务（Activation.dc.html）：怎么做三步、配对码和端口，以及改用 Shizuku 的入口。通知里输不了时全靠这里。
+ */
 final class ActivationPage {
     interface Actions {
         void openPairingSettings();
@@ -37,28 +42,68 @@ final class ActivationPage {
         LinearLayout content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
 
-        text(ui.section(content, c.getString(R.string.xd_act_steps_title)), c.getString(R.string.xd_act_steps));
-        TextView open = Style.button(c, c.getString(R.string.xd_act_open_wireless), Style.ACCENT, Style.TEXT_BODY, Style.RADIUS);
-        open.setOnClickListener(v -> actions.openPairingSettings());
-        content.addView(open, buttonParams());
+        // The intro line, then the three steps in one card (Activation.dc.html)
+        TextView intro = Style.label(c, c.getString(R.string.xd_act_intro), Style.TEXT_SOFT, 13);
+        intro.setPadding(dp(6), 0, dp(6), dp(6));
+        intro.setLineSpacing(dp(2), 1f);
+        content.addView(intro);
+
+        LinearLayout steps = ui.card(content);
+        steps.setPadding(dp(10), dp(6), dp(10), dp(6));
+        step(steps, "1", c.getString(R.string.xd_act_step1), null, null);
+        step(steps, "2", c.getString(R.string.xd_act_step2), c.getString(R.string.xd_act_open_wireless),
+            () -> actions.openPairingSettings());
+        step(steps, "3", c.getString(R.string.xd_act_step3), null, null);
 
         LinearLayout card = ui.section(content, c.getString(R.string.xd_act_code_title));
-        codeField = field(c.getString(R.string.xd_act_code_hint));
-        card.addView(codeField, fieldParams());
-        portNote = text(card, "");
-        portField = field(c.getString(R.string.xd_act_port_hint));
-        card.addView(portField, fieldParams());
-        pairButton = Style.button(c, c.getString(R.string.xd_act_pair), Style.ACCENT, Style.TEXT_BODY, Style.RADIUS);
-        pairButton.setOnClickListener(v -> pair());
-        card.addView(pairButton, fieldParams());
-        status = text(card, "");
+        LinearLayout fields = new LinearLayout(c);
+        fields.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
+        fp.setMargins(dp(8), dp(8), dp(8), 0);
+        card.addView(fields, fp);
+        codeField = field(c.getString(R.string.xd_act_code_hint), true);
+        codeField.setLetterSpacing(0.12f);
+        LinearLayout.LayoutParams codeAt = new LinearLayout.LayoutParams(0, dp(44), 2);
+        codeAt.rightMargin = dp(8);
+        fields.addView(codeField, codeAt);
+        portField = field(c.getString(R.string.xd_act_port_hint), false);
+        fields.addView(portField, new LinearLayout.LayoutParams(0, dp(44), 1));
 
-        text(ui.section(content, c.getString(R.string.xd_act_later_title)), c.getString(R.string.xd_act_later));
+        portNote = Style.label(c, "", Style.OK, 12);
+        portNote.setPadding(dp(10), dp(8), dp(10), 0);
+        card.addView(portNote);
+
+        pairButton = Style.button(c, c.getString(R.string.xd_act_pair), Style.ACCENT, 14, 12);
+        pairButton.setTextColor(android.graphics.Color.WHITE);
+        pairButton.setTypeface(Typeface.DEFAULT_BOLD);
+        pairButton.setOnClickListener(v -> pair());
+        LinearLayout.LayoutParams pairAt = new LinearLayout.LayoutParams(-1, dp(44));
+        pairAt.setMargins(dp(8), dp(10), dp(8), dp(8));
+        card.addView(pairButton, pairAt);
+
+        status = Style.label(c, "", Style.DANGER, 12);
+        status.setPadding(dp(10), 0, dp(10), dp(8));
+        card.addView(status);
+
+        LinearLayout later = ui.section(content, c.getString(R.string.xd_act_later_title));
+        TextView laterText = Style.label(c, c.getString(R.string.xd_act_later_short), Style.TEXT_SOFT, 13);
+        laterText.setPadding(dp(12), dp(10), dp(12), dp(10));
+        laterText.setLineSpacing(dp(2), 1f);
+        later.addView(laterText);
 
         if (offerShizuku) {
-            TextView shizuku = Style.button(c, c.getString(R.string.xd_act_use_shizuku), Style.SURFACE_RAISED, Style.TEXT_BODY, Style.RADIUS);
-            shizuku.setOnClickListener(v -> actions.useShizuku());
-            content.addView(shizuku, buttonParams());
+            // A quiet link at the page's bottom (btnq): accent-2 words, no fill
+            TextView shizuku = Style.button(c, c.getString(R.string.xd_act_use_shizuku) + " ›", 0x00000000, 14, 12);
+            shizuku.setTextColor(Style.ACCENT_2);
+            shizuku.setPadding(dp(6), 0, dp(6), 0);
+            shizuku.setGravity(Gravity.START);
+            shizuku.setOnClickListener(v -> {
+                Style.tick(v);
+                actions.useShizuku();
+            });
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(44));
+            sp.topMargin = dp(8);
+            content.addView(shizuku, sp);
         }
 
         dialog = ui.page(c.getString(R.string.xd_act_title), content);
@@ -72,37 +117,52 @@ final class ActivationPage {
         return Style.dp(c, v);
     }
 
-    private LinearLayout.LayoutParams buttonParams() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
-        p.topMargin = dp(12);
-        return p;
-    }
-
-    private LinearLayout.LayoutParams fieldParams() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(Style.TARGET));
-        p.setMargins(dp(8), dp(8), dp(8), dp(4));
-        return p;
-    }
-
-    private TextView text(LinearLayout parent, String s) {
-        TextView t = Style.label(c, s, Style.TEXT, Style.TEXT_BODY - 1);
-        t.setPadding(dp(12), dp(10), dp(12), dp(10));
+    /** One numbered step: the 24 dp disc and its words; step 2 has its button under them. */
+    private void step(LinearLayout card, String number, String text, String action, Runnable onAction) {
+        LinearLayout row = new LinearLayout(c);
+        row.setGravity(Gravity.TOP);
+        row.setPadding(dp(4), dp(8), dp(4), dp(8));
+        TextView num = Style.label(c, number, Style.ACCENT_2, 12);
+        num.setTypeface(Typeface.DEFAULT_BOLD);
+        num.setGravity(Gravity.CENTER);
+        num.setBackground(Style.rounded(c, Style.SURFACE_RAISED, 12));
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(dp(24), dp(24));
+        np.rightMargin = dp(12);
+        np.topMargin = dp(1);
+        row.addView(num, np);
+        LinearLayout words = new LinearLayout(c);
+        words.setOrientation(LinearLayout.VERTICAL);
+        TextView t = Style.label(c, text, Style.TEXT_SOFT, 13);
         t.setLineSpacing(dp(2), 1f);
-        parent.addView(t);
-        return t;
+        words.addView(t);
+        if (action != null) {
+            TextView b = Style.button(c, action, Style.SURFACE_RAISED, 14, 12);
+            b.setPadding(dp(18), 0, dp(18), 0);
+            b.setOnClickListener(v -> {
+                Style.tick(v);
+                onAction.run();
+            });
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, dp(44));
+            bp.topMargin = dp(10);
+            words.addView(b, bp);
+        }
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    private EditText field(String hint) {
+    private EditText field(String hint, boolean accent) {
         EditText f = new EditText(c);
         f.setInputType(InputType.TYPE_CLASS_NUMBER);
         f.setSingleLine(true);
         f.setTextColor(Style.TEXT);
         f.setHintTextColor(Style.TEXT_DIM);
-        f.setTextSize(Style.TEXT_BODY);
+        f.setTextSize(TypedValue.COMPLEX_UNIT_PX, dp(14));
         f.setGravity(Gravity.CENTER);
         f.setHint(hint);
-        f.setPadding(0, 0, 0, 0);
-        f.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
+        f.setPadding(dp(10), 0, dp(10), 0);
+        GradientDrawable bg = Style.rounded(c, Style.BACKGROUND, 12);
+        if (accent) bg.setStroke(dp(1.5f), Style.ACCENT);
+        f.setBackground(bg);
         return f;
     }
 
@@ -113,16 +173,22 @@ final class ActivationPage {
             try {
                 port = Integer.parseInt(portField.getText().toString().trim());
             } catch (NumberFormatException e) {
+                status.setTextColor(Style.DANGER);
                 status.setText(R.string.xd_act_need_port);
                 return;
             }
         }
         if (code.length() != CODE_LENGTH) {
+            status.setTextColor(Style.DANGER);
             status.setText(R.string.xd_act_code_length);
             return;
         }
+        status.setTextColor(Style.TEXT_DIM);
         status.setText(R.string.xd_act_pairing);
-        shell.pair(port, code, error -> status.setText(error));
+        shell.pair(port, code, error -> {
+            status.setTextColor(Style.DANGER);
+            status.setText(error);
+        });
     }
 
     boolean isShowing() {
@@ -137,10 +203,15 @@ final class ActivationPage {
 
     void refresh() {
         boolean found = shell.pairingPort() > 0;
+        portNote.setTextColor(found ? Style.OK : Style.TEXT_DIM);
         portNote.setText(found ? R.string.xd_act_port_found : R.string.xd_act_port_missing);
-        portField.setVisibility(found ? View.GONE : View.VISIBLE);
+        // The mockup shows the port found, filled in beside the code; pairing still uses the system's when it knows it
+        if (found) portField.setText(String.valueOf(shell.pairingPort()));
         pairButton.setEnabled(!shell.isPairing());
         pairButton.setAlpha(shell.isPairing() ? 0.5f : 1f);
-        if (shell.pairingLost() && !shell.isPairing() && status.length() == 0) status.setText(R.string.xd_act_pairing_lost);
+        if (shell.pairingLost() && !shell.isPairing() && status.length() == 0) {
+            status.setTextColor(Style.DANGER);
+            status.setText(R.string.xd_act_pairing_lost);
+        }
     }
 }

@@ -51,7 +51,10 @@ final class NotifyPanel {
     static final long LEAVE_MS = 1000;
     /** The scrim: barely there, so what is behind stays readable, but it takes the clicks that close the panel. */
     private static final int SCRIM = 0x2A0B0D10;
-    private static final int PANEL = 0xF61B1E24, ROW = 0x14FFFFFF, SELECT = 0x223D7EF5, EDGE = 0x33FFFFFF;
+    private static final int ROW = Style.SHELL_ROW, SELECT = 0x223D7EF5;
+    /** A quick tile: 76 dp high, 14 dp corners, white at 6% (ExtSidebar.dc.html). */
+    private static final float TILE_DP = 76, TILE_RADIUS = 14;
+    private static final int TILE = Style.SHELL_TILE, TILE_ICON = Style.TEXT;
     private static final long CLOCK_MS = 60000;
     private static final float SWIPE_DP = 60;
 
@@ -80,13 +83,23 @@ final class NotifyPanel {
     static final class Tile {
         final String label;
         final boolean on;
+        /** The drawable drawn above the label, 0 for none. */
+        final int icon;
+        /** A mode control (the sound output, the Mac's quality): it names the current mode, never with the on look. */
+        final boolean mode;
         final Runnable click;
         /** The panel stays open after the click (a switch whose new state is worth seeing). */
         final boolean stay;
 
         Tile(String label, boolean on, Runnable click, boolean stay) {
+            this(label, on, 0, false, click, stay);
+        }
+
+        Tile(String label, boolean on, int icon, boolean mode, Runnable click, boolean stay) {
             this.label = label;
             this.on = on;
+            this.icon = icon;
+            this.mode = mode;
             this.click = click;
             this.stay = stay;
         }
@@ -105,7 +118,7 @@ final class NotifyPanel {
     private final WindowManager.LayoutParams scrimParams;
     private final LinearLayout root;
     private final WindowManager.LayoutParams params;
-    private final TextView time, date, clearAll;
+    private final TextView time, date, clearAll, listTitle;
     /** The switches (Tile), in rows of TILES_PER_ROW, made again by refreshHeader. */
     private final LinearLayout tiles;
     private static final int TILES_PER_ROW = 3;
@@ -168,32 +181,38 @@ final class NotifyPanel {
             }
         };
         root.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable surface = new GradientDrawable();
-        surface.setColor(PANEL);
-        surface.setStroke(Math.max(1, dp(0.5f)), EDGE);
-        root.setBackground(surface);
-        root.setPadding(dp(16), dp(14), dp(16), dp(10));
+        // The side panel's shell: rounded on its left corners only, as it is joined to the screen's edge (ExtSidebar)
+        root.setBackground(Style.shell(density, 20, 0, 0, 20));
+        root.setPadding(dp(18), dp(24), dp(18), dp(24));
 
-        // The header, one line (owner, 2026-11-15): the time and the date on the left, the battery on the right; the DND
-        // switch and clear all under it
+        // ExtSidebar.dc.html: a light 48 dp clock, the date and the phone's battery beside it under the date
         LinearLayout header = new LinearLayout(dc);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        time = label(Style.TEXT, 24, true);
-        time.setTypeface(Typeface.DEFAULT_BOLD);
+        header.setGravity(Gravity.BOTTOM);
+        time = label(Style.TEXT, 48, true);
+        time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        time.setLetterSpacing(-0.02f);
         header.addView(time, new LinearLayout.LayoutParams(-2, -2));
-        date = label(Style.TEXT_DIM, 13, true);
+        LinearLayout beside = new LinearLayout(dc);
+        beside.setOrientation(LinearLayout.VERTICAL);
+        date = label(Style.TEXT, 13, true);
         date.setSingleLine(true);
         date.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams dateAt = new LinearLayout.LayoutParams(0, -2, 1);
-        dateAt.leftMargin = dp(10);
-        header.addView(date, dateAt);
+        beside.addView(date, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout batteryRow = new LinearLayout(dc);
+        batteryRow.setGravity(Gravity.CENTER_VERTICAL);
         batteryView = new BatteryView(dc, density);
-        LinearLayout.LayoutParams batteryAt = new LinearLayout.LayoutParams(dp(24), dp(12));
-        batteryAt.leftMargin = dp(10);
-        header.addView(batteryView, batteryAt);
-        batteryText = label(Style.TEXT, 13, true);
-        batteryText.setPadding(dp(6), 0, 0, 0);
-        header.addView(batteryText, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams batteryAt = new LinearLayout.LayoutParams(dp(20), dp(10));
+        batteryAt.rightMargin = dp(4);
+        batteryRow.addView(batteryView, batteryAt);
+        batteryText = label(Style.TEXT_DIM, 12, true);
+        batteryRow.addView(batteryText, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams batteryRowAt = new LinearLayout.LayoutParams(-2, -2);
+        batteryRowAt.topMargin = dp(2);
+        beside.addView(batteryRow, batteryRowAt);
+        LinearLayout.LayoutParams besideAt = new LinearLayout.LayoutParams(0, -2, 1);
+        besideAt.leftMargin = dp(12);
+        besideAt.bottomMargin = dp(4);
+        header.addView(beside, besideAt);
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         // The switches, as the side panel of Android TV has them (user, 2026-11-17): the Launchpad, the keys and mouse
@@ -205,16 +224,27 @@ final class NotifyPanel {
         tilesAt.topMargin = dp(12);
         root.addView(tiles, tilesAt);
 
+        // "通知 · 5" and a quiet "全部清除" (ExtSidebar.dc.html); the × is kept as the way to close with a pointer
         LinearLayout tools = new LinearLayout(dc);
         tools.setGravity(Gravity.CENTER_VERTICAL);
-        clearAll = pill(dc.getString(R.string.xd_notify_clear_all), false);
+        listTitle = label(Style.TEXT_DIM, 13, true);
+        listTitle.setText(dc.getString(R.string.xd_notify_title_count, 0));
+        tools.addView(listTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        clearAll = quietButton(dc.getString(R.string.xd_notify_clear_all));
         clearAll.setOnClickListener(v -> host.clearAll());
         tools.addView(clearAll);
-        View close = pill("×", false);
+        ImageView close = new ImageView(dc);
+        close.setImageResource(R.drawable.xd_ic_close);
+        close.setColorFilter(Style.TEXT_DIM);
+        close.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        close.setPadding(dp(7), dp(7), dp(7), dp(7));
+        close.setContentDescription(dc.getString(R.string.xd_close));
         close.setOnClickListener(v -> host.close());
-        tools.addView(close);
+        LinearLayout.LayoutParams closeAt = new LinearLayout.LayoutParams(dp(32), dp(32));
+        closeAt.leftMargin = dp(4);
+        tools.addView(close, closeAt);
         LinearLayout.LayoutParams toolsAt = new LinearLayout.LayoutParams(-1, -2);
-        toolsAt.topMargin = dp(8);
+        toolsAt.topMargin = dp(10);
         root.addView(tools, toolsAt);
 
         scroll = new ScrollView(dc);
@@ -269,6 +299,14 @@ final class NotifyPanel {
         return t;
     }
 
+    /** A text button with no fill, accent-2 words: "全部清除" in the panel's header (ExtSidebar.dc.html). */
+    private TextView quietButton(String word) {
+        TextView b = Style.button(dc, word, 0x00000000, 13, 10);
+        b.setTextColor(Style.ACCENT_2);
+        b.setPadding(dp(8), dp(4), dp(8), dp(4));
+        return b;
+    }
+
     private TextView pill(String word, boolean on) {
         TextView b = new TextView(dc);
         b.setText(word);
@@ -301,22 +339,30 @@ final class NotifyPanel {
             final Tile t = all.get(i);
             TextView b = new TextView(dc);
             b.setText(t.label);
-            b.setTextColor(Style.TEXT);
-            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
+            boolean lit = t.on && !t.mode;
+            b.setTextColor(lit ? Style.ACCENT_2 : Style.TEXT);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(12 * density));
             b.setGravity(Gravity.CENTER);
             b.setMaxLines(2);
-            b.setMinHeight(dp(52));
             b.setPadding(dp(6), dp(8), dp(6), dp(8));
-            GradientDrawable back = new GradientDrawable();
-            back.setColor(t.on ? Style.ACCENT : 0x1AFFFFFF);
-            back.setCornerRadius(dp(12));
-            b.setBackground(back);
+            if (t.icon != 0) {
+                android.graphics.drawable.Drawable icon = dc.getDrawable(t.icon);
+                if (icon != null) {
+                    int s = dp(20);
+                    icon.setBounds(0, 0, s, s);
+                    icon.setTint(lit ? Style.ACCENT_2 : TILE_ICON);
+                    b.setCompoundDrawablesRelative(null, icon, null, null);
+                    b.setCompoundDrawablePadding(dp(6));
+                }
+            }
+            // A switch is the toggle look; a mode control (sound, quality) stays plain and says its mode in words
+            b.setBackground(t.mode ? Style.ripple(dc, TILE, TILE_RADIUS) : Style.toggle(dc, t.on, TILE, TILE_RADIUS));
             b.setOnClickListener(v -> {
                 t.click.run();
                 if (t.stay) fillTiles();
                 else host.close();
             });
-            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, -2, 1);
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, dp(TILE_DP), 1);
             if (i % TILES_PER_ROW > 0) at.leftMargin = dp(8);
             row.addView(b, at);
         }
@@ -413,14 +459,25 @@ final class NotifyPanel {
         }
         int groupAt = 0;
         for (NotifyCenter.Group g : center.groups()) {
-            TextView head = label(Style.TEXT_DIM, 12, true);
-            head.setText(g.appLabel);
-            head.setPadding(dp(4), dp(12), dp(4), dp(4));
+            // The app's icon and its count over its notifications (ExtSidebar.dc.html: 微信 · 3)
+            LinearLayout head = new LinearLayout(dc);
+            head.setGravity(Gravity.CENTER_VERTICAL);
+            head.setPadding(dp(4), dp(12), dp(4), dp(6));
+            ImageView appIcon = new ImageView(dc);
+            appIcon.setImageDrawable(center.icon(g.pkg));
+            LinearLayout.LayoutParams iconAt = new LinearLayout.LayoutParams(dp(20), dp(20));
+            iconAt.rightMargin = dp(8);
+            head.addView(appIcon, iconAt);
+            TextView words = label(Style.TEXT_DIM, 12, true);
+            words.setText(dc.getString(R.string.xd_notify_group_count, g.appLabel, g.entries.size()));
+            head.addView(words);
             list.addView(head, new LinearLayout.LayoutParams(-1, -2));
             for (NotifyCenter.Entry e : g.entries) {
                 Row row = new Row(e, groupAt, namesOnly);
                 rows.add(row);
-                list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+                LinearLayout.LayoutParams rowAt = new LinearLayout.LayoutParams(-1, -2);
+                rowAt.topMargin = dp(6);
+                list.addView(row, rowAt);
                 if (open.contains(e.key)) row.toggle();
                 if (e.key.equals(selectedKey)) setSelected(row);
             }
@@ -450,10 +507,15 @@ final class NotifyPanel {
     /** The clock and the battery (NOTIFY.md §4's header), again every minute while the panel is open. */
     void refreshHeader() {
         java.util.Date now = new java.util.Date();
-        time.setText(DateFormat.getTimeInstance(DateFormat.SHORT).format(now));
-        date.setText(DateFormat.getDateInstance(DateFormat.FULL).format(now));
+        time.setText(android.text.format.DateFormat.format(
+            android.text.format.DateFormat.is24HourFormat(dc) ? "HH:mm" : "h:mm", now));
+        date.setText(android.text.format.DateFormat.format(
+            android.text.format.DateFormat.getBestDateTimePattern(java.util.Locale.getDefault(), "MMMdEEEE"), now));
         int level = center.batteryLevel();
         fillTiles();
+        int count = 0;
+        for (NotifyCenter.Group g : center.groups()) count += g.entries.size();
+        listTitle.setText(dc.getString(R.string.xd_notify_title_count, count));
         if (level >= 0) {
             batteryText.setText(level + "%");  // charging is the icon's bolt, not a second one in the text
             batteryView.setVisibility(View.VISIBLE);
@@ -652,36 +714,40 @@ final class NotifyPanel {
             super(dc);
             this.entry = e;
             setOrientation(VERTICAL);
-            setPadding(dp(8), dp(6), dp(8), dp(6));
+            setPadding(dp(12), dp(10), dp(8), dp(10));
+            // A card of its own on the panel: white at 5%, 14 dp corners (ExtSidebar.dc.html)
+            setBackground(Style.rounded(dc, ROW, 14));
 
             body = new LinearLayout(dc);
             ((LinearLayout) body).setOrientation(HORIZONTAL);
             ((LinearLayout) body).setGravity(Gravity.CENTER_VERTICAL);
+            // The app's icon is on the group's line above; a row carries the title, the time and the line
             ImageView icon = new ImageView(dc);
-            Drawable d = center.icon(e.pkg);
-            icon.setImageDrawable(d);
-            int iconSize = dp(30);
-            ((LinearLayout) body).addView(icon, new LinearLayout.LayoutParams(iconSize, iconSize));
+            icon.setVisibility(View.GONE);
+            ((LinearLayout) body).addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
             LinearLayout mid = new LinearLayout(dc);
             mid.setOrientation(VERTICAL);
-            mid.setPadding(dp(8), 0, dp(8), 0);
+            mid.setPadding(dp(2), 0, dp(8), 0);
+            LinearLayout titleLine = new LinearLayout(dc);
+            titleLine.setGravity(Gravity.CENTER_VERTICAL);
             TextView t = label(Style.TEXT, 13, false);
             t.setTypeface(Typeface.DEFAULT_BOLD);
             t.setMaxLines(1);
             t.setEllipsize(TextUtils.TruncateAt.END);
             // Names only (NOTIFY.md §6): the app and "new message", as on the banners; ▾ shows the rest on request
             t.setText(namesOnly || e.title.isEmpty() ? e.appLabel : e.title);
-            mid.addView(t, new LinearLayout.LayoutParams(-1, -2));
-            TextView x = label(Style.TEXT_DIM, 11, false);
+            titleLine.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView when = label(Style.TEXT_DIM, 12, true);
+            when.setText(NotifyBanner.whenText(dc, e.when));
+            titleLine.addView(when);
+            mid.addView(titleLine, new LinearLayout.LayoutParams(-1, -2));
+            TextView x = label(Style.TEXT_SOFT, 13, false);
             x.setMaxLines(2);
             x.setEllipsize(TextUtils.TruncateAt.END);
             x.setText(namesOnly ? dc.getString(R.string.xd_notify_new_message) : e.text);
             if (!namesOnly && e.text.isEmpty()) x.setVisibility(View.GONE);
             mid.addView(x, new LinearLayout.LayoutParams(-1, -2));
             ((LinearLayout) body).addView(mid, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView when = label(Style.TEXT_DIM, 11, true);
-            when.setText(android.text.format.DateFormat.format("HH:mm", e.when));
-            ((LinearLayout) body).addView(when);
             View clear = smallButton("×", () -> host.clear(entry));
             ((LinearLayout) body).addView(clear);
             View more = smallButton("▾", () -> toggle());
@@ -729,8 +795,8 @@ final class NotifyPanel {
 
         void mark(boolean on) {
             GradientDrawable back = new GradientDrawable();
-            back.setColor(on ? SELECT : Color.TRANSPARENT);
-            back.setCornerRadius(dp(10));
+            back.setColor(on ? SELECT : ROW);
+            back.setCornerRadius(dp(14));
             setBackground(back);
         }
 
@@ -785,14 +851,11 @@ final class NotifyPanel {
     private TextView smallButton(String word, Runnable onTap) {
         TextView b = new TextView(dc);
         b.setText(word);
-        b.setTextColor(Style.TEXT);
-        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(12 * density));
+        b.setTextColor(Style.TEXT_DIM);
+        b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Math.round(13 * density));
         b.setGravity(Gravity.CENTER);
         b.setPadding(dp(7), dp(2), dp(7), dp(2));
-        GradientDrawable back = new GradientDrawable();
-        back.setColor(0x1AFFFFFF);
-        back.setCornerRadius(dp(8));
-        b.setBackground(back);
+        b.setBackground(Style.ripple(dc, 0x00000000, 8));
         b.setOnClickListener(v -> onTap.run());
         LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2);
         at.leftMargin = dp(6);

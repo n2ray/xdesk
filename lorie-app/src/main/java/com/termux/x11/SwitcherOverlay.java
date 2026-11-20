@@ -48,8 +48,9 @@ final class SwitcherOverlay {
      * The home has nothing to show through: under it is the dashboard, whose big clock would read as a second layer,
      * or the bare background of an X server with no window open. It says the time itself (CLOCK_MS).
      */
-    private static final int HOME_BACK = 0xFF0B0D10;
-    private static final int SCRIM = 0xE00B0D10, HOVER = 0x2EFFFFFF, CURRENT = Switchboard.CURRENT_TINT, FIELD = 0x26FFFFFF;
+    private static final int HOME_BACK = Style.BACKGROUND;
+    /** The mockup's scrim over the content (xd.css): Style.SCRIM, a near-black 62%. */
+    private static final int SCRIM = Style.SCRIM, FIELD = 0x26FFFFFF;
     private static final long CLOCK_MS = 15000;
     private static final int MAX_COLUMNS = 8, MAX_ROWS = 5;
     private static final long NOTICE_MS = 4000;
@@ -229,19 +230,31 @@ final class SwitcherOverlay {
         final int width, height;
         /** Pixel sizes worked out once per show from the shell's dp (b·u). */
         final int icon, cellW, cellH, columns, rows, label, small, gap;
+        final float iconDp;
         final FrameLayout root;
         final LinearLayout column, tabRow, deviceBar, grid, bottom;
         final TextView searchText, deviceState, time;
+        /** The home's own clock line at the bottom-left and its state at the right (ExtHome.dc.html). */
+        final TextView homeTime, homeDate, homeState;
+        /** The Launchpad's key hints at the bottom (ExtLaunchpad.dc.html). */
+        final TextView launchHint;
         final View pointer;
         final List<Target> targets = new ArrayList<>();
         final List<View> tiles = new ArrayList<>();
+        /** The ring around each tile's icon: the selected one white, the one on this screen accent (Components). */
+        final List<View> rings = new ArrayList<>();
         /** The model's items of the tab (or the search), without its titles and notes: the tiles, over all pages. */
         final List<Switchboard.Item> items = new ArrayList<>();
         final Runnable refresh = this::rebuildKeep;
-        /** The home's own clock, as the dashboard behind it can't be seen. */
+        /** The home's own clock line, as the dashboard behind it can't be seen (ExtHome.dc.html: bottom-left). */
         final Runnable clock = new Runnable() {
             @Override public void run() {
                 time.setText(DashboardView.clockLine(c));
+                if (homeTime != null) {
+                    homeTime.setText(DashboardView.timeLine(c));
+                    homeDate.setText(DashboardView.dayLine(c));
+                    homeState.setText(DashboardView.statusLine(c, true));
+                }
                 UI.postDelayed(this, CLOCK_MS);
             }
         };
@@ -276,22 +289,37 @@ final class SwitcherOverlay {
             // §4.1: the shell's own factor (b·u), never the density override an Android app put on the display
             density = Sizing.shell(c, display).density;
             float wDp = width / density, hDp = height / density;
-            // Big icons: about a twelfth of the shorter side, 52–96 dp (Launchpad's are ~ 80 dp on a laptop)
-            float iconDp = clamp(Math.min(wDp, hDp) * 0.085f, 52, 96);
-            float labelDp = clamp(iconDp * 0.19f, 12, 16);
+            // ExtHome.dc.html: 72 dp icons in 8 columns. ExtLaunchpad.dc.html: 96 dp in 4. Both follow the screen's own
+            // factor below, capped on small and large screens. Labels 13/15, the small line 12.
+            this.iconDp = clamp(Math.min(wDp, hDp) * (home ? 0.10f : 0.135f), 56, home ? 84 : 104);
+            float labelDp = clamp(iconDp * 0.16f, 12, 16);
             icon = dp(iconDp);
             label = dp(labelDp);
-            small = dp(labelDp * 0.82f);
+            small = dp(12);
             gap = dp(8);
-            cellW = dp(iconDp * 1.85f);
-            cellH = icon + Math.round(label * 1.4f + small * 1.4f) + dp(18);
-            // Room above the grid: margin, search, tabs, the device line; below: the page dots
-            int top = dp(20 + 40 + 14 + 38 + 8 + 30 + 10), below = dp(56);
-            columns = Math.max(3, Math.min(MAX_COLUMNS, (int) (width * 0.92f / cellW)));
+            cellW = dp(iconDp * (home ? 1.8f : 2.29f));
+            // The 8 dp ring round the icon, 8 above the name, the name and the note, and the cell's own padding
+            cellH = icon + Math.round(label * 1.4f + small * 1.4f) + dp(34);
+            // Room above the grid: margin, search, tabs, the device line; below it the home's clock or the hints
+            int top = dp(home ? 28 + 42 + 14 + 32 + 8 + 30 + 16 : 40 + 42 + 14 + 32 + 8 + 30 + 16 + 30 + 10);
+            int below = dp(home ? 96 : 44);
+            int want = home ? 8 : 4;
+            float frac = home ? 0.82f : 0.69f;
+            columns = Math.max(3, Math.min(want, Math.round(width * frac / cellW)));
             rows = Math.max(1, Math.min(MAX_ROWS, (height - top - below) / cellH));
 
             root = new FrameLayout(c);
-            root.setBackgroundColor(home ? HOME_BACK : SCRIM);
+            if (home) {
+                // ExtHome.dc.html's background: a soft light from the top, fading to the near-black
+                GradientDrawable back = new GradientDrawable();
+                back.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+                back.setColors(new int[]{0xFF161B24, HOME_BACK});
+                back.setGradientCenter(0.5f, 0f);
+                back.setGradientRadius(Math.max(width, height) * 0.75f);
+                root.setBackground(back);
+            } else {
+                root.setBackgroundColor(SCRIM);
+            }
             root.setOnClickListener(v -> { if (!home) hide(host); });
             // Over an Android app the Launchpad is worked by Android's own pointer (the injector's): its wheel comes
             // as this window's scroll event, not through INPUT. The same page per notch (AXIS_VSCROLL is positive up)
@@ -305,7 +333,8 @@ final class SwitcherOverlay {
             column = new LinearLayout(c);
             column.setOrientation(LinearLayout.VERTICAL);
             column.setGravity(Gravity.CENTER_HORIZONTAL);
-            column.setPadding(0, dp(20), 0, dp(10));
+            // The home's search is 28 dp from the top and its clock sits at the bottom; the Launchpad's is 40 dp down
+            column.setPadding(0, dp(home ? 28 : 40), 0, dp(home ? 52 : 40));
             root.addView(column, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
             // The search line: not an EditText (the window takes no focus), the keys come through INPUT
@@ -314,14 +343,14 @@ final class SwitcherOverlay {
             searchText.setEllipsize(TextUtils.TruncateAt.START);
             searchText.setGravity(Gravity.CENTER_VERTICAL);
             searchText.setPadding(dp(16), 0, dp(16), 0);
-            searchText.setBackground(round(FIELD, dp(20)));
+            searchText.setBackground(round(FIELD, dp(21)));
             searchText.setClickable(true);
             searchText.setOnClickListener(v -> focusSearch());  // Android's own pointer, over an Android app
-            column.addView(searchText, new LinearLayout.LayoutParams(Math.min(dp(420), Math.round(width * 0.5f)), dp(40)));
+            column.addView(searchText, new LinearLayout.LayoutParams(Math.min(dp(460), Math.round(width * 0.6f)), dp(42)));
 
             tabRow = new LinearLayout(c);
             tabRow.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(32));
             tp.topMargin = dp(14);
             column.addView(tabRow, tp);
 
@@ -334,25 +363,51 @@ final class SwitcherOverlay {
             bp.topMargin = dp(8);
             column.addView(deviceBar, bp);
 
-            // The grid: exactly columns × rows cells, centred in what is left
+            // The grid: exactly columns × rows cells, across the top of what is left, as the mockups draw it
             FrameLayout gridBox = new FrameLayout(c);
             grid = new LinearLayout(c);
             grid.setOrientation(LinearLayout.VERTICAL);
-            gridBox.addView(grid, new FrameLayout.LayoutParams(columns * cellW, rows * cellH, Gravity.CENTER));
+            gridBox.addView(grid, new FrameLayout.LayoutParams(columns * cellW, rows * cellH, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
             LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-            gp.topMargin = dp(10);
+            gp.topMargin = dp(home ? 16 : 24);
             column.addView(gridBox, gp);
 
+            // The page dots (and the hidden fold) in a row of their own; the home's clock and state sit under it
             bottom = new LinearLayout(c);
             bottom.setGravity(Gravity.CENTER);
             column.addView(bottom, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)));
 
             time = text("", small, Style.TEXT_DIM);
-            time.setVisibility(home ? View.VISIBLE : View.GONE);
-            FrameLayout.LayoutParams clockAt = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
-            clockAt.topMargin = dp(30);
-            clockAt.rightMargin = dp(28);
-            root.addView(time, clockAt);
+            time.setVisibility(View.GONE);
+
+            homeTime = home ? text("", dp(22), Style.TEXT) : null;
+            homeDate = home ? text("", dp(13), Style.TEXT_DIM) : null;
+            homeState = home ? text("", dp(13), Style.TEXT_DIM) : null;
+            launchHint = home ? null : text(c.getString(R.string.xd_sw_launch_hint), dp(12), Style.TEXT_DIM);
+            if (home) {
+                homeTime.setTypeface(android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL));
+                LinearLayout stateLine = new LinearLayout(c);
+                stateLine.setGravity(Gravity.BOTTOM);
+                stateLine.addView(homeTime);
+                LinearLayout.LayoutParams dpAt = new LinearLayout.LayoutParams(-2, -2);
+                dpAt.leftMargin = dp(14);
+                dpAt.bottomMargin = dp(2);
+                stateLine.addView(homeDate, dpAt);
+                View spacer = new View(c);
+                stateLine.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
+                stateLine.addView(homeState);
+                FrameLayout.LayoutParams at = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+                at.leftMargin = at.rightMargin = dp(40);
+                at.bottomMargin = dp(16);
+                root.addView(stateLine, at);
+            } else {
+                launchHint.setGravity(Gravity.CENTER);
+                FrameLayout.LayoutParams at = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+                at.bottomMargin = dp(14);
+                root.addView(launchHint, at);
+            }
 
             // The same arrow as the cursor and the Dock's pointer: it was a blue dot, and the pointer looked like two
             // different things depending on whether the Launchpad or Android drew it
@@ -434,6 +489,7 @@ final class SwitcherOverlay {
         void render() {
             targets.clear();
             tiles.clear();
+            rings.clear();
             selected = -1;
             showSearch();
             // Clicks on the search line and the device line do nothing (elsewhere on the scrim closes)
@@ -457,7 +513,8 @@ final class SwitcherOverlay {
             t.setSingleLine(true);
             t.setGravity(Gravity.CENTER);
             t.setPadding(dp(14), 0, dp(14), 0);
-            t.setBackground(round(on ? Style.ACCENT : 0x00000000, dp(16)));
+            // A chip: the surface under the off ones, the accent under the chosen one (Components.dc.html)
+            t.setBackground(round(on ? Style.ACCENT : Style.SURFACE, dp(16)));
             if (tab.state != null) {
                 GradientDrawable dot = Style.dot(Devices.color(tab.state));
                 int s = dp(7);
@@ -467,8 +524,8 @@ final class SwitcherOverlay {
             }
             Runnable go = () -> setTab(tab.id);
             t.setOnClickListener(v -> go.run());
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32));
-            p.leftMargin = p.rightMargin = dp(3);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(30));
+            p.leftMargin = p.rightMargin = dp(4);
             tabRow.addView(t, p);
             targets.add(new Target(t, go, -1));
         }
@@ -560,7 +617,7 @@ final class SwitcherOverlay {
 
         void showSearch() {
             String query = board.query(Switchboard.EXTERNAL);
-            String hint = "⌕  " + c.getString(R.string.xd_sw_search);
+            String hint = "⌕  " + c.getString(home ? R.string.xd_sw_search_all : R.string.xd_sw_search);
             // A notice is about what was just clicked: it shows also over a search, which comes back after it
             if (notice != null) {
                 searchText.setText(notice);
@@ -619,19 +676,24 @@ final class SwitcherOverlay {
             box.setGravity(Gravity.CENTER_HORIZONTAL);
             box.setPadding(gap / 2, dp(8), gap / 2, dp(4));
             box.setClickable(true);
-            // What is on this screen now stands out, the same way as its row on the phone
-            box.setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
+            // The ring is the icon's, not the whole cell's: 3 dp at 4 dp out, white for the keyboard's choice and
+            // accent for what is on this screen now (ExtLaunchpad.dc.html, Components.dc.html)
+            FrameLayout ring = new FrameLayout(c);
+            ring.setPadding(dp(4), dp(4), dp(4), dp(4));
+            ring.setBackground(ringBack(it, false));
             // The badge's ring in the grid's surface colour; the scrim is the same colour, only translucent
-            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(Switchboard.EXTERNAL, it.key), density),
-                new LinearLayout.LayoutParams(icon, icon));
+            ring.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(Switchboard.EXTERNAL, it.key), density),
+                new FrameLayout.LayoutParams(icon, icon));
+            int ringSize = icon + dp(8);
+            box.addView(ring, new LinearLayout.LayoutParams(ringSize, ringSize));
+            rings.add(ring);
             TextView name = text(it.label, label, Color.WHITE);
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
             name.setGravity(Gravity.CENTER);
-            name.setShadowLayer(dp(3), 0, dp(1), 0x99000000);
             LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            np.topMargin = dp(6);
+            np.topMargin = dp(8);
             box.addView(name, np);
             if (it.detail != null) {
                 TextView detail = text(it.detail, small, it.current ? Switchboard.ACCENT_TEXT : Style.TEXT_DIM);
@@ -656,11 +718,18 @@ final class SwitcherOverlay {
             return box;
         }
 
-        /** A whole desktop gets a ring, so it stands apart from the apps. */
-        GradientDrawable tileBack(Switchboard.Item it, int color) {
-            GradientDrawable g = round(color, dp(18));
-            // A Mac's displays: the ring on the one it shows, not on all three (17 November: they looked all chosen)
-            if (it.desktop && (it.display == 0 || it.running)) g.setStroke(Math.max(2, dp(2)), Style.ACCENT);
+        /**
+         * The ring around a tile's icon: white for the one the keyboard chose, accent for what is on this screen now,
+         * and for a whole desktop — only on the display it shows, not on all three (17 November: they looked chosen).
+         * Nothing otherwise. The icon's 22% corners, plus the 4 dp the ring stands off.
+         */
+        GradientDrawable ringBack(Switchboard.Item it, boolean selected) {
+            int color = selected ? Style.TEXT
+                : it.current || it.desktop && (it.display == 0 || it.running) ? Style.ACCENT : Color.TRANSPARENT;
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(Color.TRANSPARENT);
+            g.setCornerRadius(icon * 0.22f + dp(4));
+            if (color != Color.TRANSPARENT) g.setStroke(dp(3), color);
             return g;
         }
 
@@ -671,7 +740,7 @@ final class SwitcherOverlay {
                 for (int i = 0; i < n; i++) {
                     final int to = i;
                     View dot = new View(c);
-                    dot.setBackground(Style.dot(i == page ? Color.WHITE : 0x55FFFFFF));
+                    dot.setBackground(Style.dot(i == page ? Style.TEXT : 0xFF3A414C));
                     // A bigger box than the dot, to hit it with the pointer
                     FrameLayout hit = new FrameLayout(c);
                     hit.addView(dot, new FrameLayout.LayoutParams(dp(8), dp(8), Gravity.CENTER));
@@ -731,12 +800,12 @@ final class SwitcherOverlay {
         }
 
         void select(int i) {
-            if (selected >= 0 && selected < tiles.size()) {
+            if (selected >= 0 && selected < rings.size()) {
                 Switchboard.Item it = items.get(page * perPage() + selected);
-                tiles.get(selected).setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
+                rings.get(selected).setBackground(ringBack(it, false));
             }
             selected = i >= 0 && i < tiles.size() ? i : -1;
-            if (selected >= 0) tiles.get(selected).setBackground(tileBack(items.get(page * perPage() + selected), HOVER));
+            if (selected >= 0) rings.get(selected).setBackground(ringBack(items.get(page * perPage() + selected), true));
         }
 
         // --- pointer ---

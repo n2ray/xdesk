@@ -14,6 +14,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -33,11 +34,16 @@ final class GamepadView extends FrameLayout {
         void exit();
     }
 
+    /** The pad's pieces are a faint white on the dark screen (Gamepad.dc.html): 10% fill, 28% lines, 85% words at 50%. */
+    private static final int PAD_COLOR = 0xFFE8ECF1, FACE_Y = 0xFFF2B33D;
     private final Host host;
     private final GamepadStore store;
     private final Pad pad;
-    private final LinearLayout menu, editBar, selectedBar;
+    private final LinearLayout menu, editBar;
+    private final HorizontalScrollView editScroll;
     private final ScrollView menuScroll;
+    private TextView editLabel, editHint;
+    private TextView hideButton;
     private GamepadLayout layout;
     private String pkg;
     private boolean editing;
@@ -56,30 +62,33 @@ final class GamepadView extends FrameLayout {
 
         menu = new LinearLayout(c);
         menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(8), dp(8), dp(8), dp(8));
-        menu.setBackground(Style.rounded(c, Style.SURFACE, 16));
+        menu.setPadding(dp(6), dp(6), dp(6), dp(6));
+        menu.setBackground(Style.shell(c.getResources().getDisplayMetrics().density, 14));
         menuScroll = new ScrollView(c);
         menuScroll.addView(menu, new ScrollView.LayoutParams(-1, -2));
         menuScroll.setVisibility(GONE);
-        LayoutParams mp = new LayoutParams(dp(300), -2, Gravity.CENTER);
+        LayoutParams mp = new LayoutParams(dp(224), -2, Gravity.CENTER);
         mp.topMargin = mp.bottomMargin = dp(12);
         addView(menuScroll, mp);
 
-        LinearLayout bars = new LinearLayout(c);
-        bars.setOrientation(LinearLayout.VERTICAL);
-        bars.setGravity(Gravity.CENTER_HORIZONTAL);
         editBar = row(c);
-        selectedBar = row(c);
-        bars.addView(editBar, new LinearLayout.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
-        sp.topMargin = dp(6);
-        bars.addView(selectedBar, sp);
-        LayoutParams bp = new LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        // A narrow screen clips a wide toolbar: it scrolls sideways rather than losing its last buttons
+        editScroll = new HorizontalScrollView(c);
+        editScroll.setHorizontalScrollBarEnabled(false);
+        editScroll.addView(editBar);
+        LayoutParams bp = new LayoutParams(-1, -2, Gravity.TOP);
         bp.topMargin = dp(8);
-        addView(bars, bp);
-        editBar.setVisibility(GONE);
-        selectedBar.setVisibility(GONE);
+        addView(editScroll, bp);
+        editScroll.setVisibility(GONE);
         buildEditBar();
+
+        // The line under the editor (GamepadEdit.dc.html): drag, select, resize or hide, and which layout it is
+        editHint = Style.label(c, "", Style.FAINT, 11);
+        editHint.setGravity(Gravity.CENTER);
+        editHint.setVisibility(GONE);
+        LayoutParams hp = new LayoutParams(-1, -2, Gravity.BOTTOM);
+        hp.bottomMargin = dp(8);
+        addView(editHint, hp);
 
         // The system takes back swipes only from where nothing is excluded, and at most 200dp of each edge
         addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
@@ -93,19 +102,29 @@ final class GamepadView extends FrameLayout {
     private LinearLayout row(Context c) {
         LinearLayout r = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setPadding(dp(4), dp(4), dp(4), dp(4));
-        r.setBackground(Style.rounded(c, Style.SURFACE, 14));
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(6), dp(6), dp(6), dp(6));
+        r.setBackground(Style.shell(c.getResources().getDisplayMetrics().density, 14));
         return r;
     }
 
+    /** A toolbar button: 34 dp high, 10 dp corners, white at 8% (GamepadEdit.dc.html's .tb). */
     private TextView barButton(LinearLayout parent, int text, Runnable r) {
-        TextView b = Style.button(getContext(), getContext().getString(text), Style.SURFACE_RAISED, Style.TEXT_SMALL + 1, 10);
+        return barButton(parent, getContext().getString(text), 0x14FFFFFF, r);
+    }
+
+    private TextView barButton(LinearLayout parent, int text, int color, Runnable r) {
+        return barButton(parent, getContext().getString(text), color, r);
+    }
+
+    private TextView barButton(LinearLayout parent, String text, int color, Runnable r) {
+        TextView b = Style.button(getContext(), text, color, Style.TEXT_SMALL, 10);
         b.setPadding(dp(12), 0, dp(12), 0);
         b.setOnClickListener(v -> {
             Style.tick(v);
             r.run();
         });
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(40));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, dp(34));
         p.leftMargin = p.rightMargin = dp(3);
         parent.addView(b, p);
         return b;
@@ -146,15 +165,16 @@ final class GamepadView extends FrameLayout {
         pad.release();
         menu.removeAllViews();
         Context c = getContext();
-        TextView title = Style.label(c, c.getString(R.string.xd_pad_menu_title, layout.name), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
-        title.setPadding(dp(8), dp(4), dp(8), dp(8));
+        TextView title = Style.label(c, c.getString(R.string.xd_pad_menu_title, layout.name), Style.TEXT_DIM, 12);
+        title.setPadding(dp(10), dp(4), dp(10), dp(8));
         menu.addView(title);
         item(R.string.xd_pad_resume, this::closeMenu);
         item(R.string.xd_pad_edit, () -> {
             closeMenu();
             startEditing();
         });
-        item(c.getString(R.string.xd_pad_switch), () -> {
+        // "布局 标准 ›": the current layout, and tapping it goes to the next (Gamepad.dc.html's row)
+        item(getContext().getString(R.string.xd_pad_menu_layout) + " " + layout.name + " ›", () -> {
             java.util.List<GamepadLayout> all = store.all();
             int at = all.indexOf(layout);
             use(all.get((at + 1) % all.size()));
@@ -171,13 +191,21 @@ final class GamepadView extends FrameLayout {
                 openMenu();
             });
         }
-        item(c.getString(layout.floatingSticks ? R.string.xd_pad_sticks_floating : R.string.xd_pad_sticks_fixed), () -> {
-            layout.floatingSticks = !layout.floatingSticks;
+        item(getContext().getString(R.string.xd_pad_menu_opacity) + " " + Math.round(layout.opacity * 100) + "%", () -> {
+            // The mockup's one row for the pad's opacity: each tap goes one step stronger, then back to faint
+            layout.opacity = layout.opacity >= GamepadLayout.OPACITY_MAX - 0.01f
+                ? GamepadLayout.OPACITY_MIN : GamepadLayout.clamp(Math.round((layout.opacity + 0.1f) * 10) / 10f,
+                    GamepadLayout.OPACITY_MIN, GamepadLayout.OPACITY_MAX);
             store.save();
             openMenu();
         });
-        item(c.getString(store.haptics() ? R.string.xd_pad_haptics_on : R.string.xd_pad_haptics_off), () -> {
+        itemSwitch(c.getString(R.string.xd_pad_haptics_label), store.haptics(), () -> {
             store.setHaptics(!store.haptics());
+            openMenu();
+        });
+        item(c.getString(layout.floatingSticks ? R.string.xd_pad_sticks_floating : R.string.xd_pad_sticks_fixed), () -> {
+            layout.floatingSticks = !layout.floatingSticks;
+            store.save();
             openMenu();
         });
         item(R.string.xd_pad_copy, () -> {
@@ -197,7 +225,7 @@ final class GamepadView extends FrameLayout {
             use(l);
             openMenu();
         });
-        item(R.string.xd_pad_exit, () -> {
+        item(R.string.xd_pad_exit, Style.STOP, () -> {
             closeMenu();
             host.exit();
         });
@@ -220,18 +248,71 @@ final class GamepadView extends FrameLayout {
     }
 
     private void item(int text, Runnable r) {
-        item(getContext().getString(text), r);
+        item(getContext().getString(text), Style.TEXT, r);
+    }
+
+    private void item(int text, int color, Runnable r) {
+        item(getContext().getString(text), color, r);
     }
 
     private void item(String text, Runnable r) {
-        TextView b = Style.button(getContext(), text, Style.SURFACE_RAISED, Style.TEXT_SMALL + 2, 10);
+        item(text, Style.TEXT, r);
+    }
+
+    /** A menu row: 13 dp words, left aligned, white at 8% only while pressed (Gamepad.dc.html's rows). */
+    private void item(String text, int color, Runnable r) {
+        TextView b = Style.button(getContext(), text, 0x00000000, 13, 8);
+        b.setTextColor(color);
+        b.setGravity(Gravity.START);
+        b.setPadding(dp(10), 0, dp(10), 0);
         b.setOnClickListener(v -> {
             Style.tick(v);
             r.run();
         });
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
-        p.topMargin = dp(4);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(40));
+        p.topMargin = dp(2);
         menu.addView(b, p);
+    }
+
+    /** A menu row that is on or off, shown by a small switch, never by "on"/"off" in its words (Components.dc.html). */
+    private void itemSwitch(String label, boolean on, Runnable r) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), 0, dp(10), 0);
+        row.setBackground(Style.ripple(getContext(), 0x00000000, 8));
+        TextView t = Style.label(getContext(), label, Style.TEXT, 13);
+        row.addView(t, new LinearLayout.LayoutParams(0, -2, 1));
+        SwitchBulb sw = new SwitchBulb(getContext(), on);
+        row.addView(sw, new LinearLayout.LayoutParams(dp(40), dp(22)));
+        row.setOnClickListener(v -> {
+            Style.tick(v);
+            r.run();
+        });
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(40));
+        p.topMargin = dp(2);
+        menu.addView(row, p);
+    }
+
+    /** The menu's on/off look: a 40×22 track with its knob (the mockup's switch at 80%). */
+    private static final class SwitchBulb extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean on;
+
+        SwitchBulb(Context c, boolean on) {
+            super(c);
+            this.on = on;
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            float h = getHeight(), r = h / 2;
+            paint.setColor(on ? Style.ACCENT : Style.SURFACE_RAISED);
+            canvas.drawRoundRect(0, 0, getWidth(), h, r, r, paint);
+            paint.setColor(on ? android.graphics.Color.WHITE : Style.TEXT_DIM);
+            float inset = h * 0.15f;
+            float cx = on ? getWidth() - r : r;
+            canvas.drawCircle(cx, r, r - inset, paint);
+        }
     }
 
     private void closeMenu() {
@@ -247,20 +328,34 @@ final class GamepadView extends FrameLayout {
     // ---- the editor ----
 
     private void buildEditBar() {
-        barButton(editBar, R.string.xd_pad_done, () -> stopEditing(true));
-        barButton(editBar, R.string.xd_pad_cancel, () -> stopEditing(false));
-        barButton(editBar, R.string.xd_pad_reset_all, () -> {
-            layout.reset();
-            selected = -1;
+        // GamepadEdit.dc.html: what is selected, the size and hide buttons, a hairline, then Cancel and Done
+        editLabel = Style.label(getContext(), "", Style.TEXT_DIM, Style.TEXT_SMALL);
+        editLabel.setPadding(dp(6), 0, dp(8), 0);
+        editBar.addView(editLabel, new LinearLayout.LayoutParams(-2, -2));
+        barButton(editBar, R.string.xd_pad_smaller, () -> resize(selected, 1 / 1.1f));
+        barButton(editBar, R.string.xd_pad_larger, () -> resize(selected, 1.1f));
+        hideButton = barButton(editBar, R.string.xd_pad_hide, () -> {
+            if (selected < 0) return;
+            layout.hidden[selected] = !layout.hidden[selected];
             showSelected();
         });
-        barButton(editBar, R.string.xd_pad_fainter, () -> opacity(-0.1f));
-        barButton(editBar, R.string.xd_pad_bolder, () -> opacity(0.1f));
-    }
-
-    private void opacity(float by) {
-        layout.opacity = GamepadLayout.clamp(Math.round((layout.opacity + by) * 10) / 10f, GamepadLayout.OPACITY_MIN, GamepadLayout.OPACITY_MAX);
-        pad.invalidate();
+        barButton(editBar, R.string.xd_pad_reset_one, () -> {
+            if (selected < 0) return;
+            layout.moved[selected] = false;
+            layout.scale[selected] = 1f;
+            layout.hidden[selected] = false;
+            showSelected();
+        });
+        View line = new View(getContext());
+        line.setBackgroundColor(Style.SHELL_LINE);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), dp(20));
+        lp.leftMargin = lp.rightMargin = dp(6);
+        editBar.addView(line, lp);
+        barButton(editBar, R.string.xd_pad_cancel, () -> stopEditing(false));
+        TextView done = barButton(editBar, R.string.xd_pad_done, Style.ACCENT, () -> stopEditing(true));
+        done.setTextColor(android.graphics.Color.WHITE);
+        done.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        showSelected();
     }
 
     private void startEditing() {
@@ -269,7 +364,9 @@ final class GamepadView extends FrameLayout {
         before = layout.copy(layout.id, layout.name);
         editing = true;
         selected = -1;
-        editBar.setVisibility(VISIBLE);
+        editScroll.setVisibility(VISIBLE);
+        editHint.setText(getContext().getString(R.string.xd_pad_edit_hint, layout.name));
+        editHint.setVisibility(VISIBLE);
         showSelected();
     }
 
@@ -282,38 +379,30 @@ final class GamepadView extends FrameLayout {
         before = null;
         editing = false;
         selected = -1;
-        editBar.setVisibility(GONE);
-        selectedBar.setVisibility(GONE);
+        editScroll.setVisibility(GONE);
+        editHint.setVisibility(GONE);
         pad.invalidate();
     }
 
     private void showSelected() {
-        selectedBar.removeAllViews();
-        if (selected < 0) {
-            selectedBar.setVisibility(GONE);
-            pad.invalidate();
-            return;
+        if (editLabel != null) {
+            String name = "—";
+            if (selected >= 0) {
+                GamepadLayout.Control c = GamepadLayout.CONTROLS[selected];
+                name = c.label == null || c.label.isEmpty() ? c.id : c.label;
+            }
+            editLabel.setText(getContext().getString(R.string.xd_pad_selected, name));
         }
-        final int i = selected;
-        barButton(selectedBar, R.string.xd_pad_smaller, () -> resize(i, 1 / 1.1f));
-        barButton(selectedBar, R.string.xd_pad_larger, () -> resize(i, 1.1f));
-        if (GamepadLayout.CONTROLS[i].kind != GamepadLayout.MENU) {
-            barButton(selectedBar, layout.hidden[i] ? R.string.xd_pad_show : R.string.xd_pad_hide, () -> {
-                layout.hidden[i] = !layout.hidden[i];
-                showSelected();
-            });
+        if (hideButton != null) {
+            hideButton.setText(getContext().getString(selected >= 0 && layout.hidden[selected] ? R.string.xd_pad_show : R.string.xd_pad_hide));
+            hideButton.setEnabled(selected >= 0 && GamepadLayout.CONTROLS[selected].kind != GamepadLayout.MENU);
+            hideButton.setAlpha(selected >= 0 && GamepadLayout.CONTROLS[selected].kind != GamepadLayout.MENU ? 1f : 0.4f);
         }
-        barButton(selectedBar, R.string.xd_pad_reset_one, () -> {
-            layout.moved[i] = false;
-            layout.scale[i] = 1f;
-            layout.hidden[i] = false;
-            showSelected();
-        });
-        selectedBar.setVisibility(VISIBLE);
         pad.invalidate();
     }
 
     private void resize(int i, float by) {
+        if (i < 0 || i >= GamepadLayout.N) return;
         layout.scale[i] = GamepadLayout.clamp(layout.scale[i] * by, GamepadLayout.SCALE_MIN, GamepadLayout.SCALE_MAX);
         pad.invalidate();
     }
@@ -342,9 +431,10 @@ final class GamepadView extends FrameLayout {
         Pad(Context c) {
             super(c);
             line.setStyle(Paint.Style.STROKE);
-            line.setStrokeWidth(Style.dp(c, 2));
+            // Gamepad.dc.html: a 1.5 px line, 28% white, with the 10% fill inside
+            line.setStrokeWidth(Math.max(1f, Style.dp(c, 1.5f)));
             dashed.setStyle(Paint.Style.STROKE);
-            dashed.setStrokeWidth(Style.dp(c, 2));
+            dashed.setStrokeWidth(Math.max(1f, Style.dp(c, 1.5f)));
             dashed.setPathEffect(new DashPathEffect(new float[]{Style.dp(c, 6), Style.dp(c, 5)}, 0));
             text.setTextAlign(Paint.Align.CENTER);
             text.setFakeBoldText(true);
@@ -528,8 +618,20 @@ final class GamepadView extends FrameLayout {
                 if (editing) {
                     float rad = GamepadLayout.corner(i, b);
                     r.set(b[0] - b[2], b[1] - b[3], b[0] + b[2], b[1] + b[3]);
-                    dashed.setColor(i == selected ? Style.ACCENT : 0x99FFFFFF);
-                    canvas.drawRoundRect(r, rad, rad, dashed);
+                    if (i == selected) {
+                        // The chosen control: accent fill and a solid accent outline (GamepadEdit.dc.html's .sel)
+                        fill.setColor(Style.ACCENT);
+                        fill.setAlpha(56);
+                        canvas.drawRoundRect(r, rad, rad, fill);
+                        line.setColor(Style.ACCENT);
+                        line.setAlpha(255);
+                        line.setStrokeWidth(Math.max(2f, Style.dp(getContext(), 2)));
+                        canvas.drawRoundRect(r, rad, rad, line);
+                        line.setStrokeWidth(Math.max(1f, Style.dp(getContext(), 1.5f)));
+                    } else {
+                        dashed.setColor(0x66FFFFFF);
+                        canvas.drawRoundRect(r, rad, rad, dashed);
+                    }
                 }
             }
         }
@@ -543,15 +645,28 @@ final class GamepadView extends FrameLayout {
             boolean down = !editing && c.button != 0 && (buttons & (1 << (c.button - 1))) != 0;
             float rad = GamepadLayout.corner(i, b);
             r.set(b[0] - b[2], b[1] - b[3], b[0] + b[2], b[1] + b[3]);
-            fill.setColor(down ? Style.ACCENT : 0xFFFFFFFF);
-            fill.setAlpha(down ? Math.min(255, a + 80) : a / 4);
+            float stroke = line.getStrokeWidth();
+            r.inset(stroke / 2f, stroke / 2f);
+            fill.setColor(down ? Style.ACCENT : PAD_COLOR);
+            fill.setAlpha(down ? Math.min(255, a + 80) : Math.round(a * 0.2f));
             canvas.drawRoundRect(r, rad, rad, fill);
-            line.setColor(0xFFFFFFFF);
-            line.setAlpha(a);
+            line.setColor(down ? Style.ACCENT : PAD_COLOR);
+            line.setAlpha(down ? Math.min(255, a + 80) : Math.round(a * 0.56f));
             canvas.drawRoundRect(r, rad, rad, line);
-            text.setColor(0xFFFFFFFF);
-            text.setAlpha(Math.min(255, a + 40));
+            text.setColor(c.face() ? faceColor(c.button) : PAD_COLOR);
+            text.setAlpha(Math.min(255, Math.round(a * 1.7f)));
+            text.setTextSize(Math.min(getWidth(), getHeight()) * 0.045f * factor() * (GamepadLayout.CONTROLS[i].kind == GamepadLayout.MENU ? 1.1f : 1f));
             canvas.drawText(c.label, b[0], b[1] - (text.descent() + text.ascent()) / 2, text);
+        }
+
+        private int faceColor(int button) {
+            switch (button) {
+                case GamepadLayout.A: return Style.OK;
+                case GamepadLayout.B: return Style.DANGER;
+                case GamepadLayout.X: return Style.ACCENT_2;
+                case GamepadLayout.Y: return FACE_Y;
+                default: return PAD_COLOR;
+            }
         }
 
         private void drawStick(Canvas canvas, int i, int a) {
@@ -561,12 +676,13 @@ final class GamepadView extends FrameLayout {
                 cx = t.ox;
                 cy = t.oy;
             }
-            fill.setColor(0xFFFFFFFF);
-            fill.setAlpha(a / 5);
-            canvas.drawCircle(cx, cy, radius, fill);
-            line.setColor(0xFFFFFFFF);
-            line.setAlpha(a);
-            canvas.drawCircle(cx, cy, radius, line);
+            float stroke = line.getStrokeWidth();
+            fill.setColor(PAD_COLOR);
+            fill.setAlpha(Math.round(a * 0.2f));
+            canvas.drawCircle(cx, cy, radius - stroke / 2f, fill);
+            line.setColor(PAD_COLOR);
+            line.setAlpha(Math.round(a * 0.56f));
+            canvas.drawCircle(cx, cy, radius - stroke / 2f, line);
             float kx = cx, ky = cy;
             if (t != null) {
                 float dx = t.x - cx, dy = t.y - cy, len = (float) Math.hypot(dx, dy);
@@ -574,31 +690,37 @@ final class GamepadView extends FrameLayout {
                 kx = cx + dx * m;
                 ky = cy + dy * m;
             }
-            fill.setColor(t != null ? Style.ACCENT : 0xFFFFFFFF);
-            fill.setAlpha(t != null ? Math.min(255, a + 80) : a / 2);
+            fill.setColor(t != null ? Style.ACCENT : PAD_COLOR);
+            fill.setAlpha(t != null ? Math.min(255, a + 80) : Math.round(a * 0.45f));
             canvas.drawCircle(kx, ky, radius * 0.42f, fill);
         }
 
+        /** Four pills with the arrows, as Gamepad.dc.html draws the d-pad, lit in its direction. */
         private void drawDpad(Canvas canvas, int a) {
-            float s = b[2], arm = s * 0.36f;
+            float s = b[2], half = 0.733f * s / 2f;
             int h = editing ? GamepadHid.HAT_NONE : hat;
-            // 0 up, 1 up-right, 2 right ... 7 up-left: which arms are lit
             boolean up = h == 7 || h == 0 || h == 1, right = h >= 1 && h <= 3, down = h >= 3 && h <= 5, left = h >= 5 && h <= 7;
-            arm(canvas, b[0] - arm, b[1] - s, b[0] + arm, b[1] - arm * 0.6f, up, a);
-            arm(canvas, b[0] - arm, b[1] + arm * 0.6f, b[0] + arm, b[1] + s, down, a);
-            arm(canvas, b[0] - s, b[1] - arm, b[0] - arm * 0.6f, b[1] + arm, left, a);
-            arm(canvas, b[0] + arm * 0.6f, b[1] - arm, b[0] + s, b[1] + arm, right, a);
+            dpadPill(canvas, b[0], b[1] - s + half, half, half * 1.1f, "▲", up, a);
+            dpadPill(canvas, b[0], b[1] + s - half, half, half * 1.1f, "▼", down, a);
+            dpadPill(canvas, b[0] - s + half, b[1], half * 1.1f, half, "◀", left, a);
+            dpadPill(canvas, b[0] + s - half, b[1], half * 1.1f, half, "▶", right, a);
         }
 
-        private void arm(Canvas canvas, float l, float t, float rr, float bb, boolean lit, int a) {
-            r.set(l, t, rr, bb);
-            float rad = Math.min(rr - l, bb - t) * 0.3f;
-            fill.setColor(lit ? Style.ACCENT : 0xFFFFFFFF);
-            fill.setAlpha(lit ? Math.min(255, a + 80) : a / 4);
+        private void dpadPill(Canvas canvas, float cx, float cy, float hx, float hy, String label, boolean lit, int a) {
+            r.set(cx - hx, cy - hy, cx + hx, cy + hy);
+            float rad = Math.min(hx, hy) * 0.85f;
+            float stroke = line.getStrokeWidth();
+            r.inset(stroke / 2f, stroke / 2f);
+            fill.setColor(lit ? Style.ACCENT : PAD_COLOR);
+            fill.setAlpha(lit ? Math.min(255, a + 80) : Math.round(a * 0.2f));
             canvas.drawRoundRect(r, rad, rad, fill);
-            line.setColor(0xFFFFFFFF);
-            line.setAlpha(a);
+            line.setColor(lit ? Style.ACCENT : PAD_COLOR);
+            line.setAlpha(lit ? Math.min(255, a + 80) : Math.round(a * 0.56f));
             canvas.drawRoundRect(r, rad, rad, line);
+            text.setColor(PAD_COLOR);
+            text.setAlpha(Math.min(255, Math.round(a * 1.7f)));
+            text.setTextSize(Math.min(hx, hy) * 0.85f);
+            canvas.drawText(label, cx, cy - (text.descent() + text.ascent()) / 2, text);
         }
     }
 }
