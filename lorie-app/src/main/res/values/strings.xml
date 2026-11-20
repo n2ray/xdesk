@@ -264,6 +264,7 @@
     <string name="xd_key_copy">C Copy</string>
     <string name="xd_key_paste">V Paste</string>
     <string name="xd_key_undo">Z Undo</string>
+    <string name="xd_keys_latched">%1$s is held: tap the next key combination, then %1$s again to let go</string>
     <string name="xd_fullscreen_pad">Full screen touch area</string>
 
     <!-- Status line on the control screen. %1$s is an app name. -->
@@ -294,6 +295,7 @@
     <string name="xd_output_note_unverified">This only points the output at the device. Sound quality and the Bluetooth codec can\'t be checked.</string>
     <string name="xd_output_title">Play sound on</string>
     <string name="xd_output_missing">This output is not connected. Using the system default for now</string>
+    <string name="xd_output_foot_note">System default follows the screen. Back to normal after End XDesk.</string>
 
     <!-- Settings -->
     <string name="xd_res_auto">Auto (recommended)</string>
@@ -306,17 +308,17 @@
     <string name="xd_orientation_portrait">Portrait</string>
     <string name="xd_orientation_landscape">Landscape</string>
     <string name="xd_resolution">X desktop resolution</string>
-    <string name="xd_resolution_note">One resolution for the desktops of Termux and every proot or chroot in it; Android apps are not affected. Auto is the screen\'s own up to 1600 high, half of a 4K one: sharp, and not drawing more than it shows</string>
+    <string name="xd_resolution_note">Shared by every Linux desktop</string>
     <string name="xd_density">Android apps\' interface size</string>
     <string name="xd_language">Language</string>
     <string name="xd_language_system">System</string>
     <string name="xd_language_en" translatable="false">English</string>
-    <string name="xd_language_zh" translatable="false">简体中文</string>
+    <string name="xd_language_zh" translatable="false">中文</string>
     <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
     <string name="xd_density_desktop_range">While a Termux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting, and X, Mac and XDesk\'s own screens follow the screen\'s Size. Default %3$d</string>
     <string name="xd_density_car">Doesn\'t apply to the car screen</string>
     <string name="xd_clipboard_sync">Share the clipboard</string>
-    <string name="xd_clipboard_sync_note">Text copied on the computer, tablet or phone can be pasted on the other. Over Wi-Fi it is not encrypted</string>
+    <string name="xd_clipboard_sync_note">Not encrypted over Wi-Fi</string>
     <string name="xd_section_connect">Connect</string>
     <string name="xd_section_other">Other</string>
     <string name="xd_split_running">Split screen prototype: two apps on the external display</string>
@@ -324,7 +326,7 @@
     <string name="xd_split_no_injector">No injector: the split screen prototype cannot open</string>
     <string name="xd_split_start_failed">%1$s did not start: %2$s</string>
     <string name="xd_x11_settings">Termux:X11 settings</string>
-    <string name="xd_x11_settings_note">Only for the Linux desktop, Android apps are not affected. Keyboard options can stop input methods working, so leave them if unsure</string>
+    <string name="xd_x11_settings_note">Only for the Linux desktop. A wrong input option can stop typing Chinese working</string>
     <string name="xd_file_saved">Saved to Downloads: %1$s</string>
     <string name="xd_x11_clipboard">Share the clipboard with Android</string>
     <string name="xd_x11_filtering">Desktop scaling</string>
@@ -334,26 +336,33 @@
     <string name="xd_x11_scancodes">Keys follow the desktop layout</string>
     <string name="xd_x11_scancodes_note">Turn on for a keyboard with another layout</string>
     <string name="xd_x11_meta">Win/Cmd key goes to the desktop</string>
-    <string name="xd_x11_meta_note">Otherwise the phone handles it</string>
+    <string name="xd_x11_meta_note">Off: the phone handles it</string>
     <string name="xd_x11_all">All Termux:X11 settings</string>
-    <string name="xd_x11_all_note">In English. A wrong setting can break input</string>
+    <string name="xd_x11_all_note">In English</string>
     <string name="xd_share_label">Send to computer or tablet</string>
     <string name="xd_share_no_computer">No computer or tablet connected. Connect one in XDesk first</string>
     <string name="xd_share_nothing">This is not a file and cannot be sent</string>
     <string name="xd_share_sending">Sending to %1$s</string>
+    <string name="xd_share_confirm_title">Send to %1$s?</string>
+    <string name="xd_share_send_action">Send</string>
+    <string name="xd_share_confirm_note">They go into the other device\'s Downloads folder.</string>
     <string name="xd_share_sent">Sent to Downloads there: %1$s</string>
     <string name="xd_share_failed">Could not send: %1$s</string>
     <string name="xd_launcher_need_phone">Open XDesk on the phone first</string>
     <string name="xd_external_dock">Dock at the bottom of the display</string>
-    <string name="xd_external_dock_note">Rest the pointer on the bottom edge and it comes up, over Android apps, Linux and a Mac alike</string>
+    <string name="xd_external_dock_note">Appears when the pointer rests on the bottom edge</string>
     <string name="xd_wireless">Connect to a receiver</string>
-    <string name="xd_wireless_note">Show XDesk over Wi-Fi on another device running XDesk Receiver</string>
+    <string name="xd_wireless_note">Show on another device over Wi-Fi</string>
     <string name="xd_wireless_off">Off</string>
     <string name="xd_wireless_title">Connected to a receiver: %1$s</string>
-    <string name="xd_wireless_picker_note">Open XDesk Receiver on the other device. Both need to be on the same network</string>
+    <string name="xd_wireless_picker_note">Both devices need to be on the same network</string>
     <string name="xd_wireless_searching">Looking for receivers on this network…</string>
+    <string name="xd_wireless_nearby">Nearby receivers</string>
+    <string name="xd_wireless_receiver">Receiver</string>
+    <string name="xd_wireless_connected">Connected: %1$s</string>
+    <string name="xd_wireless_input_at">Keys and mouse on %1$s</string>
     <string name="xd_wireless_address">Enter address</string>
-    <string name="xd_wireless_address_note">The address shown on the receiver, if it is not found here</string>
+    <string name="xd_wireless_address_note">If it is not found</string>
     <string name="xd_wireless_connect">Connect</string>
     <string name="xd_wireless_stop">Stop showing on %1$s</string>
     <string name="xd_wireless_stop_title">Stop showing on the receiver?</string>
@@ -385,7 +394,11 @@
     <string name="xd_section_sound">Sound</string>
     <string name="xd_section_display">Display</string>
     <string name="xd_section_about">About</string>
-    <string name="xd_orientation">Control screen orientation</string>
+    <string name="xd_orientation">Screen orientation</string>
+    <string name="xd_mouse">Mouse</string>
+    <string name="xd_display_this_screen">This screen: %1$s</string>
+    <string name="xd_display_this_screen_none">This screen</string>
+    <string name="xd_x11_settings_row_note">Only the Linux desktop</string>
     <!-- Settings › General › Phone interface: the console mode or the Launchpad mode -->
     <string name="xd_phone_ui">Phone interface</string>
     <string name="xd_phone_ui_console">Console</string>
@@ -393,6 +406,8 @@
     <string name="xd_phone_ui_note">The console starts with the touchpad; the Launchpad starts with the app grid</string>
     <string name="xd_dim">Dim automatically</string>
     <string name="xd_dim_note">Only while an external screen is connected. A touch brings it back</string>
+    <string name="xd_dim_hint">Touch to restore brightness</string>
+    <string name="xd_dim_hint_note">That touch doesn\'t tap anything</string>
     <string name="xd_dim_30s">30 s</string>
     <string name="xd_dim_1m">1 min</string>
     <string name="xd_dim_5m">5 min</string>
@@ -400,15 +415,15 @@
     <string name="xd_dim_now">Dim</string>
     <string name="xd_pad_speed">Touchpad sensitivity</string>
     <string name="xd_scroll_speed">Two-finger scroll speed</string>
-    <string name="xd_scroll_speed_note">Touchpad in Mouse &amp; keyboard mode and a mouse wheel on the phone; scrolling from a computer keeps its own settings</string>
+    <string name="xd_scroll_speed_note">Also the wheel of a mouse on the phone</string>
     <string name="xd_natural_scroll">Natural scrolling</string>
-    <string name="xd_natural_scroll_note">Content follows the fingers, on every touchpad</string>
+    <string name="xd_natural_scroll_note">Content follows your fingers</string>
     <string name="xd_keys_via_ime">Keyboard through the phone\'s input method</string>
-    <string name="xd_keys_via_ime_note">A keyboard on the phone types into the Linux desktop and Macs with the phone\'s input method: candidates on the phone, letters in the keyboard\'s layout, shortcuts as keys. Off: keys go as they are, and taking over moves the keyboard to the external display</string>
+    <string name="xd_keys_via_ime_note">Type into Linux and Macs with the phone\'s input method</string>
     <string name="xd_ime_corrections">Input method corrections</string>
-    <string name="xd_ime_corrections_note">Suggestions and autocorrect of the phone\'s keyboard also fix what was already typed on the Linux desktop or a Mac</string>
+    <string name="xd_ime_corrections_note">Suggestions and autocorrect</string>
     <string name="xd_translate_modifiers">Swap Ctrl and ⌘ for a Mac</string>
-    <string name="xd_translate_modifiers_note">A PC keyboard on a Mac: Ctrl works as ⌘, Alt as ⌥. Each Mac can follow this or choose its own on its page</string>
+    <string name="xd_translate_modifiers_note">A PC keyboard on a Mac</string>
     <string name="xd_keys_external">Keys on display</string>
     <string name="xd_keys_phone">Keys on phone</string>
     <!-- The button's short label; xd_keys_external / xd_keys_phone are read aloud -->
@@ -418,27 +433,27 @@
     <string name="xd_mouse_speed">Physical mouse speed</string>
     <string name="xd_mouse_speed_note" formatted="false">For everything on the screen; 100% is the usual speed</string>
     <string name="xd_always_cursor">Always show the XDesk cursor</string>
-    <string name="xd_always_cursor_note">Turn on if it guesses wrong in a RustDesk session</string>
+    <string name="xd_always_cursor_note">Turn on if the cursor is invisible in RustDesk</string>
     <string name="xd_fullscreen_default">Force apps to full screen landscape</string>
-    <string name="xd_fullscreen_default_note">Ignores portrait locks on the display and other large screens; the phone screen is not affected. Applies the next time an app starts, and restarts it the first time. Can be changed per app in its card</string>
+    <string name="xd_fullscreen_default_note">Only on large screens; takes effect when the app restarts</string>
     <string name="xd_fullscreen_reset">Undo all landscape fullscreen</string>
     <string name="xd_fullscreen_reset_note">Removes the landscape fullscreen XDesk gave Android apps</string>
     <string name="xd_fullscreen_reset_title">Undo all landscape fullscreen?</string>
     <string name="xd_fullscreen_reset_action">Undo</string>
     <string name="xd_display_android">Android apps</string>
     <string name="xd_display_linux">Linux desktop</string>
-    <string name="xd_display_general">Whole screen</string>
+    <string name="xd_display_general">All screens</string>
     <string name="xd_fullscreen_reset_message">Apps that XDesk made full screen landscape go back to how they were, and the system stops each of them once. The default and every app\'s choice go back to off.</string>
     <string name="xd_fullscreen_reset_need_injector">Needs the input service: run an Android app once, then try again</string>
     <string name="xd_cover">External screen privacy</string>
-    <string name="xd_cover_note">When you switch to another app or lock the phone, the external screen is covered completely with a clock, so nobody sees what is on it; the keys and mouse go to the phone. Apps keep running and their sound goes on</string>
-    <string name="xd_cover_note_no_overlay">When you switch to another app or lock the phone, the external screen is covered completely with a clock, so nobody sees what is on it; the keys and mouse go to the phone. Apps keep running and their sound goes on. Without the overlay permission it cannot cover now</string>
+    <string name="xd_cover_note">When you leave XDesk or lock the phone, only a clock shows</string>
+    <string name="xd_cover_note_no_overlay">When you leave XDesk or lock the phone, only a clock shows. Without the overlay permission it cannot cover now</string>
     <string name="xd_diag_setting">Show diagnostics</string>
-    <string name="xd_diag_setting_note">Focus and event counts on the control screen</string>
+    <string name="xd_diag_setting_note">Focus and event counts</string>
     <string name="xd_builtin">Built-in input service</string>
     <string name="xd_builtin_note">Mouse &amp; keyboard for Android apps when there is no Shizuku</string>
     <string name="xd_builtin_stop">Stop built-in service</string>
-    <string name="xd_builtin_stop_note">XDesk won\'t start it by itself until you next run an Android app</string>
+    <string name="xd_builtin_stop_note">XDesk starts it again the next time you run an Android app</string>
     <string name="xd_builtin_stop_title">Stop built-in service?</string>
     <string name="xd_builtin_stop_message">Android apps running through it go back to the phone (not closed), and mouse, keyboard and sound are back to normal.</string>
     <string name="xd_pair_again">Pair again</string>
@@ -452,6 +467,7 @@
     <string name="xd_builtin_starting">Starting</string>
     <string name="xd_builtin_not_running">Not running</string>
     <string name="xd_builtin_not_paired">Not paired</string>
+    <string name="xd_about_credit">Made by n2ray and Claude · Based on Termux:X11 · GPL-3.0</string>
 
     <!-- The app card (long press) -->
     <string name="xd_card_on_display">On the display</string>
@@ -465,6 +481,7 @@
     <string name="xd_card_follow_default">Default</string>
     <string name="xd_card_mode">Input mode</string>
     <string name="xd_card_mode_note">Like a tablet: the app gets fingers, for apps, games or web pages that only respond to touch. Like a computer: a mouse</string>
+    <string name="xd_card_hide_note">Search still finds it</string>
     <string name="xd_card_open">Open</string>
     <string name="xd_card_switch_to">Switch to</string>
     <string name="xd_card_launchpad">Open the Launchpad</string>
@@ -541,9 +558,9 @@
     <string name="xd_end_desktop_message">The desktop exits, and so do its programs. Unsaved work will be lost.</string>
     <!-- Web display: any browser as the display, over Wi-Fi, the hotspot or a USB cable -->
     <string name="xd_web">Web display</string>
-    <string name="xd_web_row_note">Any device\'s browser as the display, over Wi-Fi or a USB cable</string>
+    <string name="xd_web_row_note">Any device\'s browser as the display</string>
     <string name="xd_web_on">On</string>
-    <string name="xd_web_switch_note">Serves a page on port 47150. The first time, a browser enters a 4-digit code shown on the phone.</string>
+    <string name="xd_web_switch_note">A browser enters a 4-digit code the first time</string>
     <string name="xd_web_note">Open an address below in a browser to see and use the display: picture, sound, mouse and keyboard. One browser or receiver at a time. Keep XDesk open on the phone.</string>
     <string name="xd_web_addresses">Open in a browser</string>
     <string name="xd_web_no_network">No network</string>
@@ -563,10 +580,10 @@
     <string name="xd_web_ssh">Wi-Fi or tethering (SSH)</string>
     <string name="xd_web_wired">Wired</string>
     <string name="xd_web_wired_how">How, over the cable</string>
-    <string name="xd_web_wired_how_note">Connect an iPad, Mac or computer with a USB cable and turn on USB tethering (below). A wired address appears above. Lower and steadier delay than Wi-Fi. For iPad and Mac, switch tethering to NCM first. The phone barely charges from an iPad meanwhile.</string>
+    <string name="xd_web_wired_how_note">A cable and USB tethering; steadier than Wi-Fi</string>
     <string name="xd_web_computer_how">How, on the computer</string>
     <string name="xd_web_ncm">USB tethering as NCM</string>
-    <string name="xd_web_ncm_note">iPad and Mac only work with NCM; Windows and Linux work with either. Turn USB tethering off and on after changing it.</string>
+    <string name="xd_web_ncm_note">Needed for iPad and Mac</string>
     <string name="xd_web_ncm_on">NCM</string>
     <string name="xd_web_ncm_off">Not set</string>
     <string name="xd_web_ncm_done">Switched to NCM. Turn USB tethering off and on again.</string>
@@ -586,7 +603,7 @@
     <string name="xd_web_pairing_closed">Web display pairing is closed after too many failed attempts. Turn Web display off and on in the settings to reopen it. Browsers already paired still connect.</string>
     <string name="xd_web_pairing_paused">Many wrong codes from browsers: web display pairing is paused for 10 minutes. Paired browsers still connect.</string>
     <string name="xd_screen_kind">Kind of screen</string>
-    <string name="xd_screen_kind_note">How far away it is seen: text is bigger on a TV or a projector</string>
+    <string name="xd_screen_kind_note">Sets how big text is</string>
     <string name="xd_kind_monitor">Monitor</string>
     <string name="xd_kind_tv">TV</string>
     <string name="xd_kind_projector">Projector</string>

@@ -97,13 +97,16 @@ final class DeviceSettings {
 
     private Dialog list() {
         return live(c.getString(R.string.xd_dev_connect_devices), content -> {
+            // SetDevices: the phone first, then the external devices, then Add device in the same card
+            LinearLayout phone = s.card(content);
+            s.infoRow(phone, c.getString(R.string.xd_dev_phone), c.getString(R.string.xd_dev_phone_note), null);
             LinearLayout known = s.section(content, c.getString(R.string.xd_dev_external));
             for (final Devices.Device d : devices.external())
-                s.valueRow(known, d.name, stateText(d), typeName(d.type), () -> device(d.id));
+                s.linkRow(known, d.name, stateText(d), d.state == Devices.State.CONNECTED ? Style.OK : Style.TEXT_DIM,
+                    "", () -> device(d.id));
             // A first start has none: say so rather than show an empty card
             if (devices.external().isEmpty()) s.infoRow(known, c.getString(R.string.xd_dev_none), c.getString(R.string.xd_dev_none_note), null);
-            LinearLayout add = s.section(content, c.getString(R.string.xd_dev_add_note));
-            s.valueRow(add, c.getString(R.string.xd_dev_add), null, "", this::pickType);
+            s.accentRow(known, c.getString(R.string.xd_dev_add), null, this::pickType);
             return true;
         });
     }
@@ -116,13 +119,24 @@ final class DeviceSettings {
         }
     }
 
+    /** SetDevices' sheet: what to add, Linux or a Mac, each opening its own set-up. */
     private void pickType() {
-        live(c.getString(R.string.xd_dev_add), content -> {
-            LinearLayout types = s.section(content, c.getString(R.string.xd_dev_add_pick));
-            s.valueRow(types, c.getString(R.string.xd_dev_type_linux), c.getString(R.string.xd_dev_type_linux_note), "", this::linuxSetUp);
-            s.valueRow(types, c.getString(R.string.xd_dev_type_mac), c.getString(R.string.xd_dev_type_mac_note), "", this::pickMacAdd);
-            return true;
+        LinearLayout content = new LinearLayout(c);
+        content.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout types = s.card(content);
+        final Dialog[] sheet = new Dialog[1];
+        s.linkRow(types, c.getString(R.string.xd_dev_type_linux), c.getString(R.string.xd_dev_type_linux_note), "", () -> {
+            sheet[0].dismiss();
+            linuxSetUp();
         });
+        s.linkRow(types, c.getString(R.string.xd_dev_type_mac), c.getString(R.string.xd_dev_type_mac_note), "", () -> {
+            sheet[0].dismiss();
+            pickMacAdd();
+        });
+        android.widget.TextView title = Style.label(c, c.getString(R.string.xd_dev_add_pick), Style.TEXT, 17);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setPadding(0, 0, 0, Style.dp(c, 4));
+        sheet[0] = s.bottomSheet(title, content);
     }
 
     /** Add device › Mac: a QR code from Sill's pairing window, or the Mac's address and the code it shows. */
@@ -150,10 +164,13 @@ final class DeviceSettings {
         final Devices.Device d = devices.find(id);
         if (d == null) return false;
         final String env = id.substring(Devices.LINUX.length());
-        LinearLayout state = s.section(content, typeName(d.type));
-        // A proot or chroot runs inside Termux: its own device, but Termux must stay installed
-        s.infoRow(state, c.getString(R.string.xd_dev_state),
-                env.equals(Devices.TERMUX) ? null : c.getString(R.string.xd_dev_in_termux), stateText(d));
+        // SetDeviceLinux: the state with the green dot, and what is on the X server, in the first card
+        LinearLayout state = s.card(content);
+        final boolean running = d.state == Devices.State.CONNECTED || d.state == Devices.State.CONNECTING;
+        String stateNote = d.note;
+        if (running && devices.runningSession() != null) stateNote = c.getString(R.string.xd_dev_x_session, devices.runningSession());
+        else if (d.note == null && !env.equals(Devices.TERMUX)) stateNote = c.getString(R.string.xd_dev_in_termux);
+        s.dotRow(state, running, c.getString(Devices.stateLabel(d)), stateNote);
         // Local: nothing to connect. Stop ends the X server all Linux devices share, after asking
         if (d.canStop && !d.busy)
             s.stopRowIn(state, c.getString(R.string.xd_dev_stop), c.getString(R.string.xd_dev_stop_note), () -> devices.stop(id));
@@ -162,7 +179,7 @@ final class DeviceSettings {
         if (own.isEmpty()) s.infoRow(sessions, c.getString(R.string.xd_dev_linux_no_session), null, null);
         // Each desktop's start script is the user's (CLI.md §5): a tap opens it in an editor in Termux
         for (final String name : own)
-            s.valueRow(sessions, name, c.getString(R.string.xd_linux_session_edit_note, name),
+            s.linkRow(sessions, name, c.getString(R.string.xd_linux_session_edit_note, name),
                     name.equals(devices.runningSession()) ? c.getString(R.string.xd_dev_state_running)
                     : name.equals(devices.defaultSession()) ? c.getString(R.string.xd_chooser_default) : "",
                     () -> {
@@ -173,21 +190,25 @@ final class DeviceSettings {
         // The switch is this device's; the input method is the one X server's, so its state reads the same on all
         LinearLayout keys = s.section(content, c.getString(R.string.xd_linux_keyboard));
         followGlobalRow(keys, c.getString(R.string.xd_linux_phone_ime),
-                c.getString(R.string.xd_linux_phone_ime_note) + "\n" + c.getString(devices.xIme() ? R.string.xd_linux_x_ime_on : R.string.xd_linux_x_ime_off),
+                c.getString(devices.xIme() ? R.string.xd_linux_x_ime_on : R.string.xd_linux_x_ime_off),
+                devices.xIme() ? Style.OK : Style.TEXT_DIM,
                 devices.linuxPhoneImeChoice(id), which -> devices.setLinuxPhoneIme(id, choice(which)));
         String layout = devices.xLayout();
-        s.valueRow(keys, c.getString(R.string.xd_linux_x_layout), c.getString(R.string.xd_linux_x_layout_note),
+        s.linkRow(keys, c.getString(R.string.xd_linux_x_layout), null,
                 layout != null ? layoutName(layout) : c.getString(R.string.xd_linux_x_layout_auto),
                 () -> pickXLayout(devices));
         // Removing a device only takes its tab. Termux and the environments are separate devices; a proot or chroot
         // runs inside Termux, so the Termux page says that removing Termux leaves them
         String removeNote = c.getString(env.equals(Devices.TERMUX)
                 ? R.string.xd_dev_remove_termux_note : R.string.xd_dev_remove_linux_note);
+        String removeRowNote = c.getString(env.equals(Devices.TERMUX)
+                ? R.string.xd_dev_remove_termux_row_note : R.string.xd_dev_remove_linux_row_note);
         // Its desktop or programs on the screen: they stop first, or they would run on with no device to stop them from
         // (owner, 2026-11-19). X busy with another environment only is left running
-        final boolean running = d.state == Devices.State.CONNECTED || d.state == Devices.State.CONNECTING;
         final String confirmNote = running ? c.getString(R.string.xd_dev_remove_running) + "\n\n" + removeNote : removeNote;
-        s.dangerRow(content, c.getString(R.string.xd_dev_remove), removeNote, () ->
+        LinearLayout remove = s.card(content);
+        ((android.widget.LinearLayout.LayoutParams) remove.getLayoutParams()).topMargin = Style.dp(c, 12);
+        s.dangerRowIn(remove, c.getString(R.string.xd_dev_remove), removeRowNote, () ->
             s.confirm(c.getString(R.string.xd_dev_remove_title, d.name), confirmNote,
                 c.getString(R.string.xd_dev_remove_action), SettingsUi.LEVEL_DANGER,
                 () -> {
@@ -202,9 +223,14 @@ final class DeviceSettings {
      * which is the segment shown then, so the row says what is in force.
      */
     private void followGlobalRow(LinearLayout card, String label, String note, Boolean own, final IntConsumer onPick) {
+        followGlobalRow(card, label, note, Style.TEXT_DIM, own, onPick);
+    }
+
+    private void followGlobalRow(LinearLayout card, String label, String note, int noteColor, Boolean own,
+                                 final IntConsumer onPick) {
         String[] options = {c.getString(R.string.xd_follow_global), c.getString(R.string.xd_on), c.getString(R.string.xd_off)};
         int at = own == null ? 0 : own ? 1 : 2;
-        s.segmentedRow(card, label, note, options, at, onPick);
+        s.segmentedRow(card, label, note, noteColor, options, at, onPick);
     }
 
     private Boolean choice(int which) {
@@ -257,33 +283,38 @@ final class DeviceSettings {
             macMode = null;
         }
         macMode = MacModeRow.add(c, s, macId, content, refill);
-        LinearLayout state = s.section(content, typeName(d.type));
-        s.infoRow(state, c.getString(R.string.xd_dev_state), null, stateText(d));
-        if (needsPairing) {
-            // It removed XDesk or changed identity: pair with the saved address, or scan again (MacSettings.repair)
-            s.valueRow(state, c.getString(R.string.xd_dev_pair_again), c.getString(R.string.xd_mac_repair_note), "",
-                    () -> MacSettings.repair(c, macId));
-        } else if (d.state == Devices.State.CONNECTED && !d.busy) {
-            s.stopRowIn(state, c.getString(R.string.xd_dev_disconnect), c.getString(R.string.xd_dev_disconnect_mac_note),
-                    () -> s.confirm(c.getString(R.string.xd_dev_disconnect_title, d.name),
-                        c.getString(R.string.xd_dev_disconnect_mac_note), c.getString(R.string.xd_dev_disconnect),
-                        SettingsUi.LEVEL_STOP, () -> devices.disconnect(id)));
-        } else if (d.state != Devices.State.CONNECTING && d.canConnect(devices)) {
-            s.valueRow(state, c.getString(R.string.xd_dev_connect), null, "", () -> devices.connect(id));
+        // SetDeviceMac: the state with the green dot and Disconnect beside it, then Picture and sound
+        LinearLayout state = s.card(content);
+        if (d.state == Devices.State.CONNECTED && !d.busy) {
+            s.dotActionRow(state, true, stateText(d), null, c.getString(R.string.xd_dev_disconnect), Style.STOP,
+                () -> s.confirm(c.getString(R.string.xd_dev_disconnect_title, d.name),
+                    c.getString(R.string.xd_dev_disconnect_mac_note), c.getString(R.string.xd_dev_disconnect),
+                    SettingsUi.LEVEL_STOP, () -> devices.disconnect(id)));
+        } else {
+            s.dotRow(state, false, stateText(d), null);
+            if (needsPairing) {
+                // It removed XDesk or changed identity: pair with the saved address, or scan again (MacSettings.repair)
+                s.linkRow(state, c.getString(R.string.xd_dev_pair_again), c.getString(R.string.xd_mac_repair_note), "",
+                        () -> MacSettings.repair(c, macId));
+            } else if (d.state != Devices.State.CONNECTING && d.canConnect(devices)) {
+                s.linkRow(state, c.getString(R.string.xd_dev_connect), null, "", () -> devices.connect(id));
+            }
         }
-        s.valueRow(state, c.getString(R.string.xd_mac_stream), c.getString(R.string.xd_mac_stream_note), "",
+        s.linkRow(state, c.getString(R.string.xd_mac_stream), c.getString(R.string.xd_mac_stream_note), "",
                 () -> MacStreamSettings.open(c, macId));
         if (m != null) {
-            LinearLayout keys = s.section(content, c.getString(R.string.xd_linux_keyboard));
-            followGlobalRow(keys, c.getString(R.string.xd_translate_modifiers), c.getString(R.string.xd_translate_modifiers_note),
-                    m.translateOverride, which -> setTranslate(macId, choice(which)));
-            followGlobalRow(keys, c.getString(R.string.xd_mac_phone_ime), c.getString(R.string.xd_mac_phone_ime_note),
-                    m.phoneImeOverride, which -> setPhoneIme(macId, choice(which)));
             LinearLayout screen = s.section(content, c.getString(R.string.xd_mac_screen));
             s.switchRow(screen, c.getString(R.string.xd_mac_fit), c.getString(R.string.xd_mac_fit_note), m.fit,
                     on -> setFit(macId, on));
+            LinearLayout keys = s.section(content, c.getString(R.string.xd_linux_keyboard));
+            followGlobalRow(keys, c.getString(R.string.xd_translate_modifiers), null,
+                    m.translateOverride, which -> setTranslate(macId, choice(which)));
+            followGlobalRow(keys, c.getString(R.string.xd_mac_phone_ime), null,
+                    m.phoneImeOverride, which -> setPhoneIme(macId, choice(which)));
             macAddresses(s.section(content, c.getString(R.string.xd_mac_addresses)), m);
-            s.dangerRow(content, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_mac_remove_note), () ->
+            LinearLayout remove = s.card(content);
+            ((android.widget.LinearLayout.LayoutParams) remove.getLayoutParams()).topMargin = Style.dp(c, 12);
+            s.dangerRowIn(remove, c.getString(R.string.xd_dev_remove), c.getString(R.string.xd_mac_remove_row_note), () ->
                 s.confirm(c.getString(R.string.xd_dev_remove_title, m.name), c.getString(R.string.xd_mac_remove_note),
                     c.getString(R.string.xd_dev_remove_action), SettingsUi.LEVEL_DANGER, () -> {
                         MacStore.remove(c, m.id);

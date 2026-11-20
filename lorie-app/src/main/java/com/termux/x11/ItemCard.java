@@ -62,6 +62,7 @@ final class ItemCard {
     private final String session;
     private final ContentSource source;
     private TextView title, sub, detail;
+    private ImageView star;
     private LinearLayout actions, order;
     private Dialog card;
 
@@ -174,6 +175,20 @@ final class ItemCard {
         tp.leftMargin = dp(12);
         head.addView(titles, tp);
 
+        // SetItemCard: the star is a round button right of the name, with no word on it
+        star = new ImageView(c);
+        int starPad = dp(11);
+        star.setPadding(starPad, starPad, starPad, starPad);
+        star.setContentDescription(str(R.string.xd_chooser_favourite));
+        star.setOnClickListener(v -> {
+            Style.tick(v);
+            host.toggleFavourite(key);
+            refresh();
+        });
+        LinearLayout.LayoutParams starParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+        starParams.leftMargin = dp(8);
+        head.addView(star, starParams);
+
         LinearLayout content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
         actions = new LinearLayout(c);
@@ -208,6 +223,14 @@ final class ItemCard {
         below.setOrientation(LinearLayout.VERTICAL);
         content.addView(below, new LinearLayout.LayoutParams(-1, -2));
         if (app != null) appSettings(below);
+        // SetItemCard's Hide is a switch row under everything, not a button among the actions
+        if (hideable() || devices.isHidden(key)) {
+            s.switchRow(content, str(R.string.xd_dev_hide), str(R.string.xd_card_hide_note), devices.isHidden(key), on -> {
+                // Hidden things are not favourites: the favourites must not hold what can't be seen
+                if (on && isFavourite()) host.toggleFavourite(key);
+                devices.setHidden(key, on);
+            });
+        }
 
         // Through a holder: the lambda refers to itself (deviceRows re-runs it on a change), which Java does not allow directly
         final Runnable[] self = new Runnable[1];
@@ -257,7 +280,20 @@ final class ItemCard {
         sub.setText(state != null ? where + " · " + state : where);
         sub.setTextColor(onDisplay ? Style.OK : Style.TEXT_DIM);
         order.setVisibility(isFavourite() ? View.VISIBLE : View.GONE);
+        refreshStar();
         fillActions(e);
+    }
+
+    /** Filled and accent when it is a favourite, an outline otherwise; the state is the look, no word on it. */
+    private void refreshStar() {
+        if (star == null) return;
+        boolean docked = isFavourite();
+        // No star on what is hidden, as in the lists
+        star.setVisibility(devices.isHidden(key) && !docked ? View.GONE : View.VISIBLE);
+        star.setBackground(Style.toggle(c, docked, Style.SURFACE_RAISED, 22));
+        star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
+        star.setColorFilter(docked ? Style.ACCENT : Style.TEXT_DIM);
+        star.setContentDescription(str(docked ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite));
     }
 
     /** On the display, running or not; for something of a Mac that is not connected or locked, that. Null: nothing to say. */
@@ -314,32 +350,7 @@ final class ItemCard {
                 });
             }
             addClose(e);
-            if (hidden || hideable()) {
-                action(hidden ? R.string.xd_dev_unhide : R.string.xd_dev_hide, Style.SURFACE, Style.TEXT, () -> {
-                    // Hidden things are not favourites: the favourites must not hold what can't be seen
-                    if (!hidden && isFavourite()) host.toggleFavourite(key);
-                    devices.setHidden(key, !hidden);  // its listener fills the card again
-                });
-            }
         }
-        // No star on what is hidden, as in the lists
-        if (hidden && !isFavourite()) return;
-        boolean docked = isFavourite();
-        ImageView star = new ImageView(c);
-        int pad = dp(11);
-        star.setPadding(pad, pad, pad, pad);
-        star.setBackground(Style.ripple(c, Style.SURFACE, Style.RADIUS));
-        star.setImageResource(docked ? R.drawable.xd_ic_star : R.drawable.xd_ic_star_outline);
-        star.setColorFilter(docked ? Style.WARN : Style.TEXT_DIM);
-        star.setContentDescription(str(docked ? R.string.xd_chooser_unfavourite : R.string.xd_chooser_favourite));
-        star.setOnClickListener(v -> {
-            Style.tick(v);
-            host.toggleFavourite(key);
-            refresh();
-        });
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(Style.TARGET), dp(Style.TARGET));
-        if (actions.getChildCount() > 0) sp.leftMargin = dp(Style.GAP);
-        actions.addView(star, sp);
     }
 
     /** Close or quit, where there is a way to: nothing new is invented here. */
@@ -348,7 +359,8 @@ final class ItemCard {
             // Android apps are closed through the injector service; asked first, as before
             final AppSession apps = host.apps();
             if (!apps.canCloseApps()) return;
-            action(R.string.xd_close, Style.SURFACE, Style.DANGER, () ->
+            // Closing is the yellow filled button of SetItemCard, not a red text one
+            action(R.string.xd_close, Style.STOP, Style.ON_STOP, () ->
                 s.confirm(c.getString(R.string.xd_card_close_title, app.label), str(R.string.xd_unsaved_may_be_lost), str(R.string.xd_close),
                     SettingsUi.LEVEL_DANGER, () -> {
                         card.dismiss();
@@ -366,7 +378,7 @@ final class ItemCard {
             // or not the app has windows — a windowless app would otherwise be unquittable
             boolean window = e != null && e.detail != null;
             if (window) {
-                action(R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
+                action(R.string.xd_close, Style.STOP, Style.ON_STOP, () -> source.close(key));
             } else if (e != null && !ChooserView.isDesktopKey(key)) {
                 action(R.string.xd_dev_quit, Style.SURFACE, Style.DANGER, () -> confirmQuit(e.label));
             }
@@ -374,7 +386,8 @@ final class ItemCard {
             // A window closes; a program quits (ContentSource.close). A Mac's desktop is not closed: its Mac is
             // disconnected, below
             boolean program = hideable();
-            action(program ? R.string.xd_dev_quit : R.string.xd_close, Style.SURFACE, Style.DANGER, () -> source.close(key));
+            if (program) action(R.string.xd_dev_quit, Style.SURFACE, Style.DANGER, () -> source.close(key));
+            else action(R.string.xd_close, Style.STOP, Style.ON_STOP, () -> source.close(key));
         }
     }
 

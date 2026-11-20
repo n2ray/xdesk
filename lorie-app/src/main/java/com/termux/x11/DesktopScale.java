@@ -102,7 +102,7 @@ final class DesktopScale {
     }
 
     /** The kind and size of the screen d (null: none connected) on the display settings page. */
-    /** The screen's kind and size into card, the external screen page's first card (no group title of its own). */
+    /** The screen's kind and size into card, the external screen page's first card (SetDisplay)。 */
     static void addSettings(Activity a, SettingsUi s, LinearLayout card, Display d, Runnable changed) {
         if (d == null) {
             s.infoRow(card, a.getString(R.string.xd_screen_size), a.getString(R.string.xd_screen_none), null);
@@ -121,7 +121,7 @@ final class DesktopScale {
                     changed.run();
                 });
         }
-        s.segmentedRow(card, a.getString(R.string.xd_screen_size), a.getString(R.string.xd_screen_size_note),
+        s.segmentedRow(card, a.getString(R.string.xd_screen_size), null,
             strings(a, SIZE_LABELS, SIZE_LABELS.length), p.size, which -> {
                 p.size = which;
                 profiles.save(p);

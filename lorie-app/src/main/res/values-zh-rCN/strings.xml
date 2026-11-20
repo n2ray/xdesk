@@ -95,7 +95,7 @@
 
     <!-- AudioRoute -->
     <string name="xd_audio_short_phone">手机</string>
-    <string name="xd_audio_short_hdmi">外接</string>
+    <string name="xd_audio_short_hdmi">外接屏</string>
     <string name="xd_audio_short_bluetooth">蓝牙</string>
     <string name="xd_audio_short_usb">USB</string>
     <string name="xd_audio_short_wired">耳机</string>
@@ -250,6 +250,7 @@
     <string name="xd_key_copy">C 复制</string>
     <string name="xd_key_paste">V 粘贴</string>
     <string name="xd_key_undo">Z 撤销</string>
+    <string name="xd_keys_latched">%1$s 已按住：点下一个键组合，再点一次 %1$s 松开</string>
     <string name="xd_fullscreen_pad">触控区全屏</string>
 
     <string name="xd_status_no_app">外接屏上没有应用了，选一个</string>
@@ -287,7 +288,7 @@
     <string name="xd_orientation_portrait">竖屏</string>
     <string name="xd_orientation_landscape">横屏</string>
     <string name="xd_resolution">X 桌面分辨率</string>
-    <string name="xd_resolution_note">Termux 和里面所有 proot、chroot 的桌面共用这一个分辨率，安卓应用不受影响。自动：1600 高以内用屏幕原生，4K 屏用一半，清晰又不白费电</string>
+    <string name="xd_resolution_note">所有 Linux 桌面共用</string>
     <string name="xd_density">安卓应用界面大小</string>
     <string name="xd_language">语言</string>
     <string name="xd_language_system">跟随系统</string>
@@ -295,7 +296,7 @@
     <string name="xd_density_desktop_range">Termux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小；桌面本身用它自己的 DPI 设置，X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。默认 %3$d</string>
     <string name="xd_density_car">不适用于车机</string>
     <string name="xd_clipboard_sync">剪贴板同步</string>
-    <string name="xd_clipboard_sync_note">电脑或平板和手机互通文字剪贴板。Wi-Fi 下内容不加密</string>
+    <string name="xd_clipboard_sync_note">Wi-Fi 下不加密</string>
     <string name="xd_section_connect">连接</string>
     <string name="xd_section_other">其他</string>
     <string name="xd_split_running">分屏原型：外接屏上两个应用</string>
@@ -303,7 +304,8 @@
     <string name="xd_split_no_injector">没有注入服务，分屏原型开不了</string>
     <string name="xd_split_start_failed">%1$s 没启动：%2$s</string>
     <string name="xd_x11_settings">Termux:X11 设置</string>
-    <string name="xd_x11_settings_note">只影响 Linux 桌面，安卓应用不受影响。键盘和输入类选项可能导致打不了中文，不确定就别改</string>
+    <string name="xd_x11_settings_note">只影响 Linux 桌面。输入类选项改错可能打不了中文。</string>
+    <string name="xd_x11_settings_row_note">只影响 Linux 桌面</string>
     <string name="xd_file_saved">已保存到下载：%1$s</string>
     <string name="xd_x11_clipboard">桌面和安卓互通剪贴板</string>
     <string name="xd_x11_filtering">桌面缩放</string>
@@ -313,26 +315,33 @@
     <string name="xd_x11_scancodes">按键由桌面布局决定</string>
     <string name="xd_x11_scancodes_note">换键盘布局时打开</string>
     <string name="xd_x11_meta">Win/Cmd 键交给桌面</string>
-    <string name="xd_x11_meta_note">否则由手机系统处理</string>
+    <string name="xd_x11_meta_note">关了交给手机</string>
     <string name="xd_x11_all">全部 Termux:X11 设置</string>
-    <string name="xd_x11_all_note">英文，改错可能影响输入</string>
+    <string name="xd_x11_all_note">英文</string>
     <string name="xd_share_label">发送到电脑或平板</string>
     <string name="xd_share_no_computer">没有连接电脑或平板，先在 XDesk 里连上</string>
     <string name="xd_share_nothing">这个内容不是文件，发送不了</string>
     <string name="xd_share_sending">正在发送到 %1$s</string>
     <string name="xd_share_sent">已发送到对方的“下载”：%1$s</string>
+    <string name="xd_share_confirm_title">发送到 %1$s？</string>
+    <string name="xd_share_send_action">发送</string>
+    <string name="xd_share_confirm_note">放进对方的「下载」文件夹。</string>
     <string name="xd_share_failed">发送失败：%1$s</string>
     <string name="xd_launcher_need_phone">先打开手机上的 XDesk</string>
     <string name="xd_external_dock">外接屏底部 Dock</string>
-    <string name="xd_external_dock_note">光标在屏幕底边停一下就出现，安卓应用、Linux 和 Mac 都一样</string>
+    <string name="xd_external_dock_note">光标停在底边时出现</string>
     <string name="xd_wireless">连接接收器</string>
-    <string name="xd_wireless_note">通过 Wi-Fi 把 XDesk 显示到装了 XDesk 接收器的另一台设备上</string>
+    <string name="xd_wireless_note">通过 Wi-Fi 显示到另一台设备</string>
     <string name="xd_wireless_off">关</string>
     <string name="xd_wireless_title">已连接接收器：%1$s</string>
-    <string name="xd_wireless_picker_note">在另一台设备上打开 XDesk 接收器，两台设备要连在同一个网络里</string>
+    <string name="xd_wireless_picker_note">两台设备要在同一个网络里</string>
     <string name="xd_wireless_searching">正在局域网里找接收器…</string>
+    <string name="xd_wireless_nearby">附近的接收器</string>
+    <string name="xd_wireless_receiver">接收端</string>
+    <string name="xd_wireless_connected">已连接：%1$s</string>
+    <string name="xd_wireless_input_at">键鼠在 %1$s</string>
     <string name="xd_wireless_address">输入地址</string>
-    <string name="xd_wireless_address_note">接收器上显示的地址，这里找不到时用</string>
+    <string name="xd_wireless_address_note">找不到时用</string>
     <string name="xd_wireless_connect">连接</string>
     <string name="xd_wireless_stop">停止投到 %1$s</string>
     <string name="xd_wireless_stop_title">停止投到这台接收器？</string>
@@ -354,6 +363,7 @@
     <string name="xd_audio_short_wireless">无线</string>
     <string name="xd_output_system_receiver">系统默认：接收端（%1$s）</string>
     <string name="xd_output_note_follow">有线外接屏、无线显示和网页显示共用这一个设置。系统默认就是跟着屏幕：有线时一般是显示器，无线和网页时是接收端。选手机上的输出（比如耳机）声音就留在手机上。</string>
+    <string name="xd_output_foot_note">系统默认跟着屏幕走。结束 XDesk 后恢复。</string>
     <string name="xd_status_desktop_taken">键盘在外接屏：%1$s</string>
     <string name="xd_take_over_needs_injector">接管要用注入服务：Shizuku 或内置服务</string>
     <string name="xd_density_need_injector">需要注入服务</string>
@@ -364,7 +374,10 @@
     <string name="xd_section_sound">声音</string>
     <string name="xd_section_display">外屏</string>
     <string name="xd_section_about">关于</string>
-    <string name="xd_orientation">触控界面方向</string>
+    <string name="xd_orientation">屏幕方向</string>
+    <string name="xd_mouse">鼠标</string>
+    <string name="xd_display_this_screen">这块屏：%1$s</string>
+    <string name="xd_display_this_screen_none">这块屏</string>
     <!-- 设置 › 通用 › 手机端界面：操作台或启动台 -->
     <string name="xd_phone_ui">手机端界面</string>
     <string name="xd_phone_ui_console">操作台</string>
@@ -372,6 +385,8 @@
     <string name="xd_phone_ui_note">操作台以触摸板为首页，启动台以应用网格为首页</string>
     <string name="xd_dim">自动调暗</string>
     <string name="xd_dim_note">只在接着外屏时调暗，碰一下恢复</string>
+    <string name="xd_dim_hint">碰一下恢复亮度</string>
+    <string name="xd_dim_hint_note">这一下不会点到任何东西</string>
     <string name="xd_dim_30s">30 秒</string>
     <string name="xd_dim_1m">1 分钟</string>
     <string name="xd_dim_5m">5 分钟</string>
@@ -379,15 +394,15 @@
     <string name="xd_dim_now">调暗</string>
     <string name="xd_pad_speed">触摸板灵敏度</string>
     <string name="xd_scroll_speed">双指滚动速度</string>
-    <string name="xd_scroll_speed_note">键鼠模式的触摸板和接在手机上的鼠标滚轮；电脑那边来的滚动按电脑自己的设置</string>
+    <string name="xd_scroll_speed_note">也管手机上接的鼠标滚轮</string>
     <string name="xd_natural_scroll">自然滚动</string>
-    <string name="xd_natural_scroll_note">内容跟着手指走，所有触摸板都一样</string>
+    <string name="xd_natural_scroll_note">内容跟着手指走</string>
     <string name="xd_keys_via_ime">键盘先交给手机输入法</string>
-    <string name="xd_keys_via_ime_note">手机上接的键盘给 Linux 桌面和 Mac 打字时用手机输入法：候选在手机上，字按键盘的布局，快捷键照样是键。关掉：键原样发出，接管时键盘去外屏</string>
+    <string name="xd_keys_via_ime_note">给 Linux 和 Mac 打字时用手机输入法</string>
     <string name="xd_ime_corrections">输入法改错</string>
-    <string name="xd_ime_corrections_note">手机键盘的联想和自动改正，也能改已经打到 Linux 桌面或 Mac 上的字</string>
+    <string name="xd_ime_corrections_note">联想和自动改正</string>
     <string name="xd_translate_modifiers">Mac 上 Ctrl 和 ⌘ 互换</string>
-    <string name="xd_translate_modifiers_note">PC 键盘用在 Mac 上：Ctrl 当 ⌘，Alt 当 ⌥。每台 Mac 可以跟随这里，也可以在自己的页面上单独设</string>
+    <string name="xd_translate_modifiers_note">PC 键盘用在 Mac 上</string>
     <string name="xd_keys_external">键鼠在外屏</string>
     <string name="xd_keys_phone">键鼠在本机</string>
     <!-- The button's short label; xd_keys_external / xd_keys_phone are read aloud -->
@@ -397,27 +412,27 @@
     <string name="xd_mouse_speed">实体鼠标速度</string>
     <string name="xd_mouse_speed_note" formatted="false">所有内容都用；100% 是各自的默认速度</string>
     <string name="xd_always_cursor">始终显示 XDesk 光标</string>
-    <string name="xd_always_cursor_note">RustDesk 会话里判断错时打开</string>
+    <string name="xd_always_cursor_note">RustDesk 里看不到光标时打开</string>
     <string name="xd_fullscreen_default">应用强制横屏全屏</string>
-    <string name="xd_fullscreen_default_note">忽略竖屏锁定，在外屏和其他大屏上都生效，手机屏不受影响。应用下次启动时生效，第一次会重启。可在应用设置里单独改</string>
+    <string name="xd_fullscreen_default_note">只在大屏上，应用重启后生效</string>
     <string name="xd_fullscreen_reset">撤销所有横屏全屏</string>
     <string name="xd_fullscreen_reset_note">去掉 XDesk 给安卓应用设过的横屏全屏</string>
     <string name="xd_fullscreen_reset_title">撤销所有横屏全屏？</string>
     <string name="xd_fullscreen_reset_action">撤销</string>
     <string name="xd_display_android">安卓应用</string>
     <string name="xd_display_linux">Linux 桌面</string>
-    <string name="xd_display_general">整块外屏</string>
+    <string name="xd_display_general">所有外屏</string>
     <string name="xd_fullscreen_reset_message">XDesk 设过横屏全屏的应用都恢复原样，它们会被系统结束一次。默认和每个应用的选择也回到关。</string>
     <string name="xd_fullscreen_reset_need_injector">要先连上注入服务：运行一次安卓应用后再试</string>
     <string name="xd_cover">外屏隐私</string>
-    <string name="xd_cover_note">切到其他应用或锁屏时，把外屏整块遮住，只显示时钟，旁人看不到上面的内容；这时键鼠交给手机。应用继续运行，声音不停</string>
-    <string name="xd_cover_note_no_overlay">切到其他应用或锁屏时，把外屏整块遮住，只显示时钟，旁人看不到上面的内容；这时键鼠交给手机。应用继续运行，声音不停。没有悬浮窗权限，现在遮不住</string>
+    <string name="xd_cover_note">离开 XDesk 或锁屏时只显示时钟</string>
+    <string name="xd_cover_note_no_overlay">离开 XDesk 或锁屏时只显示时钟；没有悬浮窗权限，现在遮不住</string>
     <string name="xd_diag_setting">显示诊断信息</string>
-    <string name="xd_diag_setting_note">在控制界面上显示焦点和事件计数</string>
+    <string name="xd_diag_setting_note">焦点和事件计数</string>
     <string name="xd_builtin">内置注入服务</string>
     <string name="xd_builtin_note">没有 Shizuku 时，安卓应用的键鼠靠它</string>
     <string name="xd_builtin_stop">停止内置服务</string>
-    <string name="xd_builtin_stop_note">XDesk 不再自己启动它，下次运行安卓应用时再启动</string>
+    <string name="xd_builtin_stop_note">下次运行安卓应用时再启动</string>
     <string name="xd_builtin_stop_title">停止内置服务？</string>
     <string name="xd_builtin_stop_message">用它运行的安卓应用回到手机（不关闭），键鼠和声音恢复正常。</string>
     <string name="xd_pair_again">重新配对</string>
@@ -427,7 +442,8 @@
     <string name="xd_end_desktop_row">停止 Linux 桌面</string>
     <string name="xd_end_desktop_row_note">结束 Termux、proot 或 chroot 的桌面。XDesk 不退出</string>
     <string name="xd_end_xdesk_note">应用回到手机，外接屏恢复镜像</string>
-    <string name="xd_builtin_running">运行中</string>
+    <string name="xd_builtin_running">正在运行</string>
+    <string name="xd_about_credit">n2ray 和 Claude 制作 · 基于 Termux:X11 · GPL-3.0</string>
     <string name="xd_builtin_starting">正在启动</string>
     <string name="xd_builtin_not_running">没有运行</string>
     <string name="xd_builtin_not_paired">未配对</string>
@@ -443,6 +459,7 @@
     <string name="xd_card_follow_default">跟随默认</string>
     <string name="xd_card_mode">操作方式</string>
     <string name="xd_card_mode_note">像平板：应用收到手指，给只听触摸的应用、游戏或网页；像电脑：收到鼠标</string>
+    <string name="xd_card_hide_note">搜索还找得到</string>
     <string name="xd_card_open">打开</string>
     <string name="xd_card_switch_to">切换到</string>
     <string name="xd_card_launchpad">打开启动台</string>
@@ -517,9 +534,9 @@
     <string name="xd_end_desktop_message">桌面会退出，上面的程序也会关闭，未保存的内容会丢失。</string>
     <!-- 网页显示：任何设备的浏览器当外接屏，无线、热点或数据线 -->
     <string name="xd_web">网页显示</string>
-    <string name="xd_web_row_note">用任何设备的浏览器当外接屏，无线或有线</string>
+    <string name="xd_web_row_note">任何设备的浏览器当外接屏</string>
     <string name="xd_web_on">已开启</string>
-    <string name="xd_web_switch_note">在手机上开一个网页服务（端口 47150）。浏览器第一次连接时，要输入手机上显示的 4 位码。</string>
+    <string name="xd_web_switch_note">浏览器第一次连要输 4 位码</string>
     <string name="xd_web_note">在浏览器里打开下面的地址，就能看到并操作外屏：画面、声音、鼠标和键盘。同一时间只能有一个浏览器或接收端。手机上要开着 XDesk。</string>
     <string name="xd_web_addresses">在浏览器里打开</string>
     <string name="xd_web_no_network">没有网络</string>
@@ -540,9 +557,9 @@
     <string name="xd_web_wired">有线连接</string>
     <string name="xd_web_wired_how">有线怎么连</string>
     <string name="xd_web_computer_how">电脑上怎么连</string>
-    <string name="xd_web_wired_how_note">用数据线连上 iPad、Mac 或电脑，打开下面的 USB 网络共享，上面就会多一个“有线”地址。延迟比 Wi-Fi 低，也更稳。iPad 和 Mac 要先把共享方式切成 NCM。接 iPad 时手机几乎充不进电。</string>
+    <string name="xd_web_wired_how_note">数据线 + USB 网络共享，比 Wi-Fi 稳</string>
     <string name="xd_web_ncm">USB 网络共享用 NCM</string>
-    <string name="xd_web_ncm_note">iPad、Mac 只认 NCM；Windows、Linux 两种都行。改完要把 USB 网络共享关掉再打开。</string>
+    <string name="xd_web_ncm_note">iPad、Mac 需要</string>
     <string name="xd_web_ncm_on">已是 NCM</string>
     <string name="xd_web_ncm_off">未设置</string>
     <string name="xd_web_ncm_done">已切到 NCM，请把 USB 网络共享关掉再打开。</string>
@@ -562,7 +579,7 @@
     <string name="xd_web_pairing_closed">失败次数太多，网页显示的配对已关闭。在设置里把网页显示关掉再打开即可恢复；已配对的浏览器不受影响。</string>
     <string name="xd_web_pairing_paused">浏览器输错配对码太多次：网页显示的配对暂停 10 分钟，已配对的浏览器不受影响。</string>
     <string name="xd_screen_kind">屏幕种类</string>
-    <string name="xd_screen_kind_note">按观看距离调整：电视、投影机上的字更大</string>
+    <string name="xd_screen_kind_note">决定字的大小</string>
     <string name="xd_kind_monitor">显示器</string>
     <string name="xd_kind_tv">电视</string>
     <string name="xd_kind_projector">投影机</string>

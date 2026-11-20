@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xd_dev_phone">手机</string>
+    <string name="xd_dev_phone_note">本机应用</string>
+    <string name="xd_dev_x_session">X 服务器 · %1$s</string>
     <string name="xd_dev_proot_name">%1$s · proot</string>
     <string name="xd_dev_apps">应用</string>
     <string name="xd_dev_linux_windows">打开的窗口</string>
@@ -43,7 +45,7 @@
     <string name="xd_dev_add">添加设备</string>
     <string name="xd_dev_add_pick">要连接什么</string>
     <string name="xd_dev_type_linux">Linux</string>
-    <string name="xd_dev_type_linux_note">这台手机上的 Termux、proot 或 chroot，通过 xdesk 命令</string>
+    <string name="xd_dev_type_linux_note">Termux、proot、chroot</string>
     <string name="xd_dev_type_mac">Mac</string>
     <string name="xd_dev_type_mac_note">和 Mac 上的 Sill 配对</string>
     <string name="xd_dev_linux_steps">让 xdesk 知道更多环境</string>
@@ -74,12 +76,14 @@
     <string name="xd_dev_state_not_running">未运行</string>
     <string name="xd_dev_state_starting">正在启动…</string>
     <string name="xd_dev_stop">停止</string>
-    <string name="xd_dev_stop_note">结束所有 Linux 环境共用的 X 服务器：Linux 程序和桌面都会关闭。</string>
+    <string name="xd_dev_stop_note">关闭所有 Linux 程序和桌面</string>
     <string name="xd_dev_remove">从 XDesk 移除</string>
     <string name="xd_dev_remove_title">从 XDesk 移除「%1$s」？</string>
     <string name="xd_dev_remove_action">移除</string>
     <string name="xd_dev_remove_linux_note">只去掉它的标签，环境本身不动。它在 Termux 里运行，把 Termux 从设备里移除也不会动它；可以在「添加设备 › Linux」里再加回来。</string>
-    <string name="xd_dev_remove_termux_note">只去掉 Termux 这台设备。proot 和 chroot 环境在 Termux 里运行，但它们各自是设备，会保留；要移除请在各自的页面上逐个移除。可以在「添加设备 › Linux」里再加回 Termux。</string>
+    <string name="xd_dev_remove_termux_note">只去掉 Termux 这台设备。proot 和 chroot 环境各自是设备，会保留。</string>
+    <string name="xd_dev_remove_termux_row_note">proot 和 chroot 设备会保留</string>
+    <string name="xd_dev_remove_linux_row_note">环境本身不动</string>
     <string name="xd_dev_in_termux">在 Termux 里运行</string>
     <string name="xd_dev_linux_how">通过 xdesk 命令使用</string>
     <string name="xd_dev_linux_how_note">就在这台手机上，不需要连接。应用一直列在这里；打开应用时自动起 X，不带桌面。只有「整个桌面」会启动桌面。</string>
@@ -87,8 +91,8 @@
     <string name="xd_follow_global">跟随全局</string>
     <string name="xd_linux_phone_ime">实体键盘用手机输入法打字</string>
     <string name="xd_linux_phone_ime_note">跟随全局：用输入设置里的「键盘先交给手机输入法」。关：Linux 这边有输入法（fcitx5）在运行时，手机上接的键盘用它打字，候选框在外屏上、紧挨着文字；没有时用手机输入法。开：始终用手机输入法，候选在手机上。手机的软键盘始终用手机输入法</string>
-    <string name="xd_linux_x_ime_on">现在：Linux 这边有输入法在运行。</string>
-    <string name="xd_linux_x_ime_off">现在：Linux 这边没有输入法在运行。X 这边的输入法是你自己的：想用就在会话里自己启动（比如 fcitx5）。手机的输入法始终经 XDesk 的文字通道工作</string>
+    <string name="xd_linux_x_ime_on">Linux 里有输入法在运行</string>
+    <string name="xd_linux_x_ime_off">Linux 这边没有输入法在运行</string>
     <string name="xd_linux_x_layout">键盘布局（X 这边）</string>
     <string name="xd_linux_x_layout_note">实体键盘的原样键在 X 里按哪个布局出字。自动：X 现在的布局，新起的 X 是 us</string>
     <string name="xd_linux_x_layout_auto">自动</string>
@@ -114,7 +118,7 @@
         <item quantity="other">有 %1$d 个窗口开着。</item>
     </plurals>
     <string name="xd_starting_x_title">正在为应用启动 X</string>
-    <string name="xd_linux_session_edit_note">启动脚本：~/.config/xdesk/sessions/%1$s.sh。点按在 Termux 里编辑，文件里的注释写明了哪些能改</string>
+    <string name="xd_linux_session_edit_note">点按编辑启动脚本</string>
     <string name="xd_linux_session_edit_failed">没能打开 Termux 来编辑它</string>
     <string name="xd_dev_remove_running">它正在运行：会先停止它的桌面和程序。</string>
 </resources>

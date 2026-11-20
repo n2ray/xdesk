@@ -76,10 +76,12 @@ final class MacModeRow {
         String[] names = c.getResources().getStringArray(R.array.xd_mac_mode_names);
         String[] options = {names[0], names[1], names[2]};
         int at = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
-        String note = c.getString(R.string.xd_mac_mode_note);
+        // SetDeviceMac draws the three modes alone; a note only says what is not one of them, or that the Mac
+        // has not answered yet
+        String note = null;
         // None of the three matches: a setting made on the Mac or by hand. Said in words, not as a segment that
         // could be picked (there is nothing to pick), and no segment is marked while it holds
-        if (at < 0) note = c.getString(R.string.xd_mac_mode_custom_now) + "\n" + note;
+        if (at < 0) note = c.getString(R.string.xd_mac_mode_custom_now);
         String pending = client.pendingSetting();
         if (pending != null && (HostSettings.BITRATE.equals(pending) || HostSettings.CAPTURE_SCALE.equals(pending)
                 || HostSettings.PRIORITIZE_SPEED.equals(pending)))

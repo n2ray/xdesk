@@ -4,7 +4,7 @@
     <string name="xd_notify_service">Notifications for XDesk</string>
     <string name="xd_section_notifications">Notifications</string>
     <string name="xd_notify_on">Show notifications on the external screen</string>
-    <string name="xd_notify_on_note">Off: no banners, new ones are only counted; the side panel still opens</string>
+    <string name="xd_notify_on_note">Off: new ones are only counted</string>
     <string name="xd_notify_content">Banner content</string>
     <string name="xd_notify_content_note">A wireless receiver shows the app name only until you choose here</string>
     <string name="xd_notify_content_all">Everything</string>
@@ -14,11 +14,14 @@
     <string name="xd_notify_access_on">On</string>
     <string name="xd_notify_per_app">Per app</string>
     <string name="xd_notify_per_app_note">Apps that posted notifications recently</string>
+    <string name="xd_notify_apps_note">Tap the right side to choose how it shows</string>
+    <string name="xd_notify_state">Status</string>
+    <string name="xd_notify_privacy_note">Notifications stay in memory: nothing is written or sent.</string>
     <string name="xd_notify_mode_banner">Banner + centre</string>
     <string name="xd_notify_mode_center">Centre only</string>
     <string name="xd_notify_mode_hidden">Not shown</string>
     <string name="xd_notify_battery_banner">Low battery banners</string>
-    <string name="xd_notify_battery_banner_note">At 15% and 5%, while not charging</string>
+    <string name="xd_notify_battery_banner_note">At 15% and at 5%, once each</string>
     <string name="xd_notify_battery">Phone battery %1$d%%</string>
     <string name="xd_notify_battery_short">B</string>
     <string name="xd_notify_battery_app">Battery</string>

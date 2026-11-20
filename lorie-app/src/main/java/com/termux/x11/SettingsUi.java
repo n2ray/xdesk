@@ -18,6 +18,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -345,9 +346,24 @@ final class SettingsUi {
 
     /** confirm with its own word for not now, and the action's level. */
     Dialog confirm(String title, String message, String action, int level, String cancelLabel, final Runnable onConfirm) {
+        return confirm(title, message, action, level, cancelLabel, onConfirm, null);
+    }
+
+    /**
+     * The same, and something to do when it is closed without the action (Cancel, Back, a touch outside). It is not
+     * called after the action. ShareToComputer needs it: closing means nothing is sent and the activity goes.
+     */
+    Dialog confirm(String title, String message, String action, int level, final Runnable onConfirm,
+                   final Runnable onCancel) {
+        return confirm(title, message, action, level, c.getString(R.string.xd_cancel), onConfirm, onCancel);
+    }
+
+    Dialog confirm(String title, String message, String action, int level, String cancelLabel,
+                   final Runnable onConfirm, final Runnable onCancel) {
         LinearLayout row = new LinearLayout(c);
         row.setGravity(Gravity.END);
         final Dialog[] d = new Dialog[1];
+        final boolean[] confirmed = new boolean[1];
         if (onConfirm != null) {
             TextView cancel = pill(cancelLabel, Style.SURFACE_RAISED);
             cancel.setOnClickListener(v -> d[0].dismiss());
@@ -359,11 +375,15 @@ final class SettingsUi {
         TextView go = pill(action, color);
         if (color == Style.STOP) go.setTextColor(Style.ON_STOP);
         go.setOnClickListener(v -> {
+            confirmed[0] = true;
             d[0].dismiss();
             if (onConfirm != null) onConfirm.run();
         });
         row.addView(go, pillParams());
         d[0] = sheet(title, message, row);
+        if (onCancel != null) d[0].setOnDismissListener(x -> {
+            if (!confirmed[0]) onCancel.run();
+        });
         return d[0];
     }
 
@@ -474,7 +494,11 @@ final class SettingsUi {
     }
 
     private LinearLayout labels(String label, String description, int color) {
-        return labels(label, description, color, null, null);
+        return labels(label, description, color, Style.TEXT_DIM, null, null);
+    }
+
+    private LinearLayout labels(String label, String description, int color, int descriptionColor) {
+        return labels(label, description, color, descriptionColor, null, null);
     }
 
     /**
@@ -482,11 +506,16 @@ final class SettingsUi {
      * to that permission's detail page (PermInline mockup). The row itself still opens its page.
      */
     private LinearLayout labels(String label, String description, int color, String need, final Runnable onFix) {
+        return labels(label, description, color, Style.TEXT_DIM, need, onFix);
+    }
+
+    private LinearLayout labels(String label, String description, int color, int descriptionColor, String need,
+                                final Runnable onFix) {
         LinearLayout text = new LinearLayout(c);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(Style.label(c, label, color, Style.TEXT_BODY));
         if (description != null) {
-            TextView d = Style.label(c, description, Style.TEXT_DIM, Style.TEXT_SMALL);
+            TextView d = Style.label(c, description, descriptionColor, Style.TEXT_SMALL);
             d.setPadding(0, dp(2), 0, 0);
             text.addView(d);
         }
@@ -512,11 +541,179 @@ final class SettingsUi {
     /** The same, and a missing permission is said in place: the orange line opens its detail page. */
     TextView valueRow(LinearLayout card, String label, String description, String value, String need,
                       final Runnable onFix, final Runnable onTap) {
+        return row(card, label, description, value, Style.TEXT, Style.TEXT_DIM, Style.TEXT_DIM, TRAIL_NONE,
+            need, onFix, onTap);
+    }
+
+    /** The same, with the value in a colour of its own (a state, or a destructive choice). */
+    TextView valueRow(LinearLayout card, String label, String description, String value, int valueColor,
+                      final Runnable onTap) {
+        return row(card, label, description, value, Style.TEXT, Style.TEXT_DIM, valueColor, TRAIL_NONE,
+            null, null, onTap);
+    }
+
+    /** A row that opens a page or a choice: its current value, then a chevron, as the mockups draw them. */
+    TextView linkRow(LinearLayout card, String label, String description, String value, final Runnable onTap) {
+        return row(card, label, description, value, Style.TEXT, Style.TEXT_DIM, Style.TEXT_DIM, TRAIL_CHEVRON,
+            null, null, onTap);
+    }
+
+    /** The same, with the state of the row said in the description's colour (green for running, for example). */
+    TextView linkRow(LinearLayout card, String label, String description, int descriptionColor, String value,
+                     final Runnable onTap) {
+        return row(card, label, description, value, Style.TEXT, descriptionColor, Style.TEXT_DIM, TRAIL_CHEVRON,
+            null, null, onTap);
+    }
+
+    /** The same, and a missing permission is said in place: the orange line opens its detail page. */
+    TextView linkRow(LinearLayout card, String label, String description, String value, String need,
+                     final Runnable onFix, final Runnable onTap) {
+        return row(card, label, description, value, Style.TEXT, Style.TEXT_DIM, Style.TEXT_DIM, TRAIL_CHEVRON,
+            need, onFix, onTap);
+    }
+
+    /** A row whose value is a ▾ choice: the current choice in a pill, tapping it picks another (SetNotifyApps). */
+    TextView selectRow(LinearLayout card, String label, String value, int valueColor, final Runnable onTap) {
+        return selectRow(card, label, null, value, valueColor, onTap);
+    }
+
+    TextView selectRow(LinearLayout card, String label, String description, String value, int valueColor,
+                       final Runnable onTap) {
         LinearLayout row = pressableRow();
-        row.addView(labels(label, description, Style.TEXT, need, onFix), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView v = valueText(value);
-        row.addView(v);
-        row.setOnClickListener(view -> {
+        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout pill = new LinearLayout(c);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setBackground(Style.rounded(c, Style.SURFACE_RAISED, 14));
+        pill.setPadding(dp(10), dp(5), dp(8), dp(5));
+        final TextView text = Style.label(c, value, valueColor, Style.TEXT_SMALL + 1);
+        text.setSingleLine(true);
+        text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        text.setMaxWidth(dp(150));
+        pill.addView(text);
+        ImageView arrow = new ImageView(c);
+        arrow.setImageResource(R.drawable.xd_ic_chevron_down);
+        arrow.setColorFilter(valueColor);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(14), dp(14));
+        ap.leftMargin = dp(4);
+        pill.addView(arrow, ap);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2);
+        pp.leftMargin = dp(8);
+        row.addView(pill, pp);
+        row.setOnClickListener(v -> {
+            Style.tick(v);
+            onTap.run();
+        });
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return text;
+    }
+
+    /** A row that is an action of its own: its label in the accent colour, no chevron (Add device, Enter address). */
+    TextView accentRow(LinearLayout card, String label, String description, final Runnable onTap) {
+        return row(card, label, description, null, Style.ACCENT, Style.TEXT_DIM, Style.TEXT_DIM, TRAIL_NONE,
+            null, null, onTap);
+    }
+
+    /**
+     * A row that says a device's state with the dot the mockups use; no value, nothing to tap. Returns the line under
+     * the label when there is one, so a caller can keep it fresh (a Mac's round trip).
+     */
+    TextView dotRow(LinearLayout card, boolean ok, String label, String description) {
+        LinearLayout row = plainRow();
+        View dot = new View(c);
+        dot.setBackground(Style.dot(ok ? Style.OK : Style.FAINT));
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(8), dp(8));
+        pp.rightMargin = dp(12);
+        row.addView(dot, pp);
+        LinearLayout text = labels(label, description);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return description != null && text.getChildCount() > 1 ? (TextView) text.getChildAt(1) : null;
+    }
+
+    /** The same, with a small button at the end (a Mac's Disconnect on its state row). */
+    void dotActionRow(LinearLayout card, boolean ok, String label, String description, String action, int actionColor,
+                      final Runnable onAction) {
+        LinearLayout row = plainRow();
+        View dot = new View(c);
+        dot.setBackground(Style.dot(ok ? Style.OK : Style.FAINT));
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(dp(8), dp(8));
+        pp.rightMargin = dp(12);
+        row.addView(dot, pp);
+        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        TextView go = pill(action, actionColor);
+        if (actionColor == Style.STOP) go.setTextColor(Style.ON_STOP);
+        go.setOnClickListener(v -> {
+            Style.tick(v);
+            onAction.run();
+        });
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, dp(Style.TARGET - 14));
+        gp.leftMargin = dp(10);
+        row.addView(go, gp);
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** An address to copy (SetWeb): the kind on top, the address in mono below, a Copy button at the end. */
+    void addressRow(LinearLayout card, String label, String address, String action, final Runnable onCopy) {
+        LinearLayout row = plainRow();
+        LinearLayout text = new LinearLayout(c);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.addView(Style.label(c, label, Style.TEXT_DIM, Style.TEXT_SMALL));
+        TextView a = Style.label(c, address, Style.ACCENT_2, Style.TEXT_SMALL + 1);
+        a.setTypeface(Typeface.MONOSPACE);
+        a.setPadding(0, dp(2), 0, 0);
+        text.addView(a);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView go = pill(action, Style.SURFACE_RAISED);
+        go.setTextColor(Style.TEXT);
+        go.setOnClickListener(v -> {
+            Style.tick(v);
+            onCopy.run();
+        });
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, dp(Style.TARGET - 14));
+        gp.leftMargin = dp(10);
+        row.addView(go, gp);
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** A radio row: the circle on the left, then the name and its line (the sound output page). */
+    void radioRow(LinearLayout card, String label, String description, boolean checked, final Runnable onTap) {
+        LinearLayout row = pressableRow();
+        Radio radio = new Radio(c, checked);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(20), dp(20));
+        rp.rightMargin = dp(12);
+        row.addView(radio, rp);
+        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        row.setOnClickListener(v -> {
+            Style.tick(v);
+            onTap.run();
+        });
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private static final int TRAIL_NONE = 0, TRAIL_CHEVRON = 1;
+
+    private TextView row(LinearLayout card, String label, String description, String value, int labelColor,
+                         int descriptionColor, int valueColor, int trail, String need, final Runnable onFix,
+                         final Runnable onTap) {
+        LinearLayout row = pressableRow();
+        row.addView(labels(label, description, labelColor, descriptionColor, need, onFix),
+            new LinearLayout.LayoutParams(0, -2, 1));
+        TextView v = null;
+        if (value != null) {
+            v = valueText(value);
+            v.setTextColor(valueColor);
+            row.addView(v);
+        }
+        if (trail == TRAIL_CHEVRON) {
+            ImageView chevron = new ImageView(c);
+            chevron.setImageResource(R.drawable.xd_ic_chevron_down);
+            chevron.setRotation(-90);
+            chevron.setColorFilter(Style.FAINT);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(16), dp(16));
+            p.leftMargin = dp(6);
+            row.addView(chevron, p);
+        }
+        if (onTap != null) row.setOnClickListener(view -> {
             Style.tick(view);
             onTap.run();
         });
@@ -578,10 +775,16 @@ final class SettingsUi {
 
     /** 几个选项一行，选中的是强调色。点了立刻生效。 */
     void segmentedRow(LinearLayout card, String label, String description, String[] options, int selected, final IntConsumer onPick) {
+        segmentedRow(card, label, description, Style.TEXT_DIM, options, selected, onPick);
+    }
+
+    /** The same, with the line under the label in a colour of its own (a green state line, as SetDeviceLinux has). */
+    void segmentedRow(LinearLayout card, String label, String description, int descriptionColor, String[] options,
+                      int selected, final IntConsumer onPick) {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(12), dp(8), dp(12), dp(8));
-        box.addView(labels(label, description));
+        box.addView(labels(label, description, Style.TEXT, descriptionColor));
         // 一条轨道里的选中块，而不是几个分开的按钮
         LinearLayout row = new LinearLayout(c);
         row.setBackground(Style.rounded(c, Style.SURFACE_RAISED, Style.RADIUS));
@@ -727,12 +930,15 @@ final class SettingsUi {
         coloredRow(card, label, description, Style.STOP, onTap);
     }
 
+    /** 红色的移除行，加进已有的卡片：文字是红的，卡片不另加底色（SetHome、设备页的 mockup）。 */
+    void dangerRowIn(LinearLayout card, String label, String description, final Runnable onTap) {
+        coloredRow(card, label, description, Style.DANGER, onTap);
+    }
+
     private void actionRow(LinearLayout parent, String label, String description, int color, final Runnable onTap) {
         LinearLayout card = card(parent);
         LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) card.getLayoutParams();
         p.topMargin = dp(16);
-        // 移除这一级：整行淡红底，一眼看出是按钮（用户 2026-11-19）；停止只用黄字
-        if (color == Style.DANGER) card.setBackground(Style.rounded(c, Style.DANGER_TINT, 16));
         coloredRow(card, label, description, color, onTap);
     }
 
@@ -744,6 +950,108 @@ final class SettingsUi {
             onTap.run();
         });
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /**
+     * 配对码：一位一个框，填满一位就跳到下一个，退格回到上一个。取消和动作两个按钮，样子同
+     * Confirm.dc.html；onSubmit 收到拼起来的数字，接受才关。
+     */
+    Dialog codeInput(String title, String note, int digits, String action, final Predicate<String> onSubmit,
+                     final Runnable onCancel) {
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout boxes = new LinearLayout(c);
+        boxes.setGravity(Gravity.CENTER);
+        boxes.setPadding(0, dp(14), 0, 0);
+        final EditText[] fields = new EditText[digits];
+        for (int i = 0; i < digits; i++) {
+            final int at = i;
+            EditText f = new EditText(c);
+            f.setInputType(InputType.TYPE_CLASS_NUMBER);
+            f.setSingleLine(true);
+            f.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1)});
+            f.setTextColor(Style.TEXT);
+            f.setTextSize(28);
+            f.setGravity(Gravity.CENTER);
+            f.setBackground(Style.rounded(c, Style.SURFACE_RAISED, 14));
+            f.setPadding(0, 0, 0, 0);
+            f.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
+                @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    if (s.length() == 1 && at + 1 < fields.length) fields[at + 1].requestFocus();
+                }
+            });
+            f.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                    && keyCode == android.view.KeyEvent.KEYCODE_DEL && at > 0
+                    && f.getText().length() == 0) {
+                    fields[at - 1].requestFocus();
+                    fields[at - 1].setSelection(fields[at - 1].getText().length());
+                    return true;
+                }
+                return false;
+            });
+            LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(0, dp(64), 1);
+            fp.leftMargin = fp.rightMargin = dp(5);
+            boxes.addView(f, fp);
+            fields[i] = f;
+        }
+        box.addView(boxes, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout row = new LinearLayout(c);
+        row.setGravity(Gravity.END);
+        final Dialog[] d = new Dialog[1];
+        final boolean[] submitted = new boolean[1];
+        TextView cancel = pill(c.getString(R.string.xd_cancel), Style.SURFACE_RAISED);
+        cancel.setOnClickListener(v -> d[0].dismiss());
+        row.addView(cancel, pillParams());
+        final TextView go = pill(action, Style.ACCENT);
+        go.setOnClickListener(v -> {
+            Style.tick(v);
+            StringBuilder code = new StringBuilder();
+            for (EditText f : fields) code.append(f.getText().toString().trim());
+            if (code.length() < digits) return;
+            if (!onSubmit.test(code.toString())) return;
+            submitted[0] = true;
+            d[0].dismiss();
+        });
+        row.addView(go, pillParams());
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.topMargin = dp(14);
+        box.addView(row, rp);
+        d[0] = sheet(title, note, box);
+        d[0].setOnDismissListener(x -> {
+            if (!submitted[0] && onCancel != null) onCancel.run();
+        });
+        d[0].getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        fields[0].requestFocus();
+        return d[0];
+    }
+
+    /** A radio circle: a ring, filled with a dot when chosen (SetSound). */
+    private static final class Radio extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean on;
+
+        Radio(Context c, boolean on) {
+            super(c);
+            this.on = on;
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            float r = Math.min(getWidth(), getHeight()) / 2f - 1;
+            float cx = getWidth() / 2f, cy = getHeight() / 2f;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Style.dp(getContext(), 2));
+            paint.setColor(on ? Style.ACCENT : Style.FAINT);
+            canvas.drawCircle(cx, cy, r - paint.getStrokeWidth() / 2, paint);
+            if (on) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Style.ACCENT);
+                canvas.drawCircle(cx, cy, r * 0.55f, paint);
+            }
+        }
     }
 
     /** 开关：轨道和圆点，开着是强调色。 */

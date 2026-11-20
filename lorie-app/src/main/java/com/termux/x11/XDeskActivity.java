@@ -155,6 +155,8 @@ public class XDeskActivity extends Activity {
     };
     private View keyboardBtn, comboRow;
     private View runningScreen, setupScreen, topBar, keysPanel, leftButton, rightButton, leftColumn, rightColumn;
+    /** KeysPanel.dc.html's line under the keys, shown while a modifier is latched. */
+    private TextView keysNote;
     private Style.IconButton keysHandle;
     /** The two corners the full-screen touch area swaps by content kind; either may be null. */
     private Style.IconButton fullscreenBackBtn, fullscreenKeyboardBtn;
@@ -798,8 +800,9 @@ public class XDeskActivity extends Activity {
         }
         @Override public void onWirelessPairing(String receiverName, boolean wrongBefore, WirelessDisplay.Pairing reply) {
             String note = getString(wrongBefore ? R.string.xd_wireless_code_wrong : R.string.xd_wireless_code_note, receiverName);
-            ui().input(getString(R.string.xd_wireless_pair_title, receiverName), note, "0000", null,
-                InputType.TYPE_CLASS_NUMBER, getString(R.string.xd_wireless_pair), code -> {
+            // SetWirelessPair: one box per digit, Cancel and Pair
+            ui().codeInput(getString(R.string.xd_wireless_pair_title, receiverName), note, 4,
+                getString(R.string.xd_wireless_pair), code -> {
                     reply.answer(code);
                     return true;
                 }, () -> reply.answer(null));
@@ -817,8 +820,11 @@ public class XDeskActivity extends Activity {
         final Dialog[] d = new Dialog[1];
         final WirelessFinder finder = new WirelessFinder(this);
         if (wireless.isActive()) {
-            // Orange and asked first: the receiver's picture goes, and XDesk forgets to reconnect to it by itself
-            s.stopRow(c, getString(R.string.xd_wireless_stop, wireless.receiverName()), null, () ->
+            // SetWireless: what it is connected to, then Stop in the same card; asked first, as stopping is
+            LinearLayout connected = s.card(c);
+            s.dotRow(connected, true, getString(R.string.xd_wireless_connected, wireless.receiverName()),
+                connectedNote());
+            s.stopRowIn(connected, getString(R.string.xd_wireless_stop, wireless.receiverName()), null, () ->
                 s.confirm(getString(R.string.xd_wireless_stop_title), getString(R.string.xd_wireless_stop_message),
                     getString(R.string.xd_stop), SettingsUi.LEVEL_STOP, () -> {
                         d[0].dismiss();
@@ -826,15 +832,25 @@ public class XDeskActivity extends Activity {
                         wireless.stop();
                     }));
         }
-        s.switchRow(s.card(c), getString(R.string.xd_clipboard_sync), getString(R.string.xd_clipboard_sync_note), wireless.clipboardSyncOn(),
-            on -> wireless.setClipboardSync(on));
-        final LinearLayout found = s.card(c);
-        final TextView searching = Style.label(this, getString(R.string.xd_wireless_searching), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
-        searching.setPadding(dp(12), dp(12), dp(12), dp(12));
-        found.addView(searching);
+        final LinearLayout found = s.section(c, getString(R.string.xd_wireless_nearby));
+        // The searching line is a row of its own until the first receiver answers
+        final LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        searchRow.setPadding(dp(12), dp(12), dp(12), dp(12));
+        android.widget.ProgressBar spinner = new android.widget.ProgressBar(this);
+        spinner.setIndeterminate(true);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(18), dp(18));
+        spinnerParams.rightMargin = dp(10);
+        searchRow.addView(spinner, spinnerParams);
+        searchRow.addView(Style.label(this, getString(R.string.xd_wireless_searching), Style.TEXT_DIM, Style.TEXT_SMALL + 1),
+            new LinearLayout.LayoutParams(0, -2, 1));
+        found.addView(searchRow);
+        // The receivers go in here, above the address row, so "Enter address" stays last as in SetWireless
+        final LinearLayout discovered = new LinearLayout(this);
+        discovered.setOrientation(LinearLayout.VERTICAL);
+        found.addView(discovered);
         final java.util.Set<String> shown = new java.util.HashSet<>();
-        LinearLayout manual = s.card(c);
-        s.valueRow(manual, getString(R.string.xd_wireless_address), getString(R.string.xd_wireless_address_note), "", () -> {
+        s.accentRow(found, getString(R.string.xd_wireless_address), getString(R.string.xd_wireless_address_note), () -> {
             d[0].dismiss();
             s.input(getString(R.string.xd_wireless_address), getString(R.string.xd_wireless_address_note), "192.168.1.20",
                 wireless.lastAddress(), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, getString(R.string.xd_wireless_connect),
@@ -853,9 +869,14 @@ public class XDeskActivity extends Activity {
                     return true;
                 }, null);
         });
+        TextView networkNote = Style.label(this, getString(R.string.xd_wireless_picker_note), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        networkNote.setPadding(dp(6), dp(6), dp(6), dp(2));
+        c.addView(networkNote);
+        LinearLayout receiverSide = s.section(c, getString(R.string.xd_wireless_receiver));
+        s.switchRow(receiverSide, getString(R.string.xd_clipboard_sync), getString(R.string.xd_clipboard_sync_note), wireless.clipboardSyncOn(),
+            on -> wireless.setClipboardSync(on));
         final java.util.List<ReceiverRow> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         final boolean[] open = {true};
-        pageNote(c, R.string.xd_wireless_picker_note);
         d[0] = settingsPage(getString(R.string.xd_wireless), c, () -> {
             open[0] = false;
             finder.stop();
@@ -865,7 +886,7 @@ public class XDeskActivity extends Activity {
         final Runnable refreshSearching = () -> {
             boolean any = false;
             for (ReceiverRow row : rows) any |= row.view.getVisibility() == View.VISIBLE;
-            searching.setVisibility(any ? View.GONE : View.VISIBLE);
+            searchRow.setVisibility(any ? View.GONE : View.VISIBLE);
         };
         new Thread(() -> {
             while (open[0]) {
@@ -877,17 +898,22 @@ public class XDeskActivity extends Activity {
             // Anyone can announce an id: one that is already listed must not hide this address, or the other way round
             String key = r.id + "@" + r.host;
             if (!shown.add(key)) return;
-            int at = found.getChildCount();
-            s.valueRow(found, r.name, r.host, "", () -> {
+            int at = discovered.getChildCount();
+            s.linkRow(discovered, r.name, r.host, "", () -> {
                 closeSettings();
                 startWireless(r.host, r.port, r.name);
             });
-            View view = found.getChildAt(at);
+            View view = discovered.getChildAt(at);
             view.setVisibility(View.GONE);
             ReceiverRow row = new ReceiverRow(r.host, r.port, view);
             rows.add(row);
             new Thread(() -> probeReceiver(row, refreshSearching), "xdesk-receiver-probe").start();
         });
+    }
+
+    /** The line under a connected receiver's name: where the keys go (SetWireless). */
+    private String connectedNote() {
+        return getString(R.string.xd_wireless_input_at, wireless.receiverName());
     }
 
     /** While XDesk is open and idle: the computer used last, when it shows up on the network. */
@@ -1165,7 +1191,7 @@ public class XDeskActivity extends Activity {
                     : a.kind == WebServer.KIND_HOTSPOT ? R.string.xd_web_kind_hotspot
                     : a.kind == WebServer.KIND_USB ? R.string.xd_web_kind_usb
                     : a.kind == WebServer.KIND_ETHERNET ? R.string.xd_web_kind_ethernet : R.string.xd_web_kind_other);
-                s.valueRow(where, a.url(), kind, getString(R.string.xd_web_copy), () -> {
+                s.addressRow(where, kind, a.url(), getString(R.string.xd_web_copy), () -> {
                     android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("XDesk", a.url()));
                     Toast.makeText(this, getString(R.string.xd_web_copied, a.url()), Toast.LENGTH_SHORT).show();
@@ -1193,7 +1219,7 @@ public class XDeskActivity extends Activity {
                 }
             });
         }
-        s.valueRow(wired, getString(R.string.xd_web_tethering), getString(R.string.xd_web_tethering_note), "", this::openTetherSettings);
+        s.linkRow(wired, getString(R.string.xd_web_tethering), null, "", this::openTetherSettings);
         LinearLayout computer = s.section(c, getString(R.string.xd_web_computer));
         // Two rows used to be called "How": this one is the computer side's
         s.infoRow(computer, getString(R.string.xd_web_computer_how), getString(R.string.xd_web_computer_note), null);
@@ -1205,7 +1231,8 @@ public class XDeskActivity extends Activity {
         }
         int paired = web.pairedCount();
         if (paired > 0) {
-            s.dangerRow(c, getString(R.string.xd_web_forget, paired), null, () ->
+            // Yellow: forgetting only means pairing again, nothing is removed (SetWeb)
+            s.stopRow(c, getString(R.string.xd_web_forget, paired), null, () ->
                 s.confirm(getString(R.string.xd_web_forget_title), getString(R.string.xd_web_forget_message),
                     getString(R.string.xd_web_forget_action), SettingsUi.LEVEL_DANGER, () -> {
                         web.forgetBrowsers();
@@ -1213,7 +1240,6 @@ public class XDeskActivity extends Activity {
                         d[0].dismiss();
                     }));
         }
-        pageNote(c, R.string.xd_web_note);
         d[0] = settingsPage(getString(R.string.xd_web), c, () -> {
             if (settingsRefresh != null) settingsRefresh.run();
         });
@@ -1449,6 +1475,21 @@ public class XDeskActivity extends Activity {
 
     private final Runnable dim = new Runnable() {
         @Override public void run() { setDimmed(true); }
+    };
+    /** Dimmed.dc.html: the way back, very dim in the middle of the phone screen; moved now and then (burn-in). */
+    private View dimHint;
+    private int dimMoves;
+    private static final long DIM_MOVE_MS = 60_000;
+    private final Runnable dimMove = new Runnable() {
+        @Override public void run() {
+            if (!dimmed || dimHint == null) return;
+            // A few small places, one step every minute: nothing on the panel stays in one spot long
+            int[][] steps = {{-6, -4}, {5, 3}, {-4, 6}, {7, -5}, {0, 0}};
+            int[] at = steps[dimMoves++ % steps.length];
+            dimHint.setTranslationX(dp(at[0]));
+            dimHint.setTranslationY(dp(at[1]));
+            ui.postDelayed(this, DIM_MOVE_MS);
+        }
     };
 
     @Override protected void onCreate(Bundle b) {
@@ -1801,7 +1842,38 @@ public class XDeskActivity extends Activity {
         MacInput.keysViaIme = prefs.getBoolean(PREF_KEYS_VIA_IME, true);
         mouseSpeed = prefs.getFloat(PREF_MOUSE_SPEED, 1f);
         screens.addView(keyView, new FrameLayout.LayoutParams(1, 1));
+        dimHint = buildDimHint();
+        screens.addView(dimHint, new FrameLayout.LayoutParams(-1, -1));
         return screens;
+    }
+
+    /**
+     * 已调暗时屏幕中间的一句话：碰一下恢复亮度。很小的字、很暗，过一分钟换一点位置防烧屏。
+     * 它不点不碰，唤醒的那一下由 dispatchTouchEvent 吃掉。
+     */
+    private View buildDimHint() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setClickable(false);
+        box.setFocusable(false);
+        box.setVisibility(View.GONE);
+        ImageView moon = new ImageView(this);
+        moon.setImageResource(R.drawable.xd_ic_moon);
+        moon.setColorFilter(Style.FAINT);
+        box.addView(moon, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView line = Style.label(this, getString(R.string.xd_dim_hint), Style.FAINT, 14);
+        line.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.topMargin = dp(10);
+        box.addView(line, lp);
+        TextView under = Style.label(this, getString(R.string.xd_dim_hint_note), Style.FAINT, 11);
+        under.setGravity(Gravity.CENTER);
+        under.setAlpha(0.6f);
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-2, -2);
+        up.topMargin = dp(4);
+        box.addView(under, up);
+        return box;
     }
 
     private View buildSetupScreen() {
@@ -2237,6 +2309,13 @@ public class XDeskActivity extends Activity {
         LinearLayout.LayoutParams cr = new LinearLayout.LayoutParams(-1, keyH);
         cr.topMargin = gap;
         panel.addView(combos, cr);
+        // KeysPanel.dc.html: what a latched Ctrl means, under the keys
+        keysNote = Style.label(this, "", Style.TEXT_DIM, 11);
+        keysNote.setGravity(Gravity.CENTER);
+        keysNote.setVisibility(View.GONE);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2);
+        np.topMargin = gap;
+        panel.addView(keysNote, np);
         return panel;
     }
 
@@ -2401,11 +2480,23 @@ public class XDeskActivity extends Activity {
     private void applyComboRow() {
         if (comboRow == null) return;
         boolean show = apps.isActive() && keysPanel != null && keysPanel.getVisibility() == View.VISIBLE;
-        if (show) {
-            show = false;
-            for (Latch l : latches) show |= l.on;
+        boolean latched = false;
+        StringBuilder names = new StringBuilder();
+        for (Latch l : latches) {
+            if (!l.on) continue;
+            latched = true;
+            if (names.length() > 0) names.append("、");
+            names.append(l.button.getText());
         }
+        if (show && latched) show = true;
+        else show = false;
         comboRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        // KeysPanel.dc.html's note: while a modifier is latched, say what the next tap does
+        if (keysNote != null) {
+            boolean visible = latched && keysPanel != null && keysPanel.getVisibility() == View.VISIBLE;
+            keysNote.setText(latched ? getString(R.string.xd_keys_latched, names) : "");
+            keysNote.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void releaseLatches() {
@@ -2915,6 +3006,16 @@ public class XDeskActivity extends Activity {
         WindowManager.LayoutParams p = getWindow().getAttributes();
         p.screenBrightness = d ? DIM_BRIGHTNESS : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         getWindow().setAttributes(p);
+        // Dimmed.dc.html's hint: only while dimmed; it moves every minute so nothing burns in
+        ui.removeCallbacks(dimMove);
+        if (dimHint != null) {
+            dimHint.setVisibility(d ? View.VISIBLE : View.GONE);
+            if (d) {
+                dimHint.setTranslationX(0);
+                dimHint.setTranslationY(0);
+                ui.postDelayed(dimMove, DIM_MOVE_MS);
+            }
+        }
     }
 
     // --- 设置 ---
@@ -2927,32 +3028,53 @@ public class XDeskActivity extends Activity {
         if (launchpad != null) launchpad.setOutputLabel(label);
     }
 
-    /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
+    /** SetSound: one radio per output, each with what it is; read on every open, and again when the outputs change. */
     private void chooseOutput() {
         if (audioRoute.isCar()) {
             Toast.makeText(this, R.string.xd_output_car, Toast.LENGTH_LONG).show();
             return;
         }
+        final SettingsUi s = ui();
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        final Dialog[] page = new Dialog[1];
         // One setting for a cable, a wireless and a web display: system default follows the display, see AudioRoute
         final boolean receiver = wireless.isActive();
         final List<AudioRoute.Output> outputs = audioRoute.outputs();
-        String[] labels = new String[outputs.size() + 1];
-        labels[0] = receiver ? getString(R.string.xd_output_system_receiver, wireless.receiverName()) : getString(R.string.xd_output_system);
-        String selected = audioRoute.selectedKey();
+        final String selected = audioRoute.selectedKey();
         int checked = selected.isEmpty() ? 0 : -1;
         int selectedType = selected.isEmpty() ? -1 : Integer.parseInt(selected.substring(0, selected.indexOf('|')));
         for (int i = 0; i < outputs.size(); i++) {
             AudioRoute.Output o = outputs.get(i);
-            labels[i + 1] = o.label;
             if (o.key.equals(selected) || (checked < 0 && o.type == selectedType)) checked = i + 1;
         }
-        String note = getString(R.string.xd_output_note_follow) + "\n"
-            + getString(apps.injectorReady() ? R.string.xd_output_note_shared : R.string.xd_output_note_desktop_only)
-            + "\n" + getString(R.string.xd_output_note_unverified);
-        outputDialog = ui().choice(getString(R.string.xd_output_title), note, labels, checked, which -> {
-            audioRoute.select(which == 0 ? AudioRoute.KEY_SYSTEM : outputs.get(which - 1).key);
-            if (audioRoute.isMissing()) setStatus(Style.WARN, getString(R.string.xd_output_missing));
-        });
+        LinearLayout card = s.card(c);
+        // System default's line says what it follows now (SetSound: "现在：外接屏（HDMI）")
+        s.radioRow(card, getString(R.string.xd_output_system),
+            receiver ? getString(R.string.xd_output_system_receiver, wireless.receiverName()) : null,
+            checked == 0, () -> {
+                page[0].dismiss();
+                audioRoute.select(AudioRoute.KEY_SYSTEM);
+            });
+        for (int i = 0; i < outputs.size(); i++) {
+            final AudioRoute.Output o = outputs.get(i);
+            // The label is "the kind: its product name"; the mockup puts the kind first and the product under it.
+            // The colon is the language's: ASCII in English, full-width in Chinese
+            int ascii = o.label.indexOf(": "), wide = o.label.indexOf("：");
+            int cut = ascii < 0 ? wide : wide < 0 ? ascii : Math.min(ascii, wide);
+            String title = cut > 0 ? o.label.substring(0, cut) : o.label;
+            String product = cut > 0 ? o.label.substring(cut + (cut == ascii ? 2 : 1)) : null;
+            s.radioRow(card, title, product, checked == i + 1, () -> {
+                page[0].dismiss();
+                audioRoute.select(o.key);
+                if (audioRoute.isMissing()) setStatus(Style.WARN, getString(R.string.xd_output_missing));
+            });
+        }
+        TextView foot = Style.label(this, getString(R.string.xd_output_foot_note), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        foot.setPadding(dp(6), dp(8), dp(6), dp(2));
+        c.addView(foot);
+        page[0] = settingsPage(getString(R.string.xd_output_title), c, null);
+        outputDialog = page[0];
     }
 
     private String[] strings(int... ids) {
@@ -3119,51 +3241,61 @@ public class XDeskActivity extends Activity {
         c.setOrientation(LinearLayout.VERTICAL);
         addPermissionsEntry(c);
         LinearLayout device = s.card(c);
-        s.valueRow(device, getString(R.string.xd_section_phone), null, "", this::showPhoneSettings);
-        s.valueRow(device, getString(R.string.xd_section_input), null, "", this::showInputSettings);
+        s.linkRow(device, getString(R.string.xd_section_phone), null,
+            getString(launchpadMode() ? R.string.xd_phone_ui_launchpad : R.string.xd_phone_ui_console), this::showPhoneSettings);
+        s.linkRow(device, getString(R.string.xd_section_input), null, "", this::showInputSettings);
         // One sound output is not a page of its own: the row opens the output choice straight
-        settingsOutputValue = s.valueRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::chooseOutput);
-        s.valueRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
+        settingsOutputValue = s.linkRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::chooseOutput);
+        s.linkRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
         // The notifications on the external screen here too, not only under 外屏: the access was hard to find (owner, 2026-11-15)
         boolean notifyAccess = NotifyCenter.accessGranted(this);
-        s.valueRow(device, getString(R.string.xd_section_notifications), null,
-            notifyAccess ? "" : getString(R.string.xd_notify_access_short_off),
+        s.linkRow(device, getString(R.string.xd_section_notifications), null,
+            notifyAccess ? getString(R.string.xd_notify_access_on) : getString(R.string.xd_notify_access_short_off),
             notifyAccess ? null : Permissions.need(this, Permissions.NOTIFY_ACCESS),
             () -> showPermissionDetail(Permissions.NOTIFY_ACCESS), this::showNotifySettings);
         LinearLayout connect = s.section(c, getString(R.string.xd_section_connect));
         // Every external device (Linux environments and Macs) behind one entry: DEVICES.md §5
+        java.util.List<Devices.Device> external = Devices.get(this).external();
+        StringBuilder names = new StringBuilder();
+        for (Devices.Device d : external) {
+            if (names.length() > 0) names.append("、");
+            names.append(d.name);
+        }
         int connectedDevices = Devices.get(this).connectedCount();
-        s.valueRow(connect, getString(R.string.xd_dev_connect_devices), getString(R.string.xd_dev_connect_devices_note),
+        s.linkRow(connect, getString(R.string.xd_dev_connect_devices),
+            external.isEmpty() ? getString(R.string.xd_dev_connect_devices_note) : names.toString(),
             connectedDevices > 0 ? getResources().getQuantityString(R.plurals.xd_dev_connected_count, connectedDevices, connectedDevices) : "",
             () -> DeviceSettings.open(this));
         final TextView[] receiver = new TextView[1], browser = new TextView[1];
-        receiver[0] = s.valueRow(connect, getString(R.string.xd_wireless), getString(R.string.xd_wireless_note),
+        receiver[0] = s.linkRow(connect, getString(R.string.xd_wireless), getString(R.string.xd_wireless_note),
             wireless.isActive() ? wireless.receiverName() : getString(R.string.xd_wireless_off), this::showWirelessPicker);
-        browser[0] = s.valueRow(connect, getString(R.string.xd_web), getString(R.string.xd_web_row_note), webValue(), this::showWebPage);
+        browser[0] = s.linkRow(connect, getString(R.string.xd_web), getString(R.string.xd_web_row_note), webValue(), this::showWebPage);
         settingsRefresh = () -> {
             receiver[0].setText(wireless.isActive() ? wireless.receiverName() : getString(R.string.xd_wireless_off));
             browser[0].setText(webValue());
         };
-        LinearLayout about = s.card(c);
-        ((LinearLayout.LayoutParams) about.getLayoutParams()).topMargin = dp(12);
-        s.valueRow(about, getString(R.string.xd_section_about), null, versionName(), this::showAboutSettings);
-        // Terminal-side settings for the Linux desktop, at the bottom, in a section of their own
+        // Terminal-side settings for the Linux desktop and About, in a section of their own
         LinearLayout other = s.section(c, getString(R.string.xd_section_other));
-        s.valueRow(other, getString(R.string.xd_x11_settings), getString(R.string.xd_x11_settings_note), "",
+        s.linkRow(other, getString(R.string.xd_x11_settings), getString(R.string.xd_x11_settings_row_note), "",
             this::showX11Settings);
+        s.linkRow(other, getString(R.string.xd_section_about), null, versionName(), this::showAboutSettings);
 
-        if (session.isActive()) {
-            // Orange: it stops the desktop, it does not remove anything
-            s.stopRow(c, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
-                closeSettings();
-                confirmStop();
-            });
-        }
-        if (DesktopService.isRunning()) {
-            s.dangerRow(c, getString(R.string.xd_end_xdesk), getString(R.string.xd_end_xdesk_note), () -> {
-                closeSettings();
-                confirmEndXDesk();
-            });
+        if (session.isActive() || DesktopService.isRunning()) {
+            LinearLayout ends = s.card(c);
+            ((LinearLayout.LayoutParams) ends.getLayoutParams()).topMargin = dp(12);
+            if (session.isActive()) {
+                // Orange: it stops the desktop, it does not remove anything
+                s.stopRowIn(ends, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
+                    closeSettings();
+                    confirmStop();
+                });
+            }
+            if (DesktopService.isRunning()) {
+                s.dangerRowIn(ends, getString(R.string.xd_end_xdesk), getString(R.string.xd_end_xdesk_note), () -> {
+                    closeSettings();
+                    confirmEndXDesk();
+                });
+            }
         }
         settingsPage(getString(R.string.xd_settings), c, () -> {
             settingsRefresh = null;
@@ -3808,7 +3940,8 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         boolean appMode = apps.isActive();
-        LinearLayout input = s.card(c);
+        // SetInput: the touchpad first, then the keyboard, then the mouse
+        LinearLayout input = s.section(c, getString(R.string.xd_chooser_touchpad));
         s.percentRow(input, getString(R.string.xd_pad_speed), null, Math.round(prefs.getFloat(PREF_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             touchpad.setSpeed(v);
@@ -3829,7 +3962,8 @@ public class XDeskActivity extends Activity {
             touchpad.setNaturalScroll(on);
             updateReceiverSettings();
         });
-        s.switchRow(input, getString(R.string.xd_keys_via_ime), getString(R.string.xd_keys_via_ime_note), prefs.getBoolean(PREF_KEYS_VIA_IME, true), on -> {
+        LinearLayout keys = s.section(c, getString(R.string.xd_linux_keyboard));
+        s.switchRow(keys, getString(R.string.xd_keys_via_ime), getString(R.string.xd_keys_via_ime_note), prefs.getBoolean(PREF_KEYS_VIA_IME, true), on -> {
             prefs.edit().putBoolean(PREF_KEYS_VIA_IME, on).apply();
             // Devices that follow the global setting read this when their keys come
             MacInput.keysViaIme = on;
@@ -3839,23 +3973,24 @@ public class XDeskActivity extends Activity {
             updateStatus();
             syncKeyMode();
         });
-        s.switchRow(input, getString(R.string.xd_ime_corrections), getString(R.string.xd_ime_corrections_note), prefs.getBoolean(PREF_IME_CORRECTIONS, true), on -> {
+        s.switchRow(keys, getString(R.string.xd_ime_corrections), getString(R.string.xd_ime_corrections_note), prefs.getBoolean(PREF_IME_CORRECTIONS, true), on -> {
             prefs.edit().putBoolean(PREF_IME_CORRECTIONS, on).apply();
             if (keyView != null) keyView.bridge().setCorrections(on);
         });
-        s.switchRow(input, getString(R.string.xd_translate_modifiers), getString(R.string.xd_translate_modifiers_note), prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true), on -> {
+        s.switchRow(keys, getString(R.string.xd_translate_modifiers), getString(R.string.xd_translate_modifiers_note), prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true), on -> {
             prefs.edit().putBoolean(PREF_TRANSLATE_MODIFIERS, on).apply();
             MacInput.translateModifiers = on;
         });
+        LinearLayout mouse = s.section(c, getString(R.string.xd_mouse));
         // Every mouse: the injector's for Android apps, the captured one for the X desktop and Macs (INPUT.md §12)
-        s.percentRow(input, getString(R.string.xd_mouse_speed), getString(R.string.xd_mouse_speed_note), Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
+        s.percentRow(mouse, getString(R.string.xd_mouse_speed), null, Math.round(prefs.getFloat(PREF_MOUSE_SPEED, 1f) * 100), p -> {
             float v = p / 100f;
             prefs.edit().putFloat(PREF_MOUSE_SPEED, v).apply();
             mouseSpeed = v;
             apps.setMouseSpeed(v);
         });
         if (appMode) {
-            s.switchRow(input, getString(R.string.xd_always_cursor), getString(R.string.xd_always_cursor_note), prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
+            s.switchRow(mouse, getString(R.string.xd_always_cursor), getString(R.string.xd_always_cursor_note), prefs.getBoolean(PREF_ALWAYS_CURSOR, false), on -> {
                 prefs.edit().putBoolean(PREF_ALWAYS_CURSOR, on).apply();
                 apps.setAlwaysShowCursor(on);
             });
@@ -3868,17 +4003,19 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         boolean appMode = apps.isActive();
-        // The whole screen's rows first, in one card without a title; then Android apps and the Linux desktop
-        // (owner, 2026-11-19)
-        LinearLayout external = s.card(c);
-        DesktopScale.addSettings(this, s, external, externalDisplay(), this::screenSizingChanged);
-        s.switchRow(external, getString(R.string.xd_external_dock), getString(R.string.xd_external_dock_note), prefs.getBoolean(PREF_EXTERNAL_DOCK, true), on -> {
+        // SetDisplay: this screen, every screen, Android apps, the Linux desktop
+        Display screen = externalDisplay();
+        LinearLayout external = s.section(c,
+            screen != null ? getString(R.string.xd_display_this_screen, screen.getName()) : getString(R.string.xd_display_this_screen_none));
+        DesktopScale.addSettings(this, s, external, screen, this::screenSizingChanged);
+        LinearLayout allScreens = s.section(c, getString(R.string.xd_display_general));
+        s.switchRow(allScreens, getString(R.string.xd_external_dock), getString(R.string.xd_external_dock_note), prefs.getBoolean(PREF_EXTERNAL_DOCK, true), on -> {
             prefs.edit().putBoolean(PREF_EXTERNAL_DOCK, on).apply();
             updateExternalDock();
         });
         String cover = getString(Settings.canDrawOverlays(this) ? R.string.xd_cover_note : R.string.xd_cover_note_no_overlay);
         // Missing permission said in place: the feature stays on the page, greyed, with the orange line (PermInline)
-        s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true),
+        s.switchRow(allScreens, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true),
             Settings.canDrawOverlays(this) ? null : Permissions.need(this, Permissions.OVERLAY),
             () -> showPermissionDetail(Permissions.OVERLAY), on -> {
                 prefs.edit().putBoolean(PREF_COVER, on).apply();
@@ -3887,7 +4024,7 @@ public class XDeskActivity extends Activity {
         addDensitySetting(s, android);
         if (AppSession.fullscreenSupported()) {
             s.switchRow(android, getString(R.string.xd_fullscreen_default), getString(R.string.xd_fullscreen_default_note), apps.isFullscreenDefault(), on -> apps.setFullscreenDefault(on));
-            s.valueRow(android, getString(R.string.xd_fullscreen_reset), getString(R.string.xd_fullscreen_reset_note), "", () ->
+            s.stopRowIn(android, getString(R.string.xd_fullscreen_reset), null, () ->
                 s.confirm(getString(R.string.xd_fullscreen_reset_title), getString(R.string.xd_fullscreen_reset_message), getString(R.string.xd_fullscreen_reset_action), () -> {
                     if (!apps.resetFullscreen()) Toast.makeText(this, R.string.xd_fullscreen_reset_need_injector, Toast.LENGTH_LONG).show();
                 }));
@@ -3895,7 +4032,7 @@ public class XDeskActivity extends Activity {
         if (!appMode) {
             LinearLayout linux = s.section(c, getString(R.string.xd_display_linux));
             final TextView[] resolution = new TextView[1];
-            resolution[0] = s.valueRow(linux, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
+            resolution[0] = s.linkRow(linux, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), screen), () -> chooseResolution(resolution[0]));
         }
         settingsPage(getString(R.string.xd_section_display), c, null);
     }
@@ -3978,27 +4115,30 @@ public class XDeskActivity extends Activity {
         s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(),
             granted ? null : Permissions.need(this, Permissions.NOTIFY_ACCESS),
             () -> showPermissionDetail(Permissions.NOTIFY_ACCESS), center::setNotifyOn);
-        s.segmentedRow(show, getString(R.string.xd_notify_content), getString(R.string.xd_notify_content_note),
+        s.segmentedRow(show, getString(R.string.xd_notify_content), null,
             new String[]{getString(R.string.xd_notify_content_all), getString(R.string.xd_notify_content_name), getString(R.string.xd_notify_content_none)},
             center.bannerContent(), center::setBannerContent);
-        // The state rows stay below for whoever wants to turn it off again. Without the access the card at the top
-        // is the one place to turn it on: a second row saying "off" would only repeat it
-        if (granted) {
-            s.valueRow(show, getString(R.string.xd_notify_access), null, getString(R.string.xd_notify_access_on),
-                () -> NotifyCenter.openAccessSettings(this));
-            boolean bound = center.connected();
-            s.valueRow(show, getString(R.string.xd_notify_link), null,
-                getString(bound ? R.string.xd_notify_link_on : R.string.xd_notify_link_off), () -> {
-                    center.rebindIfNeeded();
-                    if (NotifyCenter.hasAutostartSwitch(this)) NotifyCenter.openAutostartSettings(this);
-                    else NotifyCenter.openAccessSettings(this);
-                });
-        }
-        LinearLayout per = s.card(c);
-        s.valueRow(per, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), "", this::showNotifyApps);
-        LinearLayout more = s.card(c);
-        s.switchRow(more, getString(R.string.xd_notify_battery_banner), getString(R.string.xd_notify_battery_banner_note),
+        s.switchRow(show, getString(R.string.xd_notify_battery_banner), getString(R.string.xd_notify_battery_banner_note),
             center.lowBatteryBanners(), center::setLowBatteryBanners);
+        int shownApps = center.recentApps().size();
+        s.linkRow(show, getString(R.string.xd_notify_per_app), null, shownApps > 0 ? String.valueOf(shownApps) : "",
+            this::showNotifyApps);
+        // SetNotify's 状态: the access and the service, each saying what it is now
+        LinearLayout state = s.section(c, getString(R.string.xd_notify_state));
+        s.valueRow(state, getString(R.string.xd_notify_access), null,
+            getString(granted ? R.string.xd_notify_access_on : R.string.xd_notify_access_short_off),
+            granted ? Style.OK : Style.WARN, () -> NotifyCenter.openAccessSettings(this));
+        boolean bound = center.connected();
+        s.valueRow(state, getString(R.string.xd_notify_link), null,
+            getString(bound ? R.string.xd_notify_link_on : R.string.xd_notify_link_off),
+            bound ? Style.OK : Style.WARN, () -> {
+                center.rebindIfNeeded();
+                if (NotifyCenter.hasAutostartSwitch(this)) NotifyCenter.openAutostartSettings(this);
+                else NotifyCenter.openAccessSettings(this);
+            });
+        TextView privacy = Style.label(this, getString(R.string.xd_notify_privacy_note), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        privacy.setPadding(dp(6), dp(8), dp(6), dp(2));
+        c.addView(privacy);
         page[0] = settingsPage(getString(R.string.xd_section_notifications), c, null);
     }
 
@@ -4013,10 +4153,19 @@ public class XDeskActivity extends Activity {
         if (apps.isEmpty()) {
             s.infoRow(card, getString(R.string.xd_notify_per_app), getString(R.string.xd_notify_per_app_note), null);
         } else {
-            String[] modes = {getString(R.string.xd_notify_mode_banner), getString(R.string.xd_notify_mode_center), getString(R.string.xd_notify_mode_hidden)};
+            final String[] modes = {getString(R.string.xd_notify_mode_banner), getString(R.string.xd_notify_mode_center), getString(R.string.xd_notify_mode_hidden)};
             for (final String pkg : apps) {
-                s.segmentedRow(card, center.appLabel(pkg), pkg, modes, center.appMode(pkg), mode -> center.setAppMode(pkg, mode));
+                final String label = center.appLabel(pkg);
+                final int at = center.appMode(pkg);
+                final TextView[] value = new TextView[1];
+                value[0] = s.selectRow(card, label, modes[at], at == 2 ? Style.DANGER : Style.TEXT_DIM,
+                    () -> s.choice(label, null, modes, center.appMode(pkg), which -> {
+                        center.setAppMode(pkg, which);
+                        value[0].setText(modes[which]);
+                        value[0].setTextColor(which == 2 ? Style.DANGER : Style.TEXT_DIM);
+                    }));
             }
+            pageNote(c, R.string.xd_notify_apps_note);
         }
         settingsPage(getString(R.string.xd_notify_per_app), c, null);
     }
@@ -4055,7 +4204,7 @@ public class XDeskActivity extends Activity {
             x11Changed("dexMetaKeyCapture");
         });
         LinearLayout advanced = s.section(c, getString(R.string.xd_section_other));
-        s.valueRow(advanced, getString(R.string.xd_x11_all), getString(R.string.xd_x11_all_note), "",
+        s.linkRow(advanced, getString(R.string.xd_x11_all), getString(R.string.xd_x11_all_note), "",
             () -> startActivity(new Intent(this, LoriePreferences.class)));
         settingsPage(getString(R.string.xd_x11_settings), c, null);
     }
@@ -4072,8 +4221,10 @@ public class XDeskActivity extends Activity {
         });
         final ShellActivation shell = apps.shell();
         if (shell.isPaired() || shell.isRunning()) {
-            s.infoRow(about, getString(R.string.xd_builtin), getString(R.string.xd_builtin_note), shellState(shell));
-            s.valueRow(about, getString(R.string.xd_pair_again), getString(R.string.xd_pair_again_note), "", () ->
+            // SetAbout's 内置注入服务: its state with the green dot, pairing again, stopping it
+            LinearLayout builtin = s.section(c, getString(R.string.xd_builtin));
+            s.dotRow(builtin, shell.isRunning(), shellState(shell), getString(R.string.xd_builtin_note));
+            s.linkRow(builtin, getString(R.string.xd_pair_again), getString(R.string.xd_pair_again_note), "", () ->
                 s.confirm(getString(R.string.xd_pair_again_title), getString(R.string.xd_pair_again_message), getString(R.string.xd_pair_again), () -> {
                     closeSettings();
                     stopShellServer(() -> {
@@ -4083,9 +4234,9 @@ public class XDeskActivity extends Activity {
                         showActivation(null);
                     });
                 }));
-            // Stopping it is a stop, not a removal: orange, and asked first
+            // Stopping it is a stop, not a removal: yellow, in the same card, and asked first
             if (shell.isRunning()) {
-                s.stopRow(c, getString(R.string.xd_builtin_stop), getString(R.string.xd_builtin_stop_note), () ->
+                s.stopRowIn(builtin, getString(R.string.xd_builtin_stop), getString(R.string.xd_builtin_stop_note), () ->
                     s.confirm(getString(R.string.xd_builtin_stop_title), getString(R.string.xd_builtin_stop_message),
                         getString(R.string.xd_stop), SettingsUi.LEVEL_STOP, () -> {
                             closeSettings();
@@ -4093,6 +4244,10 @@ public class XDeskActivity extends Activity {
                         }));
             }
         }
+        TextView credit = Style.label(this, getString(R.string.xd_about_credit), Style.TEXT_DIM, Style.TEXT_SMALL);
+        credit.setGravity(Gravity.CENTER);
+        credit.setPadding(dp(6), dp(16), dp(6), dp(4));
+        c.addView(credit);
         settingsPage(getString(R.string.xd_section_about), c, null);
     }
 

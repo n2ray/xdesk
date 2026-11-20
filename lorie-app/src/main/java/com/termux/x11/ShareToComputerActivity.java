@@ -1,7 +1,6 @@
 package com.termux.x11;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -45,14 +44,11 @@ public final class ShareToComputerActivity extends Activity {
             finish();
             return;
         }
-        String what = getString(R.string.xd_share_sending, wireless.receiverName()) + "\n\n" + String.join("\n", names);
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(R.string.xd_share_label)
-                .setMessage(what)
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> send(wireless, uris))
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> finish())
-                .setOnCancelListener(dialog -> finish())
-                .show();
+        // Confirm.dc.html: a question, what happens, Cancel and the action; closing it another way sends nothing
+        String what = String.join("\n", names) + "\n\n" + getString(R.string.xd_share_confirm_note);
+        new SettingsUi(this).confirm(getString(R.string.xd_share_confirm_title, wireless.receiverName()), what,
+            getString(R.string.xd_share_send_action), SettingsUi.LEVEL_NORMAL,
+            () -> send(wireless, uris), this::finish);
     }
 
     private void send(WirelessDisplay wireless, List<Uri> uris) {

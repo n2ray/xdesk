@@ -4,7 +4,7 @@
     <string name="xd_mac_add_address">输入地址</string>
     <string name="xd_mac_repair_title">重新配对「%1$s」？</string>
     <string name="xd_mac_repair_address">用保存的地址（%1$s）</string>
-    <string name="xd_mac_repair_note">Mac 移除了 XDesk 或身份变了：用保存的地址重新配对，或扫它新显示的码</string>
+    <string name="xd_mac_repair_note">Mac 换了身份时用</string>
     <string name="xd_mac_add_note">Mac 上要有 Sill 0.6.1 或更新版本。经 Tailscale 连时用 Mac 的 100.x 地址</string>
     <string name="xd_mac_scan">扫描二维码</string>
     <string name="xd_mac_scan_note">扫描 Mac 上 Sill 配对窗口里的二维码（配对 iPhone 或 iPad…）</string>
@@ -42,10 +42,11 @@
     <string name="xd_mac_busy">Mac 正在和别的设备配对，稍后再试</string>
     <string name="xd_mac_pair_failed">配对失败：%1$s</string>
     <string name="xd_mac_fit">适配屏幕</string>
-    <string name="xd_mac_fit_note">把 Mac 窗口改成这块屏的大小。串流结束时 Sill 会改回去</string>
+    <string name="xd_mac_fit_note">串流时 Mac 窗口按这块屏的大小</string>
     <string name="xd_mac_phone_ime">实体键盘用手机输入法打字</string>
     <string name="xd_mac_phone_ime_note">跟随全局：用输入设置里的「键盘先交给手机输入法」。关：手机上接的键盘用这台 Mac 自己的输入法，候选框在 Mac 画面里、紧挨着文字。开：由手机输入法拼字，候选在手机上。手机的软键盘始终用手机输入法</string>
     <string name="xd_mac_remove_note">要再连就得重新配对。也请在 Mac 上 Sill 的设备列表里移除 XDesk</string>
+    <string name="xd_mac_remove_row_note">再连要重新配对</string>
     <string name="xd_mac_screen">屏幕</string>
     <string name="xd_mac_addresses">地址</string>
     <string name="xd_mac_paired_address">配对地址</string>
@@ -94,7 +95,7 @@
     <string name="xd_mac_quit">Mac 上的 Sill 已退出</string>
     <!-- Picture and sound: Sill's settings for one Mac (MacStreamSettings) -->
     <string name="xd_mac_stream">画面和声音</string>
-    <string name="xd_mac_stream_note">画质、分辨率、帧率、虚拟显示器和 Mac 的声音</string>
+    <string name="xd_mac_stream_note">画质、分辨率、帧率、声音</string>
     <string name="xd_mac_stream_title">%1$s：画面和声音</string>
     <string name="xd_mac_stream_now">当前</string>
     <string name="xd_mac_stream_waiting">正在连接 Mac 读取它的设置…</string>
@@ -112,9 +113,9 @@
     <string name="xd_mac_link_behind_suggest">Mac 报告连接无法稳定承载当前画质</string>
     <string name="xd_mac_link_use">点这里改用 %1$s</string>
     <string name="xd_mac_away">Mac 把这个连接算作不在家：这里的画质和分辨率设置的是它的外出画质</string>
-    <string name="xd_mac_picture">画面</string>
+    <string name="xd_mac_picture">画面（Mac 的设置，所有设备共用）</string>
     <string name="xd_mac_quality">画质</string>
-    <string name="xd_mac_quality_note">60 fps 时的码率；120 fps 的串流是它的两倍</string>
+    <string name="xd_mac_quality_note">120 fps 时码率翻倍</string>
     <string name="xd_mac_quality_fast_note">极高和极限需要 USB 线或很快的 Wi‑Fi；画面跟不上就降一档</string>
     <string name="xd_mac_quality_custom">自定义</string>
     <string-array name="xd_mac_quality_names">
@@ -134,9 +135,9 @@
     <string name="xd_mac_fps_note">Mac 发给任何设备的最高帧率。每台设备仍按自己屏幕的帧率，不超过它</string>
     <string name="xd_mac_fps_value">%1$d fps</string>
     <string name="xd_mac_speed">优先编码速度</string>
-    <string name="xd_mac_speed_note">Mac 忙碌时延迟更低，画面可能更柔和</string>
+    <string name="xd_mac_speed_note">延迟更低，画面可能变软</string>
     <string name="xd_mac_virtual">虚拟显示器</string>
-    <string name="xd_mac_virtual_note">窗口在串流时移到 Mac 上一块看不见的显示器，大小按这块屏幕来，被遮住时也照常更新。关闭后窗口留在 Mac 上原来的位置串流。画面会短暂重新开始</string>
+    <string name="xd_mac_virtual_note">串流时用一块看不见的显示器</string>
     <string name="xd_mac_virtual_unavailable">这台 Mac 用不了虚拟显示器</string>
     <string name="xd_mac_this_device">这台设备</string>
     <string name="xd_mac_cap">请求的帧率</string>
@@ -144,13 +145,13 @@
     <string name="xd_mac_cap_screen">跟随屏幕</string>
     <string name="xd_mac_sound">声音</string>
     <string name="xd_mac_send_audio">Mac 发送声音（测试版）</string>
-    <string name="xd_mac_send_audio_note">Mac 把正在串流的内容的声音发给已连接的设备，自己也继续播放</string>
+    <string name="xd_mac_send_audio_note">Mac 自己也继续播放</string>
     <string name="xd_mac_send_audio_update">更新 Mac 上的 Sill 才能使用声音</string>
     <string name="xd_mac_play_sound">在这里播放 Mac 的声音（实验）</string>
-    <string name="xd_mac_play_sound_note">从 XDesk 声音设置里选的输出播放。需要打开“Mac 发送声音”；更改后会重新连接 Mac</string>
+    <string name="xd_mac_play_sound_note">走 XDesk 的声音输出</string>
     <string name="xd_mac_play_sound_unsupported">这台手机没有 AAC‑ELD 解码器</string>
     <string name="xd_mac_mute">静音这台设备</string>
-    <string name="xd_mac_mute_note">只静音这台设备；不改变 Mac 的声音设置。</string>
+    <string name="xd_mac_mute_note">不影响 Mac</string>
     <string name="xd_mac_sound_muted_headphones">耳机已断开，这台设备的 Mac 声音已静音</string>
     <string name="xd_mac_stream_about">关于这些设置</string>
     <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
@@ -159,14 +160,14 @@
     <string name="xd_mac_mode_note">清晰、平衡、流畅三档一键切换。改动的是 Mac 的设置，对连接它的所有设备生效；Mac 在外接屏上时，Ctrl+Alt+Q 可循环切换</string>
     <string-array name="xd_mac_mode_names">
         <item>清晰</item>
-        <item>平衡</item>
+        <item>均衡</item>
         <item>流畅</item>
     </string-array>
     <string name="xd_mac_mode_flash">画质：%1$s</string>
     <string name="xd_mac_auto">网络变差时自动降低画质</string>
-    <string name="xd_mac_auto_note">Mac 持续 5 秒报告连接带不动当前画面时，自动降到 Mac 建议的画质或再降一档；链路稳定一段时间后，逐步升回你选的模式。只在 XDesk 连着这台 Mac 时生效</string>
+    <string name="xd_mac_auto_note">带不动时降一档，稳定后升回</string>
     <string name="xd_mac_smooth">平滑播放</string>
-    <string name="xd_mac_smooth_note">按 Mac 采集画面的时间均匀显示。网络不稳时画面会稍晚一点（最多 50 毫秒），但不会一跳一跳。关闭后，每帧一到就立即显示</string>
+    <string name="xd_mac_smooth_note">均匀显示，最多晚 50 毫秒</string>
     <string name="xd_mac_auto_lowered">网络变差，画质已切到%1$s</string>
     <string name="xd_mac_auto_lowered_generic">网络变差，画质已自动降低</string>
     <string name="xd_mac_auto_raised">网络已恢复，画质切回%1$s</string>

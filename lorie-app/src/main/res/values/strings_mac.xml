@@ -5,7 +5,7 @@
     <string name="xd_mac_add_address">Enter its address</string>
     <string name="xd_mac_repair_title">Pair %1$s again?</string>
     <string name="xd_mac_repair_address">At its saved address (%1$s)</string>
-    <string name="xd_mac_repair_note">For a Mac that removed XDesk or changed identity: pair at its saved address or scan its new code</string>
+    <string name="xd_mac_repair_note">For a Mac that changed identity</string>
     <string name="xd_mac_add_note">Needs Sill 0.6.1 or later on the Mac. Over Tailscale use the Mac\'s 100.x address</string>
     <string name="xd_mac_scan">Scan QR code</string>
     <string name="xd_mac_scan_note">Scan the QR code in Sill\'s pairing window on the Mac (Pair iPhone or iPad…)</string>
@@ -43,10 +43,11 @@
     <string name="xd_mac_busy">The Mac is busy with another pairing. Try again in a moment</string>
     <string name="xd_mac_pair_failed">Pairing failed: %1$s</string>
     <string name="xd_mac_fit">Fit to screen</string>
-    <string name="xd_mac_fit_note">Resize the Mac window to this screen. Sill puts it back when the stream ends</string>
+    <string name="xd_mac_fit_note">The Mac window takes this screen\'s size while streaming</string>
     <string name="xd_mac_phone_ime">Keyboard types with the phone\'s input method</string>
     <string name="xd_mac_phone_ime_note">Follow global: use the Input settings\' “Keyboard through the phone\'s input method”. Off: a keyboard on the phone types with this Mac\'s own input method, its candidates on the Mac\'s picture, at the text. On: the phone\'s input method composes, candidates on the phone. The phone\'s soft keyboard always uses the phone\'s</string>
     <string name="xd_mac_remove_note">To connect again you pair again. Remove XDesk in Sill\'s Devices on the Mac too</string>
+    <string name="xd_mac_remove_row_note">Connecting again needs pairing</string>
     <string name="xd_mac_screen">Screen</string>
     <string name="xd_mac_addresses">Addresses</string>
     <string name="xd_mac_paired_address">Paired at</string>
@@ -95,7 +96,7 @@
     <string name="xd_mac_quit">Sill quit on the Mac</string>
     <!-- Picture and sound: Sill's settings for one Mac (MacStreamSettings) -->
     <string name="xd_mac_stream">Picture and sound</string>
-    <string name="xd_mac_stream_note">Quality, resolution, frame rate, virtual display and the Mac\'s sound</string>
+    <string name="xd_mac_stream_note">Quality, resolution, frame rate, sound</string>
     <string name="xd_mac_stream_title">%1$s: picture and sound</string>
     <string name="xd_mac_stream_now">Now</string>
     <string name="xd_mac_stream_waiting">Connecting to the Mac to read its settings…</string>
@@ -113,9 +114,9 @@
     <string name="xd_mac_link_behind_suggest">The Mac reports that the connection cannot carry this quality</string>
     <string name="xd_mac_link_use">Tap to use %1$s</string>
     <string name="xd_mac_away">The Mac counts this connection as away from home: quality and resolution here set its away quality</string>
-    <string name="xd_mac_picture">Picture</string>
+    <string name="xd_mac_picture">Picture (the Mac\'s settings, shared by every device)</string>
     <string name="xd_mac_quality">Quality</string>
-    <string name="xd_mac_quality_note">The bitrate at 60 fps; a 120 fps stream gets twice as much</string>
+    <string name="xd_mac_quality_note">The bitrate doubles at 120 fps</string>
     <string name="xd_mac_quality_fast_note">Ultra and Extreme need the USB cable or very fast Wi‑Fi; if the picture lags, step down</string>
     <string name="xd_mac_quality_custom">Custom</string>
     <string-array name="xd_mac_quality_names">
@@ -135,9 +136,9 @@
     <string name="xd_mac_fps_note">The most the Mac sends to any device. Each device still gets its own screen\'s rate below it</string>
     <string name="xd_mac_fps_value">%1$d fps</string>
     <string name="xd_mac_speed">Prioritise encoding speed</string>
-    <string name="xd_mac_speed_note">Less delay when the Mac is busy; the picture may be softer</string>
+    <string name="xd_mac_speed_note">Less delay; the picture may be softer</string>
     <string name="xd_mac_virtual">Virtual display</string>
-    <string name="xd_mac_virtual_note">A window moves to an invisible display on the Mac while it streams, at the size of this screen, and keeps updating when covered. Off, the window streams from where it is on the Mac. The picture restarts briefly</string>
+    <string name="xd_mac_virtual_note">An invisible display for the stream</string>
     <string name="xd_mac_virtual_unavailable">This Mac cannot use the virtual display</string>
     <string name="xd_mac_this_device">This device</string>
     <string name="xd_mac_cap">Frame rate asked for</string>
@@ -145,13 +146,13 @@
     <string name="xd_mac_cap_screen">Screen\'s own</string>
     <string name="xd_mac_sound">Sound</string>
     <string name="xd_mac_send_audio">Mac sends sound (beta)</string>
-    <string name="xd_mac_send_audio_note">The Mac sends the sound of what it streams to connected devices and keeps playing it itself</string>
+    <string name="xd_mac_send_audio_note">The Mac keeps playing it too</string>
     <string name="xd_mac_send_audio_update">Update Sill on the Mac to use sound</string>
     <string name="xd_mac_play_sound">Play the Mac\'s sound here (experimental)</string>
-    <string name="xd_mac_play_sound_note">Goes to the output chosen in XDesk\'s sound setting. Needs “Mac sends sound” on; changing this reconnects to the Mac</string>
+    <string name="xd_mac_play_sound_note">Through XDesk\'s sound output</string>
     <string name="xd_mac_play_sound_unsupported">This phone has no AAC‑ELD decoder</string>
     <string name="xd_mac_mute">Mute this device</string>
-    <string name="xd_mac_mute_note">Only mutes this device; it does not change the Mac\'s sound setting</string>
+    <string name="xd_mac_mute_note">Does not affect the Mac</string>
     <string name="xd_mac_sound_muted_headphones">Headphones disconnected, the Mac\'s sound is muted on this device</string>
     <string name="xd_mac_stream_about">About these settings</string>
     <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
@@ -165,9 +166,9 @@
     </string-array>
     <string name="xd_mac_mode_flash">Quality: %1$s</string>
     <string name="xd_mac_auto">Lower quality automatically on a weak link</string>
-    <string name="xd_mac_auto_note">When the Mac keeps reporting for 5 seconds that the connection cannot carry the picture, XDesk lowers the quality to the Mac\'s suggestion or one step, and steps back towards your mode after the link has kept up for a while. Only while XDesk is connected to the Mac</string>
+    <string name="xd_mac_auto_note">One step down when it cannot keep up; back up when steady</string>
     <string name="xd_mac_smooth">Smooth playback</string>
-    <string name="xd_mac_smooth_note">Shows the Mac\'s pictures evenly, by when the Mac captured them. On an uneven network the picture is a little later (at most 50 ms) instead of jumping. Off: each picture as soon as it arrives</string>
+    <string name="xd_mac_smooth_note">Shown evenly, at most 50 ms later</string>
     <string name="xd_mac_auto_lowered">Link slowed: quality lowered to %1$s</string>
     <string name="xd_mac_auto_lowered_generic">Link slowed: quality lowered automatically</string>
     <string name="xd_mac_auto_raised">Link recovered: quality back to %1$s</string>

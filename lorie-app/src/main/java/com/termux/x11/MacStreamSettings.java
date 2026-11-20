@@ -49,6 +49,8 @@ final class MacStreamSettings implements MacClient.SettingsListener {
     };
     private TextView rttValue;
     private String rttDrawn;
+    /** "From Sill's virtual display · " before the round trip, as SetMacStream's one line has it. */
+    private String rttPrefix = "";
 
     private MacStreamSettings(Context c, String macId) {
         this.c = c;
@@ -103,7 +105,7 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         String value = rttText(client);
         if (value.equals(rttDrawn) || rttValue == null) return;
         rttDrawn = value;
-        rttValue.setText(value);
+        rttValue.setText(rttPrefix + value);
     }
 
     private String rttText(MacClient client) {
@@ -116,6 +118,7 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         content.removeAllViews();
         rttValue = null;
         rttDrawn = null;
+        rttPrefix = "";
         final HostSettings live = client.settings();
         final MacStore.Stream own = MacStore.stream(c, macId);
         final HostSettings h = live != null ? live : HostSettings.saved(own.host);
@@ -123,16 +126,17 @@ final class MacStreamSettings implements MacClient.SettingsListener {
         // A control only while the Mac listens and has answered the last change; otherwise the value alone
         final boolean open = live != null && pending == null;
 
-        LinearLayout now = s.section(content, c.getString(R.string.xd_mac_stream_now));
+        // SetMacStream: the state with the green dot and what is streaming under it, in the first card
+        LinearLayout now = s.card(content);
         if (live == null) {
             s.infoRow(now, c.getString(h != null ? R.string.xd_mac_stream_offline : R.string.xd_mac_stream_waiting), null, null);
         } else {
             String running = !live.streaming ? c.getString(R.string.xd_mac_stream_idle)
                     : c.getString(R.string.xd_mac_stream_running, live.width, live.height, live.fps, live.mbps);
-            s.infoRow(now, running, live.streaming && live.onVirtualDisplay ? c.getString(R.string.xd_mac_stream_on_virtual) : null, null);
             // The round trip, as Sall's readout ends with it; the tick keeps this one line fresh
             rttDrawn = rttText(client);
-            rttValue = s.infoRow(now, c.getString(R.string.xd_mac_rtt), null, rttDrawn);
+            rttPrefix = live.streaming && live.onVirtualDisplay ? c.getString(R.string.xd_mac_stream_on_virtual) + " · " : "";
+            rttValue = s.dotRow(now, live.streaming, running, rttPrefix + rttDrawn);
             if (live.softwareEncoder) s.infoRow(now, c.getString(R.string.xd_mac_software_encoder), null, null);
             final HostSettings.Advice advice = live.advice(client.rttSlow());
             if (advice.kind == HostSettings.Advice.BEHIND_HOME_RUNS) {
@@ -155,15 +159,16 @@ final class MacStreamSettings implements MacClient.SettingsListener {
             LinearLayout picture = s.section(content, c.getString(R.string.xd_mac_picture));
             if (h.bitrate != null) {
                 String note = waiting(pending, HostSettings.BITRATE, R.string.xd_mac_quality_note);
-                if (open) s.valueRow(picture, c.getString(R.string.xd_mac_quality), note, qualityTitle(h.bitrate), () -> pickQuality(client));
+                if (open) s.selectRow(picture, c.getString(R.string.xd_mac_quality), note, qualityTitle(h.bitrate), Style.TEXT_DIM, () -> pickQuality(client));
                 else s.infoRow(picture, c.getString(R.string.xd_mac_quality), note, qualityTitle(h.bitrate));
             }
             if (h.captureScale != null) {
-                String[] names = {c.getString(R.string.xd_mac_scale_retina), c.getString(R.string.xd_mac_scale_standard)};
-                final int at = h.captureScale >= 1.5 ? 0 : 1;
-                String note = waiting(pending, HostSettings.CAPTURE_SCALE, R.string.xd_mac_scale_note);
+                // SetMacStream's order: Standard, then Retina
+                String[] names = {c.getString(R.string.xd_mac_scale_standard), c.getString(R.string.xd_mac_scale_retina)};
+                final int at = h.captureScale >= 1.5 ? 1 : 0;
+                String note = pending == HostSettings.CAPTURE_SCALE ? c.getString(R.string.xd_mac_set_waiting) : null;
                 if (open) s.segmentedRow(picture, c.getString(R.string.xd_mac_scale), note, names, at, which -> {
-                    if (which != at) change(client, HostSettings.CAPTURE_SCALE, HostSettings.SCALE_CHOICES[which], null);
+                    if (which != at) change(client, HostSettings.CAPTURE_SCALE, which == 0 ? 1.0 : 2.0, null);
                 });
                 else s.infoRow(picture, c.getString(R.string.xd_mac_scale), note, names[at]);
             }
@@ -176,8 +181,8 @@ final class MacStreamSettings implements MacClient.SettingsListener {
                 }
                 final int at = found;
                 // A limit set by hand on the Mac (defaults write) is none of the choices: said in the note
-                String note = waiting(pending, HostSettings.MAX_FPS, R.string.xd_mac_fps_note);
-                if (at < 0) note = c.getString(R.string.xd_mac_fps_value, h.maxFPS) + ". " + note;
+                String note = pending == HostSettings.MAX_FPS ? c.getString(R.string.xd_mac_set_waiting) : null;
+                if (at < 0) note = c.getString(R.string.xd_mac_fps_value, h.maxFPS);
                 if (open) s.segmentedRow(picture, c.getString(R.string.xd_mac_fps), note, names, at, which -> {
                     if (which != at) change(client, HostSettings.MAX_FPS, HostSettings.FPS_CHOICES[which], null);
                 });
@@ -199,10 +204,11 @@ final class MacStreamSettings implements MacClient.SettingsListener {
 
         // This device's own: kept here (MacStore.Stream), never sent as a setting
         LinearLayout device = s.section(content, c.getString(R.string.xd_mac_this_device));
-        final int[] caps = {0, 60, 30};
-        String[] capNames = {c.getString(R.string.xd_mac_cap_screen), c.getString(R.string.xd_mac_fps_value, 60), c.getString(R.string.xd_mac_fps_value, 30)};
-        int capAt = own.fpsCap == 60 ? 1 : own.fpsCap == 30 ? 2 : 0;
-        s.segmentedRow(device, c.getString(R.string.xd_mac_cap), c.getString(R.string.xd_mac_cap_note), capNames, capAt, which -> {
+        // SetMacStream's order: follow the screen, 30, 60
+        final int[] caps = {0, 30, 60};
+        String[] capNames = {c.getString(R.string.xd_mac_cap_screen), c.getString(R.string.xd_mac_fps_value, 30), c.getString(R.string.xd_mac_fps_value, 60)};
+        int capAt = own.fpsCap == 60 ? 2 : own.fpsCap == 30 ? 1 : 0;
+        s.segmentedRow(device, c.getString(R.string.xd_mac_cap), null, capNames, capAt, which -> {
             MacStore.setStreamOptions(c, macId, caps[which], MacStore.stream(c, macId).sound, MacStore.stream(c, macId).muted);
             client.streamOptionsChanged();
             drawn = snapshot(client);
