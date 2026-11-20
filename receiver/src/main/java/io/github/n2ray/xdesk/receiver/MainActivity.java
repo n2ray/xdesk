@@ -2,13 +2,14 @@ package io.github.n2ray.xdesk.receiver;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.hardware.display.DisplayManager;
 import android.media.AudioManager;
 import android.net.nsd.NsdManager;
@@ -30,10 +31,12 @@ import android.view.PointerIcon;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -57,7 +60,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private FrameLayout root;
     private SurfaceView view;
     private View overlay;
-    private TextView title, code, body, footer;
+    private LinearLayout idleBox, pairBox, messageBox;
+    private TextView idleTitle, idleHint, idleAddress, idleBody, footer;
+    private TextView pairTitle, pairHint, pairBody;
+    private Chrome.Code pairCode;
+    private TextView messageTitle, messageBody;
 
     private boolean started, running, portBusy;
     private SurfaceHolder holder;
@@ -79,6 +86,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
     private Control control;
     private ImeView ime;
     private TextView modeTool;
+    private Chrome.Icon modeIcon;
     private TextView overviewTool, switcherTool;
     /** What the phone said in FEATURES: bit 0 it handles the Overview and Switcher buttons (ANDROID 4 and 5). */
     private int features;
@@ -201,54 +209,122 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
 
     private View buildOverlay() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(Color.BLACK);
+        frame.setBackground(Chrome.radial());
         // Phones: long-press anywhere. TV remotes: Menu, or a long press on OK (see onKeyLongPress)
         frame.setOnLongClickListener(v -> {
             showOptions();
             return true;
         });
+
+        // Waiting: the mark, the name, the hint and the address, as RecvIdle.dc.html has them
+        idleBox = column();
+        FrameLayout mark = new FrameLayout(this);
+        mark.addView(new Chrome.Rings(this), new FrameLayout.LayoutParams(dp(200), dp(200), Gravity.CENTER));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.xdesk_ic_fg);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        logo.setBackground(Chrome.rounded(this, 0xFF11151C, 24));
+        mark.addView(logo, new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.CENTER));
+        idleBox.addView(mark, new LinearLayout.LayoutParams(dp(200), dp(200)));
+        idleTitle = titleLabel(34);
+        idleHint = label(20, Chrome.HINT);
+        idleAddress = label(16, Chrome.DIM);
+        idleAddress.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        idleBody = label(18, Chrome.HINT);
+        add(idleBox, idleTitle, 18);
+        add(idleBox, idleHint, 18);
+        add(idleBox, idleAddress, 18);
+        add(idleBox, idleBody, 12);
+        frame.addView(idleBox, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+
+        // Pairing: the name, four digit boxes and the hint, with a footer of its own (RecvPairing.dc.html)
+        pairBox = column();
+        pairTitle = titleLabel(30);
+        pairCode = new Chrome.Code(this);
+        pairHint = label(20, Chrome.HINT);
+        pairBody = label(16, Chrome.WARN);
+        pairBox.addView(pairTitle);
+        LinearLayout.LayoutParams digits = new LinearLayout.LayoutParams(-1, dp(140));
+        digits.topMargin = dp(28);
+        pairBox.addView(pairCode, digits);
+        add(pairBox, pairHint, 28);
+        add(pairBox, pairBody, 12);
+        frame.addView(pairBox, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+
+        // Connecting and errors: a line or two, as before
+        messageBox = column();
+        messageTitle = titleLabel(30);
+        messageBody = label(20, Chrome.HINT);
+        messageBox.addView(messageTitle);
+        add(messageBox, messageBody, 12);
+        frame.addView(messageBox, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+
+        footer = label(13, Chrome.FAINT);
+        footer.setPadding(dp(24), dp(24), dp(24), dp(26));
+        frame.addView(footer, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        return frame;
+    }
+
+    private LinearLayout column() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         int pad = dp(24);
         box.setPadding(pad, pad, pad, pad);
-        title = text(30, Color.WHITE);
-        code = text(96, Color.WHITE);
-        code.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        code.setLetterSpacing(0.2f);
-        body = text(20, 0xFFB0B8C4);
-        box.addView(title);
-        box.addView(code);
-        box.addView(body);
-        frame.addView(box, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
-        footer = text(14, 0xFF6B7380);
-        footer.setPadding(pad, pad, pad, pad);
-        frame.addView(footer, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-        return frame;
+        return box;
     }
 
-    /** A small handle on the right edge; it opens Keyboard, Back, Home and Disconnect. */
+    private TextView label(float sp, int color) {
+        TextView t = new TextView(this);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        t.setGravity(Gravity.CENTER);
+        t.setLineSpacing(0, 1.25f);
+        t.setIncludeFontPadding(false);
+        t.setPadding(0, 0, 0, 0);
+        return t;
+    }
+
+    private TextView titleLabel(float sp) {
+        TextView t = label(sp, Chrome.TEXT);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        return t;
+    }
+
+    private void add(LinearLayout box, View child, int gapDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.topMargin = dp(gapDp);
+        box.addView(child, lp);
+    }
+
+    /** The handle on the right edge: Keyboard, the input mode, Back, Home, Launchpad, Switcher, Disconnect. */
     private LinearLayout buildBar() {
         LinearLayout b = new LinearLayout(this);
         b.setOrientation(LinearLayout.HORIZONTAL);
         b.setGravity(Gravity.CENTER_VERTICAL);
         tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
-        tools.setBackground(rounded(0xE61D1D1F, dp(14)));
-        tools.setPadding(dp(4), dp(4), dp(4), dp(4));
-        tools.addView(tool(R.string.bar_keyboard, v -> showKeyboard()));
+        tools.setGravity(Gravity.CENTER_HORIZONTAL);
+        tools.setBackground(Chrome.shell(this, 20));
+        tools.setPadding(dp(6), dp(6), dp(6), dp(6));
+        tools.addView(tool(R.string.bar_keyboard, Chrome.KEYBOARD, Chrome.TEXT, v -> showKeyboard()));
         // Shows the mode now, as the phone's button does. Over an Android app it is the phone's one choice for
         // that app (FEATURES bit 6): asked of the phone, which tells both sides; elsewhere only this device switches
-        modeTool = tool(R.string.bar_touchpad, v -> switchPadMode());
+        modeIcon = new Chrome.Icon(this, Chrome.TABLET, Chrome.TEXT);
+        modeTool = tool(R.string.bar_touchpad, modeIcon, Chrome.TEXT, v -> switchPadMode());
         tools.addView(modeTool);
-        tools.addView(tool(R.string.bar_back, v -> control.android(Control.ANDROID_BACK)));
-        tools.addView(tool(R.string.bar_home, v -> control.android(Control.ANDROID_HOME)));
+        tools.addView(separator());
+        tools.addView(tool(R.string.bar_back, Chrome.BACK, Chrome.TEXT, v -> control.android(Control.ANDROID_BACK)));
+        tools.addView(tool(R.string.bar_home, Chrome.HOME, Chrome.TEXT, v -> control.android(Control.ANDROID_HOME)));
         // Only for a phone that said FEATURES bit 0: the switchboard and one step of its app switcher
-        overviewTool = tool(R.string.bar_overview, v -> control.android(Control.ANDROID_OVERVIEW));
+        overviewTool = tool(R.string.bar_overview, Chrome.LAUNCHPAD, Chrome.TEXT,
+                v -> control.android(Control.ANDROID_OVERVIEW));
         tools.addView(overviewTool);
-        switcherTool = tool(R.string.bar_switcher, v -> control.android(Control.ANDROID_SWITCHER));
+        switcherTool = tool(R.string.bar_switcher, Chrome.SWITCHER, Chrome.TEXT,
+                v -> control.android(Control.ANDROID_SWITCHER));
         tools.addView(switcherTool);
-        tools.addView(tool(R.string.bar_disconnect, v -> {
+        tools.addView(separator());
+        tools.addView(tool(R.string.bar_disconnect, Chrome.DISCONNECT, Chrome.STOP, v -> {
             openBar(false);
             receiver.disconnect();
         }));
@@ -257,9 +333,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         b.addView(tools);
         FrameLayout handle = new FrameLayout(this);
         View pill = new View(this);
-        pill.setBackground(rounded(0xFF3D7EF5, dp(4)));
-        pill.setElevation(dp(3));
-        handle.addView(pill, new FrameLayout.LayoutParams(dp(7), dp(64), Gravity.CENTER));
+        pill.setBackground(Chrome.rounded(this, Chrome.ACCENT, 4));
+        handle.addView(pill, new FrameLayout.LayoutParams(dp(7), dp(64), Gravity.CENTER_VERTICAL | Gravity.END));
         handle.setPadding(dp(10), dp(16), dp(8), dp(16));
         handle.setOnClickListener(v -> openBar(tools.getVisibility() != View.VISIBLE));
         b.addView(handle);
@@ -267,27 +342,37 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         return b;
     }
 
-    private TextView tool(int label, View.OnClickListener click) {
+    private View separator() {
+        View v = new View(this);
+        v.setBackgroundColor(0x1AFFFFFF);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, Math.max(1, dp(1)));
+        lp.setMargins(dp(10), dp(2), dp(10), dp(2));
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    private TextView tool(int label, int icon, int color, View.OnClickListener click) {
+        return tool(label, new Chrome.Icon(this, icon, color), color, click);
+    }
+
+    private TextView tool(int label, Chrome.Icon icon, int color, View.OnClickListener click) {
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextSize(15);
-        t.setTextColor(Color.WHITE);
+        t.setTextSize(12);
+        t.setTextColor(color);
         t.setGravity(Gravity.CENTER);
-        t.setMinWidth(dp(72));
-        t.setPadding(dp(14), dp(12), dp(14), dp(12));
+        t.setIncludeFontPadding(false);
+        t.setCompoundDrawables(null, icon, null, null);
+        t.setCompoundDrawablePadding(dp(4));
+        t.setMinWidth(dp(76));
+        t.setMinHeight(dp(58));
+        t.setPadding(dp(2), dp(4), dp(2), dp(4));
         t.setOnClickListener(v -> {
             click.onClick(v);
             ui.removeCallbacks(closeBar);
             ui.postDelayed(closeBar, BAR_OPEN_MS);
         });
         return t;
-    }
-
-    private static GradientDrawable rounded(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(radius);
-        return d;
     }
 
     private void openBar(boolean open) {
@@ -362,16 +447,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         } catch (RuntimeException e) {
             Log.i(TAG, "clipboard: " + e);
         }
-    }
-
-    private TextView text(float sp, int color) {
-        TextView t = new TextView(this);
-        t.setTextSize(sp);
-        t.setTextColor(color);
-        t.setGravity(Gravity.CENTER);
-        t.setLineSpacing(0, 1.25f);
-        t.setPadding(0, dp(8), 0, dp(8));
-        return t;
     }
 
     private int dp(int v) {
@@ -531,42 +606,62 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
             }
         }
         applyPointerIcon();
-        code.setVisibility(state == State.PAIRING ? View.VISIBLE : View.GONE);
-        footer.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
+        idleBox.setVisibility(state == State.IDLE ? View.VISIBLE : View.GONE);
+        pairBox.setVisibility(state == State.PAIRING ? View.VISIBLE : View.GONE);
+        messageBox.setVisibility(state == State.CONNECTING || state == State.ERROR ? View.VISIBLE : View.GONE);
+        footer.setVisibility(state == State.IDLE || state == State.PAIRING ? View.VISIBLE : View.GONE);
         switch (state) {
             case IDLE: {
-                title.setText(store.name());
-                StringBuilder b = new StringBuilder();
+                idleTitle.setText(store.name());
+                idleHint.setText(R.string.idle_hint);
                 List<String> addrs = Screen.addresses();
-                if (portBusy) b.append(getString(R.string.idle_port_busy, Receiver.PORT));
-                else if (addrs.isEmpty()) b.append(getString(R.string.idle_no_network));
-                else {
+                if (portBusy) {
+                    idleAddress.setText("");
+                    idleAddress.setVisibility(View.GONE);
+                    idleBody.setText(getString(R.string.idle_port_busy, Receiver.PORT));
+                    idleBody.setVisibility(View.VISIBLE);
+                } else if (addrs.isEmpty()) {
+                    idleAddress.setText("");
+                    idleAddress.setVisibility(View.GONE);
+                    idleBody.setText(R.string.idle_no_network);
+                    idleBody.setVisibility(View.VISIBLE);
+                } else {
                     StringBuilder a = new StringBuilder();
                     for (int i = 0; i < Math.min(3, addrs.size()); i++) {
                         if (i > 0) a.append("   ");
-                        a.append(addrs.get(i)).append(':').append(Receiver.PORT);
+                        a.append(addrs.get(i));
                     }
-                    b.append(getString(R.string.idle_address, a));
+                    idleAddress.setText(getString(R.string.idle_address, a));
+                    idleAddress.setVisibility(View.VISIBLE);
+                    idleBody.setText("");
+                    idleBody.setVisibility(View.GONE);
                 }
-                b.append("\n\n").append(getString(R.string.idle_hint));
-                body.setText(b);
-                footer.setText(getString(R.string.app_name) + " " + version() + "  ·  "
-                        + getString(R.string.idle_options));
+                footer.setText(getString(R.string.idle_options) + " · "
+                        + getString(R.string.app_name) + " " + version());
                 break;
             }
             case PAIRING:
-                title.setText(getString(R.string.pairing_title, phone));
-                code.setText(pairingCode);
-                body.setText(pairingRetry ? getString(R.string.pairing_wrong) + "\n" + getString(R.string.pairing_hint)
-                        : getString(R.string.pairing_hint));
+                pairTitle.setText(getString(R.string.pairing_title, phone));
+                pairCode.setCode(pairingCode);
+                pairHint.setText(R.string.pairing_hint);
+                if (pairingRetry) {
+                    pairBody.setText(R.string.pairing_wrong);
+                    pairBody.setVisibility(View.VISIBLE);
+                } else {
+                    pairBody.setText("");
+                    pairBody.setVisibility(View.GONE);
+                }
+                footer.setText(R.string.pairing_remember);
                 break;
             case CONNECTING:
-                title.setText(getString(R.string.connecting, phone));
-                body.setText("");
+                messageTitle.setText(getString(R.string.connecting, phone));
+                messageBody.setText("");
+                messageBody.setVisibility(View.GONE);
                 break;
             case ERROR:
-                title.setText(phone);
-                body.setText(error);
+                messageTitle.setText(phone);
+                messageBody.setText(error);
+                messageBody.setVisibility(View.VISIBLE);
                 break;
             default:
                 break;
@@ -804,6 +899,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         control.setFingers(phoneWantsTouch);
         control.setTouchpad(pad);
         modeTool.setText(pad ? R.string.bar_touchpad : R.string.bar_direct);
+        modeIcon.setIcon(pad ? Chrome.COMPUTER : Chrome.TABLET);
+        modeTool.setCompoundDrawables(null, modeIcon, null, null);
     }
 
     /** Overview and Switcher in the handle only for a phone that said FEATURES bit 0. */
@@ -865,26 +962,97 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Re
         return super.onKeyUp(keyCode, event);
     }
 
+    /** RecvMenu.dc.html: the receiver's options over the dimmed waiting screen. */
     private void showOptions() {
         // Only on the idle screen: during a stream the picture is all there is
         if (state != State.IDLE || isFinishing()) return;
-        new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle(R.string.app_name)
-                .setItems(new CharSequence[] { getString(R.string.menu_rename), getString(R.string.menu_forget),
-                                getString(store.control() ? R.string.menu_control_off : R.string.menu_control_on) },
-                        (d, which) -> {
-                            if (which == 0) rename();
-                            else if (which == 2) {
-                                store.setControl(!store.control());
-                                receiver.control = store.control();
-                                Toast.makeText(this, store.control() ? R.string.control_on : R.string.control_off,
-                                        Toast.LENGTH_LONG).show();
-                            } else {
-                                store.forgetPhones();
-                                Toast.makeText(this, R.string.forgotten, Toast.LENGTH_LONG).show();
-                            }
-                        })
-                .show();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackground(Chrome.shell(this, 22));
+        panel.setPadding(dp(10), dp(10), dp(10), dp(10));
+
+        TextView head = label(14, Chrome.DIM);
+        head.setGravity(Gravity.START);
+        head.setPadding(dp(20), dp(8), dp(20), dp(6));
+        head.setText(R.string.options_title);
+        panel.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        final View renameRow = optionRow(Chrome.RENAME, getString(R.string.menu_rename), Chrome.TEXT, null, v -> {
+            dialog.dismiss();
+            rename();
+        });
+        panel.addView(renameRow, new LinearLayout.LayoutParams(-1, -2));
+
+        View controlRow = optionRow(Chrome.COMPUTER, getString(R.string.menu_control_on), Chrome.TEXT,
+                new Chrome.Toggle(this, store.control()), v -> {
+                    store.setControl(!store.control());
+                    receiver.control = store.control();
+                    Toast.makeText(this, store.control() ? R.string.control_on : R.string.control_off,
+                            Toast.LENGTH_LONG).show();
+                    dialog.dismiss();
+                });
+        panel.addView(controlRow, new LinearLayout.LayoutParams(-1, -2));
+
+        View forgetRow = optionRow(Chrome.FORGET, getString(R.string.menu_forget), Chrome.DANGER, null, v -> {
+            store.forgetPhones();
+            Toast.makeText(this, R.string.forgotten, Toast.LENGTH_LONG).show();
+            dialog.dismiss();
+        });
+        panel.addView(forgetRow, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView foot = label(13, Chrome.FAINT);
+        foot.setGravity(Gravity.START);
+        foot.setPadding(dp(20), dp(10), dp(20), dp(4));
+        foot.setText(R.string.options_remote);
+        panel.addView(foot, new LinearLayout.LayoutParams(-1, -2));
+
+        dialog.setContentView(panel);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams lp = w.getAttributes();
+            lp.dimAmount = 0.5f;
+            w.setAttributes(lp);
+            w.setLayout(Math.min(dp(480), getResources().getDisplayMetrics().widthPixels - dp(32)), -2);
+        }
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+        renameRow.post(renameRow::requestFocus);
+    }
+
+    /** One row of the options: an icon, its words, and on the right the switch the screen's mockup draws. */
+    private View optionRow(int icon, CharSequence label, int color, View trailing, View.OnClickListener click) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(58));
+        row.setPadding(dp(20), 0, dp(20), 0);
+        row.setBackground(Chrome.row(this));
+        row.setFocusable(true);
+        row.setFocusableInTouchMode(true);
+        row.setClickable(true);
+        row.setOnClickListener(click);
+        ImageView mark = new ImageView(this);
+        mark.setImageDrawable(new Chrome.Icon(this, icon, color));
+        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(20), dp(20));
+        markParams.rightMargin = dp(14);
+        row.addView(mark, markParams);
+        TextView words = new TextView(this);
+        words.setText(label);
+        words.setTextSize(18);
+        words.setTextColor(color);
+        words.setSingleLine(true);
+        words.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (trailing != null) {
+            LinearLayout.LayoutParams trailingParams = new LinearLayout.LayoutParams(dp(46), dp(28));
+            trailingParams.leftMargin = dp(12);
+            row.addView(trailing, trailingParams);
+        }
+        return row;
     }
 
     private void rename() {

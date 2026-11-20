@@ -10,10 +10,13 @@
     <string name="pairing_title">Pair with %1$s</string>
     <string name="pairing_hint">Enter this code in XDesk on the phone</string>
     <string name="pairing_wrong">Wrong code, try again</string>
+    <string name="pairing_remember">Pair once: this phone will not ask again</string>
     <string name="connecting">Connecting to %1$s…</string>
     <string name="cannot_decode">This device cannot play the video from %1$s (%2$d×%3$d)</string>
     <string name="menu_rename">Rename this receiver</string>
     <string name="menu_forget">Forget paired phones</string>
+    <string name="options_title">Receiver options</string>
+    <string name="options_remote">Remote: up/down to choose · OK · Back closes</string>
     <string name="forgotten">Paired phones forgotten. They will need a new code.</string>
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>

@@ -7,7 +7,9 @@
 // ---------------------------------------------------------------- text
 const zh = /^zh/i.test(navigator.language || '');
 const T = zh ? {
-  connecting: '正在连接手机…', pair: '输入手机上显示的 4 位码', wrong: '码不对，再看一下手机', pairBtn: '连接',
+  title: '连接手机', connecting: '正在连接手机…', pair: '输入手机上「网页显示」里显示的 4 位码。\n同一个浏览器只要输一次。',
+  wrong: '码不对，再看一下手机', pairBtn: '连接', codeLabel: '配对码',
+  foot: '画面、声音、鼠标和键盘都走这个页面 · 同一时间只连一个浏览器',
   refused: '输错太多次，请 1 分钟后再试', busy: n => `手机正在投屏到 ${n || '别的设备'}，结束后会自动连上`,
   closed: '请在手机上打开 XDesk，打开后会自动连上', version: '手机上的 XDesk 版本不对，请更新', lost: '连接断开，正在重连…',
   noVideo: '这个浏览器不能播放 H.264 视频流，请换 Safari、Chrome、Edge 或 Firefox', connect: '连接',
@@ -18,7 +20,9 @@ const T = zh ? {
   lockHint: '点一下画面锁定鼠标，按 Esc 解锁', ended: '手机结束了投屏', leave: '要断开 XDesk 吗？',
   pairing: '另一个浏览器正在配对，稍后自动重试', noPicture: '连上了手机，但几次都没有画面，已停止重连。看一下手机上 XDesk 的提示。',
 } : {
-  connecting: 'Connecting to the phone…', pair: 'Enter the 4-digit code shown on the phone', wrong: 'Wrong code, look at the phone again', pairBtn: 'Connect',
+  title: 'Connect to the phone', connecting: 'Connecting to the phone…', pair: 'Enter the 4-digit code shown under Web display on the phone.\nThis browser only has to enter it once.',
+  wrong: 'Wrong code, look at the phone again', pairBtn: 'Connect', codeLabel: 'Pairing code',
+  foot: 'Picture, sound, mouse and keyboard all go through this page · one browser at a time',
   refused: 'Too many wrong codes, try again in a minute', busy: n => `The phone is streaming to ${n || 'another device'}; this connects when it ends`,
   closed: 'Open XDesk on the phone; this connects once it is open', version: 'XDesk on the phone does not match, update it', lost: 'Connection lost, reconnecting…',
   noVideo: 'This browser cannot play an H.264 stream. Try Safari, Chrome, Edge or Firefox', connect: 'Connect',
@@ -41,6 +45,7 @@ const $ = id => document.getElementById(id);
 const stage = $('stage'), video = $('video'), canvas = $('canvas'), kbd = $('kbd');
 const panel = $('panel'), statusEl = $('status'), pairForm = $('pair'), codeIn = $('code'), noteEl = $('note');
 const connectBtn = $('b-connect'), bar = $('bar'), hint = $('hint');
+const titleEl = $('title'), footEl = $('foot'), codeBoxes = Array.prototype.slice.call(document.querySelectorAll('#boxes .cb'));
 
 let pageVersion = null;
 let ws = null, live = false, quitting = false, retryTimer = 0, retryDelay = 1500;
@@ -93,6 +98,7 @@ function show(text, opts = {}) {
   connectBtn.classList.toggle('hidden', !opts.button);
   connectBtn.textContent = opts.button || '';
   if (opts.pair) setTimeout(() => codeIn.focus(), 50);
+  paintCode();
 }
 
 function send(type, payload) {
@@ -158,8 +164,8 @@ function retryLater(ms) {
 
 function onStatus(m) {
   switch (m.status) {
-    case 'pair': show(T.pair, { pair: true }); codeIn.value = ''; break;
-    case 'wrong': show(T.wrong, { pair: true }); codeIn.value = ''; break;
+    case 'pair': show(T.pair, { pair: true }); codeIn.value = ''; paintCode(); break;
+    case 'wrong': show(T.wrong, { pair: true }); codeIn.value = ''; paintCode(); break;
     case 'refused': show(T.refused); break;
     case 'busy': show(T.busy(m.name)); break;
     case 'closed': show(T.closed); break;
@@ -184,6 +190,20 @@ function onStatus(m) {
   }
 }
 
+// WebPair.dc.html draws four boxes; the field is still the one that takes the code, as before
+function paintCode() {
+  const digits = codeIn.value.replace(/\D/g, '');
+  const focused = document.activeElement === codeIn;
+  const active = Math.min(digits.length ? digits.length - 1 : 0, 3);
+  codeBoxes.forEach((b, i) => {
+    b.textContent = digits[i] || '';
+    b.classList.toggle('f', focused && i === active);
+  });
+}
+codeIn.addEventListener('focus', paintCode);
+codeIn.addEventListener('blur', paintCode);
+$('boxes').addEventListener('click', () => codeIn.focus());
+
 pairForm.addEventListener('submit', e => {
   e.preventDefault();
   const code = codeIn.value.replace(/\D/g, '');
@@ -192,7 +212,10 @@ pairForm.addEventListener('submit', e => {
   codeIn.blur();
   show(T.connecting);
 });
-codeIn.addEventListener('input', () => { if (codeIn.value.replace(/\D/g, '').length === 4) pairForm.requestSubmit ? pairForm.requestSubmit() : pairForm.dispatchEvent(new Event('submit')); });
+codeIn.addEventListener('input', () => {
+  paintCode();
+  if (codeIn.value.replace(/\D/g, '').length === 4) pairForm.requestSubmit ? pairForm.requestSubmit() : pairForm.dispatchEvent(new Event('submit'));
+});
 connectBtn.addEventListener('click', () => { retryDelay = 1500; connect(); });
 
 // ?debug: statistics on screen, and sent to the phone as text messages (it ignores them, a test server logs them)
@@ -1091,7 +1114,10 @@ document.addEventListener('fullscreenchange', onFullscreen);
 document.addEventListener('webkitfullscreenchange', onFullscreen);
 
 for (const [k, id] of [['back', 'b-back'], ['home', 'b-home'], ['overview', 'b-overview'], ['full', 'b-full'], ['kbd', 'b-kbd'], ['sound', 'b-sound'], ['quit', 'b-quit']]) {
-  $(id).textContent = T[k];
+  const button = $(id);
+  button.querySelector('span').textContent = T[k];
+  button.title = T[k];
+  button.setAttribute('aria-label', T[k]);
 }
 $('handle').setAttribute('aria-label', T.tools);
 // The phone does the actions for whatever is on the picture (receiver/PROTOCOL.md ANDROID)
@@ -1148,6 +1174,9 @@ function flash(text, ms) {
 
 // ---------------------------------------------------------------- start
 stage.classList.add('free');
+titleEl.textContent = T.title;
+footEl.textContent = T.foot;
+codeIn.setAttribute('aria-label', T.codeLabel);
 pairForm.querySelector('button').textContent = T.pairBtn;
 const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
 noteEl.textContent = standalone ? '' : T.noteHttp;

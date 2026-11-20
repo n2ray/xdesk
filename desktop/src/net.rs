@@ -308,6 +308,17 @@ pub fn notice() -> Notice {
     NOTICE.lock().unwrap().clone().unwrap_or_default()
 }
 
+/// The phone of the connection in use, as it gave its name in HELLO; None while there is none.
+pub fn current_phone() -> Option<String> {
+    CURRENT_PHONE.lock().unwrap().clone()
+}
+
+/// The usual words of waiting before anyone connects (MacWait.dc.html): a title, then how to connect.
+pub fn waiting() -> bool {
+    let n = notice();
+    n.big.is_empty() && n.line.as_str() == how_to_connect()
+}
+
 fn say(line: &str, big: &str) {
     *NOTICE.lock().unwrap() = Some(Notice { line: line.to_string(), big: big.to_string() });
 }
@@ -1032,7 +1043,7 @@ fn connect_over_usb(path: &str, serial: &str, name: &str) {
 }
 
 fn how_to_connect() -> &'static str {
-    tr("插上手机（打开 USB 调试），或者在手机的 XDesk 里选“连接接收器”", "Plug in the phone (with USB debugging on), or choose this computer in XDesk on the phone")
+    tr("插上手机（打开 USB 调试），或者在手机的 XDesk 里选「连接接收器」", "Plug in the phone (with USB debugging on), or choose this computer in XDesk on the phone")
 }
 
 /// The devices on a cable in `adb devices -l`, with their state. adb also lists phones it reached over the network

@@ -13,7 +13,7 @@ shows up in both phone and TV (leanback) launchers.
 
 ## Use
 
-1. Open XDesk Receiver. It shows its name, its address and port (47140), and waits.
+1. Open XDesk Receiver. It shows its name and its address, and waits (the port is always 47140).
 2. Open XDesk on the phone, on the same network, and choose this display. It is found over mDNS
    (`_xdesk-display._tcp`); across subnets, type the address shown on the receiver.
 3. The first time, the receiver shows a 4-digit code: type it on the phone. After 3 wrong codes the attempt is refused

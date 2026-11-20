@@ -3,7 +3,7 @@
 //!
 //! Control+Option with: Esc gives the keyboard and mouse back until the next click, F full screen, B back, H home,
 //! R the recent apps of an old phone, or the switchboard (启动台) with FEATURES bit 0, D the latency panel, L low
-//! latency. The same things are in the bar at the top edge and in the menu.
+//! latency. The same things are in the bar on the right edge and in the menu.
 
 mod clip;
 mod lang;
@@ -58,10 +58,10 @@ const HANDLE_LEFT: u32 = 10;
 const HANDLE_RIGHT: u32 = 8;
 const HANDLE_ABOVE: u32 = 16;
 const HANDLE_BLUE: Color = Color::RGB(0x3d, 0x7e, 0xf5);
-const BAR_HEIGHT: u32 = 40;
+const BAR_HEIGHT: u32 = 54;
 const BAR_PADDING: u32 = 14;
 const BAR_MIN_WIDTH: u32 = 72;
-const BAR_INSET: u32 = 4;
+const BAR_INSET: u32 = 6;
 /// Open, it closes this long after the last press, as on the receiver; the pointer resting on it keeps it open.
 const BAR_OPEN_FOR: Duration = Duration::from_secs(6);
 const BAR_TEXT: f32 = 14.0;
@@ -536,6 +536,7 @@ fn main() -> Result<(), String> {
                     low_latency = !low_latency;
                     set_vsync(&canvas, !low_latency);
                     net::save("low_latency", if low_latency { "1" } else { "0" });
+                    menu::set_low_latency(low_latency);
                     net::toast(if low_latency { tr("低延迟模式：开", "Low latency: on") } else { tr("低延迟模式：关（垂直同步）", "Low latency: off (vertical sync)") });
                 }
                 ACT_DISCONNECT => net::disconnect(),
@@ -646,12 +647,28 @@ fn main() -> Result<(), String> {
             notice_width = area.0;
             was_streaming = streaming;
             dirty = true;
-            let mut title = if notice.line.is_empty() { "XDesk".to_string() } else { format!("XDesk: {}", notice.line) };
+            let mut title = if streaming {
+                match net::current_phone() {
+                    Some(phone) if !phone.is_empty() => format!("XDesk — {phone}"),
+                    _ => "XDesk".to_string(),
+                }
+            } else if net::waiting() || notice.line.is_empty() {
+                "XDesk".to_string()
+            } else {
+                format!("XDesk: {}", notice.line)
+            };
             if let Some(v) = update::newer() {
                 title = format!("{title} — {}{v}", tr("有新版本 ", "update "));
             }
             canvas.window_mut().set_title(&title).map_err(|e| e.to_string())?;
-            notice_image = match words.render(&shown.0, &shown.1, area.0) {
+            // MacWait.dc.html's title over how to connect, but not while a toast has the picture's place
+            let waiting = !streaming && tap_ready && net::waiting() && net::current_toast().is_empty();
+            let image = if waiting {
+                words.waiting(&shown.0, area.0)
+            } else {
+                words.render(&shown.0, &shown.1, area.0)
+            };
+            notice_image = match image {
                 Some(image) => Some(words_texture(&creator, &image)?),
                 None => None,
             };
@@ -746,7 +763,7 @@ fn main() -> Result<(), String> {
             canvas.fill_rect(bar.line)?;
         }
         if bar_open {
-            canvas.set_draw_color(Color::RGBA(29, 29, 31, 230));
+            canvas.set_draw_color(Color::RGBA(17, 20, 26, 224));
             canvas.fill_rect(bar.panel)?;
             for (i, r) in bar.buttons.iter().enumerate() {
                 if bar_hover == Some(i) {
