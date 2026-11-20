@@ -1558,10 +1558,13 @@ html:not(.motion) #bgx{display:none}
     stageLabel(key);
   }
 
+  /* The X is position:fixed, so it lives in the layout viewport, the same
+     space getBoundingClientRect() measures in: no visual-viewport offsets (a
+     browser that is zoomed or panned a little put the X off-centre with them).
+     clientWidth leaves out a scrollbar; innerHeight follows a phone's toolbar. */
   function viewportBox() {
-    var vv = window.visualViewport;
-    if (vv) return { w: vv.width, h: vv.height, left: vv.offsetLeft || 0, top: vv.offsetTop || 0 };
-    return { w: window.innerWidth, h: window.innerHeight, left: 0, top: 0 };
+    var de = document.documentElement;
+    return { w: de.clientWidth || window.innerWidth, h: window.innerHeight || de.clientHeight, left: 0, top: 0 };
   }
 
   function slotRect(el, view) {
