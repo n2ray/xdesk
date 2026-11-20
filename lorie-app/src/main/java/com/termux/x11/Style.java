@@ -104,6 +104,32 @@ final class Style {
     }
 
     /**
+     * The no-display hint as the mockup draws it: a blue-tinted card with a screen icon in a soft ring and white text,
+     * the whole card a button (it opens the receiver picker), not a line of orange words.
+     */
+    static void hintCard(TextView t) {
+        Context c = t.getContext();
+        t.setBackground(ripple(c, 0xFF15203A, 14));
+        t.setTextColor(TEXT);
+        t.setTextSize(13);
+        t.setLineSpacing(0, 1.15f);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setPadding(dp(c, 14), dp(c, 12), dp(c, 14), dp(c, 12));
+        GradientDrawable ring = new GradientDrawable();
+        ring.setShape(GradientDrawable.OVAL);
+        ring.setColor(0x248DB8FF);
+        Drawable icon = c.getResources().getDrawable(com.termux.x11.app.R.drawable.xd_ic_display, c.getTheme()).mutate();
+        icon.setTint(MAC);
+        android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new Drawable[]{ring, icon});
+        int inset = dp(c, 9);
+        both.setLayerInset(1, inset, inset, inset, inset);
+        both.setBounds(0, 0, dp(c, 40), dp(c, 40));
+        t.setCompoundDrawablesRelative(both, null, null, null);
+        t.setCompoundDrawablePadding(dp(c, 12));
+        t.setClickable(true);
+    }
+
+    /**
      * A button that can be on: the on state is an accent-soft fill with a 1dp accent border, the off state its normal
      * colour. The state is shown by the look alone, never by "on"/"off" in the label.
      */

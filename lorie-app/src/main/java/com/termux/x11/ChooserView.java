@@ -149,9 +149,12 @@ final class ChooserView extends LinearLayout {
         activate = Style.button(c, "", Style.ACCENT, 14, Style.RADIUS);
         activate.setVisibility(GONE);
 
-        banner = Style.label(c, "", Style.TEXT_DIM, Style.TEXT_SMALL + 1);
-        banner.setPadding(0, Style.dp(c, 4), 0, 0);
-        banner.setOnClickListener(v -> host.onNoDisplayHint());
+        banner = Style.label(c, "", Style.TEXT, 13);
+        Style.hintCard(banner);
+        banner.setOnClickListener(v -> {
+            Style.tick(v);
+            host.onNoDisplayHint();
+        });
 
         notice = Style.label(c, "", Style.WARN, Style.TEXT_SMALL + 1);
         notice.setPadding(0, Style.dp(c, 4), 0, 0);
@@ -283,7 +286,9 @@ final class ChooserView extends LinearLayout {
 
             LinearLayout right = new LinearLayout(c);
             right.setOrientation(VERTICAL);
-            right.addView(banner, new LayoutParams(-1, -2));
+            LayoutParams np = new LayoutParams(-1, -2);
+            np.bottomMargin = Style.dp(c, 6);
+            right.addView(banner, np);
             right.addView(notice, new LayoutParams(-1, -2));
             LayoutParams bp = new LayoutParams(-1, -2);
             bp.topMargin = Style.dp(c, 6);
@@ -311,7 +316,9 @@ final class ChooserView extends LinearLayout {
             LayoutParams ap = new LayoutParams(-1, -2);
             ap.topMargin = Style.dp(c, Style.GAP);
             addView(activate, ap);
-            addView(banner, new LayoutParams(-1, -2));
+            LayoutParams np = new LayoutParams(-1, -2);
+            np.topMargin = Style.dp(c, Style.GAP);
+            addView(banner, np);
             addView(notice, new LayoutParams(-1, -2));
             LayoutParams tp = new LayoutParams(-1, -2);
             tp.topMargin = Style.dp(c, 10);
@@ -352,7 +359,6 @@ final class ChooserView extends LinearLayout {
     /** @param car 用的是车机：说法不同 (the items' words for it are the Switchboard's, from its host) */
     void setDisplayConnected(boolean connected, boolean car) {
         banner.setText(R.string.xd_chooser_no_display);
-        banner.setTextColor(Style.WARN);
         banner.setVisibility(connected ? GONE : VISIBLE);
     }
 

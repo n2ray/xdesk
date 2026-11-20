@@ -662,7 +662,14 @@ final class LaunchpadView extends LinearLayout {
         boolean any = false;
         if (notice != null) {
             // The no-display line opens the receiver picker here too, as the console list's banner does
-            notes.addView(noteLine(notice, noticeAction, noticeAction != null ? Style.ACCENT : Style.WARN));
+            TextView line = noteLine(notice, noticeAction, noticeAction != null ? Style.ACCENT : Style.WARN);
+            if (noticeAction != null) {
+                // With an action it is the no-display hint: the mockup's card, as on the console list
+                Style.hintCard(line);
+                LayoutParams cp = new LayoutParams(-1, -2);
+                cp.bottomMargin = dp(4);
+                notes.addView(line, cp);
+            } else notes.addView(line);
             any = true;
         }
         for (Switchboard.Item it : noteItems) {
