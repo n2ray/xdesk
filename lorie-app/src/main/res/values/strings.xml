@@ -386,6 +386,11 @@
     <string name="xd_section_display">Display</string>
     <string name="xd_section_about">About</string>
     <string name="xd_orientation">Control screen orientation</string>
+    <!-- Settings › General › Phone interface: the console mode or the Launchpad mode -->
+    <string name="xd_phone_ui">Phone interface</string>
+    <string name="xd_phone_ui_console">Console</string>
+    <string name="xd_phone_ui_launchpad">Launchpad</string>
+    <string name="xd_phone_ui_note">The console starts with the touchpad; the Launchpad starts with the app grid</string>
     <string name="xd_dim">Dim automatically</string>
     <string name="xd_dim_note">Only while an external screen is connected. A touch brings it back</string>
     <string name="xd_dim_30s">30 s</string>

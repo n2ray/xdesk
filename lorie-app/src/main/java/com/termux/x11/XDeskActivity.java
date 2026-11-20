@@ -13,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Insets;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
@@ -86,6 +87,9 @@ public class XDeskActivity extends Activity {
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
         PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density",
         PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked", PREF_NOTIFY_ACCESS_OFFERED = "notify_access_offered";
+    /** The phone's interface (Settings › General): the console (touchpad first) or the Launchpad (app grid first). */
+    private static final String PREF_PHONE_UI = "phone_ui";
+    private static final String UI_CONSOLE = "console", UI_LAUNCHPAD = "launchpad";
     /** Interface size of the external display under a Termux desktop: small enough for the input method's candidates. */
     private static final int DESKTOP_DENSITY = 168;
     /** IME this tall (part of the window) is a soft keyboard; less is the candidate bar of a physical keyboard. */
@@ -168,6 +172,12 @@ public class XDeskActivity extends Activity {
     /** 桌面放在了车机上。会话进行中不因为另一种屏接上就挪走。会话在进程里，界面重建后也要知道，所以是 static。 */
     private static boolean desktopOnCar;
     private ChooserView chooser;
+    /** The Launchpad mode's grid (Settings › General › Phone interface); hidden in the console mode. */
+    private LaunchpadView launchpad;
+    /** In the Launchpad mode the phone's page is the grid: something opened on the screen does not take it to the pad. */
+    private boolean launchpadPage;
+    /** The line above the launchers (a warning, no display): the grid is rebuilt on a turn and says it again. */
+    private String launcherNotice;
     /** 启动器上的提示现在是 NO_DISPLAY。 */
     private boolean displayNoticeShown;
     private AppSession apps;
@@ -662,7 +672,7 @@ public class XDeskActivity extends Activity {
             desktopGone();
             String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
             Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
-            chooser.setNotice(getString(byUser ? R.string.xd_desktop_ended_notice : R.string.xd_desktop_crashed_notice));
+            setLauncherNotice(getString(byUser ? R.string.xd_desktop_ended_notice : R.string.xd_desktop_crashed_notice));
         }
         @Override public void onDesktopStopFinished() {
             chooser.setStopping(null);
@@ -672,8 +682,8 @@ public class XDeskActivity extends Activity {
                 launchDesktop(restartName, false);
                 return;
             }
-            if (chooser.getVisibility() == View.VISIBLE) refreshTermux();
-            else ui.post(syncTermux);  // the Launchpad's device tabs and the home follow it too
+            if (launcherShown()) refreshTermux();
+            else ui.post(syncTermux);  // the device tabs and the home follow it too
         }
         @Override public void onSessionError(String message) {
             showSetup(getString(R.string.xd_termux_unreachable), message, false, getString(R.string.xd_back_to_launcher), new View.OnClickListener() {
@@ -776,7 +786,7 @@ public class XDeskActivity extends Activity {
             else startAutoReceiver();
             // A wireless/web display (a Mac receiver among them) came or went: the idle timer follows.
             if (!dimmed) bumpIdle();
-            if (chooser != null && chooser.getVisibility() == View.VISIBLE) updateChooserDisplay();
+            if (launcherShown()) updateChooserDisplay();
         }
         @Override public void onWirelessDisplay(int id) {
             // 系统的回调可能在 XDesk 知道这块显示器之前就来了，那时被当成别人的虚拟显示器忽略掉
@@ -1239,16 +1249,7 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public void onToggleKeys() { ownership.toggle(); }
-        @Override public void onSearchTouched() {
-            if (chooserTyping) return;
-            // The list beside a mouse takes no focus (updatePhoneFocus); its search line needs it, and the keyboard
-            chooserTyping = true;
-            boolean wasPassive = phonePassive;
-            updatePhoneFocus();
-            // The touch that came to a window taking no focus did not bring the focus to the phone's display
-            if (wasPassive && !phonePassive) apps.focusDisplay(Display.DEFAULT_DISPLAY);
-            ui.postDelayed(searchFocus, SEARCH_FOCUS_MS);
-        }
+        @Override public void onSearchTouched() { beginSearchTyping(); }
         @Override public void onOpenSettings() { showSettings(); }
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionChosen(final String name) {
@@ -1262,7 +1263,7 @@ public class XDeskActivity extends Activity {
                 return;
             }
             // 选择界面刚读过；从触摸板这边切换时可能已经过时，先问一下
-            if (chooser.getVisibility() == View.VISIBLE) sessionDecided(name);
+            if (launcherShown()) sessionDecided(name);
             else withFreshTermuxState(new Runnable() {
                 @Override public void run() { sessionDecided(name); }
             });
@@ -1317,6 +1318,28 @@ public class XDeskActivity extends Activity {
                 refreshTermux();
             }
         }
+    };
+
+    /** The Launchpad mode's grid (LaunchpadView): the phone's home page there. */
+    private final LaunchpadView.Host launchpadHost = new LaunchpadView.Host() {
+        @Override public void onLaunchpadOpen(String key) {
+            // The list's way of opening (Switchboard.open, then chooseKey); the phone stays where it is (showOpened
+            // keeps the grid in this mode). A tap must not take the external screen's keyboard focus: the same
+            // phonePassive/refocusExternal path the list uses (updatePhoneFocus is what makes it passive at all).
+            Switchboard.get(XDeskActivity.this).open(Switchboard.PHONE, key);
+            updatePhoneFocus();
+            if (phonePassive) refocusExternal();
+        }
+        @Override public void onItemLongPress(String key) { showItemCard(key); }
+        @Override public void onTouchpad() {
+            showRunning();
+            updateStatus();
+        }
+        @Override public void onToggleKeys() { ownership.toggle(); }
+        @Override public void onSearchTouched() { beginSearchTyping(); }
+        @Override public void onChooseOutput() { chooseOutput(); }
+        @Override public void onDim() { setDimmed(true); }
+        @Override public void onOpenSettings() { showSettings(); }
     };
 
     private final InputManager.InputDeviceListener deviceListener = new InputManager.InputDeviceListener() {
@@ -1398,7 +1421,7 @@ public class XDeskActivity extends Activity {
         @Override public void run() {
             // Not from the phone's list worked by finger alone. With a keyboard or mouse on the phone the list is the
             // phone's page while the content runs (showOpened), and those need this window's focus to reach the content
-            boolean list = chooser.getVisibility() == View.VISIBLE && !(externalDisplay() != null && hasExternalInput() && !phoneTyping());
+            boolean list = launcherShown() && !(externalDisplay() != null && hasExternalInput() && !phoneTyping());
             if (contentKey == null || !activityStarted || !phoneForwards() || list || SwitcherOverlay.isShown()) return;
             if (!hasWindowFocus()) {
                 Log.d(TAG, "focus: taking it back from the content's screen");
@@ -1452,6 +1475,8 @@ public class XDeskActivity extends Activity {
         cover = new ExternalCover(this);
         prefs = getPreferences(MODE_PRIVATE);
         migrateDimPref();
+        // The Launchpad mode's home is the grid, also when a session is already running at start
+        launchpadPage = launchpadMode();
         session = DesktopSession.get(this);
         apps = AppSession.get(this);
         appForwarded = apps.isForwarding();  // the session may outlive this window
@@ -1544,7 +1569,7 @@ public class XDeskActivity extends Activity {
         }
         if (apps.isActive()) return;
         if (!session.isActive()) {
-            if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
+            if (launcherShown()) refreshChooser();
             return;
         }
         Display d = desktopDisplay();
@@ -1677,7 +1702,7 @@ public class XDeskActivity extends Activity {
         if (focus) {
             if (padFullscreen || gamepadShown) applyImmersive();
             // 选择界面开着时焦点归搜索框
-            if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
+            if (!launcherShown()) keyView.requestFocus();
             updateCapture();
             // After Android's own handling of the focus: the input method and the text bridge on one connection again
             ui.removeCallbacks(reconnectIme);
@@ -1695,6 +1720,50 @@ public class XDeskActivity extends Activity {
         return Style.dp(this, v);
     }
 
+    /** Settings › General › Phone interface: the Launchpad (grid first) or the console (touchpad first, the default). */
+    private boolean launchpadMode() {
+        return UI_LAUNCHPAD.equals(prefs.getString(PREF_PHONE_UI, UI_CONSOLE));
+    }
+
+    /** The phone shows its launcher (the console's list, or the Launchpad grid). */
+    private boolean launcherShown() {
+        return chooser != null && chooser.getVisibility() == View.VISIBLE
+            || launchpad != null && launchpad.getVisibility() == View.VISIBLE;
+    }
+
+    /** A line on every launcher (the list's notice, and the Launchpad grid's line above it). */
+    private void setLauncherNotice(String text) {
+        launcherNotice = text;
+        if (chooser != null) chooser.setNotice(text);
+        if (launchpad != null) launchpad.setNotice(text);
+    }
+
+    /**
+     * Settings › General › Phone interface was changed: the running screen (its Launchpad pill) is built again at
+     * once, and the launcher showing, if any, becomes the new mode's. The touchpad page stays the touchpad page.
+     */
+    private void applyPhoneUi() {
+        if (screens == null || chooser == null || launchpad == null) return;
+        boolean home = launcherShown();
+        chooserTyping = false;
+        ui.removeCallbacks(searchFocus);
+        ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
+        ime.hideSoftInputFromWindow(launchpad.getWindowToken(), 0);
+        launcherWasDefault = launcherIsDefault();
+        rebuildRunning();
+        if (home) {
+            if (launchpadMode()) showLaunchpad();
+            else showChooserPage();
+        } else {
+            chooser.setVisibility(View.GONE);
+            launchpad.setVisibility(View.GONE);
+        }
+        updateChooserTop();
+        applyFullscreen();
+        updatePhoneFocus();
+        updateCapture();
+    }
+
     private View buildUi() {
         screens = new FrameLayout(this);
         screens.setBackgroundColor(Style.BACKGROUND);
@@ -1708,8 +1777,13 @@ public class XDeskActivity extends Activity {
         setupScreen = buildSetupScreen();
         screens.addView(runningScreen, new FrameLayout.LayoutParams(-1, -1));
         chooser = new ChooserView(this, chooserHost);
+        chooser.setVisibility(View.GONE);
         screens.addView(chooser, new FrameLayout.LayoutParams(-1, -1));
+        launchpad = new LaunchpadView(this, launchpadHost);
+        launchpad.setVisibility(View.GONE);
+        screens.addView(launchpad, new FrameLayout.LayoutParams(-1, -1));
         screens.addView(setupScreen, new FrameLayout.LayoutParams(-1, -1));
+        setupScreen.setVisibility(View.GONE);
         keyView = new KeyInputView(this, keySink);
         keyView.bridge().setCorrections(prefs.getBoolean(PREF_IME_CORRECTIONS, true));
         MacInput.translateModifiers = prefs.getBoolean(PREF_TRANSLATE_MODIFIERS, true);
@@ -1816,6 +1890,11 @@ public class XDeskActivity extends Activity {
         if (landscape) {
             // 横屏高度最值钱：状态、收藏和按钮共一行
             topBar = top;
+            if (launchpadMode()) {
+                LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, dp(36));
+                pp.rightMargin = dp(6);
+                top.addView(launchpadPill(), pp);
+            }
             top.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
             top.addView(statusText, new LinearLayout.LayoutParams(dp(128), -2));
             statusRow = null;
@@ -1828,6 +1907,11 @@ public class XDeskActivity extends Activity {
             LinearLayout status = new LinearLayout(this);
             status.setGravity(Gravity.CENTER_VERTICAL);
             status.setPadding(dp(4), dp(2), 0, dp(4));
+            if (launchpadMode()) {
+                LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, dp(36));
+                pp.rightMargin = dp(8);
+                status.addView(launchpadPill(), pp);
+            }
             status.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
             status.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1));
             statusRow = status;
@@ -1971,7 +2055,7 @@ public class XDeskActivity extends Activity {
     private void applyFullscreen() {
         updatePhoneFocus();
         boolean running = (apps.isActive() && apps.isStarted()) || session.isActive();
-        boolean want = running && chooser != null && chooser.getVisibility() != View.VISIBLE
+        boolean want = running && !launcherShown()
             && setupScreen.getVisibility() != View.VISIBLE && prefs.getBoolean(PREF_FULL_PAD, false);
         if (want == padFullscreen) return;
         padFullscreen = want;
@@ -1998,7 +2082,7 @@ public class XDeskActivity extends Activity {
         runningScreen = buildRunningScreen();
         screens.addView(runningScreen, 0, new FrameLayout.LayoutParams(-1, -1));
         updateStatus();
-        if (chooser.getVisibility() != View.VISIBLE) keyView.requestFocus();
+        if (!launcherShown()) keyView.requestFocus();
         updateCapture();
     }
 
@@ -2049,6 +2133,31 @@ public class XDeskActivity extends Activity {
         settingsBtn.onTap(new Runnable() {
             @Override public void run() { showSettings(); }
         });
+    }
+
+    /** The Launchpad mode's way back from the touchpad page to the grid: the accent pill in the top row. */
+    private TextView launchpadPill() {
+        final TextView b = Style.label(this, getString(R.string.xd_switcher_short), Style.TEXT, 13);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setSingleLine(true);
+        b.setPadding(dp(8), 0, dp(14), 0);
+        b.setBackground(Style.ripple(this, Style.ACCENT, 18));
+        Drawable back = getDrawable(R.drawable.xd_ic_back);
+        if (back != null) {
+            back = back.mutate();
+            back.setTint(Style.TEXT);
+            int s = dp(18);
+            back.setBounds(0, 0, s, s);
+            b.setCompoundDrawablesRelative(back, null, null, null);
+            b.setCompoundDrawablePadding(dp(4));
+        }
+        b.setContentDescription(getString(R.string.xd_switcher_short));
+        b.setOnClickListener(v -> {
+            Style.tick(v);
+            showLaunchpad();
+        });
+        return b;
     }
 
     private void addTopButtons(LinearLayout row, boolean fill) {
@@ -2185,7 +2294,25 @@ public class XDeskActivity extends Activity {
         if (c.orientation == lastOrientation) return;
         lastOrientation = c.orientation;
         rebuildRunning();
+        // The grid's columns, its rail and the bottom bar are portrait's or landscape's: the same view built anew
+        rebuildLaunchpad();
         applyImmersive();
+    }
+
+    /** The Launchpad grid is built for the orientation it is first shown in; a turn builds it again where it was. */
+    private void rebuildLaunchpad() {
+        if (launchpad == null || screens == null) return;
+        int at = screens.indexOfChild(launchpad);
+        if (at < 0) return;
+        boolean shown = launchpad.getVisibility() == View.VISIBLE;
+        screens.removeView(launchpad);
+        launchpad = new LaunchpadView(this, launchpadHost);
+        launchpad.setVisibility(shown ? View.VISIBLE : View.GONE);
+        launchpad.setNotice(launcherNotice);
+        screens.addView(launchpad, at, new FrameLayout.LayoutParams(-1, -1));
+        updateChooserTop();
+        updateAudioChip();
+        updateStatus();
     }
 
     /** 键盘弹出：展开功能键。横屏高度很紧，再收起顶部一行。 */
@@ -2300,16 +2427,41 @@ public class XDeskActivity extends Activity {
      */
     private boolean chooserTyping;
     private static final long SEARCH_FOCUS_MS = 200;
+
+    /**
+     * A finger went down on the search line of the phone's list (or of the Launchpad grid): the window is given the
+     * focus it needs for the keyboard, and the line takes it.
+     */
+    private void beginSearchTyping() {
+        if (chooserTyping) {
+            // The line is still the one being typed into: only the keyboard has to come back (the Launchpad's
+            // keyboard button after the IME was put away)
+            ui.removeCallbacks(searchFocus);
+            ui.postDelayed(searchFocus, SEARCH_FOCUS_MS);
+            return;
+        }
+        // The list beside a mouse takes no focus (updatePhoneFocus); its search line needs it, and the keyboard
+        chooserTyping = true;
+        boolean wasPassive = phonePassive;
+        updatePhoneFocus();
+        // The touch that came to a window taking no focus did not bring the focus to the phone's display
+        if (wasPassive && !phonePassive) apps.focusDisplay(Display.DEFAULT_DISPLAY);
+        ui.postDelayed(searchFocus, SEARCH_FOCUS_MS);
+    }
+
     /** After the window became focusable for the search line: the focus and the keyboard, which the touch did not get. */
     private final Runnable searchFocus = () -> {
-        if (chooser != null && chooserTyping && chooser.getVisibility() == View.VISIBLE) chooser.focusSearch();
+        if (!chooserTyping) return;
+        if (chooser != null && chooser.getVisibility() == View.VISIBLE) chooser.focusSearch();
+        else if (launchpad != null && launchpad.getVisibility() == View.VISIBLE) launchpad.focusSearch();
     };
 
     private void updatePhoneFocus() {
         if (chooser == null || setupScreen == null) return;
-        // The list as the phone's page beside a mouse (showOpened) is worked by finger and needs no focus either: with
-        // it the keyboard would type into the phone, not into the app. Until its search line is touched
-        boolean list = chooser.getVisibility() == View.VISIBLE;
+        // The list (or the Launchpad grid) as the phone's page beside a mouse (showOpened) is worked by finger and
+        // needs no focus either: with it the keyboard would type into the phone, not into the app. Until its search
+        // line is touched
+        boolean list = launcherShown();
         boolean listNeedsFocus = list && !(launcherIsDefault() && !chooserTyping);
         // An app session whose display was unplugged has nowhere to send the keys: the phone takes them (and focus) back
         boolean passive = (apps.isActive() && apps.hasDisplay() || (desktopTaken && session.isActive())) && !listNeedsFocus
@@ -2414,6 +2566,8 @@ public class XDeskActivity extends Activity {
 
     private void setStatus(int color, String s) {
         Log.i(TAG, s);
+        // The Launchpad grid's top line is the same line; there it stays while the page does (it is the home)
+        if (launchpad != null) launchpad.setStatus(color, s);
         statusText.setText(s);
         // 正常时不显示：应用图标和按钮已经说明了在用什么、键鼠在哪
         int v = color == Style.OK ? View.GONE : View.VISIBLE;
@@ -2435,6 +2589,8 @@ public class XDeskActivity extends Activity {
         if (desktopTaken && (app || !session.isActive())) setDesktopTaken(false);
         updatePhoneFocus();
         applyKeysButton();
+        // In the Launchpad mode the grid's own pill is the way to it (LaunchpadTouchpad*.dc.html)
+        launcherBtn.setVisibility(launchpadMode() ? View.GONE : View.VISIBLE);
         backBtn.setVisibility(app ? View.VISIBLE : View.GONE);
         // 安卓应用要键盘时输入法自己会出来，也有自己的收起键。这个按钮只有桌面要用
         keyboardBtn.setVisibility(app ? View.GONE : View.VISIBLE);
@@ -2494,9 +2650,11 @@ public class XDeskActivity extends Activity {
         forwardBtn.setIcon(on ? R.drawable.xd_ic_keys_external : R.drawable.xd_ic_keys_phone);
         forwardBtn.setContentDescription(said);
         forwardBtn.setActive(on);
-        // The list's top row has the same button, there while this one is (applyKeysButton)
+        // The list's top row and the Launchpad grid's bottom bar have the same button, there while this one is
+        // (applyKeysButton)
         boolean shown = (apps.isActive() || session.isActive() || contentKey != null) && hasExternalInput();
         if (chooser != null) chooser.setKeys(shown ? said : null, on);
+        if (launchpad != null) launchpad.setKeys(shown ? said : null, on);
     }
 
     private void updateAppStatus() {
@@ -2574,7 +2732,8 @@ public class XDeskActivity extends Activity {
 
     private void showSetup(String title, String message, boolean progress, String action, View.OnClickListener onAction) {
         chooser.setVisibility(View.GONE);
-        chooser.setNotice(null);
+        if (launchpad != null) launchpad.setVisibility(View.GONE);
+        setLauncherNotice(null);
         displayNoticeShown = false;
         setupScreen.setVisibility(View.VISIBLE);
         applyFullscreen();
@@ -2649,8 +2808,15 @@ public class XDeskActivity extends Activity {
             ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
             chooser.clearSearch();
         }
+        if (launchpad != null && launchpad.getVisibility() == View.VISIBLE) {
+            ime.hideSoftInputFromWindow(launchpad.getWindowToken(), 0);
+            launchpad.clearSearch();
+        }
+        // The touchpad page is the phone's page now (in the Launchpad mode too: the grid is one tap away)
+        launchpadPage = false;
         chooser.setVisibility(View.GONE);
-        chooser.setNotice(null);
+        if (launchpad != null) launchpad.setVisibility(View.GONE);
+        setLauncherNotice(null);
         displayNoticeShown = false;
         setupScreen.setVisibility(View.GONE);
         applyFullscreen();
@@ -2747,6 +2913,7 @@ public class XDeskActivity extends Activity {
         if (audioBtn != null) audioBtn.setLabel(label);
         if (settingsOutputValue != null) settingsOutputValue.setText(label);
         if (chooser != null) chooser.setOutputLabel(label);
+        if (launchpad != null) launchpad.setOutputLabel(label);
     }
 
     /** 设备列表每次打开时读，开着时变了由 audioListener 重开。 */
@@ -2986,6 +3153,13 @@ public class XDeskActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         LinearLayout show = s.card(c);
+        // A global choice, not per screen type; the running screen is built again at once (applyPhoneUi)
+        s.segmentedRow(show, getString(R.string.xd_phone_ui), getString(R.string.xd_phone_ui_note),
+            new String[]{getString(R.string.xd_phone_ui_console), getString(R.string.xd_phone_ui_launchpad)},
+            launchpadMode() ? 1 : 0, which -> {
+                prefs.edit().putString(PREF_PHONE_UI, which == 1 ? UI_LAUNCHPAD : UI_CONSOLE).apply();
+                applyPhoneUi();
+            });
         s.segmentedRow(show, getString(R.string.xd_dim), getString(R.string.xd_dim_note), strings(DIM_LABELS),
             dimChoiceIndex(prefs.getInt(PREF_DIM, DIM_DEFAULT_SECONDS)), which -> {
                 prefs.edit().putInt(PREF_DIM, DIM_SECONDS[which]).apply();
@@ -3445,7 +3619,7 @@ public class XDeskActivity extends Activity {
             // A content still opening (a Mac connecting) counts: the mouse stays off the phone until it is there
             // The home without a mouse is worked by the phone's touchpad: nothing to capture, and nothing is
             boolean want = home && hasExternalMouse() || launchpad || !apps.isActive() && (session.isActive() || contentKey != null || pendingContent != null) && !desktopTaken && phoneForwards()
-                && (external || chooser.getVisibility() != View.VISIBLE) && hasExternalMouse()
+                && (external || !launcherShown()) && hasExternalMouse()
                 // The split-stage prototype (DISPLAY.md §15) takes the captured mouse like X and Mac content
                 || SplitStageActivity.isActive() && !apps.isActive() && !desktopTaken && phoneForwards() && external && hasExternalMouse();
             // Capture goes only to the focused view: the phone's list keeps the focus on its search line, and a capture
@@ -3888,9 +4062,30 @@ public class XDeskActivity extends Activity {
     // --- 选择界面 ---
 
     private void showChooser() {
+        // The Launchpad mode's home is the grid; the console's is this list
+        if (launchpadMode()) {
+            showLaunchpad();
+            return;
+        }
+        showChooserPage();
+    }
+
+    /** 不停会话，把完整列表盖在触摸板上，用来切换到不在 Dock 里的东西。 */
+    private void openChooserOverSession() {
+        if (launchpadMode()) {
+            showLaunchpad();
+            return;
+        }
+        showChooserPage();
+    }
+
+    /** The console mode's list: showChooser and openChooserOverSession draw the same page. */
+    private void showChooserPage() {
         MacSource.userLooking();  // the Mac rows should be fresh: connect paired Macs now
         setupScreen.setVisibility(View.GONE);
         chooser.setVisibility(View.VISIBLE);
+        if (launchpad != null) launchpad.setVisibility(View.GONE);
+        launchpadPage = false;
         updateChooserTop();
         applyFullscreen();
         // With an external screen the mouse stays there (its home, the desktop, a Mac) while fingers work this list;
@@ -3900,16 +4095,37 @@ public class XDeskActivity extends Activity {
         refreshChooser();
     }
 
-    /** 不停会话，把完整列表盖在触摸板上，用来切换到不在 Dock 里的东西。 */
-    private void openChooserOverSession() {
+    /**
+     * The Launchpad mode's home, the grid (LaunchpadView), as showChooser is the console's list. The session, if
+     * there is one, is not touched: the grid is the phone's page over it.
+     */
+    private void showLaunchpad() {
+        if (launchpad == null) {
+            showChooserPage();
+            return;
+        }
         MacSource.userLooking();
         setupScreen.setVisibility(View.GONE);
-        chooser.setVisibility(View.VISIBLE);
+        if (chooser.getVisibility() == View.VISIBLE) ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
+        chooser.setVisibility(View.GONE);
+        chooserTyping = false;
+        ui.removeCallbacks(searchFocus);
+        if (launchpad.getVisibility() == View.VISIBLE) {
+            // Back from the search page: the keyboard goes and the grid is the whole tab again
+            ime.hideSoftInputFromWindow(launchpad.getWindowToken(), 0);
+            launchpad.clearSearch();
+        }
+        launchpadPage = true;
+        launchpad.setVisibility(View.VISIBLE);
         updateChooserTop();
         applyFullscreen();
         updateCapture();
         updateAudioChip();
         refreshChooser();
+        // The grid is worked by finger: beside a mouse it takes no focus (updatePhoneFocus), so a tap leaves the
+        // external screen's keyboard where it was
+        updatePhoneFocus();
+        if (phonePassive) refocusExternal();
     }
 
     private void closeChooserOverSession() {
@@ -3944,6 +4160,25 @@ public class XDeskActivity extends Activity {
     /** Something was opened, or came back, on the external screen: the phone's page by the rule, whatever was chosen by hand before. */
     private void showOpened() {
         launcherWasDefault = launcherIsDefault();
+        if (launchpadMode()) {
+            // The Launchpad's page is the user's: the grid is its home and something opened on the screen must not
+            // take the phone off it (neither the grid nor a touchpad page chosen by hand moves). The setup page for
+            // what is still starting is what shows, and this comes back when it is done.
+            chooserTyping = false;
+            ui.removeCallbacks(searchFocus);
+            if (launchpadPage) {
+                if (setupScreen.getVisibility() == View.VISIBLE) setupScreen.setVisibility(View.GONE);
+                showLaunchpad();
+            } else {
+                showRunning();
+            }
+            // The keys and the captured mouse go through this view, also while the grid is what shows
+            keyView.requestFocus();
+            updateCapture();
+            updatePhoneFocus();
+            if (phonePassive) refocusExternal();
+            return;
+        }
         if (!launcherWasDefault) {
             showRunning();
             return;
@@ -3956,7 +4191,7 @@ public class XDeskActivity extends Activity {
             // The list stays: what showRunning does for the touchpad page, without leaving
             ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
             chooser.clearSearch();
-            chooser.setNotice(null);
+            setLauncherNotice(null);
             displayNoticeShown = false;
             updateChooserTop();
             applyFullscreen();
@@ -3970,6 +4205,9 @@ public class XDeskActivity extends Activity {
     /** A mouse came or went: the default page again, also over a page chosen by hand. Only while something runs. */
     private void applyDefaultPage() {
         if (chooser == null || keyView == null) return;
+        // In the Launchpad mode the phone's page is the user's (the grid is the home, the touchpad is one tap away):
+        // a mouse coming or going does not move it
+        if (launchpadMode()) return;
         boolean now = launcherIsDefault();
         if (now == launcherWasDefault) return;
         launcherWasDefault = now;
@@ -3987,6 +4225,12 @@ public class XDeskActivity extends Activity {
             return;
         }
         if (padFullscreen) setFullscreenWanted(false);
+        else if (launchpadMode()) {
+            // Back from the touchpad page goes to the Launchpad grid (LaunchpadTouchpad*.dc.html); from the grid,
+            // the phone's home, it leaves the app as usual
+            if (launchpadPage && !launcherShown() && setupScreen.getVisibility() != View.VISIBLE) showLaunchpad();
+            else super.onBackPressed();
+        }
         else if (chooser.getVisibility() == View.VISIBLE && (apps.isActive() || session.isActive())) closeChooserOverSession();
         else if (chooser.getVisibility() != View.VISIBLE && setupScreen.getVisibility() != View.VISIBLE
                 && !apps.isActive() && !session.isActive() && contentKey == null) {
@@ -4510,7 +4754,7 @@ public class XDeskActivity extends Activity {
         Display d = externalDisplay();
         if (d != null && displayNoticeShown) {
             displayNoticeShown = false;
-            chooser.setNotice(null);
+            setLauncherNotice(null);
         }
         chooser.setDisplayConnected(d != null, TargetDisplay.isCar(d));
         updateChooserTop();
@@ -4519,11 +4763,11 @@ public class XDeskActivity extends Activity {
 
     /** 要外接屏才能做的事：在启动器上一直说着，接上屏为止。 */
     private void needDisplayNotice() {
-        if (chooser.getVisibility() != View.VISIBLE) {
+        if (!launcherShown()) {
             if (apps.isActive() || session.isActive()) openChooserOverSession();
             else showChooser();
         }
-        chooser.setNotice(getString(NO_DISPLAY));
+        setLauncherNotice(getString(NO_DISPLAY));
         displayNoticeShown = true;
     }
 
@@ -5170,8 +5414,8 @@ public class XDeskActivity extends Activity {
     /** 选择界面上说一声还差什么，比如重启后无线调试关了。 */
     private void showShellProblem() {
         String problem = apps.shizukuState() == AppSession.SHIZUKU_READY ? null : apps.shell().problem();
-        if (problem != null) chooser.setNotice(problem);
-        else if (shownShellProblem != null) chooser.setNotice(null);
+        if (problem != null) setLauncherNotice(problem);
+        else if (shownShellProblem != null) setLauncherNotice(null);
         shownShellProblem = problem;
         updateActivationPrompt();
     }
@@ -5459,7 +5703,7 @@ public class XDeskActivity extends Activity {
         desktopName = null;
         launchedSession = null;
         launchGuardUntil = 0;
-        if (chooser.getVisibility() == View.VISIBLE) refreshChooser();
+        if (launcherShown()) refreshChooser();
     }
 
     /** The windows a Stop would close. */

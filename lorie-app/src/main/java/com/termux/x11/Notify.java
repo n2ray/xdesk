@@ -1091,6 +1091,6 @@ final class Notify implements AppSession.EdgeListener, NotifyBanner.Host, Notify
             return;
         }
         String key = ChooserView.recentKey(a);
-        if (Switchboard.get(context).exists(key)) Switchboard.get(context).open(key);
+        if (Switchboard.get(context).exists(key)) Switchboard.get(context).open(Switchboard.EXTERNAL, key);
     }
 }

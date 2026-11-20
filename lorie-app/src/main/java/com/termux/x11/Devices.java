@@ -37,6 +37,7 @@ final class Devices {
     /** What forgetGoneTermux did. */
     static final int TERMUX_SAME = 0, TERMUX_FORGOTTEN = 1, TERMUX_REMOVED = 2, TERMUX_REINSTALLED = 3;
     private static final String PREFS = "xdesk_devices", PREF_HIDDEN = "hidden", PREF_OFF = "off", PREF_BOARD_TAB = "board_tab",
+        PREF_PHONE_BOARD_TAB = "phone_board_tab",
         PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime",
         PREF_PHONE_IME_ON = "linux_phone_ime_on", PREF_PHONE_IME_OFF = "linux_phone_ime_off", PREF_TERMUX = "termux",
         PREF_TERMUX_AT = "termux_installed_at";
@@ -578,8 +579,9 @@ final class Devices {
         SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS)
             .remove(PREF_LINUX_PHONE_IME).remove(PREF_PHONE_IME_ON).remove(PREF_PHONE_IME_OFF).putString(PREF_TERMUX, "off");
         if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden));
-        String tab = boardTab();
+        String tab = boardTab(), phoneTab = phoneBoardTab();
         if (tab != null && tab.startsWith(LINUX)) ed.remove(PREF_BOARD_TAB).remove(PREF_OLD_TAB);
+        if (phoneTab != null && phoneTab.startsWith(LINUX)) ed.remove(PREF_PHONE_BOARD_TAB);
         ed.apply();
         rebuildEnvs();
         changed();
@@ -710,7 +712,10 @@ final class Devices {
     /** Up to the switchboard the phone's list and the external Launchpad each kept a tab: the phone's is taken over. */
     private static final String PREF_OLD_TAB = "tab", PREF_OLD_SWITCHER_TAB = "switcher_tab";
 
-    /** The switchboard's tab (Switchboard), one for the phone and the external screen. Null: never chosen. */
+    /**
+     * The external screen's switchboard tab (Switchboard.EXTERNAL). This is the key saved before the phone's and the
+     * screen's tabs were split, so the screen's last tab survives the update. Null: never chosen.
+     */
     String boardTab() {
         String tab = prefs.getString(PREF_BOARD_TAB, null);
         return tab != null ? tab : prefs.getString(PREF_OLD_TAB, null);
@@ -718,6 +723,15 @@ final class Devices {
 
     void setBoardTab(String tab) {
         prefs.edit().putString(PREF_BOARD_TAB, tab).remove(PREF_OLD_TAB).remove(PREF_OLD_SWITCHER_TAB).apply();
+    }
+
+    /** The phone's switchboard tab (Switchboard.PHONE), its own since 0.7.0. Null: the Switchboard takes the screen's once. */
+    String phoneBoardTab() {
+        return prefs.getString(PREF_PHONE_BOARD_TAB, null);
+    }
+
+    void setPhoneBoardTab(String tab) {
+        prefs.edit().putString(PREF_PHONE_BOARD_TAB, tab).apply();
     }
 
     /** A Mac that is connected but locked: its apps come only after the desktop is opened and unlocked. */

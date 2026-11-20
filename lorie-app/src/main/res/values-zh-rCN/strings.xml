@@ -365,6 +365,11 @@
     <string name="xd_section_display">外屏</string>
     <string name="xd_section_about">关于</string>
     <string name="xd_orientation">触控界面方向</string>
+    <!-- 设置 › 通用 › 手机端界面：操作台或启动台 -->
+    <string name="xd_phone_ui">手机端界面</string>
+    <string name="xd_phone_ui_console">操作台</string>
+    <string name="xd_phone_ui_launchpad">启动台</string>
+    <string name="xd_phone_ui_note">操作台以触摸板为首页，启动台以应用网格为首页</string>
     <string name="xd_dim">自动调暗</string>
     <string name="xd_dim_note">只在接着外屏时调暗，碰一下恢复</string>
     <string name="xd_dim_30s">30 秒</string>

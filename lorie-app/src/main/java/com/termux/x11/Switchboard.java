@@ -22,8 +22,10 @@ import java.util.List;
  * It owns: the tabs (running, favourites, the phone, every device in Devices' order) and which one is chosen, the
  * search text, whether the hidden fold is open, the rows of the chosen tab in order (with the section titles the
  * list shows), every item's presentation, the device bar of the tab (state and the actions there are), the strip,
- * and telling the views when any of it changed. The tab and the search are one for both screens: changed on one, the
- * other follows while it shows.
+ * and telling the views when any of it changed. The choice of tab and the search text are per scope
+ * ({@link #PHONE}, {@link #EXTERNAL}): the phone's list and Launchpad grid remember their own, the external
+ * screen's Launchpad and Dock theirs, so changing one no longer changes the other; the contents are one model
+ * for both. Each scope's tab is saved (Devices), the phone's starting once from the external screen's saved one.
  *
  * Built like Devices from what is in memory already (Devices, the content sources, AppCatalog, the host's
  * favourites): nothing here connects, reads files or blocks. The rows are worked out once per change, whoever asks.
@@ -31,6 +33,11 @@ import java.util.List;
  */
 final class Switchboard {
     static final String TAB_RUNNING = "run", TAB_FAVOURITES = "fav";
+    /**
+     * The two scopes of the tab and the search: the phone's pages (ChooserView's list, the Launchpad grid) and the
+     * external screen's (the Launchpad overlay, the Dock). The items are the same for both.
+     */
+    static final int PHONE = 0, EXTERNAL = 1;
     /** What marks the item on the external screen, on every surface: this behind it, and its state line in ACCENT_TEXT. */
     static final int CURRENT_TINT = 0x553D7EF5, ACCENT_TEXT = 0xFF8FB6FF;
 
@@ -110,8 +117,10 @@ final class Switchboard {
         /** What choosing a row without a key does (the fold, a hint); null for none. */
         Runnable action;
 
+        /** Whose it is (the device's name), for the Launchpad search's small line under a tile. */
+        String where;
         /** What it is and its state, before they are joined into {@link #detail}. */
-        private String sub, state, where;
+        private String sub, state;
         private String search;
     }
 
@@ -162,10 +171,10 @@ final class Switchboard {
     private final ArrayList<Runnable> listeners = new ArrayList<>();
     private final Runnable changed = this::changed;
     private Host host;
-    private String tab, query = "";
-    private boolean hiddenOpen;
-    /** The rows as last worked out; null after a change. */
-    private List<Item> rows;
+    private String phoneTab, externalTab, phoneQuery = "", externalQuery = "";
+    private boolean phoneHiddenOpen, externalHiddenOpen;
+    /** The rows as last worked out per scope; null after a change. */
+    private List<Item> phoneRows, externalRows;
     /** What the host said when items were last made (look): asked once, not for each of some hundred apps. */
     private HashSet<String> favourites = new HashSet<>();
     private String current;
@@ -174,8 +183,16 @@ final class Switchboard {
     private Switchboard(Context c) {
         this.c = c;
         devices = Devices.get(c);
+        // The external screen keeps the key saved before the two scopes were split; the phone starts from that same
+        // value once, then reads and writes its own
         String saved = devices.boardTab();
-        tab = saved != null ? saved : TAB_FAVOURITES;
+        externalTab = saved != null ? saved : TAB_FAVOURITES;
+        String phone = devices.phoneBoardTab();
+        if (phone == null) {
+            phone = externalTab;
+            devices.setPhoneBoardTab(phone);
+        }
+        phoneTab = phone;
         // For good: this lives as long as the process, as Devices does
         devices.addListener(changed);
     }
@@ -199,7 +216,7 @@ final class Switchboard {
 
     /** Something the rows are made of changed (the favourites, what is on the screen, the apps): tell the views. */
     void changed() {
-        rows = null;
+        phoneRows = externalRows = null;
         for (Runnable r : new ArrayList<>(listeners)) r.run();
     }
 
@@ -211,61 +228,84 @@ final class Switchboard {
         return c.getString(id, args);
     }
 
-    // --- the selection, one for both screens ---
+    // --- the selection, one per scope ---
+
+    private String chosen(int scope) {
+        return scope == PHONE ? phoneTab : externalTab;
+    }
+
+    private String typed(int scope) {
+        return scope == PHONE ? phoneQuery : externalQuery;
+    }
+
+    private boolean openHidden(int scope) {
+        return scope == PHONE ? phoneHiddenOpen : externalHiddenOpen;
+    }
 
     /**
      * The chosen tab: TAB_RUNNING, TAB_FAVOURITES or a device's id. Always one that exists: while the chosen device
      * is not there (a Mac removed; an environment xdesk has not reported yet) it is the favourites, and the device's
      * again when it is back.
      */
-    String tab() {
+    String tab(int scope) {
+        String tab = chosen(scope);
         return TAB_RUNNING.equals(tab) || TAB_FAVOURITES.equals(tab) || devices.find(tab) != null ? tab : TAB_FAVOURITES;
     }
 
-    void setTab(String id) {
-        setTab(id, true);
+    void setTab(int scope, String id) {
+        setTab(scope, id, true);
     }
 
     /** @param remember false for the overview, which opens on the running tab without that becoming the last tab */
-    void setTab(String id, boolean remember) {
-        boolean same = id.equals(tab()) && query.isEmpty();
-        if (remember) devices.setBoardTab(id);
+    void setTab(int scope, String id, boolean remember) {
+        boolean same = id.equals(tab(scope)) && typed(scope).isEmpty();
+        if (remember) {
+            if (scope == PHONE) devices.setPhoneBoardTab(id);
+            else devices.setBoardTab(id);
+        }
         if (same) return;
-        tab = id;
-        query = "";
-        hiddenOpen = false;
+        if (scope == PHONE) phoneTab = id;
+        else externalTab = id;
+        if (scope == PHONE) {
+            phoneQuery = "";
+            phoneHiddenOpen = false;
+        } else {
+            externalQuery = "";
+            externalHiddenOpen = false;
+        }
         changed();
     }
 
-    void stepTab(int by) {
+    void stepTab(int scope, int by) {
         List<Tab> all = tabs();
         int at = 0;
-        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(tab())) at = i;
-        setTab(all.get((at + by + all.size()) % all.size()).id);
+        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(tab(scope))) at = i;
+        setTab(scope, all.get((at + by + all.size()) % all.size()).id);
     }
 
     /** The search as typed. It looks through every device, whatever the tab; the tab's own device comes first. */
-    String query() {
-        return query;
+    String query(int scope) {
+        return typed(scope);
     }
 
-    void setQuery(String q) {
+    void setQuery(int scope, String q) {
         if (q == null) q = "";
-        if (q.equals(query)) return;
-        query = q;
+        if (q.equals(typed(scope))) return;
+        if (scope == PHONE) phoneQuery = q;
+        else externalQuery = q;
         changed();
     }
 
-    boolean searching() {
-        return !needle().isEmpty();
+    boolean searching(int scope) {
+        return !needle(scope).isEmpty();
     }
 
-    private String needle() {
-        return query.trim().toLowerCase();
+    private String needle(int scope) {
+        return typed(scope).trim().toLowerCase();
     }
 
-    boolean hiddenOpen() {
-        return hiddenOpen;
+    boolean hiddenOpen(int scope) {
+        return openHidden(scope);
     }
 
     /**
@@ -273,13 +313,14 @@ final class Switchboard {
      * is, so its items carry no device badge (DEVICES.md §3.2). Cross-device places (running, favourites, the search,
      * the Docks) are not it.
      */
-    boolean ownTab(String key) {
-        return !searching() && devices.deviceOf(key).equals(tab());
+    boolean ownTab(int scope, String key) {
+        return !searching(scope) && devices.deviceOf(key).equals(tab(scope));
     }
 
-    void setHiddenOpen(boolean open) {
-        if (open == hiddenOpen) return;
-        hiddenOpen = open;
+    void setHiddenOpen(int scope, boolean open) {
+        if (open == openHidden(scope)) return;
+        if (scope == PHONE) phoneHiddenOpen = open;
+        else externalHiddenOpen = open;
         changed();
     }
 
@@ -293,13 +334,13 @@ final class Switchboard {
 
     // --- doing ---
 
-    /** Opening anything ends the search: it was for finding this. */
-    void open(String key) {
+    /** Opening anything ends the search of the surface it was opened from: it was for finding this. */
+    void open(int scope, String key) {
         if (host == null) {
             Toast.makeText(c, R.string.xd_launcher_need_phone, Toast.LENGTH_LONG).show();
             return;
         }
-        if (!ExternalLauncher.SWITCHER.equals(key)) setQuery("");
+        if (!ExternalLauncher.SWITCHER.equals(key)) setQuery(scope, "");
         host.open(key);
     }
 
@@ -310,14 +351,14 @@ final class Switchboard {
     // --- the device bar ---
 
     /** Null when the tab has nothing to say. */
-    Bar bar() {
-        if (searching()) {
+    Bar bar(int scope) {
+        if (searching(scope)) {
             int n = 0;
-            for (Item i : items()) if (i.kind == ITEM) n++;
+            for (Item i : items(scope)) if (i.kind == ITEM) n++;
             return new Bar(0, c.getString(R.string.xd_sw_results, n), Collections.<Action>emptyList());
         }
-        if (TAB_RUNNING.equals(tab())) return new Bar(0, str(R.string.xd_sw_running_note), Collections.<Action>emptyList());
-        final Devices.Device d = devices.find(tab());
+        if (TAB_RUNNING.equals(tab(scope))) return new Bar(0, str(R.string.xd_sw_running_note), Collections.<Action>emptyList());
+        final Devices.Device d = devices.find(tab(scope));
         if (d == null || !d.external()) return null;
         String state = str(Devices.stateLabel(d));
         // A locked Mac: how to get to its apps is what there is to say (opening the desktop is how it is unlocked)
@@ -370,10 +411,14 @@ final class Switchboard {
 
     // --- the rows ---
 
-    /** The rows of the chosen tab, or of the search, in order. Not to be changed by the caller. */
-    List<Item> items() {
-        if (rows == null) rows = build();
-        return rows;
+    /** The rows of the scope's chosen tab, or of its search, in order. Not to be changed by the caller. */
+    List<Item> items(int scope) {
+        if (scope == PHONE) {
+            if (phoneRows == null) phoneRows = build(scope);
+            return phoneRows;
+        }
+        if (externalRows == null) externalRows = build(scope);
+        return externalRows;
     }
 
     private void look() {
@@ -382,10 +427,10 @@ final class Switchboard {
         onCar = host != null && host.onCar();
     }
 
-    private List<Item> build() {
+    private List<Item> build(int scope) {
         look();
         ArrayList<Item> out = new ArrayList<>(), hidden = new ArrayList<>();
-        String q = needle(), id = tab();
+        String q = needle(scope), id = tab(scope);
         if (!q.isEmpty()) {
             // Every device, as Launchpad's search: the tab's own device first, then the others in their order
             List<Devices.Device> all = new ArrayList<>(devices.all());
@@ -411,12 +456,12 @@ final class Switchboard {
             if (d != null) deviceRows(d, q, out, hidden);
         }
         if (!hidden.isEmpty()) {
-            boolean open = hiddenOpen || !q.isEmpty();
+            boolean open = hiddenOpen(scope) || !q.isEmpty();
             Item fold = new Item();
             fold.kind = FOLD;
             fold.label = (open ? "▾ " : "▸ ") + c.getString(R.string.xd_dev_hidden, hidden.size());
             fold.count = hidden.size();
-            fold.action = () -> setHiddenOpen(!hiddenOpen);
+            fold.action = () -> setHiddenOpen(scope, !openHidden(scope));
             out.add(fold);
             if (open) {
                 sort(hidden);

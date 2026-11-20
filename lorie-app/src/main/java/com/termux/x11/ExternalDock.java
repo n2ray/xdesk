@@ -722,8 +722,8 @@ final class ExternalDock implements AppSession.EdgeListener {
             tile.setImageDrawable(Style.wordIcon(dc, it.label, density));
             View box = item(board, it, tile);
             box.setOnClickListener(v -> {
-                board.setTab(Switchboard.TAB_FAVOURITES);
-                board.open(ExternalLauncher.SWITCHER);
+                board.setTab(Switchboard.EXTERNAL, Switchboard.TAB_FAVOURITES);
+                board.open(Switchboard.EXTERNAL, ExternalLauncher.SWITCHER);
                 close();
             });
             // No card for it; the press is just taken, or it would count as a click
@@ -766,7 +766,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             box.setContentDescription(it.title);
             // No hover listener here: dispatchHoverEvent picks the item from the pointer's x, so the row has no gaps
             box.setOnClickListener(v -> {
-                board.open(key);
+                board.open(Switchboard.EXTERNAL, key);
                 close();
             });
             // The secondary button (Android's own mouse, or secondaryDriven): the item's card, which is on the phone.

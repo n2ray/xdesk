@@ -218,7 +218,7 @@ final class ChooserView extends LinearLayout {
         clear.setVisibility(GONE);
         clear.setOnClickListener(v -> {
             Style.tick(v);
-            board.setQuery("");
+            board.setQuery(Switchboard.PHONE, "");
         });
         FrameLayout.LayoutParams clearParams = new FrameLayout.LayoutParams(Style.dp(c, Style.TARGET), Style.dp(c, Style.TARGET));
         clearParams.gravity = Gravity.END;
@@ -226,13 +226,13 @@ final class ChooserView extends LinearLayout {
         LayoutParams sbp = new LayoutParams(-1, -2);
         sbp.topMargin = Style.dp(c, 8);
         addView(searchBox, sbp);
-        // This field and the Launchpad's typed line are two widgets on the one search text (Switchboard.query)
+        // This field and the Launchpad grid's search are two widgets on the phone's one search text (Switchboard.query(PHONE))
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int d) { }
             @Override public void afterTextChanged(Editable s) {
                 clear.setVisibility(s.length() > 0 ? VISIBLE : GONE);
-                if (!settingQuery) board.setQuery(s.toString());
+                if (!settingQuery) board.setQuery(Switchboard.PHONE, s.toString());
             }
         });
 
@@ -242,7 +242,7 @@ final class ChooserView extends LinearLayout {
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
             Switchboard.Item r = rows.get(position);
-            if (r.kind == Switchboard.ITEM) board.open(r.key);
+            if (r.kind == Switchboard.ITEM) board.open(Switchboard.PHONE, r.key);
             else if (r.action != null) r.action.run();
         });
         list.setOnItemLongClickListener((parent, view, position, id) -> {
@@ -336,7 +336,7 @@ final class ChooserView extends LinearLayout {
     }
 
     void clearSearch() {
-        board.setQuery("");
+        board.setQuery(Switchboard.PHONE, "");
         search.clearFocus();
     }
 
@@ -408,7 +408,7 @@ final class ChooserView extends LinearLayout {
         }
         t.setOnClickListener(v -> {
             Style.tick(v);
-            board.setTab(tab.id);
+            board.setTab(Switchboard.PHONE, tab.id);
         });
         tabRow.addView(t, tabParams());
     }
@@ -462,17 +462,17 @@ final class ChooserView extends LinearLayout {
             return;
         }
         stale = false;
-        String tab = board.tab(), query = board.query();
-        buildTabs(board.tabs(), board.searching() ? "" : tab);
-        showBar(board.bar());
+        String tab = board.tab(Switchboard.PHONE), query = board.query(Switchboard.PHONE);
+        buildTabs(board.tabs(), board.searching(Switchboard.PHONE) ? "" : tab);
+        showBar(board.bar(Switchboard.PHONE));
         if (!search.getText().toString().equals(query)) {
-            // Typed on the external screen, or cleared by opening something
+            // Typed in the Launchpad grid (the phone's one search), or cleared by opening something
             settingQuery = true;
             search.setText(query);
             search.setSelection(query.length());
             settingQuery = false;
         }
-        rows = board.items();
+        rows = board.items(Switchboard.PHONE);
         letterRows.clear();
         int lettered = 0;
         for (int i = 0; i < rows.size(); i++) {
@@ -603,7 +603,7 @@ final class ChooserView extends LinearLayout {
             h.subtitle.setVisibility(r.detail != null ? VISIBLE : GONE);
             if (r.app != null || r.content || r.session) {
                 h.icon.setVisibility(VISIBLE);
-                ExternalLauncher.icon(c, r, h.icon, Style.BACKGROUND, board.ownTab(r.key), c.getResources().getDisplayMetrics().density);
+                ExternalLauncher.icon(c, r, h.icon, Style.BACKGROUND, board.ownTab(Switchboard.PHONE, r.key), c.getResources().getDisplayMetrics().density);
             } else {
                 h.icon.setVisibility(GONE);
                 h.icon.setTag(null);

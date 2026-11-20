@@ -28,7 +28,8 @@ import java.util.List;
  * The switchboard on the external display (DEVICES.md §3), as a grid like the Mac's Launchpad: a dark scrim over
  * whatever is shown, a search line and the tabs at the top, the tab's device bar, and a grid of big icons, page by
  * page. What the tabs, the items and the bar are comes from Switchboard, the same model the phone draws as a list
- * (ChooserView): the same tab and the same search on both, live. This draws it and has what belongs to this screen:
+ * (ChooserView) and as a grid (LaunchpadView): the contents are shared, while this screen's tab and search are its
+ * own (Switchboard.EXTERNAL), the phone's are the phone's (Switchboard.PHONE). This draws it and has what belongs to this screen:
  * its own pointer, the keyboard navigation, the typed search line, the pages. The dock's "All", four fingers up and
  * the handle open it on the tab last used; three fingers up ("overview") on 正在运行. With nothing else on the screen
  * it is the screen's home (showHome).
@@ -147,7 +148,7 @@ final class SwitcherOverlay {
         if (display == null || !android.provider.Settings.canDrawOverlays(context)) return false;
         Panel p = new Panel(context.createDisplayContext(display), display, host, home);
         // The overview is the running tab; it does not become the tab to come back to
-        if (onlySystem) p.board.setTab(Switchboard.TAB_RUNNING, false);
+        if (onlySystem) p.board.setTab(Switchboard.EXTERNAL, Switchboard.TAB_RUNNING, false);
         p.build();
         boolean keys = host != null && host.takesKeys();
         // Taking the keys, it still keeps the input method away (ALT_FOCUSABLE_IM): the keys are typed as they come
@@ -192,7 +193,7 @@ final class SwitcherOverlay {
         UI.removeCallbacks(p.clock);
         UI.removeCallbacks(p.caret);
         // A search is for finding one thing: it does not wait for the next time (the home's stays, it is not closed)
-        if (!p.home) p.board.setQuery("");
+        if (!p.home) p.board.setQuery(Switchboard.EXTERNAL, "");
         try {
             p.wm.removeView(p.root);
         } catch (RuntimeException ignored) { }
@@ -389,7 +390,7 @@ final class SwitcherOverlay {
             items.clear();
             hiddenCount = 0;
             empty = null;
-            for (Switchboard.Item i : board.items()) {
+            for (Switchboard.Item i : board.items(Switchboard.EXTERNAL)) {
                 if (i.kind == Switchboard.ITEM) items.add(i);
                 else if (i.kind == Switchboard.FOLD) hiddenCount = i.count;
                 else if (i.kind == Switchboard.NOTE && empty == null) empty = i.label;
@@ -409,7 +410,7 @@ final class SwitcherOverlay {
         void build() {
             UI.removeCallbacks(refresh);
             collect();
-            String tab = board.tab(), query = board.query();
+            String tab = board.tab(Switchboard.EXTERNAL), query = board.query(Switchboard.EXTERNAL);
             if (!tab.equals(shownTab) || !query.equals(shownQuery)) page = 0;
             shownTab = tab;
             shownQuery = query;
@@ -423,11 +424,11 @@ final class SwitcherOverlay {
          */
         void rebuildKeep() {
             if (panel != this) return;
-            boolean moved = !board.tab().equals(shownTab) || !board.query().equals(shownQuery);
+            boolean moved = !board.tab(Switchboard.EXTERNAL).equals(shownTab) || !board.query(Switchboard.EXTERNAL).equals(shownQuery);
             int keep = selected;
             build();
             // While searching the first result is the one Enter opens
-            select(moved ? (board.searching() ? 0 : -1) : Math.min(keep, tiles.size() - 1));
+            select(moved ? (board.searching(Switchboard.EXTERNAL) ? 0 : -1) : Math.min(keep, tiles.size() - 1));
         }
 
         void render() {
@@ -446,8 +447,8 @@ final class SwitcherOverlay {
 
         void renderTabs() {
             tabRow.removeAllViews();
-            boolean searching = board.searching();
-            String tab = board.tab();
+            boolean searching = board.searching(Switchboard.EXTERNAL);
+            String tab = board.tab(Switchboard.EXTERNAL);
             for (Switchboard.Tab t : board.tabs()) addTab(t, t.id.equals(tab) && !searching);
         }
 
@@ -478,7 +479,7 @@ final class SwitcherOverlay {
          */
         void renderDeviceBar() {
             while (deviceBar.getChildCount() > 1) deviceBar.removeViewAt(1);
-            Switchboard.Bar bar = board.bar();
+            Switchboard.Bar bar = board.bar(Switchboard.EXTERNAL);
             deviceState.setText(bar != null ? bar.text : "");
             // A tab with no device bar (Running, Favourites) takes the last device's dot away too
             if (bar == null || bar.dot == 0) deviceState.setCompoundDrawablesRelative(null, null, null, null);
@@ -558,7 +559,7 @@ final class SwitcherOverlay {
         }
 
         void showSearch() {
-            String query = board.query();
+            String query = board.query(Switchboard.EXTERNAL);
             String hint = "⌕  " + c.getString(R.string.xd_sw_search);
             // A notice is about what was just clicked: it shows also over a search, which comes back after it
             if (notice != null) {
@@ -622,7 +623,7 @@ final class SwitcherOverlay {
             box.setBackground(tileBack(it, it.current ? CURRENT : 0x00000000));
             box.setAlpha(it.hidden || it.dim ? 0.5f : 1f);
             // The badge's ring in the grid's surface colour; the scrim is the same colour, only translucent
-            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(it.key), density),
+            box.addView(ExternalLauncher.icon(c, it, Style.BACKGROUND, board.ownTab(Switchboard.EXTERNAL, it.key), density),
                 new LinearLayout.LayoutParams(icon, icon));
             TextView name = text(it.label, label, Color.WHITE);
             name.setSingleLine(true);
@@ -681,14 +682,14 @@ final class SwitcherOverlay {
                 }
             }
             // The hidden fold of the list: here a button that puts the hidden ones at the end
-            if (hiddenCount > 0 && !board.searching()) {
-                final boolean open = board.hiddenOpen();
+            if (hiddenCount > 0 && !board.searching(Switchboard.EXTERNAL)) {
+                final boolean open = board.hiddenOpen(Switchboard.EXTERNAL);
                 TextView fold = text(open ? c.getString(R.string.xd_sw_hide_hidden) : c.getString(R.string.xd_sw_show_hidden, hiddenCount), small, Style.TEXT_DIM);
                 fold.setGravity(Gravity.CENTER);
                 fold.setPadding(dp(12), 0, dp(12), 0);
                 fold.setBackground(round(FIELD, dp(14)));
                 Runnable go = () -> {
-                    board.setHiddenOpen(!open);
+                    board.setHiddenOpen(Switchboard.EXTERNAL, !open);
                     build();
                     if (!open) setPage(pages() - 1);
                 };
@@ -704,18 +705,18 @@ final class SwitcherOverlay {
 
         void open(String key) {
             hide(host);
-            board.open(key);
+            board.open(Switchboard.EXTERNAL, key);
         }
 
         void setTab(String id) {
-            board.setTab(id);
+            board.setTab(Switchboard.EXTERNAL, id);
             page = 0;
             build();
             select(-1);
         }
 
         void stepTab(int by) {
-            board.stepTab(by);
+            board.stepTab(Switchboard.EXTERNAL, by);
             page = 0;
             build();
             select(-1);
@@ -831,8 +832,8 @@ final class SwitcherOverlay {
             if (scan == 42 || scan == 54) { shift = down; return; }
             if (!down) return;
             // A search or tab changed on the phone can still be waiting for the delayed redraw.
-            if (!board.tab().equals(shownTab) || !board.query().equals(shownQuery)) rebuildKeep();
-            String query = board.query();
+            if (!board.tab(Switchboard.EXTERNAL).equals(shownTab) || !board.query(Switchboard.EXTERNAL).equals(shownQuery)) rebuildKeep();
+            String query = board.query(Switchboard.EXTERNAL);
             switch (scan) {
                 case 1:  // Esc: clear the search, else close
                     if (!query.isEmpty()) setQuery("");
@@ -843,7 +844,7 @@ final class SwitcherOverlay {
                     return;
                 case 28: case 96:  // Enter
                     if (selected >= 0) open(items.get(page * perPage() + selected).key);
-                    else if (!items.isEmpty() && board.searching()) open(items.get(page * perPage()).key);
+                    else if (!items.isEmpty() && board.searching(Switchboard.EXTERNAL)) open(items.get(page * perPage()).key);
                     return;
                 case 15:  // Tab, Ctrl+Tab: the next tab; with Shift the one before
                     stepTab(shift ? -1 : 1);
@@ -866,7 +867,7 @@ final class SwitcherOverlay {
             if (s.equals("\n")) { key(28, true); return; }
             if (s.equals("\b")) { key(14, true); return; }
             String clean = s.replace("\n", "").replace("\r", "");
-            String query = board.query();
+            String query = board.query(Switchboard.EXTERNAL);
             if (clean.isEmpty() || (query.isEmpty() && clean.trim().isEmpty())) return;
             setQuery(query + clean);
         }
@@ -874,11 +875,11 @@ final class SwitcherOverlay {
         void setQuery(String q) {
             // Typing focuses the field, and the caret stays lit while it goes on
             focusSearch();
-            board.setQuery(q);
+            board.setQuery(Switchboard.EXTERNAL, q);
             page = 0;
             build();
             // While searching the first result is the one Enter opens
-            select(board.searching() ? 0 : -1);
+            select(board.searching(Switchboard.EXTERNAL) ? 0 : -1);
         }
 
         void arrow(int dx, int dy) {
