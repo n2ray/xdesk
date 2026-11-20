@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.Manifest;
+import android.app.AppOpsManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
 import com.termux.x11.app.R;
+import org.lsposed.hiddenapibypass.HiddenApiBypass;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -25,8 +27,8 @@ import java.util.Set;
  * permission centre, the detail pages, the first-start checklist and the lost-permission reminder all read this.
  *
  * <p>Required: the injector service and drawing over other apps. Recommended: notifications. The rest are needed only
- * when their feature is used. Autostart cannot be read: MIUI/HyperOS gives no readable switch, so its state is
- * {@link State#UNKNOWN} and only the system page is offered.
+ * when their feature is used. Autostart is MIUI/HyperOS's app op 10008, read for XDesk itself; where that read fails
+ * its state is {@link State#UNKNOWN} and only the system page is offered.
  */
 final class Permissions {
     enum Level { REQUIRED, RECOMMENDED, WHEN_NEEDED }
@@ -85,8 +87,7 @@ final class Permissions {
                         return nm != null && nm.isNotificationPolicyAccessGranted() ? State.ON : State.OFF;
                     }
                     case "autostart":
-                        // MIUI/HyperOS exposes no readable autostart switch: never claim it is off
-                        return State.UNKNOWN;
+                        return autostart(c);
                     case "usb_debug":
                         return Settings.Global.getInt(c.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1
                             ? State.ON : State.OFF;
@@ -325,6 +326,23 @@ final class Permissions {
             return true;
         } catch (PackageManager.NameNotFoundException e) {
             return false;
+        }
+    }
+
+    /** MIUI/HyperOS's autostart switch ("后台启动") is the vendor app op 10008; an app may read its own. */
+    private static final int MIUI_OP_AUTOSTART = 10008;
+
+    private static State autostart(Context c) {
+        try {
+            AppOpsManager ops = c.getSystemService(AppOpsManager.class);
+            if (ops == null) return State.UNKNOWN;
+            Object mode = HiddenApiBypass.invoke(AppOpsManager.class, ops, "checkOpNoThrow",
+                MIUI_OP_AUTOSTART, android.os.Process.myUid(), c.getPackageName());
+            if (!(mode instanceof Integer)) return State.UNKNOWN;
+            return (Integer) mode == AppOpsManager.MODE_ALLOWED ? State.ON : State.OFF;
+        } catch (Throwable t) {
+            // Not MIUI after all, or the hidden method moved: say nothing rather than claim it is off
+            return State.UNKNOWN;
         }
     }
 }
