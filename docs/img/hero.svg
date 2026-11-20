@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" role="img" aria-label="A monitor showing XDesk's Launchpad, with a phone beside it used as a touchpad, and a keyboard and mouse">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="10%" r="80%"><stop offset="0" stop-color="#1A2232"/><stop offset="1" stop-color="#0B0D10"/></radialGradient>
+    <radialGradient id="scr" cx="50%" cy="0%" r="90%"><stop offset="0" stop-color="#161B24"/><stop offset="1" stop-color="#0B0D10"/></radialGradient>
+  </defs>
+  <rect width="1200" height="560" rx="28" fill="url(#bg)"/>
+  <!-- monitor -->
+  <rect x="190" y="36" width="680" height="388" rx="16" fill="#2A2F37"/>
+  <rect x="199" y="45" width="662" height="370" rx="10" fill="url(#scr)"/>
+  <rect x="420" y="66" width="220" height="24" rx="12" fill="#FFFFFF" fill-opacity=".07"/>
+  <g>
+    <rect x="262" y="118" width="48" height="48" rx="11" fill="#4A7BD0"/><rect x="330" y="118" width="48" height="48" rx="11" fill="#6C5BD4"/><rect x="398" y="118" width="48" height="48" rx="11" fill="#3A4250"/><rect x="466" y="118" width="48" height="48" rx="11" fill="#2F8F6B"/><rect x="534" y="118" width="48" height="48" rx="11" fill="#3A7FC4"/><rect x="602" y="118" width="48" height="48" rx="11" fill="#5B8DEF"/><rect x="670" y="118" width="48" height="48" rx="11" fill="#2B6CB0"/><rect x="738" y="118" width="48" height="48" rx="11" fill="#2A2F37"/>
+    <rect x="262" y="196" width="48" height="48" rx="11" fill="#7A6A3A"/><rect x="330" y="196" width="48" height="48" rx="11" fill="#20262E"/><rect x="398" y="196" width="48" height="48" rx="11" fill="#6B3FA0"/><rect x="466" y="196" width="48" height="48" rx="11" fill="#6E5A44"/><rect x="534" y="196" width="48" height="48" rx="11" fill="#D0558A"/><rect x="602" y="196" width="48" height="48" rx="11" fill="#C8873A"/><rect x="670" y="196" width="48" height="48" rx="11" fill="#3B6E8F"/><rect x="738" y="196" width="48" height="48" rx="11" fill="#3A9BD9"/>
+    <rect x="262" y="274" width="48" height="48" rx="11" fill="#C94350"/><rect x="330" y="274" width="48" height="48" rx="11" fill="#3E6FD8"/><rect x="398" y="274" width="48" height="48" rx="11" fill="#1F2328"/><rect x="466" y="274" width="48" height="48" rx="11" fill="#3D8B5A"/><rect x="534" y="274" width="48" height="48" rx="11" fill="#D06A2E"/><rect x="602" y="274" width="48" height="48" rx="11" fill="#2F7DE1"/><rect x="670" y="274" width="48" height="48" rx="11" fill="#2A3F5A"/><rect x="738" y="274" width="48" height="48" rx="11" fill="#B33A3A"/>
+    <rect x="256" y="112" width="60" height="60" rx="15" fill="none" stroke="#3D7EF5" stroke-width="3"/>
+  </g>
+  <circle cx="522" cy="378" r="4" fill="#E8ECF1"/><circle cx="538" cy="378" r="4" fill="#3A414C"/>
+  <rect x="512" y="424" width="36" height="46" fill="#2A2F37"/>
+  <rect x="450" y="466" width="160" height="12" rx="6" fill="#2A2F37"/>
+  <!-- keyboard and mouse -->
+  <rect x="300" y="496" width="420" height="44" rx="10" fill="#20242B" stroke="#2E343D" stroke-width="2"/>
+  <path d="M316 510h388M316 524h388" stroke="#FFFFFF" stroke-opacity=".06" stroke-width="2"/>
+  <rect x="744" y="494" width="34" height="48" rx="16" fill="#20242B" stroke="#2E343D" stroke-width="2"/>
+  <!-- phone -->
+  <rect x="900" y="130" width="168" height="356" rx="28" fill="#2A2F37"/>
+  <rect x="906" y="136" width="156" height="344" rx="23" fill="#05070A"/>
+  <g fill="#21252C"><rect x="918" y="152" width="30" height="24" rx="6"/><rect x="954" y="152" width="30" height="24" rx="6"/><rect x="990" y="152" width="30" height="24" rx="6"/><rect x="1026" y="152" width="24" height="24" rx="6"/></g>
+  <rect x="918" y="188" width="132" height="236" rx="12" fill="#15181D" stroke="#3D7EF5" stroke-opacity=".35" stroke-width="1.5"/>
+  <circle cx="984" cy="300" r="18" fill="#E8ECF1" fill-opacity=".16" stroke="#E8ECF1" stroke-opacity=".4" stroke-width="2"/>
+  <g fill="#21252C"><rect x="918" y="434" width="54" height="32" rx="8"/><rect x="978" y="434" width="12" height="32" rx="6"/><rect x="996" y="434" width="54" height="32" rx="8"/></g>
+</svg>
