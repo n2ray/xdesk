@@ -358,6 +358,8 @@
     <string name="xd_wireless_title">Connected to a receiver: %1$s</string>
     <string name="xd_wireless_picker_note">Both devices need to be on the same network</string>
     <string name="xd_wireless_searching">Looking for receivers on this network…</string>
+    <string name="xd_wireless_none">No receiver found</string>
+    <string name="xd_wireless_search_again">Search again</string>
     <string name="xd_wireless_nearby">Nearby receivers</string>
     <string name="xd_wireless_receiver">Receiver</string>
     <string name="xd_wireless_connected">Connected: %1$s</string>

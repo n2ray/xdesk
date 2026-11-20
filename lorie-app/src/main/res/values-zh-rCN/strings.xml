@@ -337,6 +337,8 @@
     <string name="xd_wireless_title">已连接接收器：%1$s</string>
     <string name="xd_wireless_picker_note">两台设备要在同一个网络里</string>
     <string name="xd_wireless_searching">正在局域网里找接收器…</string>
+    <string name="xd_wireless_none">没找到接收器</string>
+    <string name="xd_wireless_search_again">再找一次</string>
     <string name="xd_wireless_nearby">附近的接收器</string>
     <string name="xd_wireless_receiver">接收端</string>
     <string name="xd_wireless_connected">已连接：%1$s</string>

@@ -863,8 +863,14 @@ public class XDeskActivity extends Activity {
         LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(18), dp(18));
         spinnerParams.rightMargin = dp(10);
         searchRow.addView(spinner, spinnerParams);
-        searchRow.addView(Style.label(this, getString(R.string.xd_wireless_searching), Style.TEXT_DIM, Style.TEXT_SMALL + 1),
-            new LinearLayout.LayoutParams(0, -2, 1));
+        final TextView searchText = Style.label(this, getString(R.string.xd_wireless_searching), Style.TEXT_DIM, Style.TEXT_SMALL + 1);
+        searchRow.addView(searchText, new LinearLayout.LayoutParams(0, -2, 1));
+        // The search stops after a while (it went on for as long as the page was open); this starts another
+        final TextView searchAgain = Style.label(this, getString(R.string.xd_wireless_search_again), Style.ACCENT, Style.TEXT_SMALL + 1);
+        searchAgain.setTypeface(Typeface.DEFAULT_BOLD);
+        searchAgain.setPadding(dp(12), dp(6), dp(4), dp(6));
+        searchAgain.setVisibility(View.GONE);
+        searchRow.addView(searchAgain, new LinearLayout.LayoutParams(-2, -2));
         found.addView(searchRow);
         // The receivers go in here, above the address row, so "Enter address" stays last as in SetWireless
         final LinearLayout discovered = new LinearLayout(this);
@@ -898,8 +904,10 @@ public class XDeskActivity extends Activity {
             on -> wireless.setClipboardSync(on));
         final java.util.List<ReceiverRow> rows = new java.util.concurrent.CopyOnWriteArrayList<>();
         final boolean[] open = {true};
+        final Runnable[] searchOver = new Runnable[1];
         d[0] = settingsPage(getString(R.string.xd_wireless), c, () -> {
             open[0] = false;
+            if (searchOver[0] != null) searchRow.removeCallbacks(searchOver[0]);
             finder.stop();
             if (settingsRefresh != null) settingsRefresh.run();
         });
@@ -915,7 +923,7 @@ public class XDeskActivity extends Activity {
                 SystemClock.sleep(RECEIVER_PROBE_MS);
             }
         }, "xdesk-receiver-probe").start();
-        finder.start(r -> {
+        final WirelessFinder.Listener onFound = r -> {
             // Anyone can announce an id: one that is already listed must not hide this address, or the other way round
             String key = r.id + "@" + r.host;
             if (!shown.add(key)) return;
@@ -929,7 +937,28 @@ public class XDeskActivity extends Activity {
             ReceiverRow row = new ReceiverRow(r.host, r.port, view);
             rows.add(row);
             new Thread(() -> probeReceiver(row, refreshSearching), "xdesk-receiver-probe").start();
+        };
+        // Search for a while, then stop: receivers found stay listed (and probed); none found says so, with Search again
+        searchOver[0] = () -> {
+            if (!open[0]) return;
+            finder.stop();
+            spinner.setVisibility(View.GONE);
+            searchText.setText(R.string.xd_wireless_none);
+            searchAgain.setVisibility(View.VISIBLE);
+        };
+        final Runnable search = () -> {
+            spinner.setVisibility(View.VISIBLE);
+            searchText.setText(R.string.xd_wireless_searching);
+            searchAgain.setVisibility(View.GONE);
+            finder.start(onFound);
+            searchRow.removeCallbacks(searchOver[0]);
+            searchRow.postDelayed(searchOver[0], RECEIVER_SEARCH_MS);
+        };
+        searchAgain.setOnClickListener(v -> {
+            Style.tick(v);
+            search.run();
         });
+        search.run();
     }
 
     /** The line under a connected receiver's name: where the keys go (SetWireless). */
@@ -1148,6 +1177,8 @@ public class XDeskActivity extends Activity {
     private long lastAutoConnect = -AUTO_CONNECT_PAUSE_MS;
     private static final int AUTO_CONNECT_PAUSE_MS = 10000;
     private static final int RECEIVER_PROBE_MS = 2500, RECEIVER_PROBE_TIMEOUT_MS = 1200;
+    /** How long the picker looks on the network before it stops and offers Search again. */
+    private static final int RECEIVER_SEARCH_MS = 15000;
 
     private final WebServer.Listener webListener = new WebServer.Listener() {
         @Override public void onWebCode(String browserName, String code) {
