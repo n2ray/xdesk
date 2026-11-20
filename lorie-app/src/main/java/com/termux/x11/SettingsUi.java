@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -162,7 +163,8 @@ final class SettingsUi {
         box.addView(content, cp);
         ScrollView scroll = new ScrollView(c);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(Style.BACKGROUND);
+        // xd.css .sheet: the surface colour, not the page's background
+        bg.setColor(Style.SURFACE);
         float r = dp(24);
         bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         scroll.setBackground(bg);
@@ -470,6 +472,12 @@ final class SettingsUi {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(Style.rounded(c, Style.SURFACE, 16));
         card.setPadding(dp(4), dp(4), dp(4), dp(4));
+        // The mockups' cards have a 1 dp line between rows, never above the first (xd.css .row)
+        GradientDrawable line = new GradientDrawable();
+        line.setColor(Style.LINE);
+        line.setSize(1, dp(1));
+        card.setDividerDrawable(line);
+        card.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
         parent.addView(card, new LinearLayout.LayoutParams(-1, -2));
         return card;
     }

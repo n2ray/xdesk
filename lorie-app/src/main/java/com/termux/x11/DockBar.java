@@ -3,6 +3,7 @@ package com.termux.x11;
 import android.content.Context;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -102,12 +103,18 @@ final class DockBar extends LinearLayout {
         box.setPadding(dp(4), dp(2), dp(4), dp(2));
         // A device badge hangs a little past its icon's edge: don't cut it at the box's padding
         box.setClipToPadding(false);
-        box.setBackground(Style.ripple(c, current ? Style.ACCENT : Style.BACKGROUND, Style.RADIUS));
+        box.setBackground(Style.ripple(c, Style.BACKGROUND, Style.RADIUS));
         box.setContentDescription(it.title);
         int size = dp(36);
         ImageView icon = new ImageView(c);
         ExternalLauncher.icon(c, it, icon, Style.BACKGROUND, false, c.getResources().getDisplayMetrics().density);
-        box.addView(icon, new LayoutParams(size, size));
+        // What is on the display: an accent ring around the icon, not the whole tile (Components.dc.html)
+        FrameLayout ring = new FrameLayout(c);
+        ring.setPadding(dp(3), dp(3), dp(3), dp(3));
+        ring.setBackground(Style.iconRing(c, 36, current));
+        ring.addView(icon, new FrameLayout.LayoutParams(size, size));
+        int outer = size + dp(6);
+        box.addView(ring, new LayoutParams(outer, outer));
         LayoutParams p = new LayoutParams(-2, -2);
         p.rightMargin = dp(4);
         box.setLayoutParams(p);

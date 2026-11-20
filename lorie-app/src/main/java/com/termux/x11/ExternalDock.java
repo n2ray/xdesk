@@ -56,7 +56,8 @@ final class ExternalDock implements AppSession.EdgeListener {
     private static final float HOVER_ZOOM = 1.12f, HOVER_LIFT_DP = 6, WIDTH_USED = 0.9f;
     private static final long ZOOM_MS = 110;
     private static final int MIN_EDGE_PX = 4;
-    private static final int DOT = Style.TEXT;
+    /** Components.dc.html: a green dot means it runs; what is on the display has an accent ring around its icon. */
+    private static final int DOT = Style.OK;
     private static final float NAME_TEXT_SP = 12;
     /** The badge's ring is drawn in the dock's surface colour: the shell made opaque, or the ring would show the icon through. */
     private static final int PANEL_OPAQUE = 0xFF11141A;
@@ -657,7 +658,8 @@ final class ExternalDock implements AppSession.EdgeListener {
                 else if (it.strip != Switchboard.STRIP_ALL) curPrev++;
             }
             float avail = dc.getResources().getDisplayMetrics().widthPixels * WIDTH_USED - dp(2 * PAD_DP + 32);
-            float each = dp(ICON_DP + ITEM_GAP_DP);  // one tile, icon and gaps, at the full size
+            // one tile, icon and gaps, at the full size, with the accent ring's 3 dp on each side
+            float each = dp(ICON_DP + ITEM_GAP_DP + 2 * 3);
             float divExtra = dp(ITEM_GAP_DP + 4);    // the divider's margins at the full size (its hairline stays)
             float hair = Math.max(1, dp(1));
             boolean divider = hasFav && curPrev > 0;
@@ -670,7 +672,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             } else if (s < MIN_SCALE) {
                 // Not even at 70%: as many as fit minus one (the "+N" tile takes a slot too)
                 s = MIN_SCALE;
-                float e = dp((ICON_DP + ITEM_GAP_DP) * s);
+                float e = dp((ICON_DP + ITEM_GAP_DP) * s) + dp(2 * 3);
                 int fit = Math.max(1, (int) ((avail - (divider ? hair + dp((ITEM_GAP_DP + 4) * s) : 0)) / e));
                 kept = Math.max(0, fit - 2);
                 // The divider only shows with a favourite after it; where none is shown its room is a tile's,
@@ -735,7 +737,9 @@ final class ExternalDock implements AppSession.EdgeListener {
         /** {@code icon} made by the caller for a tile of the dock's own (the "+N" tile), instead of the item's. */
         private View item(final Switchboard board, Switchboard.Item it, final View icon) {
             final String key = it.key;
-            boolean running = it.strip == Switchboard.STRIP_CURRENT;
+            boolean current = it.strip == Switchboard.STRIP_CURRENT;
+            // The current item is on the display; the green dot says that it (or what it belongs to) runs
+            boolean running = current || it.running;
             items++;
             LinearLayout box = new LinearLayout(dc);
             box.setOrientation(VERTICAL);
@@ -745,10 +749,18 @@ final class ExternalDock implements AppSession.EdgeListener {
             box.setClipChildren(false);
             box.setClipToPadding(false);
             box.setTag(icon);
-            box.addView(icon, new LayoutParams(dp(ICON_DP * scale), dp(ICON_DP * scale)));
+            int iconPx = dp(ICON_DP * scale);
+            // What is on the display: an accent ring around the icon, as Components.dc.html draws it. The ring's
+            // room is there for every icon (transparent) so the row stays aligned.
+            FrameLayout ring = new FrameLayout(dc);
+            int ringGap = Math.max(1, dp(3 * scale));
+            ring.setPadding(ringGap, ringGap, ringGap, ringGap);
+            ring.setBackground(Style.iconRing(density, ICON_DP * scale, current));
+            ring.addView(icon, new FrameLayout.LayoutParams(iconPx, iconPx));
+            box.addView(ring, new LayoutParams(iconPx + 2 * ringGap, iconPx + 2 * ringGap));
             // The zoom goes around the icon's middle, bottom-fixed, whatever the scale: it never changes the layout
-            icon.setPivotX(dp(ICON_DP * scale) / 2f);
-            icon.setPivotY(dp(ICON_DP * scale));
+            icon.setPivotX(iconPx / 2f);
+            icon.setPivotY(iconPx);
             View dot = new View(dc);
             GradientDrawable round = new GradientDrawable();
             round.setShape(GradientDrawable.OVAL);

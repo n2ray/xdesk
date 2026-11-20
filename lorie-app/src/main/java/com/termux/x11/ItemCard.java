@@ -154,7 +154,7 @@ final class ItemCard {
         head.setGravity(Gravity.CENTER_VERTICAL);
         // A device badge hangs a little past the icon's edge: don't cut it at the head's bounds
         head.setClipToPadding(false);
-        int iconSize = dp(52);
+        int iconSize = dp(56);  // ItemCard.dc.html's sheet header
         head.addView(icon(), new LinearLayout.LayoutParams(iconSize, iconSize));
         LinearLayout titles = new LinearLayout(c);
         titles.setOrientation(LinearLayout.VERTICAL);

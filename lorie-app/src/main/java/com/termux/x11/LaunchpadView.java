@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.text.Editable;
@@ -19,8 +20,14 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.termux.x11.app.R;
+import com.termux.x11.mac.AutoQuality;
+import com.termux.x11.mac.HostSettings;
+import com.termux.x11.mac.MacClient;
+import com.termux.x11.mac.MacClients;
+import com.termux.x11.mac.MacStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,6 +83,13 @@ final class LaunchpadView extends LinearLayout {
     private final View barDot;
     private final TextView barText;
     private final LinearLayout barActions;
+    /** LaunchpadDevice.dc.html: 清晰 / 均衡 / 流畅 under a Mac's bar (AutoQuality's three modes). */
+    private final LinearLayout qualityRow;
+    private MacClient qualityClient;
+    private final MacClient.SettingsListener qualityFollow = new MacClient.SettingsListener() {
+        @Override public void settingsChanged() { post(LaunchpadView.this::showQuality); }
+        @Override public void settingsAnswer(int result) { }
+    };
     private final FrameLayout gridBox;
     private final Pager grid;
     private final LinearLayout footer;
@@ -206,6 +220,9 @@ final class LaunchpadView extends LinearLayout {
         barActions.setGravity(Gravity.CENTER_VERTICAL);
         barRow.addView(barActions, new LayoutParams(-2, -2));
 
+        qualityRow = new LinearLayout(c);
+        qualityRow.setVisibility(GONE);
+
         grid = new Pager(c, by -> setPage(page + by));
         grid.setOrientation(VERTICAL);
         gridBox = new FrameLayout(c);
@@ -254,6 +271,9 @@ final class LaunchpadView extends LinearLayout {
             LayoutParams brp = new LayoutParams(-1, -2);
             brp.topMargin = dp(4);
             main.addView(barRow, brp);
+            LayoutParams qp = new LayoutParams(-1, -2);
+            qp.topMargin = dp(4);
+            main.addView(qualityRow, qp);
             main.addView(gridBox, new LayoutParams(-1, 0, 1));
             main.addView(footer, new LayoutParams(-1, dp(24)));
             LayoutParams mp = new LayoutParams(0, -1, 1);
@@ -273,6 +293,9 @@ final class LaunchpadView extends LinearLayout {
             LayoutParams brp = new LayoutParams(-1, -2);
             brp.topMargin = dp(6);
             addView(barRow, brp);
+            LayoutParams qp = new LayoutParams(-1, -2);
+            qp.topMargin = dp(4);
+            addView(qualityRow, qp);
             LayoutParams gp = new LayoutParams(-1, 0, 1);
             gp.topMargin = dp(4);
             addView(gridBox, gp);
@@ -340,13 +363,15 @@ final class LaunchpadView extends LinearLayout {
 
     @Override protected void onDetachedFromWindow() {
         board.removeListener(boardChanged);
+        followQuality(null);
         super.onDetachedFromWindow();
     }
 
     /** Behind the touchpad page the grid is not kept up (every key typed on the Launchpad would rebuild it): now it is. */
     @Override protected void onVisibilityChanged(View changed, int visibility) {
         super.onVisibilityChanged(changed, visibility);
-        if (visibility == VISIBLE && stale && attached()) rebuild();
+        // Always when it comes back: the Mac's quality row may have been put away while it was hidden
+        if (visibility == VISIBLE && attached()) rebuild();
     }
 
     // --- what the window says ---
@@ -471,6 +496,7 @@ final class LaunchpadView extends LinearLayout {
                 settingQuery = false;
             }
             showBar(board.bar(Switchboard.PHONE));
+            showQuality();
             showNotes();
             renderGrid();
             showFooter();
@@ -573,6 +599,62 @@ final class LaunchpadView extends LinearLayout {
         });
     }
 
+    /**
+     * LaunchpadDevice.dc.html: a Mac tab's bar carries the quick quality row (AutoQuality's Sharp / Balanced /
+     * Smooth), the same setting the external sidebar's tile and Ctrl+Alt+Q change. Read-only while the Mac has not
+     * answered a pending change or has not reported its settings yet.
+     */
+    private void showQuality() {
+        Context c = getContext();
+        // The search page shows no bar, and the quality row lives under the bar
+        String tab = board.searching(Switchboard.PHONE) ? "" : board.tab(Switchboard.PHONE);
+        Devices.Device device = Devices.get(c).find(tab);
+        String macId = device != null && device.type == Devices.Type.MAC ? device.id.substring(Devices.MAC.length()) : null;
+        MacClient client = macId != null ? MacClients.get(c, macId) : null;
+        HostSettings live = client != null ? client.settings() : null;
+        HostSettings h = live != null ? live : client != null ? HostSettings.saved(MacStore.stream(c, macId).host) : null;
+        if (!attached() || getVisibility() != VISIBLE || h == null
+                || h.bitrate == null || h.captureScale == null || h.prioritizeSpeed == null) {
+            followQuality(null);
+            qualityRow.removeAllViews();
+            qualityRow.setVisibility(GONE);
+            return;
+        }
+        followQuality(client);
+        boolean enabled = live != null && client.pendingSetting() == null;
+        int at = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
+        String[] names = c.getResources().getStringArray(R.array.xd_mac_mode_names);
+        qualityRow.removeAllViews();
+        LinearLayout track = new LinearLayout(c);
+        track.setBackground(Style.rounded(c, Style.BACKGROUND, 10));
+        track.setPadding(dp(2), dp(2), dp(2), dp(2));
+        for (int i = 0; i < 3; i++) {
+            final int which = i;
+            TextView seg = Style.button(c, names[i], Style.SURFACE, 12, 8);
+            seg.setTextColor(i == at ? Style.TEXT : Style.TEXT_DIM);
+            seg.setBackground(Style.ripple(c, i == at ? Style.ACCENT : Color.TRANSPARENT, 8));
+            seg.setEnabled(enabled);
+            seg.setAlpha(enabled ? 1f : 0.5f);
+            if (enabled) seg.setOnClickListener(v -> {
+                Style.tick(v);
+                if (which != at && !MacModeRow.apply(c, client, which))
+                    Toast.makeText(c, c.getString(R.string.xd_mac_set_failed), Toast.LENGTH_LONG).show();
+                showQuality();
+            });
+            track.addView(seg, new LayoutParams(0, dp(30), 1));
+        }
+        qualityRow.addView(track, new LayoutParams(-1, -2));
+        qualityRow.setVisibility(VISIBLE);
+    }
+
+    /** The tab changed (or the grid went): follow that Mac's settings while its quality row shows. */
+    private void followQuality(MacClient client) {
+        if (client == qualityClient) return;
+        if (qualityClient != null) qualityClient.removeSettingsListener(qualityFollow);
+        qualityClient = client;
+        if (client != null) client.addSettingsListener(qualityFollow);
+    }
+
     // --- the hints above the grid ---
 
     private void showNotes() {
@@ -633,13 +715,17 @@ final class LaunchpadView extends LinearLayout {
         box.setOrientation(VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setClickable(true);
-        box.setPadding(dp(3), dp(2), dp(3), dp(2));
-        // What is on the external screen stands out as its row on the phone's list does (Switchboard.CURRENT_TINT)
-        box.setBackground(it.current ? Style.rounded(c, Switchboard.CURRENT_TINT, 14) : null);
+        box.setPadding(dp(3), dp(1), dp(3), dp(1));
         box.setAlpha(it.hidden || it.dim ? 0.55f : 1f);
         ImageView icon = new ImageView(c);
         ExternalLauncher.icon(c, it, icon, Style.BACKGROUND, board.ownTab(Switchboard.PHONE, it.key), density);
-        box.addView(icon, new LayoutParams(iconSize, iconSize));
+        // What is on the external screen: an accent ring around the icon, not the whole tile (Components.dc.html)
+        FrameLayout ring = new FrameLayout(c);
+        ring.setPadding(dp(3), dp(3), dp(3), dp(3));
+        ring.setBackground(Style.iconRing(density, landscape ? LANDSCAPE_ICON : PORTRAIT_ICON, it.current));
+        ring.addView(icon, new FrameLayout.LayoutParams(iconSize, iconSize));
+        int ringSize = iconSize + dp(6);
+        box.addView(ring, new LayoutParams(ringSize, ringSize));
 
         LinearLayout nameRow = new LinearLayout(c);
         nameRow.setGravity(Gravity.CENTER);

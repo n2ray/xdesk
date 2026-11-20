@@ -52,20 +52,6 @@ final class Style {
     static final int ON_STOP = 0xFF1A1405;
     /** 移除、忘记、结束这一行的淡红底：一眼看出是按钮，又不像实心红块那样抢眼。 */
     static final int DANGER_TINT = 0x29E5534B;
-    /**
-     * 设备徽章的颜色盘（ExternalLauncher 的设备徽章）：同一个设备永远是同一个颜色。取中间明度的饱和色，
-     * 在深色和浅色的表面上都清楚，彼此分得开。
-     */
-    static final int[] BADGE = {
-        0xFF3D7EF5,  // blue
-        0xFF1F8A4C,  // green
-        0xFFB26A00,  // amber
-        0xFF8B5CF6,  // violet
-        0xFF0E9F9F,  // teal
-        0xFFD14B85,  // magenta
-        0xFFC0392B,  // red
-        0xFF6B8E23,  // olive
-    };
 
     /** 间距，单位 dp。 */
     static final int GAP = 6, EDGE = 8;
@@ -199,6 +185,23 @@ final class Style {
         d.setShape(GradientDrawable.OVAL);
         d.setColor(color);
         return d;
+    }
+
+    /**
+     * 正在外接屏上的那一项：图标外面一圈，不是整块底色（Components.dc.html：2.5 dp 蓝色描边，离图标 3 dp）。
+     * 不亮时是全透明的同一形状，布局不跟着变。
+     */
+    static GradientDrawable iconRing(Context c, float iconDp, boolean on) {
+        return iconRing(c.getResources().getDisplayMetrics().density, iconDp, on);
+    }
+
+    /** The same with a caller's factor (the shell's b·u on the external screen), so the ring follows it. */
+    static GradientDrawable iconRing(float density, float iconDp, boolean on) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Color.TRANSPARENT);
+        g.setCornerRadius((iconDp * 0.22f + 3) * density);
+        if (on) g.setStroke(Math.max(1, Math.round(2.5f * density)), ACCENT);
+        return g;
     }
 
     /** 常用操作：一个图标，下面可以有一行小字，比如当前的值。不抢焦点。 */

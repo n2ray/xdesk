@@ -8,13 +8,11 @@ import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.app.R;
@@ -23,16 +21,17 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 
 /**
- * The one look of "go and turn this permission on" (owner, 2026-11-18), on the phone and on the external screen alike:
- * amber (Style.WARN, which only this uses for a call to act) with a bar on the left and a key, "Turn on «X»", one line
- * why, one line where in the phone's settings, and an amber button that says where the page will open. Red stays for
- * errors and lost connections, grey for plain notes. A card whose permission is there when XDesk is back turns green,
- * says so, and goes.
+ * The one look of "go and turn this permission on" (owner, 2026-11-18), on the phone and on the external screen alike,
+ * as PermInline/PermSheet draw it: an amber-tinted card with an amber title, "Turn on «X»", one line why, one line
+ * where in the phone's settings, and the way to open it — the quiet blue link on a page, the blue primary button when
+ * asked at a moment. Red stays for errors and lost connections, grey for plain notes. A card whose permission is there
+ * when XDesk is back turns green, says so, and goes.
  */
 public final class PermitCard {
     /** Where the button's page opens: here (the phone's own screen), on the phone (seen from the external screen). */
     public static final int HERE = 0, ON_PHONE = 1;
-    private static final int INK = 0xFF1A1405;  // the button's text, dark on amber
+    /** The amber card's tint and border, as PermInline/PermSheet draw them (rgba(240,136,62,.10 / .30)). */
+    private static final int TINT = 0x1AF0883E, BORDER = 0x4DF0883E;
     private static final long DONE_MS = 2000;
     /** Cards waiting for their permission, held while their view is attached (the card object has no other owner). */
     private static final List<PermitCard> live = new ArrayList<>();
@@ -42,8 +41,7 @@ public final class PermitCard {
     private final BooleanSupplier granted;
     private final Context c;
     private final float density;
-    private final GradientDrawable bar;
-    private final ImageView icon;
+    private final GradientDrawable back;
     private final TextView title;
     private final LinearLayout rest;
     private boolean done;
@@ -63,37 +61,23 @@ public final class PermitCard {
         this.density = density;
         this.granted = granted;
         view = new LinearLayout(c);
-        view.setOrientation(LinearLayout.HORIZONTAL);
-        GradientDrawable back = new GradientDrawable();
-        back.setColor(0x1FF2B33D);
-        back.setCornerRadius(dp(12));
-        bar = new GradientDrawable();
-        bar.setColor(Style.WARN);
-        bar.setCornerRadius(dp(2));
-        LayerDrawable layers = new LayerDrawable(new Drawable[]{back, bar});
-        layers.setLayerGravity(1, Gravity.START | Gravity.FILL_VERTICAL);
-        layers.setLayerWidth(1, dp(4));
-        layers.setLayerInset(1, dp(4), dp(10), 0, dp(10));
-        view.setBackground(layers);
-        view.setPadding(dp(16), dp(12), dp(12), dp(12));
+        view.setOrientation(LinearLayout.VERTICAL);
+        // PermInline/PermSheet's card: an amber-tinted box with a hairline, an amber title, no bar and no icon
+        back = new GradientDrawable();
+        back.setColor(TINT);
+        back.setCornerRadius(dp(16));
+        back.setStroke(dp(1), BORDER);
+        view.setBackground(back);
+        view.setPadding(dp(14), dp(12), dp(14), dp(12));
 
-        icon = new ImageView(c);
-        icon.setImageDrawable(new KeyIcon(Style.WARN));
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(22), dp(22));
-        ip.rightMargin = dp(10);
-        ip.topMargin = dp(1);
-        view.addView(icon, ip);
-
-        LinearLayout text = new LinearLayout(c);
-        text.setOrientation(LinearLayout.VERTICAL);
-        title = label(Style.TEXT, 15);
+        title = label(Style.WARN, 14);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setText(c.getString(R.string.xd_permit_title, what));
-        text.addView(title);
+        view.addView(title);
         rest = new LinearLayout(c);
         rest.setOrientation(LinearLayout.VERTICAL);
         if (why != null) {
-            TextView w = label(Style.TEXT, 13);
+            TextView w = label(Style.TEXT_SOFT, 12);
             w.setText(why);
             w.setPadding(0, dp(4), 0, 0);
             rest.addView(w);
@@ -107,13 +91,17 @@ public final class PermitCard {
         if (open != null) {
             String word = action != null ? action
                 : c.getString(where == ON_PHONE ? R.string.xd_permit_open_phone : R.string.xd_permit_open);
-            TextView b = button(word, open);
-            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, dp(36));
-            bp.topMargin = dp(10);
-            rest.addView(b, bp);
+            // A card asking at a moment (PermSheet) has the one primary button; the card on a page is PermInline,
+            // where the action is a quiet blue link
+            if (action != null) {
+                LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, dp(36));
+                bp.topMargin = dp(10);
+                rest.addView(button(word, open), bp);
+            } else {
+                link(word + " ›", open);
+            }
         }
-        text.addView(rest);
-        view.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        view.addView(rest);
         if (granted != null) {
             view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
                 @Override public void onViewAttachedToWindow(View v) {
@@ -143,11 +131,11 @@ public final class PermitCard {
         return done;
     }
 
-    /** A second, quieter way under the button (the details page when the system's switch is grey). */
+    /** A second, quieter way under the button, and the card's own action (PermInline's blue link). */
     PermitCard link(String word, Runnable onTap) {
-        TextView l = label(Style.WARN, 13);
+        TextView l = label(Style.ACCENT_2, 14);
         l.setText(word);
-        l.setPadding(0, dp(8), 0, dp(4));
+        l.setPadding(0, dp(6), 0, dp(2));
         l.setOnClickListener(v -> {
             Style.tick(v);
             onTap.run();
@@ -165,23 +153,23 @@ public final class PermitCard {
         return this;
     }
 
-    /** The amber button, also for the full-screen setup page: dark text, tall enough for a finger. */
+    /** The blue primary button (PermDetail/PermOnboard/PermSheet): tall enough for a finger. */
     TextView button(String word, Runnable onTap) {
         TextView b = new TextView(c);
         b.setText(word);
-        b.setTextColor(INK);
+        b.setTextColor(Style.TEXT);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setTextSize(TypedValue.COMPLEX_UNIT_PX, 14 * density);
         b.setGravity(Gravity.CENTER);
         b.setPadding(dp(16), 0, dp(16), 0);
         b.setMinWidth(dp(96));
         GradientDrawable fill = new GradientDrawable();
-        fill.setColor(Style.WARN);
-        fill.setCornerRadius(dp(18));
+        fill.setColor(Style.ACCENT);
+        fill.setCornerRadius(dp(12));
         GradientDrawable mask = new GradientDrawable();
         mask.setColor(0xFFFFFFFF);
-        mask.setCornerRadius(dp(18));
-        b.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x33000000), fill, mask));
+        mask.setCornerRadius(dp(12));
+        b.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x33FFFFFF), fill, mask));
         b.setClickable(true);
         b.setFocusable(false);
         b.setOnClickListener(v -> {
@@ -210,9 +198,9 @@ public final class PermitCard {
         if (done) return;
         live.remove(this);
         done = true;
-        bar.setColor(Style.OK);
-        ((GradientDrawable) ((LayerDrawable) view.getBackground()).getDrawable(0)).setColor(0x1F3FCF7F);
-        icon.setImageDrawable(new CheckIcon(Style.OK));
+        back.setColor(0x1F3FCF7F);
+        back.setStroke(dp(1), 0x4D3FCF7F);
+        title.setTextColor(Style.OK);
         title.setText(R.string.xd_permit_done);
         rest.setVisibility(View.GONE);
         ui.postDelayed(() -> {

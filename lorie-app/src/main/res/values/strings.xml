@@ -273,12 +273,12 @@
     <string name="xd_status_injector_gone_shizuku">Input service disconnected. Check that Shizuku is still running</string>
     <string name="xd_status_display_gone_app">Display disconnected. %1$s goes back when you plug it in again</string>
     <string name="xd_status_no_devices">%1$s: no mouse or keyboard plugged in. Plug one in to take over</string>
-    <string name="xd_status_input_display">%1$s · Mouse &amp; keyboard on the display</string>
-    <string name="xd_status_input_phone">%1$s · Mouse &amp; keyboard on the phone</string>
+    <string name="xd_status_input_display">On the display: %1$s · Mouse &amp; keyboard on the display</string>
+    <string name="xd_status_input_phone">On the display: %1$s · Mouse &amp; keyboard on the phone</string>
     <string name="xd_status_game">%1$s · Game passthrough: mouse &amp; keyboard go straight to the app. Ctrl+Alt+G or a touch here ends it</string>
     <string name="xd_game_on">Game passthrough on: Ctrl+Alt+G or a touch on the phone ends it</string>
     <string name="xd_game_off">Game passthrough off</string>
-    <string name="xd_status_input_computer">%1$s · Mouse &amp; keyboard on %2$s</string>
+    <string name="xd_status_input_computer">On the display: %1$s · Mouse &amp; keyboard on %2$s</string>
     <string name="xd_status_reconnecting">Reconnecting to %1$s</string>
     <string name="xd_status_desktop_car">On the car: %1$s</string>
     <string name="xd_status_desktop_display">On the display: %1$s</string>
@@ -468,6 +468,9 @@
     <string name="xd_builtin_not_running">Not running</string>
     <string name="xd_builtin_not_paired">Not paired</string>
     <string name="xd_about_credit">Made by n2ray and Claude · Based on Termux:X11 · GPL-3.0</string>
+    <string name="xd_about_website">Website</string>
+    <string name="xd_about_github">GitHub</string>
+    <string name="xd_about_changelog">Changelog</string>
 
     <!-- The app card (long press) -->
     <string name="xd_card_on_display">On the display</string>
@@ -594,6 +597,7 @@
     <string name="xd_web_forget_title">Forget paired browsers?</string>
     <string name="xd_web_forget_message">Every browser has to enter a code again. A browser connected now is disconnected.</string>
     <string name="xd_web_forget_action">Forget</string>
+    <string name="xd_web_pairing_now">Showing: %1$s · Pairing code %2$s</string>
     <string name="xd_web_code_title">A browser wants to connect</string>
     <string name="xd_web_code_note">%1$s wants to show XDesk. Type this code in that browser. If it is not you, ignore it: the code expires in 2 minutes.</string>
     <string name="xd_web_no_port">Web display cannot use port %1$d: %2$s</string>
@@ -608,6 +612,7 @@
     <string name="xd_kind_tv">TV</string>
     <string name="xd_kind_projector">Projector</string>
     <string name="xd_kind_handheld">In hand</string>
+    <string name="xd_kind_handheld_wired">In hand is only for a receiver\'s screen: a wired screen is never held</string>
     <string name="xd_screen_size">Size</string>
     <string name="xd_screen_size_note">Text and everything else on this screen, the desktop included</string>
     <string name="xd_size_small">S</string>

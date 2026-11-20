@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.graphics.Point;
 import android.os.Handler;
 import android.os.IBinder;
@@ -9,6 +10,7 @@ import android.os.RemoteException;
 import android.util.Log;
 import android.view.Display;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.termux.x11.app.R;
 
@@ -151,13 +153,44 @@ final class DesktopScale {
             return;
         }
         try {
-            s.choice(a.getString(R.string.xd_screen_ask_title), a.getString(R.string.xd_screen_ask_note),
-                strings(a, KIND_LABELS, 3), kindIndex(g.kind), which -> {
-                    if (KINDS[which] == p.kind) return;
-                    p.kind = KINDS[which];
-                    profiles.save(p);
-                    changed.run();
-                });
+            // Confirm.dc.html: a 2×2 grid of the four kinds. This only asks about a wired screen, and one cannot be
+            // held in the hand: Handheld stays off with the reason (a receiver's screen is the one that can)
+            final Dialog[] dlg = new Dialog[1];
+            LinearLayout grid = new LinearLayout(a);
+            grid.setOrientation(LinearLayout.VERTICAL);
+            String[] labels = strings(a, KIND_LABELS, KINDS.length);
+            LinearLayout row = null;
+            for (int i = 0; i < KINDS.length; i++) {
+                if (i % 2 == 0) {
+                    row = new LinearLayout(a);
+                    LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+                    if (i > 0) rp.topMargin = Style.dp(a, 8);
+                    grid.addView(row, rp);
+                }
+                final int which = i;
+                TextView b = Style.button(a, labels[i], Style.SURFACE_RAISED, 15, 12);
+                if (KINDS[i] == Sizing.HANDHELD) {
+                    b.setEnabled(false);
+                    b.setAlpha(0.4f);
+                    b.setContentDescription(a.getString(R.string.xd_kind_handheld_wired));
+                } else {
+                    b.setOnClickListener(v -> {
+                        Style.tick(v);
+                        dlg[0].dismiss();
+                        if (KINDS[which] == p.kind) return;
+                        p.kind = KINDS[which];
+                        profiles.save(p);
+                        changed.run();
+                    });
+                }
+                LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, Style.dp(a, 46), 1);
+                bp.leftMargin = bp.rightMargin = Style.dp(a, 4);
+                row.addView(b, bp);
+            }
+            TextView reason = Style.label(a, a.getString(R.string.xd_kind_handheld_wired), Style.TEXT_DIM, Style.TEXT_SMALL);
+            reason.setPadding(Style.dp(a, 4), Style.dp(a, 8), Style.dp(a, 4), 0);
+            grid.addView(reason);
+            dlg[0] = s.sheet(a.getString(R.string.xd_screen_ask_title), a.getString(R.string.xd_screen_ask_note), grid);
         } catch (RuntimeException e) {
             Log.i(TAG, "cannot ask: " + e);
         }

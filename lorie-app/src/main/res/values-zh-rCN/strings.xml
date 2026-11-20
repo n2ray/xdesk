@@ -258,12 +258,12 @@
     <string name="xd_status_injector_gone_shizuku">注入服务断开了，确认 Shizuku 还在运行</string>
     <string name="xd_status_display_gone_app">外接屏已断开，插回后 %1$s 自动回去</string>
     <string name="xd_status_no_devices">%1$s：没有外接键鼠，插上后接管</string>
-    <string name="xd_status_input_display">%1$s · 键鼠在外接屏</string>
-    <string name="xd_status_input_phone">%1$s · 键鼠在手机</string>
+    <string name="xd_status_input_display">外接屏上：%1$s · 键鼠在外接屏</string>
+    <string name="xd_status_input_phone">外接屏上：%1$s · 键鼠在手机</string>
     <string name="xd_status_game">%1$s · 游戏直通：键鼠直接给应用。Ctrl+Alt+G 或碰一下手机退出</string>
     <string name="xd_game_on">游戏直通已开：Ctrl+Alt+G 或碰一下手机退出</string>
     <string name="xd_game_off">游戏直通已关</string>
-    <string name="xd_status_input_computer">%1$s · 键鼠在 %2$s</string>
+    <string name="xd_status_input_computer">外接屏上：%1$s · 键鼠在 %2$s</string>
     <string name="xd_status_reconnecting">正在重新连接 %1$s</string>
     <string name="xd_status_desktop_car">车机上：%1$s</string>
     <string name="xd_status_desktop_display">外接屏上：%1$s</string>
@@ -444,6 +444,9 @@
     <string name="xd_end_xdesk_note">应用回到手机，外接屏恢复镜像</string>
     <string name="xd_builtin_running">正在运行</string>
     <string name="xd_about_credit">n2ray 和 Claude 制作 · 基于 Termux:X11 · GPL-3.0</string>
+    <string name="xd_about_website">网站</string>
+    <string name="xd_about_github">GitHub</string>
+    <string name="xd_about_changelog">更新日志</string>
     <string name="xd_builtin_starting">正在启动</string>
     <string name="xd_builtin_not_running">没有运行</string>
     <string name="xd_builtin_not_paired">未配对</string>
@@ -570,6 +573,7 @@
     <string name="xd_web_forget_title">忘记已配对的浏览器？</string>
     <string name="xd_web_forget_message">所有浏览器都要重新输入配对码，正在连接的会断开。</string>
     <string name="xd_web_forget_action">忘记</string>
+    <string name="xd_web_pairing_now">正在显示：%1$s · 配对码 %2$s</string>
     <string name="xd_web_code_title">有浏览器请求连接</string>
     <string name="xd_web_code_note">%1$s 想显示 XDesk。请在那个浏览器里输入这个码。如果不是你在连，不用理会，码 2 分钟后失效。</string>
     <string name="xd_web_no_port">网页显示用不了端口 %1$d：%2$s</string>
@@ -584,6 +588,7 @@
     <string name="xd_kind_tv">电视</string>
     <string name="xd_kind_projector">投影机</string>
     <string name="xd_kind_handheld">手持</string>
+    <string name="xd_kind_handheld_wired">手持只用于接收器的屏幕：有线屏幕不会拿在手上</string>
     <string name="xd_screen_size">大小</string>
     <string name="xd_screen_size_note">这块屏上的文字和界面，桌面也跟着变</string>
     <string name="xd_size_small">小</string>

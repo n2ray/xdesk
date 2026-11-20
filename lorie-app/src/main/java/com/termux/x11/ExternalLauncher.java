@@ -5,7 +5,6 @@ import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
-import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.widget.ImageView;
@@ -16,10 +15,10 @@ import android.widget.ImageView;
  * Main thread only.
  *
  * An item of an external device carries the device's badge (DEVICES.md §3.2) in the icon's bottom-left corner: a round
- * disc in the device's own colour, its type's glyph (a monitor for a Mac, "&gt;_" for Termux, a Linux environment's
- * first letter), ringed in the surface it sits on so it reads as cut out of the icon. It is an overlay of the
- * ImageView: it rides along with whatever is drawn under it and scales with the view (the Dock's zoom). Phone apps
- * carry none: no badge means the phone.
+ * disc in its type's colour — green with "&gt;_" for Linux, blue with "M" for a Mac (Components.dc.html) — ringed in
+ * the surface it sits on so it reads as cut out of the icon. It is an overlay of the ImageView: it rides along with
+ * whatever is drawn under it and scales with the view (the Dock's zoom). Phone apps carry none: no badge means the
+ * phone.
  */
 final class ExternalLauncher {
     /** The dock's last tile: opens the switcher (SwitcherOverlay) on the external display. */
@@ -70,28 +69,26 @@ final class ExternalLauncher {
             Devices d = Devices.get(c);
             String id = d.deviceOf(it.key);
             Devices.Device dev = d.find(id);
-            if (dev != null && dev.external()) into.getOverlay().add(badge(c, into, id, dev, surface, density));
+            if (dev != null && dev.external()) into.getOverlay().add(badge(into, dev, surface, density));
         }
     }
 
     // --- the device badge ---
 
-    /** The badge's fill: one of a small fixed palette, picked by the device id, the same colour forever. */
-    private static int fill(String deviceId) {
-        int h = (int) 2166136261L;  // FNV-1a, spelled out: stable on any Java
-        for (int i = 0; i < deviceId.length(); i++) h = (h ^ deviceId.charAt(i)) * 16777619;
-        return Style.BADGE[Math.floorMod(h, Style.BADGE.length)];
+    /** Components.dc.html: Linux is green with ">_", a Mac blue with "M"; phone apps carry none. */
+    private static int fill(Devices.Device d) {
+        return d.type == Devices.Type.MAC ? Style.MAC : d.type == Devices.Type.LINUX ? Style.LINUX : Style.TEXT_DIM;
     }
 
-    private static Drawable badge(final Context c, final ImageView into, final String deviceId, final Devices.Device d,
+    private static Drawable badge(final ImageView into, final Devices.Device d,
                                   final int surface, final float density) {
-        final int fill = fill(deviceId);
+        final int fill = fill(d);
         return new Drawable() {
             private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
             private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
             private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
             { paint.setColor(fill); ring.setColor(surface); ring.setStyle(Paint.Style.STROKE);
-              text.setColor(Style.TEXT); text.setTextAlign(Paint.Align.CENTER); }
+              text.setColor(Style.BACKGROUND); text.setTextAlign(Paint.Align.CENTER); }
 
             @Override public void draw(Canvas canvas) {
                 // The badge follows the view's own size (not its layout bounds at creation), so it survives recycling
@@ -106,7 +103,7 @@ final class ExternalLauncher {
                 float ringW = Math.max(Math.round(1.5f * density), s * RING);
                 ring.setStrokeWidth(ringW);
                 canvas.drawCircle(cx, cy, (s - ringW) / 2f, ring);
-                glyph(canvas, cx, cy, s, d, c, text);
+                glyph(canvas, cx, cy, s, d, text);
             }
 
             @Override public void setAlpha(int alpha) { }
@@ -115,19 +112,14 @@ final class ExternalLauncher {
         };
     }
 
-    /** The glyph inside the badge: what kind of device it is. */
-    private static void glyph(Canvas canvas, float cx, float cy, float s, Devices.Device d, Context c, Paint p) {
+    /** The glyph inside the badge (Components.dc.html): ">_" for Linux, "M" for a Mac. */
+    private static void glyph(Canvas canvas, float cx, float cy, float s, Devices.Device d, Paint p) {
         switch (d.type) {
             case MAC:
-                monitor(canvas, cx, cy, s, p);
+                letter(canvas, cx, cy, s, "M", 0.55f, p);
                 return;
             case LINUX:
-                if (d.id.equals(Devices.LINUX + Devices.TERMUX)) {
-                    letter(canvas, cx, cy, s, ">_", 0.42f, p);
-                    return;
-                }
-                // An environment's badge shows its distro's initial, as Devices.linuxName displays it ("U" for Ubuntu)
-                letter(canvas, cx, cy, s, firstLetter(Devices.linuxName(c, d.id)), 0.55f, p);
+                letter(canvas, cx, cy, s, ">_", 0.42f, p);
                 return;
             default:
                 // A future device type (Windows, another Android device): its name's first letter, until a glyph of
@@ -139,18 +131,6 @@ final class ExternalLauncher {
     /** The first letter of a name, uppercase; "?" for none. */
     private static String firstLetter(String name) {
         return name == null || name.isEmpty() ? "?" : name.substring(0, name.offsetByCodePoints(0, 1)).toUpperCase();
-    }
-
-    /** A Mac's badge: a monitor, its screen and a short stand. Drawn, so there is no logo to carry. */
-    private static void monitor(Canvas canvas, float cx, float cy, float s, Paint p) {
-        p.setStyle(Paint.Style.FILL);
-        RectF screen = new RectF(cx - s * 0.32f, cy - s * 0.24f, cx + s * 0.32f, cy + s * 0.12f);
-        canvas.drawRoundRect(screen, s * 0.06f, s * 0.06f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(1f, s * 0.05f));
-        p.setStrokeCap(Paint.Cap.ROUND);
-        canvas.drawLine(cx, cy + s * 0.16f, cx, cy + s * 0.28f, p);
-        canvas.drawLine(cx - s * 0.14f, cy + s * 0.30f, cx + s * 0.14f, cy + s * 0.30f, p);
     }
 
     /** Text drawn in the middle of the badge, {@code em} parts of the badge's diameter. */

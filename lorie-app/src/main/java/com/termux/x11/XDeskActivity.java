@@ -196,6 +196,10 @@ public class XDeskActivity extends Activity {
     private WebServer web;
     /** The code a browser should type, shown on the phone while it pairs. */
     private android.app.Dialog webCodeDialog;
+    /** The pairing in progress, so Settings › Web display can show it too (SetWeb.dc.html's green card). */
+    private String webPairingBrowser, webPairingCode;
+    /** The open Settings › Web display page, rebuilt when a pairing starts or ends. */
+    private android.app.Dialog webPage;
     private DockBar runningDock;
     private ExternalDock externalDock;
     /** The notification centre's windows on the external screen (NOTIFY.md): the bell, the banners, the panel. */
@@ -1147,6 +1151,10 @@ public class XDeskActivity extends Activity {
 
     private final WebServer.Listener webListener = new WebServer.Listener() {
         @Override public void onWebCode(String browserName, String code) {
+            // The code the server gave the phone stays here: the sheet and Settings › Web display both show it
+            webPairingBrowser = browserName;
+            webPairingCode = code;
+            refreshWebPageIfOpen();
             if (webCodeDialog != null) webCodeDialog.dismiss();
             TextView digits = Style.label(XDeskActivity.this, code, Style.TEXT, 56);
             digits.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -1158,6 +1166,8 @@ public class XDeskActivity extends Activity {
             webCodeDialog.setCancelable(false);
         }
         @Override public void onWebCodeDone() {
+            webPairingBrowser = webPairingCode = null;
+            refreshWebPageIfOpen();
             if (webCodeDialog != null) webCodeDialog.dismiss();
             webCodeDialog = null;
         }
@@ -1215,6 +1225,12 @@ public class XDeskActivity extends Activity {
                 });
             }
         }
+        // SetWeb.dc.html: while a browser pairs, the page shows the same code the sheet does
+        if (webPairingCode != null) {
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2);
+            gp.topMargin = dp(10);
+            c.addView(webPairingCard(), gp);
+        }
         LinearLayout wired = s.section(c, getString(R.string.xd_web_wired));
         s.infoRow(wired, getString(R.string.xd_web_wired_how), getString(R.string.xd_web_wired_how_note), null);
         if (WebServer.usbTetheringIsNcm(this)) {
@@ -1258,8 +1274,45 @@ public class XDeskActivity extends Activity {
                     }));
         }
         d[0] = settingsPage(getString(R.string.xd_web), c, () -> {
+            webPage = null;
             if (settingsRefresh != null) settingsRefresh.run();
         });
+        webPage = d[0];
+    }
+
+    /** The pairing started or ended while Settings › Web display is open: the page says it now. */
+    private void refreshWebPageIfOpen() {
+        if (webPage == null || !webPage.isShowing() || isFinishing()) return;
+        Dialog old = webPage;
+        webPage = null;
+        old.dismiss();
+        showWebPage();
+    }
+
+    /** SetWeb.dc.html's green card: the browser pairing now and the code it must type. */
+    private View webPairingCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setBackground(Style.rounded(this, 0xFF13261D, 16));
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        View dot = new View(this);
+        dot.setBackground(Style.dot(Style.OK));
+        LinearLayout.LayoutParams dp8 = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dp8.rightMargin = dp(12);
+        card.addView(dot, dp8);
+        String text = getString(R.string.xd_web_pairing_now, webPairingBrowser, webPairingCode);
+        android.text.SpannableString s = new android.text.SpannableString(text);
+        int at = text.lastIndexOf(webPairingCode);
+        if (at >= 0)
+            s.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), at, at + webPairingCode.length(), 0);
+        TextView line = new TextView(this);
+        line.setText(s);
+        line.setTextColor(Style.TEXT);
+        line.setTextSize(Style.TEXT_SMALL + 1);
+        line.setLineSpacing(dp(2), 1f);
+        card.addView(line, new LinearLayout.LayoutParams(0, -2, 1));
+        return card;
     }
 
     /** Settings → Network → Hotspot and tethering; the component differs between ROMs. */
@@ -2494,9 +2547,31 @@ public class XDeskActivity extends Activity {
         if (c.orientation == lastOrientation) return;
         lastOrientation = c.orientation;
         rebuildRunning();
-        // The grid's columns, its rail and the bottom bar are portrait's or landscape's: the same view built anew
+        // The list and the grid each have a portrait and a landscape layout (ConsoleListLand.dc.html): built anew
+        rebuildChooser();
         rebuildLaunchpad();
         applyImmersive();
+    }
+
+    /** The console list is built for the orientation it first was; a turn builds it again where it was. */
+    private void rebuildChooser() {
+        if (chooser == null || screens == null) return;
+        int at = screens.indexOfChild(chooser);
+        if (at < 0) return;
+        boolean shown = chooser.getVisibility() == View.VISIBLE;
+        ime.hideSoftInputFromWindow(chooser.getWindowToken(), 0);
+        screens.removeView(chooser);
+        chooser = new ChooserView(this, chooserHost);
+        chooser.setVisibility(shown ? View.VISIBLE : View.GONE);
+        screens.addView(chooser, at, new FrameLayout.LayoutParams(-1, -1));
+        // The new view starts blank: what the old one was told goes to it too
+        updateChooserDisplay();
+        setLauncherNotice(launcherNotice, launcherNoticeAction);
+        updateAudioChip();
+        updateActivationPrompt();
+        showOwnership();
+        chooser.setStopping(session.stopping());
+        if (shown) keyView.requestFocus();
     }
 
     /** The Launchpad grid is built for the orientation it is first shown in; a turn builds it again where it was. */
@@ -2782,8 +2857,9 @@ public class XDeskActivity extends Activity {
         // The Launchpad grid's top line is the same line; there it stays while the page does (it is the home)
         if (launchpad != null) launchpad.setStatus(color, s);
         statusText.setText(s);
-        // 正常时不显示：应用图标和按钮已经说明了在用什么、键鼠在哪
-        int v = color == Style.OK ? View.GONE : View.VISIBLE;
+        // The line the mockups always draw (Main, ConsoleLand, KeysPanel, TouchMode), warnings and errors included:
+        // only its absence is hidden, as the Launchpad grid's copy does. The dot keeps the state's colour.
+        int v = s == null || s.isEmpty() ? View.GONE : View.VISIBLE;
         statusText.setVisibility(v);
         statusDot.setVisibility(v);
         if (statusRow != null) statusRow.setVisibility(v);
@@ -3020,14 +3096,14 @@ public class XDeskActivity extends Activity {
 
     /**
      * The setup page asking for a permission, in PermitCard's look: the amber key, "Turn on «what»", why and where,
-     * and the amber button (the usual word when {@code action} is null).
+     * and the blue primary button (the usual word when {@code action} is null), as PermSheet draws it.
      */
     private void showPermitSetup(String what, String why, String path, String action, View.OnClickListener onAction) {
         showSetup(getString(R.string.xd_permit_title, what), path != null ? why + "\n\n" + path : why, false,
             action != null ? action : getString(R.string.xd_permit_open), onAction);
         setupKey.setVisibility(View.VISIBLE);
-        setupAction.setBackground(Style.ripple(this, Style.WARN, 24));
-        setupAction.setTextColor(0xFF1A1405);
+        setupAction.setBackground(Style.ripple(this, Style.ACCENT, 12));
+        setupAction.setTextColor(Style.TEXT);
     }
 
     /** The system's page for "display over other apps", for XDesk. */
@@ -3673,8 +3749,8 @@ public class XDeskActivity extends Activity {
         }
 
         if (state != Permissions.State.ON) {
-            TextView go = Style.button(this, getString(item.action), Style.WARN, Style.TEXT_BODY + 1, 12);
-            go.setTextColor(0xFF1A1405);
+            // The page's one primary action is the blue button (PermDetail.dc.html)
+            TextView go = Style.button(this, getString(item.action), Style.ACCENT, Style.TEXT_BODY + 1, 12);
             go.setOnClickListener(v -> {
                 Style.tick(v);
                 openPermissionFix(item);
@@ -3978,9 +4054,9 @@ public class XDeskActivity extends Activity {
             text.addView(state);
             row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
             if (!on) {
-                TextView go = Style.button(this, getString(item.action), required ? Style.WARN : Style.SURFACE_RAISED,
+                // The checklist's action is the blue primary button (PermOnboard.dc.html)
+                TextView go = Style.button(this, getString(item.action), required ? Style.ACCENT : Style.SURFACE_RAISED,
                     Style.TEXT_SMALL, 15);
-                go.setTextColor(required ? 0xFF1A1405 : Style.TEXT);
                 go.setPadding(dp(12), 0, dp(12), 0);
                 go.setOnClickListener(v -> {
                     Style.tick(v);
@@ -4422,8 +4498,32 @@ public class XDeskActivity extends Activity {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
+        // SetAbout.dc.html: the logo at the top, the name and version under it
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+        brand.setGravity(Gravity.CENTER_HORIZONTAL);
+        brand.setPadding(0, dp(8), 0, dp(18));
+        FrameLayout logo = new FrameLayout(this);
+        logo.setBackground(Style.rounded(this, 0xFF11151C, 16));
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.xdesk_ic_fg);
+        logo.addView(mark, new FrameLayout.LayoutParams(dp(72), dp(72)));
+        brand.addView(logo, new LinearLayout.LayoutParams(dp(72), dp(72)));
+        TextView name = Style.label(this, "XDesk", Style.TEXT, 22);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-2, -2);
+        np.topMargin = dp(8);
+        brand.addView(name, np);
+        brand.addView(Style.label(this, versionName(), Style.TEXT_DIM, Style.TEXT_SMALL));
+        c.addView(brand);
+        // Website, GitHub and the changelog open in the browser
+        LinearLayout links = s.card(c);
+        s.linkRow(links, getString(R.string.xd_about_website), null, "", () -> openLink("https://n2ray.github.io/xdesk/"));
+        s.linkRow(links, getString(R.string.xd_about_github), null, "", () -> openLink("https://github.com/n2ray/xdesk"));
+        s.linkRow(links, getString(R.string.xd_about_changelog), null, "",
+            () -> openLink("https://github.com/n2ray/xdesk/releases"));
         LinearLayout about = s.card(c);
-        s.infoRow(about, "XDesk", null, versionName());
+        ((LinearLayout.LayoutParams) about.getLayoutParams()).topMargin = dp(16);
         s.switchRow(about, getString(R.string.xd_diag_setting), getString(R.string.xd_diag_setting_note), prefs.getBoolean(PREF_DIAG, false), on -> {
             prefs.edit().putBoolean(PREF_DIAG, on).apply();
             applyDiagVisibility();
@@ -4501,6 +4601,15 @@ public class XDeskActivity extends Activity {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (PackageManager.NameNotFoundException e) {
             return "";
+        }
+    }
+
+    /** SetAbout's links: the browser is the only place they open. */
+    private void openLink(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no browser for " + url, e);
         }
     }
 
@@ -6525,8 +6634,8 @@ public class XDeskActivity extends Activity {
         note.setLineSpacing(dp(2), 1f);
         content.addView(note);
         final Dialog[] sheet = new Dialog[1];
-        TextView allow = Style.button(this, getString(R.string.xd_perm_run_sheet_allow), Style.WARN, Style.TEXT_BODY, 12);
-        allow.setTextColor(0xFF1A1405);
+        // PermSheet's one primary button is blue
+        TextView allow = Style.button(this, getString(R.string.xd_perm_run_sheet_allow), Style.ACCENT, Style.TEXT_BODY, 12);
         allow.setOnClickListener(v -> {
             Style.tick(v);
             sheet[0].dismiss();

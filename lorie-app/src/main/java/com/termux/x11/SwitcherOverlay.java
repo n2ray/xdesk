@@ -509,12 +509,14 @@ final class SwitcherOverlay {
         }
 
         void addTab(final Switchboard.Tab tab, boolean on) {
-            TextView t = text(tab.name, small, on ? Color.WHITE : Style.TEXT_DIM);
+            TextView t = text(tab.name, small, on ? Style.ACCENT_2 : Style.TEXT_DIM);
             t.setSingleLine(true);
             t.setGravity(Gravity.CENTER);
             t.setPadding(dp(14), 0, dp(14), 0);
-            // A chip: the surface under the off ones, the accent under the chosen one (Components.dc.html)
-            t.setBackground(round(on ? Style.ACCENT : Style.SURFACE, dp(16)));
+            // A chip: the chosen one is accent-soft with an accent border, the others the surface (Components.dc.html)
+            GradientDrawable chip = round(on ? Style.ACCENT_SOFT : Style.SURFACE, dp(16));
+            if (on) chip.setStroke(dp(1), Style.ACCENT);
+            t.setBackground(chip);
             if (tab.state != null) {
                 GradientDrawable dot = Style.dot(Devices.color(tab.state));
                 int s = dp(7);
