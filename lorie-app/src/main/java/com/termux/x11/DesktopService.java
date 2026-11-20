@@ -13,7 +13,8 @@ import com.termux.x11.app.R;
 
 /** 前台服务：切到别的 App 或界面被回收时，保住进程里的 DesktopSession。 */
 public class DesktopService extends Service {
-    private static final String CHANNEL = "desktop";
+    /** Also the channel the lost-permission reminder posts on (Permissions): one channel for XDesk's own notices. */
+    static final String CHANNEL = "desktop";
     private static final int NOTIFICATION = 1;
     /** 通知的标题，不给就是桌面。 */
     static final String EXTRA_TITLE = "title";

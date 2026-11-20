@@ -60,7 +60,7 @@ import org.json.JSONObject;
 public class XDeskActivity extends Activity {
     private static final String TAG = "XDesk";
     private static final String PERM = "com.termux.permission.RUN_COMMAND";
-    private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3;
+    private static final int REQ_RUN_COMMAND = 1, REQ_NOTIFICATIONS = 2, REQ_LIST_SESSIONS = 3, REQ_PERM_CENTER = 4;
     /** What waits for the Termux command permission allowed on the app's details page (none, a desktop, the list, a stop). */
     private static final int AWAIT_NONE = 0, AWAIT_DESKTOP = 1, AWAIT_LIST = 2, AWAIT_STOP = 3;
     private int awaitingRunCommand = AWAIT_NONE;
@@ -86,7 +86,9 @@ public class XDeskActivity extends Activity {
         PREF_DIAG = "show_diag", PREF_ORIENTATION = "orientation", PREF_RECENTS = "recents",
         PREF_SESSIONS = "sessions", PREF_MOUSE_SPEED = "mouse_speed", PREF_DOCK = "dock", PREF_EXTERNAL_DOCK = "external_dock", PREF_ALWAYS_CURSOR = "always_cursor",
         PREF_FULL_PAD = "pad_fullscreen", PREF_NOTIFICATIONS_ASKED = "notifications_asked", PREF_DESKTOP_DENSITY = "desktop_density",
-        PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked", PREF_NOTIFY_ACCESS_OFFERED = "notify_access_offered";
+        PREF_NOTIFY_ACCESS_ASKED = "notify_access_asked", PREF_NOTIFY_ACCESS_OFFERED = "notify_access_offered",
+        /** The first-start permission checklist: shown once; done when finished or skipped. */
+        PREF_PERM_ONBOARD_SEEN = "perm_onboard_seen", PREF_PERM_ONBOARD_DONE = "perm_onboard_done";
     /** The phone's interface (Settings › General): the console (touchpad first) or the Launchpad (app grid first). */
     private static final String PREF_PHONE_UI = "phone_ui";
     private static final String UI_CONSOLE = "console", UI_LAUNCHPAD = "launchpad";
@@ -720,6 +722,8 @@ public class XDeskActivity extends Activity {
             }
             if (session.isActive()) apps.connectForAudio();
             if (apps.isActive()) updateStatus();
+            // The injector is a permission item too: a page waiting on it says so now
+            refreshPermissionPages();
         }
         @Override public void onAppStarted() {
             attachApp();
@@ -1527,6 +1531,7 @@ public class XDeskActivity extends Activity {
         ensureDashboard();
         // A recreation replays the old intent; its link was already offered once
         if (b == null) handlePairingLink(getIntent());
+        ui.post(this::maybeShowPermissionOnboard);
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -1557,6 +1562,12 @@ public class XDeskActivity extends Activity {
         PermitCard.recheck();
         ui.postDelayed(PermitCard::recheck, 1500);
         ui.postDelayed(PermitCard::recheck, 4500);
+        // The permission pages say what is true now; a lost required permission is told once, after the injector had
+        // its moment to come back (the delayed checks)
+        refreshPermissionPages();
+        ui.post(this::checkPermissionAlerts);
+        ui.postDelayed(this::checkPermissionAlerts, 2500);
+        ui.postDelayed(this::checkPermissionAlerts, 5000);
         // Back on this window, perhaps from a terminal where the X side's input method was set up or stopped
         if (session.isActive()) ui.post(syncTermux);
         ensureDashboard();
@@ -3070,6 +3081,14 @@ public class XDeskActivity extends Activity {
 
     private final java.util.ArrayList<Dialog> settingsPages = new java.util.ArrayList<>();
     private Runnable settingsRefresh;
+    /** The permission centre, the page it opened, and the first-start checklist; rebuilt when XDesk comes back. */
+    private Dialog permCenter, permDetail, permOnboard;
+    private Permissions.Item permDetailItem;
+    /** Lost required permissions not yet fixed: the orange bar at the top of the phone screen. */
+    private final java.util.ArrayList<Permissions.Item> permAlerts = new java.util.ArrayList<>();
+    private View permBanner;
+    /** The checklist is being rebuilt: its dismissal must not count as leaving it. */
+    private boolean permRebuilding;
 
     /** A page of the settings, over the one it was opened from. Back goes down one page at a time. */
     private Dialog settingsPage(String title, View content, Runnable closed) {
@@ -3098,6 +3117,7 @@ public class XDeskActivity extends Activity {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
+        addPermissionsEntry(c);
         LinearLayout device = s.card(c);
         s.valueRow(device, getString(R.string.xd_section_phone), null, "", this::showPhoneSettings);
         s.valueRow(device, getString(R.string.xd_section_input), null, "", this::showInputSettings);
@@ -3105,8 +3125,11 @@ public class XDeskActivity extends Activity {
         settingsOutputValue = s.valueRow(device, getString(R.string.xd_section_sound), null, audioRoute.shortLabel(), this::chooseOutput);
         s.valueRow(device, getString(R.string.xd_section_display), null, "", this::showDisplaySettings);
         // The notifications on the external screen here too, not only under 外屏: the access was hard to find (owner, 2026-11-15)
+        boolean notifyAccess = NotifyCenter.accessGranted(this);
         s.valueRow(device, getString(R.string.xd_section_notifications), null,
-            NotifyCenter.accessGranted(this) ? "" : getString(R.string.xd_notify_access_short_off), this::showNotifySettings);
+            notifyAccess ? "" : getString(R.string.xd_notify_access_short_off),
+            notifyAccess ? null : Permissions.need(this, Permissions.NOTIFY_ACCESS),
+            () -> showPermissionDetail(Permissions.NOTIFY_ACCESS), this::showNotifySettings);
         LinearLayout connect = s.section(c, getString(R.string.xd_section_connect));
         // Every external device (Linux environments and Macs) behind one entry: DEVICES.md §5
         int connectedDevices = Devices.get(this).connectedCount();
@@ -3146,6 +3169,585 @@ public class XDeskActivity extends Activity {
             settingsRefresh = null;
             settingsOutputValue = null;
         });
+    }
+
+    // --- 权限：设置首页的一项、权限中心、每项的说明页、首次启动清单、失效提醒 ---
+
+    /** Settings home, at the top: one card that says whether the required and recommended permissions are all there. */
+    private void addPermissionsEntry(LinearLayout c) {
+        int need = Permissions.attention(this);
+        boolean ok = need == 0;
+        int tint = (Style.WARN & 0x00FFFFFF) | (ok ? 0 : 0x1A000000);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(12), dp(12));
+        GradientDrawable bg = Style.rounded(this, ok ? Style.SURFACE : tint, 16);
+        if (!ok) bg.setStroke(dp(1), (Style.WARN & 0x00FFFFFF) | 0x4D000000);
+        row.setBackground(bg);
+        row.setClickable(true);
+        row.setFocusable(false);
+        LinearLayout tile = new LinearLayout(this);
+        tile.setGravity(Gravity.CENTER);
+        tile.setBackground(Style.rounded(this, ok ? 0x1F3FCF7F : Style.WARN, 9));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.xd_ic_shield);
+        icon.setColorFilter(ok ? Style.OK : 0xFFFFFFFF);
+        tile.addView(icon, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        row.addView(tile, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(dp(12), 0, dp(8), 0);
+        TextView title = Style.label(this, getString(R.string.xd_perm_title), Style.TEXT, Style.TEXT_BODY);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        text.addView(title);
+        TextView sub = Style.label(this, ok ? getString(R.string.xd_perm_home_ok) : getString(R.string.xd_perm_home_need, need),
+            ok ? Style.OK : Style.WARN, Style.TEXT_SMALL);
+        sub.setPadding(0, dp(2), 0, 0);
+        text.addView(sub);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        ImageView chevron = new ImageView(this);
+        chevron.setImageResource(R.drawable.xd_ic_chevron_down);
+        chevron.setRotation(-90);
+        chevron.setColorFilter(Style.TEXT_DIM);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        row.setOnClickListener(v -> {
+            Style.tick(v);
+            showPermissions();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = dp(4);
+        c.addView(row, lp);
+    }
+
+    /** Settings › Permissions: the three groups, each item with its state and the way to turn it on. */
+    private void showPermissions() {
+        final SettingsUi s = ui();
+        if (permCenter != null && permCenter.isShowing()) {
+            Dialog old = permCenter;
+            permCenter = null;
+            old.dismiss();
+        }
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        java.util.List<Permissions.Item> visible = Permissions.visible(this);
+        int on = Permissions.onCount(this), need = Permissions.attention(this);
+
+        LinearLayout summary = s.card(c);
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(10), dp(8), dp(10), dp(4));
+        if (need > 0) {
+            TextView count = Style.label(this, String.valueOf(need), Style.WARN, 22);
+            count.setTypeface(Typeface.DEFAULT_BOLD);
+            head.addView(count);
+            TextView what = Style.label(this, getString(R.string.xd_perm_need_suffix), Style.TEXT, Style.TEXT_BODY);
+            what.setPadding(dp(6), 0, 0, 0);
+            head.addView(what);
+        } else {
+            TextView fine = Style.label(this, "✓ " + getString(R.string.xd_perm_home_ok), Style.OK, Style.TEXT_BODY);
+            fine.setTypeface(Typeface.DEFAULT_BOLD);
+            head.addView(fine);
+        }
+        head.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        head.addView(Style.label(this, getString(R.string.xd_perm_on_count, on, visible.size()), Style.TEXT_DIM, Style.TEXT_SMALL));
+        summary.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(dp(10), dp(4), dp(10), dp(4));
+        for (Permissions.Item item : visible) {
+            View segment = new View(this);
+            Permissions.State st = item.state(this);
+            segment.setBackground(Style.rounded(this,
+                st == Permissions.State.ON ? Style.OK : st == Permissions.State.UNKNOWN ? Style.FAINT
+                    : item.level == Permissions.Level.WHEN_NEEDED ? Style.FAINT : Style.WARN, 3));
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(5), 1);
+            sp.leftMargin = sp.rightMargin = dp(1);
+            bar.addView(segment, sp);
+        }
+        summary.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        TextView note = Style.label(this, getString(R.string.xd_perm_no_root), Style.TEXT_DIM, Style.TEXT_SMALL);
+        note.setPadding(dp(10), dp(2), dp(10), dp(8));
+        summary.addView(note);
+
+        addPermissionGroup(s, c, Permissions.Level.REQUIRED, R.string.xd_perm_group_required);
+        addPermissionGroup(s, c, Permissions.Level.RECOMMENDED, R.string.xd_perm_group_recommended);
+        addPermissionGroup(s, c, Permissions.Level.WHEN_NEEDED, R.string.xd_perm_group_when);
+        permCenter = settingsPage(getString(R.string.xd_perm_title), c, () -> permCenter = null);
+    }
+
+    private void addPermissionGroup(SettingsUi s, LinearLayout c, Permissions.Level level, int title) {
+        java.util.List<Permissions.Item> items = Permissions.items(this, level);
+        if (items.isEmpty()) return;
+        LinearLayout card = s.section(c, getString(title));
+        for (Permissions.Item item : items) addPermissionRow(card, item);
+    }
+
+    private void addPermissionRow(LinearLayout card, Permissions.Item item) {
+        Permissions.State state = item.state(this);
+        boolean attention = state != Permissions.State.ON && item.level != Permissions.Level.WHEN_NEEDED;
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
+        row.setBackground(Style.ripple(this, Color.TRANSPARENT, Style.RADIUS));
+        row.setClickable(true);
+        row.setFocusable(false);
+        View dot = new View(this);
+        dot.setBackground(Style.dot(state == Permissions.State.ON ? Style.OK
+            : state == Permissions.State.UNKNOWN ? Style.FAINT : attention ? Style.WARN : Style.FAINT));
+        LinearLayout.LayoutParams dp8 = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dp8.rightMargin = dp(12);
+        row.addView(dot, dp8);
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.addView(Style.label(this, getString(item.name), Style.TEXT, Style.TEXT_BODY));
+        TextView use = Style.label(this, getString(item.use), Style.TEXT_DIM, Style.TEXT_SMALL);
+        use.setPadding(0, dp(2), 0, 0);
+        text.addView(use);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        if (state == Permissions.State.ON) {
+            row.addView(Style.label(this, getString(R.string.xd_perm_on), Style.OK, Style.TEXT_SMALL));
+        } else {
+            if (state == Permissions.State.UNKNOWN)
+                row.addView(Style.label(this, getString(R.string.xd_perm_unknown), Style.TEXT_DIM, Style.TEXT_SMALL));
+            TextView go = Style.button(this, getString(item.action),
+                attention || state == Permissions.State.UNKNOWN ? Style.WARN : Style.SURFACE_RAISED, Style.TEXT_SMALL, 15);
+            go.setTextColor(attention || state == Permissions.State.UNKNOWN ? 0xFF1A1405 : Style.TEXT);
+            go.setPadding(dp(12), 0, dp(12), 0);
+            go.setOnClickListener(v -> {
+                Style.tick(v);
+                openPermissionFix(item);
+            });
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, dp(30));
+            gp.leftMargin = dp(10);
+            row.addView(go, gp);
+        }
+        row.setOnClickListener(v -> {
+            Style.tick(v);
+            showPermissionDetail(item);
+        });
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** One permission explained: what it is for, what is missing without it, how to turn it on, and the button. */
+    void showPermissionDetail(Permissions.Item item) {
+        if (permDetail != null && permDetail.isShowing()) {
+            Dialog old = permDetail;
+            permDetail = null;
+            old.dismiss();
+        }
+        final SettingsUi s = ui();
+        permDetailItem = item;
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        Permissions.State state = item.state(this);
+        LinearLayout pills = new LinearLayout(this);
+        pills.setPadding(dp(4), dp(2), dp(4), dp(2));
+        pills.addView(permissionPill(getString(state == Permissions.State.ON ? R.string.xd_perm_on
+            : state == Permissions.State.UNKNOWN ? R.string.xd_perm_unknown : R.string.xd_perm_off),
+            state == Permissions.State.ON ? Style.OK : state == Permissions.State.UNKNOWN ? Style.TEXT_DIM : Style.WARN,
+            state == Permissions.State.ON ? 0x1F3FCF7F : state == Permissions.State.UNKNOWN ? Style.SURFACE_RAISED : 0x29F0883E));
+        int level = item.level == Permissions.Level.REQUIRED ? R.string.xd_perm_group_required
+            : item.level == Permissions.Level.RECOMMENDED ? R.string.xd_perm_group_recommended : R.string.xd_perm_group_when;
+        pills.addView(permissionPill(getString(level), Style.TEXT_DIM, Style.SURFACE_RAISED));
+        c.addView(pills, new LinearLayout.LayoutParams(-1, -2));
+
+        addPermissionText(s, c, R.string.xd_perm_detail_use, getString(item.why));
+        addPermissionText(s, c, R.string.xd_perm_detail_without, getString(item.without));
+
+        LinearLayout how = s.section(c, getString(R.string.xd_perm_detail_how));
+        String[] steps = getString(item.steps).split("\n");
+        for (int i = 0; i < steps.length; i++) {
+            LinearLayout step = new LinearLayout(this);
+            step.setGravity(Gravity.CENTER_VERTICAL);
+            step.setPadding(dp(10), dp(6), dp(10), dp(6));
+            TextView num = Style.label(this, String.valueOf(i + 1), Style.ACCENT_2, Style.TEXT_SMALL);
+            num.setGravity(Gravity.CENTER);
+            num.setBackground(Style.rounded(this, Style.SURFACE_RAISED, 11));
+            step.addView(num, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView text = Style.label(this, steps[i], Style.TEXT, 14);
+            text.setPadding(dp(12), 0, 0, 0);
+            text.setLineSpacing(dp(2), 1f);
+            step.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            how.addView(step, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        if (state != Permissions.State.ON) {
+            TextView go = Style.button(this, getString(item.action), Style.WARN, Style.TEXT_BODY + 1, 12);
+            go.setTextColor(0xFF1A1405);
+            go.setOnClickListener(v -> {
+                Style.tick(v);
+                openPermissionFix(item);
+            });
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, dp(50));
+            gp.topMargin = dp(18);
+            gp.leftMargin = gp.rightMargin = dp(4);
+            c.addView(go, gp);
+            if (item == Permissions.INJECTOR) {
+                TextView shizuku = Style.button(this, getString(R.string.xd_perm_show_shizuku), Style.SURFACE_RAISED,
+                    Style.TEXT_BODY, 12);
+                shizuku.setOnClickListener(v -> {
+                    Style.tick(v);
+                    openShizukuFlow();
+                });
+                LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(46));
+                sp.topMargin = dp(8);
+                sp.leftMargin = sp.rightMargin = dp(4);
+                c.addView(shizuku, sp);
+            } else if (item.runtime != null) {
+                // Refused for good, or a switch the system greys out: the details page can still allow it
+                TextView details = Style.label(this, getString(R.string.xd_permit_details), Style.ACCENT_2, Style.TEXT_SMALL + 1);
+                details.setPadding(dp(4), dp(12), dp(4), dp(4));
+                details.setOnClickListener(v -> {
+                    Style.tick(v);
+                    openAppDetails();
+                });
+                c.addView(details);
+            }
+        }
+        permDetail = settingsPage(getString(item.name), c, () -> permDetail = null);
+    }
+
+    private void addPermissionText(SettingsUi s, LinearLayout c, int title, String body) {
+        LinearLayout card = s.section(c, getString(title));
+        TextView t = Style.label(this, body, Style.TEXT, 14);
+        t.setPadding(dp(10), dp(6), dp(10), dp(10));
+        t.setLineSpacing(dp(2), 1f);
+        card.addView(t, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private TextView permissionPill(String text, int color, int background) {
+        TextView pill = Style.label(this, text, color, Style.TEXT_SMALL);
+        pill.setPadding(dp(10), dp(3), dp(10), dp(3));
+        pill.setBackground(Style.rounded(this, background, 10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.rightMargin = dp(8);
+        pill.setLayoutParams(lp);
+        return pill;
+    }
+
+    /** The button that fixes one item: the system page, the system's ask, or XDesk's own activation flow. */
+    private void openPermissionFix(Permissions.Item item) {
+        if (item == Permissions.INJECTOR) {
+            openInjectorFlow();
+            return;
+        }
+        if (item == Permissions.OVERLAY) {
+            openOverlaySettings();
+            return;
+        }
+        if (item == Permissions.NOTIFY_ACCESS) {
+            NotifyCenter.openAccessSettings(this);
+            return;
+        }
+        if (item == Permissions.USB_DEBUG) {
+            openWirelessSettings();
+            return;
+        }
+        if (item == Permissions.AUTOSTART) {
+            NotifyCenter.openAutostartSettings(this);
+            return;
+        }
+        if (item == Permissions.NCM) {
+            android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("adb",
+                "adb shell settings put global tether_force_usb_functions 1"));
+            Toast.makeText(this, R.string.xd_perm_copied, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (item.runtime != null) {
+            requestPermissions(new String[]{item.runtime}, REQ_PERM_CENTER);
+            return;
+        }
+        Intent page = item.page(this);
+        if (page == null) return;
+        try {
+            startActivity(page, PermitCard.onPhone());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "permission page " + item.id, e);
+            Toast.makeText(this, R.string.xd_perm_no_page, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** The injector goes through the one activation page; Shizuku through the one Shizuku setup page. */
+    private void openInjectorFlow() {
+        retryRequested = true;
+        activationFlow = true;
+        ShellActivation shell = apps.shell();
+        if (!shell.isPaired() || shell.isPairing()) {
+            // The pairing page is a dialog: it sits above the first-start checklist, which then checks itself
+            showActivation(null);
+            return;
+        }
+        // Paired but not running: the setup page is behind the dialogs, so the settings pages go first
+        closeSettings();
+        dismissOnboard();
+        showActivation(null);
+    }
+
+    private void openShizukuFlow() {
+        closeSettings();
+        dismissOnboard();
+        shizukuScreens = true;
+        activationFlow = true;
+        closeActivation();
+        showShizukuSetup();
+    }
+
+    private void dismissOnboard() {
+        if (permOnboard != null) {
+            Dialog old = permOnboard;
+            permOnboard = null;
+            permRebuilding = true;
+            old.dismiss();
+            permRebuilding = false;
+        }
+    }
+
+    /** The pages above stay in step with the system: XDesk came back, or the system's ask was answered. */
+    private void refreshPermissionPages() {
+        if (permDetail != null && permDetail.isShowing()) {
+            Permissions.Item item = permDetailItem;
+            // The centre behind it is stale too; built first so the rebuilt detail stays on top
+            if (permCenter != null && permCenter.isShowing()) {
+                Dialog stale = permCenter;
+                permCenter = null;
+                stale.dismiss();
+                showPermissions();
+            }
+            Dialog old = permDetail;
+            permDetail = null;
+            old.dismiss();
+            if (item != null) showPermissionDetail(item);
+            return;
+        }
+        if (permCenter != null && permCenter.isShowing()) {
+            Dialog old = permCenter;
+            permCenter = null;
+            old.dismiss();
+            showPermissions();
+        }
+        if (permOnboard != null && permOnboard.isShowing()) {
+            Dialog old = permOnboard;
+            permOnboard = null;
+            old.dismiss();
+            showPermissionOnboard();
+        }
+    }
+
+    // --- 首次启动：开始之前 ---
+
+    /**
+     * Once on first start: the required and recommended permissions with a progress line, each opening its flow.
+     * Skipped or finished is remembered. A user updating with both required permissions already on never sees it; a
+     * user who left it without finishing sees it again only while a required permission is still missing.
+     */
+    private void maybeShowPermissionOnboard() {
+        if (isFinishing() || isDestroyed()) return;
+        boolean seen = prefs.getBoolean(PREF_PERM_ONBOARD_SEEN, false);
+        boolean done = prefs.getBoolean(PREF_PERM_ONBOARD_DONE, false);
+        // A paired injector counts as set up even while its server is still starting: an updating user must not be
+        // taken for a first start just because onCreate ran before the wireless-debugging server came back
+        boolean injector = Permissions.INJECTOR.granted(this) || apps.shell().isPaired();
+        boolean requiredOn = injector && Permissions.OVERLAY.granted(this);
+        if (!seen) {
+            prefs.edit().putBoolean(PREF_PERM_ONBOARD_SEEN, true).apply();
+            if (requiredOn) {
+                // An existing install that already has what it needs: no page, as the owner asked
+                prefs.edit().putBoolean(PREF_PERM_ONBOARD_DONE, true).apply();
+                return;
+            }
+            showPermissionOnboard();
+        } else if (!done && !requiredOn) {
+            showPermissionOnboard();
+        }
+    }
+
+    private void showPermissionOnboard() {
+        if (prefs.getBoolean(PREF_PERM_ONBOARD_DONE, false)) return;
+        if (permOnboard != null && permOnboard.isShowing()) {
+            Dialog old = permOnboard;
+            permOnboard = null;
+            old.dismiss();
+        }
+        final SettingsUi s = ui();
+        java.util.List<Permissions.Item> items = new java.util.ArrayList<>();
+        for (Permissions.Item item : Permissions.ALL)
+            if (item.level != Permissions.Level.WHEN_NEEDED && item.visible(this)) items.add(item);
+        boolean allOn = true;
+        for (Permissions.Item item : items) if (!item.granted(this)) allOn = false;
+        if (allOn) {
+            // Finished, perhaps by fixing the last one while the page was open
+            prefs.edit().putBoolean(PREF_PERM_ONBOARD_DONE, true).apply();
+            return;
+        }
+
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        TextView intro = Style.label(this, getString(R.string.xd_perm_onboard_intro), Style.TEXT_DIM, 14);
+        intro.setPadding(dp(4), dp(4), dp(4), dp(10));
+        c.addView(intro);
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(dp(4), 0, dp(4), dp(10));
+        for (Permissions.Item item : items) {
+            View segment = new View(this);
+            segment.setBackground(Style.rounded(this, item.granted(this) ? Style.OK
+                : item.level == Permissions.Level.REQUIRED ? Style.ACCENT : Style.SURFACE_RAISED, 3));
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(5), 1);
+            sp.leftMargin = sp.rightMargin = dp(1);
+            bar.addView(segment, sp);
+        }
+        c.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+
+        boolean highlighted = false;
+        for (int i = 0; i < items.size(); i++) {
+            Permissions.Item item = items.get(i);
+            boolean on = item.granted(this);
+            boolean required = item.level == Permissions.Level.REQUIRED;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(12), dp(12), dp(12));
+            GradientDrawable back = Style.rounded(this, Style.SURFACE, 16);
+            if (!on && required && !highlighted) {
+                back.setStroke(dp(2), Style.ACCENT);
+                highlighted = true;
+            }
+            row.setBackground(back);
+            // A finished item has nothing to open: the checklist is about turning things on
+            row.setClickable(!on);
+            row.setFocusable(false);
+
+            TextView mark = Style.label(this, on ? "✓" : String.valueOf(i + 1),
+                on ? 0xFF0B0D10 : required ? Style.TEXT : Style.TEXT_DIM, 13);
+            mark.setGravity(Gravity.CENTER);
+            mark.setTypeface(Typeface.DEFAULT_BOLD);
+            mark.setBackground(Style.rounded(this, on ? Style.OK : required ? Style.ACCENT : Style.SURFACE_RAISED, 14));
+            LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(dp(28), dp(28));
+            mp.rightMargin = dp(14);
+            row.addView(mark, mp);
+
+            LinearLayout text = new LinearLayout(this);
+            text.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout titleRow = new LinearLayout(this);
+            titleRow.setGravity(Gravity.CENTER_VERTICAL);
+            titleRow.addView(Style.label(this, getString(item.name), on ? Style.TEXT_DIM : Style.TEXT, Style.TEXT_BODY));
+            TextView tag = Style.label(this, getString(required ? R.string.xd_perm_group_required : R.string.xd_perm_group_recommended),
+                required ? Style.DANGER : Style.TEXT_DIM, 11);
+            tag.setPadding(dp(7), dp(1), dp(7), dp(1));
+            tag.setBackground(Style.rounded(this, required ? Style.DANGER_TINT : Style.SURFACE_RAISED, 8));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
+            tp.leftMargin = dp(6);
+            titleRow.addView(tag, tp);
+            text.addView(titleRow);
+            TextView state = Style.label(this, on ? getString(R.string.xd_perm_on) : getString(item.use),
+                on ? Style.OK : Style.TEXT_DIM, Style.TEXT_SMALL);
+            state.setPadding(0, dp(3), 0, 0);
+            text.addView(state);
+            row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            if (!on) {
+                TextView go = Style.button(this, getString(item.action), required ? Style.WARN : Style.SURFACE_RAISED,
+                    Style.TEXT_SMALL, 15);
+                go.setTextColor(required ? 0xFF1A1405 : Style.TEXT);
+                go.setPadding(dp(12), 0, dp(12), 0);
+                go.setOnClickListener(v -> {
+                    Style.tick(v);
+                    openPermissionFix(item);
+                });
+                LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-2, dp(30));
+                gp.leftMargin = dp(10);
+                row.addView(go, gp);
+            }
+            if (!on) row.setOnClickListener(v -> {
+                Style.tick(v);
+                openPermissionFix(item);
+            });
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+            rp.bottomMargin = dp(8);
+            c.addView(row, rp);
+        }
+
+        TextView skip = Style.button(this, getString(R.string.xd_perm_onboard_skip), Style.SURFACE_RAISED, Style.TEXT_BODY, 12);
+        skip.setOnClickListener(v -> {
+            Style.tick(v);
+            prefs.edit().putBoolean(PREF_PERM_ONBOARD_DONE, true).apply();
+            dismissOnboard();
+        });
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(48));
+        sp.topMargin = dp(14);
+        c.addView(skip, sp);
+        permOnboard = settingsPage(getString(R.string.xd_perm_onboard_title), c, () -> {
+            if (!permRebuilding) permOnboard = null;
+        });
+    }
+
+    // --- 失效提醒：曾经开着的必需权限现在关了 ---
+
+    /**
+     * Once per app start for each required permission: the mockup's orange bar at the top, a notification, and a
+     * button that opens the item. The delayed calls give the injector its moment to come back after a reboot.
+     */
+    private void checkPermissionAlerts() {
+        if (screens == null || isFinishing() || isDestroyed()) return;
+        java.util.List<Permissions.Item> lost = Permissions.lost(this);
+        if (!lost.isEmpty()) {
+            Permissions.notifyLost(this, lost);
+            permAlerts.addAll(lost);
+        }
+        for (int i = permAlerts.size() - 1; i >= 0; i--) if (permAlerts.get(i).granted(this)) permAlerts.remove(i);
+        if (permAlerts.isEmpty()) Permissions.cancelLost(this);
+        showPermissionBanner();
+    }
+
+    private void showPermissionBanner() {
+        if (permAlerts.isEmpty()) {
+            if (permBanner != null) {
+                screens.removeView(permBanner);
+                permBanner = null;
+            }
+            return;
+        }
+        final String text = permAlerts.size() == 1 ? getString(permAlerts.get(0).lost)
+            : getString(R.string.xd_perm_lost_many, permAlerts.size());
+        // The delayed checks say the same thing: keep the bar, do not make it blink
+        if (permBanner != null && text.equals(permBanner.getTag())) return;
+        if (permBanner != null) screens.removeView(permBanner);
+        LinearLayout banner = new LinearLayout(this);
+        banner.setGravity(Gravity.CENTER_VERTICAL);
+        banner.setPadding(dp(12), 0, dp(12), 0);
+        GradientDrawable bg = Style.rounded(this, (Style.WARN & 0x00FFFFFF) | 0x1FF0883E, 12);
+        bg.setStroke(dp(1), (Style.WARN & 0x00FFFFFF) | 0x4DF0883E);
+        banner.setBackground(bg);
+        View dot = new View(this);
+        dot.setBackground(Style.dot(Style.WARN));
+        LinearLayout.LayoutParams dp8 = new LinearLayout.LayoutParams(dp(8), dp(8));
+        dp8.rightMargin = dp(10);
+        banner.addView(dot, dp8);
+        TextView message = Style.label(this, text, Style.TEXT, 13);
+        message.setSingleLine(true);
+        message.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        banner.addView(message, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView fix = Style.label(this, getString(R.string.xd_perm_reminder_fix), Style.WARN, 13);
+        fix.setTypeface(Typeface.DEFAULT_BOLD);
+        fix.setPadding(dp(10), 0, 0, 0);
+        fix.setOnClickListener(v -> {
+            Style.tick(v);
+            if (permAlerts.size() == 1) showPermissionDetail(permAlerts.get(0));
+            else showPermissions();
+        });
+        banner.addView(fix);
+        banner.setOnClickListener(v -> {
+            Style.tick(v);
+            if (permAlerts.size() == 1) showPermissionDetail(permAlerts.get(0));
+            else showPermissions();
+        });
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, dp(44));
+        lp.gravity = Gravity.TOP;
+        lp.leftMargin = lp.rightMargin = lp.topMargin = dp(8);
+        banner.setElevation(dp(6));
+        banner.setTag(text);
+        permBanner = banner;
+        screens.addView(banner, lp);
     }
 
     private void showPhoneSettings() {
@@ -3262,7 +3864,6 @@ public class XDeskActivity extends Activity {
     }
 
     private void showDisplaySettings() {
-        final Dialog[] page = new Dialog[1];
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
@@ -3276,19 +3877,12 @@ public class XDeskActivity extends Activity {
             updateExternalDock();
         });
         String cover = getString(Settings.canDrawOverlays(this) ? R.string.xd_cover_note : R.string.xd_cover_note_no_overlay);
-        s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true), on -> {
-            prefs.edit().putBoolean(PREF_COVER, on).apply();
-        });
-        if (!Settings.canDrawOverlays(this)) {
-            s.permit(getString(R.string.xd_permit_overlay), getString(R.string.xd_permit_overlay_cover_why),
-                getString(R.string.xd_permit_overlay_path), this::openOverlaySettings, () -> Settings.canDrawOverlays(this))
-                .onDone(() -> {
-                    if (page[0] != null && page[0].isShowing()) {
-                        page[0].dismiss();
-                        showDisplaySettings();
-                    }
-                }).addTo(external);
-        }
+        // Missing permission said in place: the feature stays on the page, greyed, with the orange line (PermInline)
+        s.switchRow(external, getString(R.string.xd_cover), cover, prefs.getBoolean(PREF_COVER, true),
+            Settings.canDrawOverlays(this) ? null : Permissions.need(this, Permissions.OVERLAY),
+            () -> showPermissionDetail(Permissions.OVERLAY), on -> {
+                prefs.edit().putBoolean(PREF_COVER, on).apply();
+            });
         LinearLayout android = s.section(c, getString(R.string.xd_display_android));
         addDensitySetting(s, android);
         if (AppSession.fullscreenSupported()) {
@@ -3303,7 +3897,7 @@ public class XDeskActivity extends Activity {
             final TextView[] resolution = new TextView[1];
             resolution[0] = s.valueRow(linux, getString(R.string.xd_resolution), getString(R.string.xd_resolution_note), resolutionLabel(resolutionMode(), externalDisplay()), () -> chooseResolution(resolution[0]));
         }
-        page[0] = settingsPage(getString(R.string.xd_section_display), c, null);
+        settingsPage(getString(R.string.xd_section_display), c, null);
     }
 
     /**
@@ -3334,7 +3928,11 @@ public class XDeskActivity extends Activity {
         if (e.getAction() != KeyEvent.ACTION_DOWN || !e.isCtrlPressed() || !e.isAltPressed()) return false;
         if (NotifyCenter.accessGranted(this) || externalDisplay() == null) return false;
         swallowNoAccessN = true;
-        if (e.getRepeatCount() == 0) Toast.makeText(this, R.string.xd_notify_access_needed, Toast.LENGTH_LONG).show();
+        if (e.getRepeatCount() == 0) {
+            // The shortcut that opens the centre needs the access: the sheet, not a toast that goes away (PermSheet)
+            ui().permitSheet(getString(R.string.xd_permit_notify_access), getString(R.string.xd_permit_notify_access_why),
+                getString(R.string.xd_permit_list_path), null, () -> NotifyCenter.openAccessSettings(this), null);
+        }
         return true;
     }
 
@@ -3376,7 +3974,10 @@ public class XDeskActivity extends Activity {
             if (!miui) link.retitle(getString(R.string.xd_permit_title_again, getString(R.string.xd_permit_notify_access)));
         }
         LinearLayout show = s.card(c);
-        s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(), center::setNotifyOn);
+        // Without the access the switch is grey and the orange line opens the permission's page (PermInline)
+        s.switchRow(show, getString(R.string.xd_notify_on), getString(R.string.xd_notify_on_note), center.notifyOn(),
+            granted ? null : Permissions.need(this, Permissions.NOTIFY_ACCESS),
+            () -> showPermissionDetail(Permissions.NOTIFY_ACCESS), center::setNotifyOn);
         s.segmentedRow(show, getString(R.string.xd_notify_content), getString(R.string.xd_notify_content_note),
             new String[]{getString(R.string.xd_notify_content_all), getString(R.string.xd_notify_content_name), getString(R.string.xd_notify_content_none)},
             center.bannerContent(), center::setBannerContent);
@@ -5513,6 +6114,93 @@ public class XDeskActivity extends Activity {
     }
 
     /**
+     * PermSheet mockup: opening a Linux desktop without the Termux command permission. Allow asks the system; the
+     * quieter way copies "xdesk start" and opens Termux.
+     */
+    private void showRunCommandSheet(String name) {
+        final SettingsUi s = ui();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(2), dp(2), dp(2), dp(2));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.xd_ic_shield);
+        icon.setColorFilter(Style.WARN);
+        header.addView(icon, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(12), 0, 0, 0);
+        TextView title = Style.label(this,
+            getString(R.string.xd_perm_run_sheet_title, name != null ? name : getString(R.string.xd_perm_run_sheet_default)),
+            Style.TEXT, 17);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(title);
+        TextView need = Style.label(this, Permissions.need(this, Permissions.TERMUX), Style.WARN, Style.TEXT_SMALL);
+        need.setPadding(0, dp(3), 0, 0);
+        texts.addView(need);
+        header.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        TextView note = Style.label(this, getString(R.string.xd_perm_run_sheet_note), Style.TEXT_DIM, 13);
+        note.setPadding(dp(2), 0, dp(2), 0);
+        note.setLineSpacing(dp(2), 1f);
+        content.addView(note);
+        final Dialog[] sheet = new Dialog[1];
+        TextView allow = Style.button(this, getString(R.string.xd_perm_run_sheet_allow), Style.WARN, Style.TEXT_BODY, 12);
+        allow.setTextColor(0xFF1A1405);
+        allow.setOnClickListener(v -> {
+            Style.tick(v);
+            sheet[0].dismiss();
+            requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND);
+        });
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(44));
+        ap.topMargin = dp(14);
+        content.addView(allow, ap);
+
+        LinearLayout or = new LinearLayout(this);
+        or.setGravity(Gravity.CENTER_VERTICAL);
+        or.setPadding(0, dp(14), 0, 0);
+        View left = new View(this);
+        left.setBackgroundColor(Style.LINE);
+        or.addView(left, new LinearLayout.LayoutParams(0, dp(1), 1));
+        TextView word = Style.label(this, getString(R.string.xd_perm_run_sheet_or), Style.TEXT_DIM, Style.TEXT_SMALL);
+        word.setPadding(dp(10), 0, dp(10), 0);
+        or.addView(word);
+        View right = new View(this);
+        right.setBackgroundColor(Style.LINE);
+        or.addView(right, new LinearLayout.LayoutParams(0, dp(1), 1));
+        content.addView(or, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView command = Style.label(this, "xdesk start", Style.TEXT, 13);
+        command.setTypeface(Typeface.MONOSPACE);
+        command.setGravity(Gravity.CENTER);
+        command.setBackground(Style.rounded(this, Style.SURFACE_RAISED, 10));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(38));
+        cp.topMargin = dp(10);
+        content.addView(command, cp);
+        TextView open = Style.button(this, getString(R.string.xd_perm_run_sheet_termux), Style.SURFACE_RAISED,
+            Style.TEXT_BODY, 12);
+        open.setOnClickListener(v -> {
+            Style.tick(v);
+            android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("xdesk", "xdesk start"));
+            Toast.makeText(this, R.string.xd_perm_copied, Toast.LENGTH_SHORT).show();
+            Intent termux = getPackageManager().getLaunchIntentForPackage(PKG_TERMUX);
+            if (termux != null) {
+                try {
+                    startActivity(termux);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "open Termux", e);
+                }
+            }
+        });
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1, dp(44));
+        op.topMargin = dp(10);
+        content.addView(open, op);
+        sheet[0] = s.bottomSheet(header, content);
+    }
+
+    /**
      * 替用户运行 xdesk start，只由用户的选择触发。只有这里需要 Termux 的权限。
      *
      * @param name 环境名，null 是默认环境
@@ -5527,10 +6215,8 @@ public class XDeskActivity extends Activity {
         if (checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED) {
             pendingSession = name;
             pendingReplace = replace;
-            // Said first in PermitCard's look, then the system asks (owner, 2026-11-18)
-            showPermitSetup(getString(R.string.xd_permit_run_command), getString(R.string.xd_permit_run_command_why),
-                getString(R.string.xd_permit_run_command_path), null,
-                v -> requestPermissions(new String[]{PERM}, REQ_RUN_COMMAND));
+            // Opening a desktop from elsewhere: the bottom sheet, not a silent failure or a page away (PermSheet)
+            showRunCommandSheet(name);
             return;
         }
         pendingSession = name;
@@ -5569,6 +6255,13 @@ public class XDeskActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int r, String[] p, int[] g) {
+        if (r == REQ_PERM_CENTER) {
+            // Asked from the permission centre, the detail page or the first-start checklist: only the pages change
+            refreshPermissionPages();
+            return;
+        }
+        // A grant that a permission page was waiting for too
+        refreshPermissionPages();
         if (r == REQ_NOTIFICATIONS && pairingAfterPermission) {
             pairingAfterPermission = false;
             startPairingService();

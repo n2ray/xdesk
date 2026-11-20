@@ -41,4 +41,90 @@
     <string name="xd_permit_write_secure_path">Run this on a computer and it is set:\nadb shell settings put global tether_force_usb_functions 1</string>
     <string name="xd_web_ncm_why">XDesk may not change this system setting itself; adb on a computer can set it directly.</string>
     <string name="xd_permit_copy">Copy command</string>
+
+    <!-- Permission centre (0.7.0): the list, the detail pages, the first-start checklist and the lost reminder -->
+    <string name="xd_perm_title">Permissions</string>
+    <string name="xd_perm_home_ok">All set</string>
+    <string name="xd_perm_home_need">%1$d to fix</string>
+    <string name="xd_perm_need_suffix">to fix</string>
+    <string name="xd_perm_on_count">%1$d / %2$d on</string>
+    <string name="xd_perm_no_root">No root and no accessibility</string>
+    <string name="xd_perm_group_required">Required</string>
+    <string name="xd_perm_group_recommended">Recommended</string>
+    <string name="xd_perm_group_when">When you need it</string>
+    <string name="xd_perm_on">On</string>
+    <string name="xd_perm_off">Off</string>
+    <string name="xd_perm_unknown">Unknown</string>
+    <string name="xd_perm_turn_on">Turn on</string>
+    <string name="xd_perm_turn_on_short">On</string>
+    <string name="xd_perm_open">Open</string>
+    <string name="xd_perm_activate">Activate</string>
+    <string name="xd_perm_show_shizuku">Use Shizuku</string>
+    <string name="xd_perm_inline_need">Needs “%1$s” · Turn on ›</string>
+    <string name="xd_perm_detail_use">What it is for</string>
+    <string name="xd_perm_detail_without">Without it</string>
+    <string name="xd_perm_detail_how">How to turn it on</string>
+    <string name="xd_perm_onboard_title">Before you start</string>
+    <string name="xd_perm_onboard_intro">Turn these three on and you are ready. The rest are asked for when used.</string>
+    <string name="xd_perm_onboard_skip">Go in; turn them on later in Settings › Permissions</string>
+    <string name="xd_perm_reminder_fix">Fix ›</string>
+    <string name="xd_perm_lost_notification">Permission needs attention</string>
+    <string name="xd_perm_lost_many">%1$d permissions need attention</string>
+    <string name="xd_perm_lost_injector">The injector went away; the keys and mouse do not reach Android apps</string>
+    <string name="xd_perm_lost_overlay">Display over other apps is off; the cursor and privacy cover on the external screen cannot show</string>
+    <string name="xd_perm_copied">Command copied</string>
+    <string name="xd_perm_no_page">This phone has no settings page for it</string>
+    <string name="xd_perm_run_sheet_default">the Linux desktop</string>
+    <string name="xd_perm_run_sheet_title">Open “%1$s”</string>
+    <string name="xd_perm_run_sheet_note">XDesk starts it in Termux for you. The system asks once.</string>
+    <string name="xd_perm_run_sheet_allow">Allow</string>
+    <string name="xd_perm_run_sheet_or">Or run it yourself</string>
+    <string name="xd_perm_run_sheet_termux">Open in Termux</string>
+
+    <string name="xd_perm_injector_name">Injector service</string>
+    <string name="xd_perm_injector_use">Keys and mouse for Android apps · wireless debugging</string>
+    <string name="xd_perm_injector_why">Android apps on the external screen get their keys and mouse from here: wireless debugging pairing, or Shizuku.</string>
+    <string name="xd_perm_injector_without">Android apps open but cannot be controlled; Linux desktops and screen mirroring still work.</string>
+    <string name="xd_perm_injector_steps">Tap Activate below\nTurn on wireless debugging and type the pairing code\nXDesk connects when you come back; Shizuku works too</string>
+
+    <string name="xd_perm_overlay_use">Cursor, launcher, home and privacy cover on the external screen</string>
+    <string name="xd_perm_overlay_why">The launcher and home on the external screen\nCovering the external screen when you leave XDesk</string>
+    <string name="xd_perm_overlay_without">No cursor on the external screen; no launcher either, so apps are chosen on the phone; the privacy cover cannot show.</string>
+    <string name="xd_perm_overlay_steps">Tap Turn on below\nTurn on “Allow display over other apps”\nCome back to XDesk; it checks by itself</string>
+
+    <string name="xd_perm_notifications_use">Type the pairing code in the notification</string>
+    <string name="xd_perm_notifications_why">The pairing code is shown in XDesk\'s notification, so you do not switch between pages.</string>
+    <string name="xd_perm_notifications_without">You can still type the pairing code on XDesk\'s page.</string>
+    <string name="xd_perm_notifications_steps">Tap Turn on below\nAllow XDesk to send notifications\nThe pairing code then appears in the notification</string>
+
+    <string name="xd_perm_notify_access_use">Phone notifications on the external screen</string>
+    <string name="xd_perm_notify_access_without">Nothing from the phone shows on the external screen; everything else works as before. Nothing is stored or sent.</string>
+    <string name="xd_perm_notify_access_steps">Tap Turn on below\nFind XDesk in the list and turn its switch on\nCome back to XDesk; it takes effect</string>
+
+    <string name="xd_perm_termux_use">Start Linux desktops with one tap</string>
+    <string name="xd_perm_termux_without">Run xdesk start yourself in Termux.</string>
+    <string name="xd_perm_termux_steps">Tap Turn on below\nThe system asks once\nXDesk goes on by itself</string>
+
+    <string name="xd_perm_camera_use">Scan a Mac\'s QR code; the address works too</string>
+    <string name="xd_perm_camera_without">Add the Mac by address instead.</string>
+    <string name="xd_perm_camera_steps">Tap Turn on below\nAllow the camera\nCome back to scan</string>
+
+    <string name="xd_perm_dnd_use">Do Not Disturb switch on the external screen</string>
+    <string name="xd_perm_dnd_without">The switch only tells you where to turn it on.</string>
+    <string name="xd_perm_dnd_steps">Tap Turn on below\nFind XDesk in the list and turn its switch on\nCome back to XDesk; it takes effect</string>
+
+    <string name="xd_perm_autostart_use">Comes back by itself after the system stops it</string>
+    <string name="xd_perm_autostart_without">After the system stops it, notifications may not come in until XDesk is opened.</string>
+    <string name="xd_perm_autostart_steps">Tap Open below\nTurn XDesk\'s autostart on\nIt is also under Settings › Apps › XDesk</string>
+
+    <string name="xd_perm_usb_debug_name">USB debugging</string>
+    <string name="xd_perm_usb_debug_use">Mac receiver over USB</string>
+    <string name="xd_perm_usb_debug_why">The Mac receiver can reach the phone over the USB cable.</string>
+    <string name="xd_perm_usb_debug_without">The Mac can still connect over Wi-Fi.</string>
+    <string name="xd_perm_usb_debug_steps">Tap Turn on below\nTurn on “USB debugging”\nCome back to XDesk</string>
+
+    <string name="xd_perm_ncm_use">Wired web display</string>
+    <string name="xd_perm_ncm_why">Over a USB cable, iPad and Mac only accept NCM, while Android tethers as RNDIS unless told otherwise.</string>
+    <string name="xd_perm_ncm_without">USB tethering still works, but an iPad or Mac may not connect.</string>
+    <string name="xd_perm_ncm_steps">Tap Copy command below\nRun it on a computer with adb\nUnplug and plug the USB cable again</string>
 </resources>

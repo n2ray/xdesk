@@ -474,6 +474,14 @@ final class SettingsUi {
     }
 
     private LinearLayout labels(String label, String description, int color) {
+        return labels(label, description, color, null, null);
+    }
+
+    /**
+     * The label, its description, and, when the feature needs a permission that is missing, one orange line that goes
+     * to that permission's detail page (PermInline mockup). The row itself still opens its page.
+     */
+    private LinearLayout labels(String label, String description, int color, String need, final Runnable onFix) {
         LinearLayout text = new LinearLayout(c);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(Style.label(c, label, color, Style.TEXT_BODY));
@@ -482,13 +490,30 @@ final class SettingsUi {
             d.setPadding(0, dp(2), 0, 0);
             text.addView(d);
         }
+        if (need != null) {
+            TextView hint = Style.label(c, need, Style.WARN, Style.TEXT_SMALL);
+            hint.setPadding(0, dp(3), 0, 0);
+            hint.setClickable(true);
+            hint.setFocusable(false);
+            hint.setOnClickListener(v -> {
+                Style.tick(v);
+                if (onFix != null) onFix.run();
+            });
+            text.addView(hint);
+        }
         return text;
     }
 
     /** 名称、说明，右边是当前值，点了做事。返回值文字，以后可以改。 */
     TextView valueRow(LinearLayout card, String label, String description, String value, final Runnable onTap) {
+        return valueRow(card, label, description, value, null, null, onTap);
+    }
+
+    /** The same, and a missing permission is said in place: the orange line opens its detail page. */
+    TextView valueRow(LinearLayout card, String label, String description, String value, String need,
+                      final Runnable onFix, final Runnable onTap) {
         LinearLayout row = pressableRow();
-        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(labels(label, description, Style.TEXT, need, onFix), new LinearLayout.LayoutParams(0, -2, 1));
         TextView v = valueText(value);
         row.addView(v);
         row.setOnClickListener(view -> {
@@ -522,14 +547,29 @@ final class SettingsUi {
     }
 
     void switchRow(LinearLayout card, String label, String description, boolean on, final Consumer<Boolean> onChange) {
+        switchRow(card, label, description, on, null, null, onChange);
+    }
+
+    /**
+     * A switch whose feature needs a missing permission: the row is grey, the switch cannot be moved, and the orange
+     * line opens that permission's detail page instead (PermInline mockup).
+     */
+    void switchRow(LinearLayout card, String label, String description, boolean on, String need,
+                   final Runnable onFix, final Consumer<Boolean> onChange) {
         LinearLayout row = pressableRow();
-        row.addView(labels(label, description), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(labels(label, description, need != null ? Style.TEXT_DIM : Style.TEXT, need, onFix),
+            new LinearLayout.LayoutParams(0, -2, 1));
         final Toggle toggle = new Toggle(c, on);
+        if (need != null) toggle.setAlpha(0.4f);
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(dp(44), dp(26));
         tp.leftMargin = dp(12);
         row.addView(toggle, tp);
         row.setOnClickListener(v -> {
             Style.tick(v);
+            if (need != null) {
+                if (onFix != null) onFix.run();
+                return;
+            }
             toggle.setOn(!toggle.on);
             onChange.accept(toggle.on);
         });

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.provider.Settings;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -451,10 +452,13 @@ final class DeviceSettings {
             copyRow(steps, c.getString(R.string.xd_dev_linux_chroot), c.getString(R.string.xd_dev_linux_chroot_note),
                     "xdesk add NAME 'CMD'");
             String hint = devices.termuxHint();
-            s.valueRow(steps, c.getString(R.string.xd_dev_linux_reload), hint != null ? hint : c.getString(R.string.xd_dev_linux_reload_note), "", () -> {
-                Devices.Actions a = devices.actions();
-                if (a != null) a.setUpLinux();
-            });
+            // Running the command needs "Run commands in Termux"; without it the row says where to get it (PermInline)
+            s.valueRow(steps, c.getString(R.string.xd_dev_linux_reload), hint != null ? hint : c.getString(R.string.xd_dev_linux_reload_note), "",
+                Permissions.TERMUX.granted(c) ? null : Permissions.need(c, Permissions.TERMUX), this::openTermuxPermission,
+                () -> {
+                    Devices.Actions a = devices.actions();
+                    if (a != null) a.setUpLinux();
+                });
             return true;
         });
     }
@@ -496,5 +500,17 @@ final class DeviceSettings {
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("xdesk", command));
             Toast.makeText(c, R.string.xd_dev_copied, Toast.LENGTH_SHORT).show();
         });
+    }
+
+    /** The Termux command permission's page: the permission centre asks the system; from elsewhere, the app's details. */
+    private void openTermuxPermission() {
+        if (c instanceof XDeskActivity) {
+            ((XDeskActivity) c).showPermissionDetail(Permissions.TERMUX);
+            return;
+        }
+        try {
+            c.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException ignored) { }
     }
 }
