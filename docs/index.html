@@ -320,6 +320,15 @@ html:not(.motion) #bgx{display:none}
 .bigp .grid{padding:0}
 .gpadwrap{position:absolute;inset:0}
 
+/* ===== Video ===== */
+.video-sec{padding:100px 0 0}
+.vid{max-width:1000px;margin:44px auto 0;border-radius:20px;overflow:hidden;background:#000;box-shadow:0 0 0 1px var(--line),0 30px 80px rgba(0,0,0,.45);aspect-ratio:16/9}
+.vid video{display:block;width:100%;height:100%}
+.vid-credit{max-width:1000px;margin:14px auto 0;text-align:center;font-size:13px;color:var(--dim)}
+.vid-credit a{color:inherit}
+.watch{display:inline-block;margin-top:18px;font-size:16px;color:var(--dim);text-decoration:none}
+.watch:hover{color:var(--text)}
+
 /* ===== Start ===== */
 .start-sec{padding:100px 0 110px}
 .steps3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:48px}
@@ -457,6 +466,8 @@ html:not(.motion) #bgx{display:none}
   .bigp.gamepad{transform:translateX(-50%) rotateY(-8deg) rotateX(3deg)}
   .gpscreen{transform:translate(-50%,-50%) rotate(90deg) scale(.84)}
   .phone-card h3{font-size:21px}
+  .video-sec{padding:64px 0 0}
+  .vid{margin-top:28px;border-radius:14px}
   .start-sec{padding:64px 0 72px}
   .steps3{grid-template-columns:minmax(0,1fr);gap:14px;margin-top:30px}
   .st{padding:24px 20px}
@@ -638,6 +649,7 @@ html:not(.motion) #bgx{display:none}
         <a class="btn" href="#start"><span lang="en">Give it a go</span><span lang="zh-CN">来试试</span></a>
         <a class="btn2" href="https://github.com/n2ray/xdesk/releases/latest"><span lang="en">Download 0.7.0</span><span lang="zh-CN">下载 0.7.0</span></a>
       </div>
+      <a class="watch" href="#video"><span lang="en">&#9654; Watch the 43-second video</span><span lang="zh-CN">&#9654; 看 43 秒视频</span></a>
     </div>
     <div class="in">
       <div class="art hero-art" role="img" aria-label="A big screen shows the launcher, with a phone in front showing a touchpad" data-aria-en="A big screen shows the launcher, with a phone in front showing a touchpad" data-aria-zh="大屏上是外屏启动台，前面一部手机，手机屏上是触摸板">
@@ -929,6 +941,22 @@ html:not(.motion) #bgx{display:none}
       </div>
     </section>
   </div>
+
+  <!-- ===== Launch video ===== -->
+  <section class="video-sec" id="video">
+    <div class="in">
+      <div class="head">
+        <h2><span lang="en">43 seconds<br>of XDesk</span><span lang="zh-CN">43 秒看完 XDesk</span></h2>
+        <p><span lang="en">Sound on</span><span lang="zh-CN">视频是英文的，记得开声音</span></p>
+      </div>
+      <div class="vid">
+        <video controls playsinline preload="none" poster="media/xdesk-launch-poster.jpg" width="1920" height="1080" aria-label="XDesk launch video">
+          <source src="media/xdesk-launch.mp4" type="video/mp4">
+        </video>
+      </div>
+      <p class="vid-credit"><span lang="en">Music: &ldquo;Happy Beats / Business Moves Vol. 1&rdquo; by Sascha Ende, <a href="https://ende.app">ende.app</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>). Sound effects: Kenney (CC0).</span><span lang="zh-CN">音乐：Sascha Ende 的《Happy Beats / Business Moves Vol. 1》，<a href="https://ende.app">ende.app</a>（<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>）。音效：Kenney（CC0）。</span></p>
+    </div>
+  </section>
 
   <!-- ===== 8. Three steps ===== -->
   <section class="start-sec" id="start">
