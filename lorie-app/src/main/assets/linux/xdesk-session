@@ -68,9 +68,16 @@ if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ] && [ -S /tmp/termux-va/term
 export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtva_drm_shim_wayland.so
 export LIBVA_DRIVER_NAME=termuxva TERMUX_VA_BRIDGE=1 TERMUX_VA_GPU_BACKEND=kgsl TERMUX_VA_X11_DRI3=1
 export MESA_LOADER_DRIVER_OVERRIDE=kgsl TURNIP_KMD=kgsl
-# H.264 with B-frames and AV1 stall in MediaCodec (a handful of frames, then nothing) and Chrome does not fall back:
-# software for those (and HEVC, untested) until termux-va handles them; VP9 and the rest stay on the hardware
-export TERMUX_VA_DISABLE_AVC=1 TERMUX_VA_DISABLE_AV1=1 TERMUX_VA_DISABLE_HEVC=1
+# The experimental VA driver is built separately for Ubuntu 26.04.
+# Older images use the stock profile mask to keep Chrome responsive.
+export TERMUX_VA_DISABLE_HEVC=1
+if [ -r /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so ]; then
+    export LIBVA_DRIVERS_PATH=/usr/local/lib/xdesk-hwvideo XDESK_VPP_WAIT=1
+    unset TERMUX_VA_DISABLE_AVC TERMUX_VA_DISABLE_AV1
+    export XDESK_AV1_PACKET=1 XDESK_AV1_LIMIT_1080=1 DMD_AV1_OUTPUT_HIDDEN=0 DMD_AV1_INLINE_SHOW=1
+else
+    export TERMUX_VA_DISABLE_AVC=1 TERMUX_VA_DISABLE_AV1=1
+fi
 CHROME_FLAGS="--no-sandbox --ozone-platform=x11 --use-gl=angle --use-angle=gles-egl --ignore-gpu-blocklist
  --disable-gpu-rasterization --enable-gpu-compositing --enable-zero-copy --enable-native-gpu-memory-buffers
  --enable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL,PlatformHEVCDecoderSupport

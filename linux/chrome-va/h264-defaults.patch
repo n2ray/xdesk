@@ -1,0 +1,96 @@
+--- a/src/gallium/frontends/va/tva_bridge.c
++++ b/src/gallium/frontends/va/tva_bridge.c
+@@ -541,6 +541,7 @@
+     uint8_t *csd;
+     size_t csd_len;
+     bool h264_pps_defaults_valid;
++    bool h264_l0_observed;
+     unsigned h264_pps_l0_default;
+     unsigned h264_pps_l1_default;
+     /* The VA HEVC picture descriptor omits max_sub_layers_minus1.  Keep the
+@@ -3774,6 +3775,70 @@
+     ret = tva_av1_send_pending(c);
+     mtx_unlock(&c->av1_mutex);
+     return ret;
++}
++
++/* Chrome's VA slice parameters carry effective list lengths. They are PPS
++ * defaults only when the slice does not explicitly override them. Inspect
++ * the short header prefix of a single progressive P/B slice (H.264 7.3.3).
++ * Leave other picture layouts on the existing reconstruction path. */
++static void
++tva_h264_observe_defaults(struct tva_codec *c,
++                          const struct pipe_h264_picture_desc *pic)
++{
++    const struct pipe_h264_pps *pps = pic->pps;
++    const struct pipe_h264_sps *sps = pps->sps;
++    if (pic->slice_count != 1 || !pic->slice_parameter.slice_info_present ||
++        !sps->frame_mbs_only_flag || sps->separate_colour_plane_flag ||
++        sps->pic_order_cnt_type != 0 || pps->num_slice_groups_minus1 ||
++        pps->bottom_field_pic_order_in_frame_present_flag ||
++        pps->redundant_pic_cnt_present_flag)
++        return;
++
++    size_t start = 0;
++    while (start < c->acc_len && c->acc[start] == 0)
++        start++;
++    if (start < 2 || c->acc_len - start < 3 || c->acc[start] != 1 ||
++        (c->acc[start + 1] & 31) != 1)
++        return;
++
++    /* For first_mb_in_slice=0, slice_type <= 9 and PPS 0, only the
++     * first 44 bits of RBSP can be needed (frame_num and POC <= 16 each).
++     * Gather up to 64 bits, discarding emulation prevention bytes. */
++    uint64_t bits = 0;
++    unsigned count = 0, zeros = 0;
++    for (size_t i = start + 2; i < c->acc_len && count < 64; i++) {
++        uint8_t byte = c->acc[i];
++        if (zeros == 2 && byte == 3) {
++            zeros = 0;
++            continue;
++        }
++        bits |= (uint64_t)byte << (56 - count);
++        count += 8;
++        zeros = byte == 0 ? zeros + 1 : 0;
++    }
++    unsigned type = pic->slice_parameter.slice_type[0];
++    if (type != 0 && type != 1 && type != 5 && type != 6)
++        return;
++    /* Check the Exp-Golomb encoding of first_mb=0, slice_type, PPS id=0. */
++    type %= 5;
++    unsigned width = type == 0 ? 1 : 3;
++    if ((bits >> (62 - width)) !=
++        ((1u << (width + 1)) | ((type + 1) << 1) | 1)) {
++        type += 5;
++        width = 5;
++    }
++    unsigned prefix_bits = 2 + width;
++    unsigned prefix = (1u << (width + 1)) | ((type + 1) << 1) | 1;
++    bool b_slice = type % 5 == 1;
++    unsigned flag = prefix_bits + 8 + sps->log2_max_frame_num_minus4 +
++                    sps->log2_max_pic_order_cnt_lsb_minus4 + b_slice;
++    if (flag >= count || (bits >> (64 - prefix_bits)) != prefix ||
++        ((bits >> (63 - flag)) & 1))
++        return;
++    c->h264_l0_observed = true;
++    c->h264_pps_l0_default = pic->num_ref_idx_l0_active_minus1;
++    if (b_slice)
++        c->h264_pps_l1_default = pic->num_ref_idx_l1_active_minus1;
+ }
+ 
+ /*
+@@ -3857,12 +3922,13 @@
+                  * with a two-reference PPS default unchanged while allowing
+                  * the five-reference vertical AVC stream to select its
+                  * five-entry default before subsequent no-override slices. */
+-                if (c->base.max_references >= 5 &&
++                if (!c->h264_l0_observed && c->base.max_references >= 5 &&
+                     h264->num_ref_idx_l0_active_minus1 >=
+                     c->base.max_references - 1 &&
+                     c->h264_pps_l0_default < c->base.max_references - 1) {
+                     c->h264_pps_l0_default = c->base.max_references - 1;
+                 }
++                tva_h264_observe_defaults(c, h264);
+                 size_t sps_rbsp_len = tva_build_h264_sps(c->base.profile,
+                                                          h264->pps->sps,
+                                                          c->base.max_references,

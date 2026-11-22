@@ -66,6 +66,7 @@ tar -xzf /tmp/mesa.tgz -C /
 rm /tmp/mesa.tgz
 apt-mark hold libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers mesa-libgallium 2>/dev/null || true
 ldconfig
+install -D -m 755 /src/chrome-va-out/termuxva_drv_video.so /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so
 
 # Chrome, once the user installs it, with the flags and environment the session writes for this phone's GPU
 # (/etc/xdesk/chrome.sh): its own launcher reads none, so the command everything starts it by is a small wrapper,

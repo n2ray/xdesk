@@ -1,0 +1,218 @@
+--- a/src/gallium/frontends/va/tva_bridge.c
++++ b/src/gallium/frontends/va/tva_bridge.c
+@@ -492,6 +492,8 @@
+     uint8_t *tile_data;
+     size_t tile_bytes;
+     unsigned tile_count;
++    uint8_t *original;
++    size_t original_size;
+     uint8_t refresh_frame_flags;
+ };
+ 
+@@ -3293,8 +3295,10 @@
+ static void
+ tva_av1_pending_clear(struct tva_av1_frame *frame)
+ {
+-    for (unsigned i = 0; i < frame->picture_count; i++)
++    for (unsigned i = 0; i < frame->picture_count; i++) {
++        free(frame->pictures[i].original);
+         free(frame->pictures[i].tile_data);
++    }
+     memset(frame, 0, sizeof(*frame));
+ }
+ 
+@@ -3347,6 +3351,70 @@
+     return mask;
+ }
+ 
++/* Chrome supplies the complete packet as VASliceDataBuffer. Select the
++ * OBU_FRAME containing this VA picture's tiles. A single packet can back
++ * several VA pictures. Copy only the matching frame and the sequence header
++ * for key frames; never copy another picture's tiles. */
++static size_t
++tva_av1_copy_frame(const struct tva_codec *c,
++                   const struct pipe_av1_picture_desc *av1, bool key,
++                   uint8_t **out)
++{
++    size_t seq = 0, seq_len = 0;
++    const unsigned tiles = av1->slice_parameter.slice_count;
++    for (size_t pos = 0; pos < c->acc_len;) {
++        size_t start = pos;
++        unsigned header = c->acc[pos++];
++        unsigned type = (header >> 3) & 15;
++        if ((header & 0x83) != 2)
++            return 0;
++        if (header & 4) {
++            if (pos == c->acc_len || c->acc[pos++] != 0)
++                return 0;
++        }
++        uint64_t size = 0;
++        for (unsigned shift = 0; ; shift += 7) {
++            if (pos == c->acc_len || shift >= 56)
++                return 0;
++            unsigned b = c->acc[pos++];
++            size |= (uint64_t)(b & 127) << shift;
++            if (!(b & 128))
++                break;
++        }
++        if (size > c->acc_len - pos)
++            return 0;
++        size_t end = pos + size;
++        if (type == 1) {
++            seq = start;
++            seq_len = end - start;
++        }
++        if (type == 6 && tiles && av1->slice_parameter.slice_data_offset[0] >= pos &&
++            av1->slice_parameter.slice_data_offset[0] < end) {
++            for (unsigned i = 0; i < tiles; ++i) {
++                size_t off = av1->slice_parameter.slice_data_offset[i];
++                if (off < pos || off >= end ||
++                    av1->slice_parameter.slice_data_size[i] > end - off)
++                    return 0;
++            }
++            if (!key)
++                seq_len = 0;
++            if (key && !seq_len && !c->av1_sequence_sent)
++                return 0;
++            size_t frame_len = end - start;
++            if (seq_len + frame_len + 2 > MAX_FRAME)
++                return 0;
++            *out = malloc(seq_len + frame_len);
++            if (!*out)
++                return 0;
++            memcpy(*out, c->acc + seq, seq_len);
++            memcpy(*out + seq_len, c->acc + start, frame_len);
++            return seq_len + frame_len;
++        }
++        pos = end;
++    }
++    return 0;
++}
++
+ static int
+ tva_av1_send_pending(struct tva_codec *c)
+ {
+@@ -3369,7 +3437,8 @@
+ 
+         for (unsigned i = 0; i < frame->picture_count; i++) {
+             struct tva_av1_picture *pic = &frame->pictures[i];
+-            size_t unit_cap = pic->tile_bytes + 8192u + 64u;
++            size_t unit_cap = pic->original ? pic->original_size + 32 :
++                              pic->tile_bytes + 8192u + 64u;
+             if (unit_cap < pic->tile_bytes || unit_cap > MAX_FRAME) {
+                 debug_printf("tva: AV1 picture is too large (%zu bytes)\n",
+                              pic->tile_bytes);
+@@ -3395,7 +3464,7 @@
+                 return -1;
+             }
+             unit_len += n;
+-            if (i == 0 && frame->include_sequence) {
++            if (!pic->original && i == 0 && frame->include_sequence) {
+                 n = dmd_av1_build_sequence_header(&pic->picture,
+                                                   c->av1_enable_restoration,
+                                                   unit + unit_len,
+@@ -3409,11 +3478,16 @@
+                 unit_len += n;
+             }
+ 
+-            n = dmd_av1_build_frame(&pic->picture, pic->tiles,
+-                                    (int)pic->tile_count,
+-                                    pic->refresh_frame_flags,
+-                                    c->av1_enable_restoration,
+-                                    unit + unit_len, unit_cap - unit_len);
++            if (pic->original) {
++                n = pic->original_size;
++                memcpy(unit + unit_len, pic->original, n);
++            } else {
++                n = dmd_av1_build_frame(&pic->picture, pic->tiles,
++                                        (int)pic->tile_count,
++                                        pic->refresh_frame_flags,
++                                        c->av1_enable_restoration,
++                                        unit + unit_len, unit_cap - unit_len);
++            }
+             if (!n) {
+                 free(unit);
+                 tva_mark_broken(c);
+@@ -3423,12 +3497,25 @@
+             unit_len += n;
+ 
+             const bool hidden = !pic->picture.pic_info_fields.bits.show_frame;
++            bool abandoned = pic->original && hidden && !pic->refresh_frame_flags;
++            bool inline_output = pic->original && hidden && !abandoned;
++            if (inline_output) {
++                uint8_t slot = (uint8_t)__builtin_ctz(pic->refresh_frame_flags);
++                n = dmd_av1_build_show_existing(slot, unit + unit_len, unit_cap - unit_len);
++                if (!n) {
++                    free(unit);
++                    tva_av1_pending_clear(frame);
++                    tva_mark_broken(c);
++                    return -1;
++                }
++                unit_len += n;
++            }
+             if (pic->pending) {
+                 /* A hidden frame itself has no output.  Its synthetic
+                  * show_existing_frame is sent as the following temporal unit,
+                  * matching the layout emitted by real AV1 streams and the
+                  * input expected by Pixel's C2 decoder. */
+-                const uint64_t output_unit = c->next_unit + 1 + (hidden ? 1 : 0);
++                const uint64_t output_unit = c->next_unit + 1 + (hidden && !inline_output ? 1 : 0);
+                 if (output_unit > UINT32_MAX) {
+                     free(unit);
+                     tva_mark_broken(c);
+@@ -3436,7 +3523,15 @@
+                     return -1;
+                 }
+                 mtx_lock(&c->pend_mutex);
+-                pic->pending->unit_seq = (uint32_t)output_unit;
++                if (abandoned) {
++                    /* On seek Chrome can discard the remaining reference
++                     * map. This hidden picture has no known display slot. */
++                    pic->pending->failed = true;
++                    pic->pending->ready = true;
++                    u_cnd_monotonic_broadcast(&c->pend_cond);
++                } else {
++                    pic->pending->unit_seq = (uint32_t)output_unit;
++                }
+                 mtx_unlock(&c->pend_mutex);
+             }
+ 
+@@ -3455,7 +3550,7 @@
+             free(unit);
+             c->next_unit++;
+ 
+-            if (hidden) {
++            if (hidden && !pic->original) {
+                 uint8_t map_idx = pic->refresh_frame_flags
+                     ? (uint8_t)__builtin_ctz(pic->refresh_frame_flags) : 0;
+                 unsigned char show_unit[32];
+@@ -4350,6 +4445,20 @@
+         struct tva_av1_picture *current =
+             &frame->pictures[frame->picture_count];
+         memset(current, 0, sizeof(*current));
++        const bool raw = tva_option_enabled("XDESK_AV1_PACKET") &&
++                         tva_av1_inline_show_existing() && !tva_av1_output_hidden();
++        if (raw) {
++            current->original_size = tva_av1_copy_frame(c, av1, key_frame,
++                                                        &current->original);
++            if (!current->original_size) {
++                debug_printf("tva: missing original AV1 frame (packet=%zu tile=%u first=%02x)\n",
++                             c->acc_len, av1->slice_parameter.slice_data_offset[0],
++                             c->acc[0]);
++                free(tile_data);
++                tva_mark_broken(c);
++                return -1;
++            }
++        }
+         current->target = target;
+         tva_av1_normalize_picture(c, &va_pic);
+         current->picture = va_pic;
+@@ -4455,6 +4564,8 @@
+             tva_av1_inline_show_existing())
+             last_vcl = pending && pending->unit_seq ? pending->unit_seq :
+                        (uint32_t)(c->next_unit + 1);
++        if (raw && show_frame && tva_av1_flush_pending(c, false))
++            return -1;
+     } else {
+         /* Chromium splits VP9 superframes into individual pictures.  Hidden
+          * reference pictures must reach MediaCodec, but they do not produce
