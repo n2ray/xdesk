@@ -23,7 +23,25 @@ jobs:
         docker export xd | sudo tar -x -C rootfs
         sudo rm -f rootfs/.dockerenv
         sudo sh -c 'printf "127.0.0.1 localhost\n::1 localhost\n" > rootfs/etc/hosts; echo xdesk > rootfs/etc/hostname; : > rootfs/etc/resolv.conf'
-        # Android apps cannot make hard links: every file a file of its own
+        # Android apps cannot make hard links: each further link to a file becomes a symlink to its first one. Copies
+        # would do too, but Ubuntu's coreutils (uutils) is one binary under ~100 hard-linked names: 1.1 GB as copies.
+        sudo python3 - <<'PY'
+        import os
+        first = {}
+        for d, _, names in os.walk('rootfs'):
+            for n in names:
+                p = os.path.join(d, n)
+                st = os.lstat(p)
+                if not os.path.isfile(p) or os.path.islink(p) or st.st_nlink < 2:
+                    continue
+                key = (st.st_dev, st.st_ino)
+                if key not in first:
+                    first[key] = p
+                    continue
+                os.unlink(p)
+                os.symlink(os.path.relpath(first[key], d), p)
+        print(len(first), 'hard-linked files, the rest of their names now symlinks')
+        PY
         sudo tar --hard-dereference --numeric-owner -C rootfs -czf xdesk-ubuntu2604-arm64.tar.gz .
         sha256sum xdesk-ubuntu2604-arm64.tar.gz | tee xdesk-ubuntu2604-arm64.tar.gz.sha256
         ls -la xdesk-ubuntu2604-arm64.tar.gz
