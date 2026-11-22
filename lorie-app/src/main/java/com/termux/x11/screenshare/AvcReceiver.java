@@ -25,6 +25,9 @@ final class AvcReceiver {
     private long nextRecovery, nextKeyframeAsk;
     /** XDesk: set when a decoder was (re)attached; cleared by the next IDR. */
     volatile boolean wantKeyframe;
+    /** The last packet's index, to see a packet missing between pictures too (-1: none yet). */
+    private long lastIndex = -1;
+    int gaps;
     AvcReceiver(byte[] seed)throws Exception{
         stream = new SrtpStream(seed);
     }
@@ -36,6 +39,7 @@ final class AvcReceiver {
         frames = 0;
         stamp = -1;
         nextRecovery = nextKeyframeAsk = 0;
+        lastIndex = -1;
         wantKeyframe = true;
         suspended = false;
     }
@@ -46,6 +50,16 @@ final class AvcReceiver {
         if (payload == null) return;
         long index = payload.index;
         byte[] pay = payload.data;
+        // XDesk: a packet missing (over Tailscale or a busy Wi-Fi UDP loses some) breaks every picture after it until
+        // the next IDR, and the Mac sends one rarely for a still screen: the picture smeared for a long time. A gap
+        // asks for one, and nothing is shown until it comes (ScreenShareSession skips non-IDR pictures meanwhile).
+        // An older packet (reordered) is no gap
+        if (lastIndex >= 0 && index > lastIndex + 1) {
+            gaps++;
+            if (!wantKeyframe) Log.i("XDeskScreenShare", "packets missing (" + (index - lastIndex - 1) + "): keyframe asked");
+            wantKeyframe = true;
+        }
+        if (index > lastIndex) lastIndex = index;
         ByteBuffer h = ByteBuffer.wrap(p);
         int nal = pay[0] & 31;
         if ((seenTypes & (1 << nal)) == 0) {
@@ -67,7 +81,7 @@ final class AvcReceiver {
             // XDesk: a new decoder (the picture back on a screen) starts at the next IDR: ask for one now
             feedback.request(h.getInt(8));
             firs++;
-            Log.i("XDeskScreenShare", "FIR sent (picture shown again)");
+            Log.i("XDeskScreenShare", "FIR sent (picture shown again, or packets missing)");
             nextKeyframeAsk = ns + 500000000L;
         }
         accepted++;
@@ -104,7 +118,7 @@ final class AvcReceiver {
         }
     }
     void flush(Sink sink)throws Exception{
-        if(parts.lastKey()-parts.firstKey()+1!=parts.size()){lost++;parts.clear();return;}
+        if(parts.lastKey()-parts.firstKey()+1!=parts.size()){lost++;parts.clear();wantKeyframe=true;return;}
         List<byte[]> units=new ArrayList<>();ByteArrayOutputStream fu=null;
         for(byte[] p:parts.values()){
             if(p.length==0)continue;
@@ -170,7 +184,7 @@ final class AvcReceiver {
         }
         if(!parts.isEmpty())flush(sink);
         Log.i("XDeskScreenShare","DIRECT access_units="+frames+" accepted="+accepted+" incomplete="+lost+" unauthenticated="+stream.rejected
-                +" queue_drops="+reader.overflows+" descriptions="+meta+" sps="+(sps!=null)+" pps="+(pps!=null)+" idrs="+idrs+" firs="+firs);
+                +" queue_drops="+reader.overflows+" descriptions="+meta+" sps="+(sps!=null)+" pps="+(pps!=null)+" idrs="+idrs+" firs="+firs+" gaps="+gaps);
         if(frames==0)throw new IOException("no decodable direct AVC frames");
     }
 }
