@@ -90,6 +90,15 @@ public final class ProbeActivity extends Activity {
     };
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        String chrome = getIntent().getStringExtra("chrome158");
+        if (chrome != null) {
+            new Thread(() -> {
+                try { ChromeLaunchTest.run(this, chrome); }
+                catch (Exception e) { Log.e("XDeskChrome158", "experiment error", e); }
+                finally { runOnUiThread(this::finish); }
+            }, "chrome-launch").start();
+            return;
+        }
         if (!bindService(new Intent(this, ProbeService.class), connection, Context.BIND_AUTO_CREATE)) {
             Log.e(TAG, "FAIL: bindService");
             finish();

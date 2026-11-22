@@ -41,6 +41,9 @@ if [[ $# == 3 && $2 == --rootfs ]]; then
     if [[ -n ${MOJO_GUEST_ELF:-} ]]; then
         cp "$MOJO_GUEST_ELF" "$lib/libmojo_guest.so"
     fi
+    if [[ -n ${CHROME158_DEBS:-} ]]; then
+        bash "$here/chrome158/pack.sh" "$CHROME158_DEBS" "$lib" "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/$host/bin/clang"
+    fi
     cp "$here/zygote-handshake.py" "$lib/libzygote_probe.so"
     cp "$here/renderer-fork.py" "$lib/librenderer_fork.so"
     cp "$here/socket-peer.py" "$lib/libsocket_peer.so"
