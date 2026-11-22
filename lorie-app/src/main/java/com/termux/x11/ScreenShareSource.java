@@ -155,6 +155,11 @@ final class ScreenShareSource implements ContentSource {
         }
         Object[] old = pending.put(id, new Object[] { key, displayId, result });
         if (old != null) ((Result) old[2]).failed((String) old[0], context.getString(R.string.xd_ss_cancelled));
+        // Opened on the external screen and no kept password to unlock with the finger: the password is asked there,
+        // where one is looking (owner, 22 November). A kept one needs the phone's fingerprint prompt anyway
+        if (displayId != android.view.Display.DEFAULT_DISPLAY
+            && !com.termux.x11.screenshare.ScreenSharePasswords.has(context, id)
+            && MacLogin.ask(context, h, displayId)) return;
         Intent i = new Intent(context, ScreenShareLoginActivity.class);
         i.putExtra(ScreenShareLoginActivity.EXTRA_HOST, id);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

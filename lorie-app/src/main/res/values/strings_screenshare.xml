@@ -19,6 +19,11 @@
     <string name="xd_ss_cancelled">Cancelled</string>
     <string name="xd_ss_unknown">This Mac is no longer set up</string>
     <string name="xd_ss_remember">Remember the password (unlocked with your fingerprint or screen lock each time)</string>
+    <string name="xd_ss_remember_short">Remember password</string>
+    <string name="xd_ss_remember_note">Kept encrypted on the phone, unlocked with your fingerprint or screen lock each time.</string>
+    <string name="xd_ss_login_keys">Type on the phone · Enter connects · Esc cancels</string>
+    <string name="xd_ss_login_keys_keep">Type on the phone · Enter connects · Tab remembers · Esc cancels</string>
+    <string name="xd_ss_login_on_screen">Type the Mac password: the box is on the external screen</string>
     <string name="xd_ss_save_title">Keep the password for %1$s</string>
     <string name="xd_ss_not_saved">The password was not kept; connecting anyway</string>
     <string name="xd_ss_unlock_title">Connect to %1$s</string>

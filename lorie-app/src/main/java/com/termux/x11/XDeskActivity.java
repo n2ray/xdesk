@@ -574,6 +574,7 @@ public class XDeskActivity extends Activity {
             ui.postDelayed(homeAgain, HOME_AGAIN_MS);
         }
         @Override public void onDisplayRemoved(int id) {
+            MacLogin.displayGone(id);
             SwitcherOverlay.hide(switcherHost);
             if (contentKey != null && id == contentDisplay && !contentKey.startsWith(LinuxSource.PREFIX)) {
                 // DISPLAY.md §5.4: a Mac stops streaming. A Linux window is left as it is, full screen in X, which
@@ -1643,6 +1644,7 @@ public class XDeskActivity extends Activity {
         // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
         MacSource.start(this);
         ScreenShareSource.start(this);
+        MacLogin.host = loginHost;
         ShareHub.get(this);  // one clipboard for every device from the start: its listener, the Linux desktop's copies
         MacSource.switcher = prefix -> showSwitcher(true);
         LinuxSource.install(this); // "l:" Linux programs and X windows
@@ -1856,6 +1858,10 @@ public class XDeskActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (MacLogin.host == loginHost) {
+            MacLogin.close(true);
+            MacLogin.host = null;
+        }
         BuiltinLinux.attachHook = null;
         BuiltinLinux.get(this).removeListener(builtinChanged);
         if (XServers.listener == xServers) XServers.listener = null;
@@ -4809,6 +4815,8 @@ public class XDeskActivity extends Activity {
             if (SwitcherOverlay.isHome()) SwitcherOverlay.hide(switcherHost);
             return false;
         }
+        // The Mac password card has the input: the home waits under it
+        if (MacLogin.isShown()) return false;
         if (SwitcherOverlay.isShown()) return client == SwitcherOverlay.INPUT;
         if (!SwitcherOverlay.showHome(this, d, switcherHost)) return false;
         MacSource.userLooking();
@@ -4852,7 +4860,7 @@ public class XDeskActivity extends Activity {
 
     /** The target composes what a physical keyboard types: a Mac or the X side with its own input method. */
     private boolean rawKeys() {
-        return macRawKeys() || xRawKeys();
+        return client == MacLogin.INPUT || macRawKeys() || xRawKeys();
     }
 
     /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
@@ -4880,6 +4888,8 @@ public class XDeskActivity extends Activity {
     private boolean physicalKey(KeyEvent e, boolean fromIme) {
         InputDevice d = e.getDevice();
         if (d == null || !d.isExternal()) return false;
+        // The Mac password card on the external screen takes every key while it is up (MacLogin.key)
+        if (MacLogin.key(e)) return true;
         // Ctrl+Alt+M on the phone's window: take the desktop over (giving it back is in the desktop window, see onCreate)
         if (ownership.onKey(e)) {
             updateStatus();
@@ -4940,6 +4950,7 @@ public class XDeskActivity extends Activity {
     private String sinkName(InputSink s) {
         if (s == null) return "none";
         if (s == SwitcherOverlay.INPUT) return "Launchpad";
+        if (s == MacLogin.INPUT) return "MacPassword";
         if (s == apps.input()) return "AndroidApp";
         return s.getClass().getSimpleName();
     }
@@ -5522,6 +5533,48 @@ public class XDeskActivity extends Activity {
      */
     private final Runnable captureAfterSwitcher = () -> {
         if (keyView != null && apps.isActive() && !SwitcherOverlay.isShown()) applyCapture(false);
+    };
+
+    /** What had the input when the Mac password card took it (MacLogin), and whether the soft keyboard was opened for it. */
+    private InputSink beforeLogin;
+    private boolean loginOpenedKeys;
+
+    private final MacLogin.Host loginHost = new MacLogin.Host() {
+        @Override public void loginTaken() {
+            InputSink c = client;
+            if (c == SwitcherOverlay.INPUT) c = beforeSwitcher;
+            if (c != MacLogin.INPUT) beforeLogin = c;
+            releaseLatches();
+            client = MacLogin.INPUT;
+            // The phone's connection is a password field now (rawKeys): nothing is learnt or suggested
+            syncKeyMode();
+            // No keyboard on the phone: its soft keyboard comes up by itself, a password one
+            loginOpenedKeys = false;
+            if (keyView != null && !ImePlacement.hasPhysicalKeyboard()) {
+                WindowInsets w = getWindow().getDecorView().getRootWindowInsets();
+                if (w == null || !w.isVisible(WindowInsets.Type.ime())) {
+                    loginOpenedKeys = true;
+                    toggleKeyboard();
+                }
+            }
+            updateCapture();
+            Toast.makeText(XDeskActivity.this, R.string.xd_ss_login_on_screen, Toast.LENGTH_SHORT).show();
+        }
+        @Override public void loginReleased() {
+            if (client == MacLogin.INPUT) client = beforeLogin;
+            beforeLogin = null;
+            // Leaving the password field forgets what the connection held
+            syncKeyMode();
+            if (loginOpenedKeys && keyView != null) {
+                loginOpenedKeys = false;
+                softKeysAsked = false;
+                ime.hideSoftInputFromWindow(keyView.getWindowToken(), 0);
+            }
+            updateCapture();
+        }
+        @Override public Activity phoneActivity() {
+            return isFinishing() || isDestroyed() ? null : XDeskActivity.this;
+        }
     };
 
     private final SwitcherOverlay.Host switcherHost = new SwitcherOverlay.Host() {

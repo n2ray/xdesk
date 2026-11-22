@@ -2,15 +2,8 @@
 package com.termux.x11.screenshare;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.os.Bundle;
-import android.text.InputType;
-import android.view.View;
 import android.view.WindowManager;
-import android.widget.CheckBox;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.termux.x11.app.R;
@@ -59,50 +52,27 @@ public final class ScreenShareLoginActivity extends Activity {
         }
     }
 
-    /** The password dialog, with "Remember" when the phone can protect it. */
+    /** The password sheet (MacLogin.phone), with 记住密码 when the phone can protect it. */
     private void ask() {
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView who = new TextView(this);
-        who.setText(getString(R.string.xd_ss_login_who, host.account, host.host));
-        box.addView(who);
-        final EditText secret = new EditText(this);
-        secret.setHint(R.string.xd_ss_password);
-        secret.setSingleLine();
-        secret.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        secret.setSaveEnabled(false);
-        secret.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        box.addView(secret);
-        final CheckBox remember = new CheckBox(this);
-        remember.setText(R.string.xd_ss_remember);
-        if (ScreenSharePasswords.canSave(this)) box.addView(remember);
-        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle(getString(R.string.xd_ss_login_title, host.label()))
-            .setView(box)
-            .setNegativeButton(android.R.string.cancel, (d, w) -> finish())
-            .setPositiveButton(R.string.xd_ss_connect, (d, w) -> {
-                final char[] pass = new char[secret.length()];
-                secret.getText().getChars(0, pass.length, pass, 0);
-                secret.setText("");
-                if (!remember.isChecked()) {
+        android.app.Dialog dlg = com.termux.x11.MacLogin.phone(this, host, new com.termux.x11.MacLogin.Typed() {
+            @Override public void typed(char[] pass, boolean remember) {
+                if (!remember) {
                     go(pass);
                     return;
                 }
                 // Kept only once the user confirmed it is them; the connection goes on either way
-                ScreenSharePasswords.save(this, host.id, getString(R.string.xd_ss_save_title, host.label()), pass,
-                    (unused, error) -> {
-                        if (error != null) Toast.makeText(this, R.string.xd_ss_not_saved, Toast.LENGTH_LONG).show();
+                ScreenSharePasswords.save(ScreenShareLoginActivity.this, host.id,
+                    getString(R.string.xd_ss_save_title, host.label()), pass, (unused, error) -> {
+                        if (error != null)
+                            Toast.makeText(ScreenShareLoginActivity.this, R.string.xd_ss_not_saved, Toast.LENGTH_LONG).show();
                         go(pass);
                     });
-            })
-            .setOnCancelListener(d -> finish())
-            .create();
+            }
+            @Override public void cancelled() {
+                finish();
+            }
+        });
         dlg.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
-        dlg.show();
-        secret.requestFocus();
     }
 
     private void go(char[] pass) {
