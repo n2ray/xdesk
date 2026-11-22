@@ -67,7 +67,7 @@ if [[ $rootfs == false ]]; then
     cp "$here/../../lorie-app/src/main/jniLibs/arm64-v8a/libburrow.so" "$lib/"
 fi
 "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/$host/bin/aarch64-linux-android30-clang" \
-    -shared -fPIC -O2 -Wall -Wextra -Werror "$here/runner.c" -o "$lib/libfdprobe.so"
+    -shared -fPIC -O2 -Wall -Wextra -Werror "$here/runner.c" "$here/chrome158/broker.c" -o "$lib/libfdprobe.so"
 "$bt/aidl" -p"$sdk/framework.aidl" -I"$here/src" -o"$stage/generated" "$here/src/$pkg/IProbe.aidl"
 javac --release 8 -cp "$sdk/android.jar" -d "$stage/classes" \
     "$here/src/$pkg/"*.java "$stage/generated/$pkg/"*.java

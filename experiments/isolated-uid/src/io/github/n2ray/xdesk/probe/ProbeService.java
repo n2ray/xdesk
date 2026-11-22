@@ -21,8 +21,19 @@ public final class ProbeService extends Service {
 
     static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic, boolean rootfs, int socketRole);
     static native String runHandshake(String dir, int endpoint, int registration, String expected);
+    private static native int runChromeZygote(String dir, int requestFd, int owner);
     private final IProbe.Stub stub = new IProbe.Stub() {
         @Override public int serviceUid() { return Process.myUid(); }
+
+        @Override public int launchChromeZygote(ParcelFileDescriptor request) {
+            try (ParcelFileDescriptor fd = request) {
+                if (!Process.isIsolated() || !GuestBuild.ROOTFS) return 125;
+                int rc = runChromeZygote(getApplicationInfo().nativeLibraryDir, fd.getFd(),
+                        android.os.Binder.getCallingUid());
+                android.util.Log.i("XDeskChrome158", "isolated launch rc=" + rc);
+                return rc < 0 ? 125 : rc;
+            } catch (java.io.IOException e) { return 125; }
+        }
 
         @Override public String checkSelfExe() {
             if (!GuestBuild.ROOTFS) return "ERROR requires rootfs";
@@ -80,5 +91,23 @@ public final class ProbeService extends Service {
                 runBurrow(libDir, marker.getFd(), ownerPath, GuestBuild.DYNAMIC, GuestBuild.ROOTFS, 0);
     }
 
-    @Override public IBinder onBind(Intent intent) { return stub; }
+    static final String CHROME_LAUNCH = "io.github.n2ray.xdesk.isolationprobe.CHROME_LAUNCH";
+
+    @Override public IBinder onBind(Intent intent) {
+        if (CHROME_LAUNCH.equals(intent.getAction())) {
+            // This is the actual Android service context, before Burrow virtualizes IDs.
+            try {
+                StringBuilder status = new StringBuilder("backend_pid=").append(Process.myPid());
+                for (String line : Files.readAllLines(Paths.get("/proc/self/status"))) {
+                    if (line.startsWith("CapPrm:") || line.startsWith("CapEff:")
+                            || line.startsWith("CapBnd:") || line.startsWith("NoNewPrivs:"))
+                        status.append(' ').append(line.trim());
+                }
+                android.util.Log.i("XDeskChrome158", status.toString());
+            } catch (java.io.IOException e) {
+                android.util.Log.e("XDeskChrome158", "Cannot read service capabilities", e);
+            }
+        }
+        return stub;
+    }
 }

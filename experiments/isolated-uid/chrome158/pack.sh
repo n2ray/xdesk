@@ -33,3 +33,5 @@ for file in "$stage"/usr/lib/aarch64-linux-gnu/*.so; do pack "$file" "${file##*/
 "$cc" --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -fPIC -shared \
     -Wall -Wextra -Werror "$here/browser-load.c" -o "$lib/libchrome158_observer.so"
 cp "$here/entry.py" "$lib/libchrome158_entry.so"
+cp "$here/dispatch.py" "$lib/libchrome158_dispatch.so"
+pack "$here/start-zygote.py" start-zygote.py

@@ -61,6 +61,11 @@ public final class ProbeActivity extends Activity {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             new Thread(() -> {
                 try {
+                    if ("installed".equals(getIntent().getStringExtra("chrome158"))) {
+                        Log.i("XDeskChrome158", "bound_service_uid=" + IProbe.Stub.asInterface(binder).serviceUid());
+                        ChromeLaunchTest.run(ProbeActivity.this, "installed", IProbe.Stub.asInterface(binder));
+                        return;
+                    }
                     if (getIntent().getBooleanExtra("check_self_exe", false)) {
                         Log.i("XDeskChrome158", IProbe.Stub.asInterface(binder).checkSelfExe());
                         return;
@@ -95,15 +100,17 @@ public final class ProbeActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         String chrome = getIntent().getStringExtra("chrome158");
-        if (chrome != null) {
+        if (chrome != null && !"installed".equals(chrome)) {
             new Thread(() -> {
-                try { ChromeLaunchTest.run(this, chrome); }
+                try { ChromeLaunchTest.run(this, chrome, null); }
                 catch (Exception e) { Log.e("XDeskChrome158", "experiment error", e); }
                 finally { runOnUiThread(this::finish); }
             }, "chrome-launch").start();
             return;
         }
-        if (!bindService(new Intent(this, ProbeService.class), connection, Context.BIND_AUTO_CREATE)) {
+        Intent service = new Intent(this, ProbeService.class);
+        if ("installed".equals(chrome)) service.setAction(ProbeService.CHROME_LAUNCH);
+        if (!bindService(service, connection, Context.BIND_AUTO_CREATE)) {
             Log.e(TAG, "FAIL: bindService");
             finish();
         }

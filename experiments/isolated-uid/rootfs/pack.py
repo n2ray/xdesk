@@ -36,6 +36,22 @@ with tarfile.open(archive, "r|gz") as tar:
             raise ValueError("unsupported member " + path)
         nodes[path] = node
 
+chrome_index = lib / "libchrome158_index.so"
+if chrome_index.exists():
+    # The isolated UID cannot traverse the browser's writable staging directory.
+    # Resolve only the build-time allowlist to APK installer-owned objects.
+    prefix = "/opt/xdesk-chrome"
+    if "/opt" not in nodes or prefix in nodes:
+        raise ValueError("unexpected /opt layout")
+    nodes[prefix] = ("DIR", "")
+    nodes[prefix + "/locales"] = ("DIR", "")
+    for line in chrome_index.read_text().splitlines():
+        backing, name = line.split()
+        path = prefix + "/" + name
+        if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts or path in nodes:
+            raise ValueError(name)
+        nodes[path] = ("FILE", backing)
+
 if not all(path in nodes for path in observed):
     raise ValueError("expected Ubuntu arm64 ELFs missing")
 paths = sorted(nodes)

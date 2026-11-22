@@ -1,0 +1,69 @@
+--- a/src/trap.c
++++ b/src/trap.c
+@@ -1196,41 +1196,23 @@
+-/* chroot(): the directory becomes the rootfs, the bindings below it stay.
+- * SysV IPC stays in the first root (cfg.ipc), link2symlink's links of the
+- * old one are followed by their host paths (path.c). */
++/* This binary is for the Chrome experiment only. Change the actual shared
++ * kernel fs_struct. The stock chroot helper uses one of these two proc dirs. */
++static int kernel_root_changed;
++
+ static long do_chroot(const char* path) {
+-    char host[PATH_MAX], absolute[PATH_MAX], guest[PATH_MAX], root[sizeof(cfg.root)];
+-    if (!may_mount()) return -EPERM;
+-    if (path == 0) return -EFAULT;
+-    if (path[0] == 0) return -ENOENT;
+-    long r = guest_absolute(AT_FDCWD, path, absolute);
+-    if (r >= 0) r = to_host(absolute, 1, host, guest);
++    if (!path) return -EFAULT;
++    if (!same(path, "/proc/self/fdinfo") && !same(path, "/proc/self/fd")) return -EPERM;
++    long r = sys(NR_chroot, path, 0, 0, 0);
+     if (r < 0) return r;
+-    long fd = sys(NR_openat, AT_FDCWD, host, O_PATH | O_DIRECTORY | O_CLOEXEC, 0);
+-    if (fd < 0) return fd;
+-    char link[32] = "/proc/self/fd/";
+-    format_unsigned(link + 14, (unsigned long) fd);
+-    long n = sys(NR_readlinkat, AT_FDCWD, link, root, sizeof(root) - 1);
++    r = sys(NR_chdir, "/", 0, 0, 0);
++    if (r < 0) return r;
++
++    /* The original helper sets RLIMIT_NOFILE to zero. An open error alone
++     * would then be meaningless. Require an independent VFS lookup to
++     * confirm absence as well as an actual failed read-only open. */
++    struct kstat st;
++    r = sys(NR_newfstatat, AT_FDCWD, "/proc/self/exe", &st, 0);
++    if (r != -ENOENT) return r < 0 ? r : -EPERM;
++    long fd = sys(NR_openat, AT_FDCWD, "/proc/self/exe", O_RDONLY | O_CLOEXEC, 0);
++    if (fd < 0) { kernel_root_changed = 1; return 0; }
+     sys(NR_close, fd, 0, 0, 0);
+-    if (n <= 0) return n < 0 ? n : -ENOENT;
+-    if (n == (long) sizeof(root) - 1) return -ENAMETOOLONG;
+-    root[n] = 0;
+-    long g = length_of(guest);
+-    if (g == 1) return 0; /* "/" */
+-    /* shortcut: other threads may resolve a path meanwhile; chroot() comes before them in practice. */
+-    int kept = 0;
+-    for (int i = 0; i < cfg.bind_count; i++) {
+-        struct bind* b = &cfg.binds[i];
+-        if (b->guest_length <= g || memcmp(b->guest, guest, g) != 0 || b->guest[g] != '/') continue;
+-        struct bind* k = &cfg.binds[kept++];
+-        memmove(k->host, b->host, b->host_length + 1);
+-        k->host_length = b->host_length;
+-        k->walked = b->walked;
+-        k->guest_length = b->guest_length - g;
+-        memmove(k->guest, b->guest + g, k->guest_length + 1);
+-    }
+-    cfg.bind_count = kept;
+-    memcpy(cfg.root, root, n + 1);
+-    cfg.root_length = n;
+-    set_root_alias();
+-    record_root();
+-    return 0;
++    return -EPERM;
+ }
+@@ -1395,4 +1377,5 @@
+         dirfd = AT_FDCWD;
+         path = (const char*) x[0];
++        if (kernel_root_changed && path && same(path, "/")) return sys(NR_chdir, "/", 0, 0, 0);
+         ON_HOST(1, image_chdir(host, -1));
+     }

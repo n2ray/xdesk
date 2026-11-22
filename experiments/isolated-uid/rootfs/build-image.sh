@@ -10,3 +10,7 @@ patch -s -d "$stage/burrow" -p1 < "$here/burrow.patch"
 cp "$here/image-path.inc" "$stage/burrow/src/"
 python3 "$here/pack.py" "$archive" "$lib" "$stage/burrow/src/image-nodes.inc"
 make -s -C "$stage/burrow" CC="$compiler" OUT="$lib/libburrow.so"
+if [[ -n ${CHROME158_DEBS:-} ]]; then
+    patch -s -d "$stage/burrow" -p1 < "$here/../chrome158/kernel-chroot.patch"
+    make -s -C "$stage/burrow" CC="$compiler" OUT="$lib/libburrow_chrome_fs.so"
+fi

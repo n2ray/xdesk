@@ -2,6 +2,9 @@ package io.github.n2ray.xdesk.probe;
 
 import android.content.Context;
 import android.system.Os;
+import android.system.OsConstants;
+import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.util.Log;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -23,8 +26,12 @@ final class ChromeLaunchTest {
         Files.deleteIfExists(path);
     }
 
-    static void run(Context app, String mode) throws Exception {
-        if (!Arrays.asList("sibling", "external", "browser").contains(mode))
+    static { System.loadLibrary("fdprobe"); }
+    private static native int listenPrivate(String path);
+    private static native int acceptHelper(int listener);
+
+    static void run(Context app, String mode, IProbe isolated) throws Exception {
+        if (!Arrays.asList("sibling", "external", "browser", "installed").contains(mode))
             throw new IllegalArgumentException("unknown Chrome experiment");
         Path lib = new File(app.getApplicationInfo().nativeLibraryDir).toPath();
         Path work = Files.createTempDirectory(app.getCacheDir().toPath(), "chrome158-");
@@ -36,7 +43,9 @@ final class ChromeLaunchTest {
             for (String row : Files.readAllLines(lib.resolve("libchrome158_index.so"))) {
                 String[] entry = row.split(" ");
                 Path object = lib.resolve(entry[0]);
-                if (entry[1].equals("chrome-sandbox")) {
+                if (entry[1].equals("chrome-sandbox") && mode.equals("installed")) {
+                    Files.createSymbolicLink(opt.resolve(entry[1]), lib.resolve("libchrome158_dispatch.so"));
+                } else if (entry[1].equals("chrome-sandbox")) {
                     // As in the deb post-install, set the real mode on the test
                     // app's private copy. Preserve the file's actual owner.
                     Path helper = opt.resolve(mode.equals("external") ? "helper" : entry[1]);
@@ -49,7 +58,8 @@ final class ChromeLaunchTest {
             Files.createSymbolicLink(opt.resolve("entry.py"), lib.resolve("libchrome158_entry.so"));
             Files.createSymbolicLink(opt.resolve("browser-load.so"), lib.resolve("libchrome158_observer.so"));
             File log = work.resolve("output").toFile();
-            ProcessBuilder cmd = new ProcessBuilder(lib.resolve("libburrow.so").toString(), "-r", lib.toString(),
+            String runtime = mode.equals("installed") ? "libburrow_chrome_fs.so" : "libburrow.so";
+            ProcessBuilder cmd = new ProcessBuilder(lib.resolve(runtime).toString(), "-r", lib.toString(),
                     "-b", opt + ":/opt", "-b", tmp + ":/tmp", "-b", "/proc", "-b", "/dev", "-b", shm + ":/dev/shm",
                     "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/opt/entry.py", mode);
             Map<String, String> env = cmd.environment();
@@ -59,8 +69,41 @@ final class ChromeLaunchTest {
             env.put("HOME", "/tmp");
             env.put("TMPDIR", "/tmp");
             env.put("LD_LIBRARY_PATH", "/opt");
-            Process child = cmd.redirectErrorStream(true).redirectOutput(log).start();
-            boolean ended = child.waitFor(40, TimeUnit.SECONDS);
+            cmd.redirectErrorStream(true).redirectOutput(log);
+            int listener = isolated == null ? -1 : listenPrivate(tmp.resolve("zygote.sock").toString());
+            if (isolated != null && listener < 0) throw new java.io.IOException("listen errno=" + -listener);
+            Process child;
+            boolean ended;
+            try (ParcelFileDescriptor server = listener < 0 ? null : ParcelFileDescriptor.adoptFd(listener)) {
+                child = cmd.start();
+                try {
+                    long deadline = SystemClock.elapsedRealtime() + 40000;
+                    boolean dispatched = false;
+                    while (server != null && !dispatched && child.isAlive()
+                            && SystemClock.elapsedRealtime() < deadline) {
+                        int accepted = acceptHelper(server.getFd());
+                        if (accepted >= 0) {
+                            dispatched = true;
+                            ParcelFileDescriptor request = ParcelFileDescriptor.adoptFd(accepted);
+                            new Thread(() -> {
+                                try (ParcelFileDescriptor channel = request) {
+                                    int rc = isolated.launchChromeZygote(channel);
+                                    Os.write(channel.getFileDescriptor(), new byte[]{(byte)rc}, 0, 1);
+                                } catch (Exception e) { Log.e(TAG, "sandbox request closed", e); }
+                            }, "chrome-zygote-request").start();
+                        } else if (accepted != -OsConstants.EAGAIN && accepted != -OsConstants.EINTR) {
+                            throw new java.io.IOException("accept errno=" + -accepted);
+                        } else {
+                            child.waitFor(50, TimeUnit.MILLISECONDS);
+                        }
+                    }
+                    if (server != null) Log.i(TAG, "helper_request=" + dispatched);
+                    ended = child.waitFor(Math.max(0, deadline - SystemClock.elapsedRealtime()), TimeUnit.MILLISECONDS);
+                } catch (Exception e) {
+                    child.destroy();
+                    throw e;
+                }
+            }
             if (!ended) {
                 child.destroy();
                 if (!child.waitFor(3, TimeUnit.SECONDS)) { child.destroyForcibly(); child.waitFor(); }

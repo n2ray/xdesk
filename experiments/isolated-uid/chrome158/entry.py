@@ -5,7 +5,7 @@ import stat
 import sys
 
 mode = sys.argv[1]
-if mode not in {"sibling", "external", "browser"}:
+if mode not in {"sibling", "external", "browser", "installed"}:
     raise SystemExit("unknown Chrome experiment")
 os.setgroups([])
 os.setresgid(1000, 1000, 1000)
