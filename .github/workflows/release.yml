@@ -32,12 +32,11 @@ jobs:
         java-version: '17'
     - name: Fetch submodules
       run: git submodule update --init --recursive --jobs 8 --depth 1
-    # The built-in Linux's hardware video decoding: termux-va's MediaCodec service, at the commit whose protocol
-    # (v3) the image's Mesa (lfdevs mesa-for-android-container 27.0.0-devel-20261025-r2) speaks
+    # Protocol v3 service paired with the built-in image.
     - uses: actions/checkout@v7
       with:
-        repository: lfdevs/termux-va
-        ref: ae14813d77dbf107273b410a32f4ade34ba56313
+        repository: n2ray/termux-va
+        ref: 190b0ec9cd064914b6ef1836281e7e41ddb7ce6e
         path: build/termux-va-src
         persist-credentials: false
     - name: Build the MediaCodec service for the built-in Linux
