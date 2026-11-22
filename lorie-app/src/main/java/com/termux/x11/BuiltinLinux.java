@@ -77,7 +77,11 @@ final class BuiltinLinux {
 
     private BuiltinLinux(Context c) {
         this.c = c;
-        base = new File(c.getFilesDir(), "linux");
+        // The real path: /data/user/0 is a link to /data/data, and the kernel's getcwd gives the real one, which Burrow
+        // must find among its bindings (with the link, every getcwd in the container failed)
+        File files = c.getFilesDir();
+        try { files = files.getCanonicalFile(); } catch (IOException ignored) { }
+        base = new File(files, "linux");
         rootfs = new File(base, "rootfs");
         home = new File(base, "home");
         cache = new File(base, "cache");
