@@ -1,3 +1,75 @@
+--- a/src/burrow.h
++++ b/src/burrow.h
+@@ -46,7 +46,7 @@
+     NR_removexattr = 14, NR_lremovexattr = 15, NR_getcwd = 17, NR_epoll_pwait = 22, NR_fcntl = 25,
+     NR_pselect6 = 72, NR_ppoll = 73, NR_rt_sigsuspend = 133, NR_epoll_pwait2 = 441, NR_ioctl = 29, NR_inotify_add_watch = 27,
+     NR_mknodat = 33, NR_mkdirat = 34, NR_unlinkat = 35, NR_symlinkat = 36, NR_linkat = 37, NR_renameat = 38,
+-    NR_statfs = 43, NR_fstatfs = 44, NR_truncate = 45, NR_faccessat = 48, NR_chdir = 49, NR_chroot = 51, NR_fchmodat = 53, NR_fchownat = 54,
++    NR_statfs = 43, NR_fstatfs = 44, NR_truncate = 45, NR_faccessat = 48, NR_chdir = 49, NR_fchdir = 50, NR_chroot = 51, NR_fchmodat = 53, NR_fchownat = 54,
+     NR_fchown = 55, NR_openat = 56, NR_close = 57, NR_getdents64 = 61, NR_lseek = 62, NR_read = 63, NR_write = 64, NR_pread64 = 67,
+     NR_readlinkat = 78, NR_newfstatat = 79, NR_fstat = 80, NR_utimensat = 88, NR_exit_group = 94,
+     NR_tgkill = 131, NR_sigaltstack = 132, NR_rt_sigaction = 134, NR_rt_sigprocmask = 135, NR_rt_sigreturn = 139,NR_setregid = 143, NR_setgid = 144,
+@@ -195,6 +195,7 @@
+     uint32_t ids[ID_COUNT]; /* the guest's, emulated; atomic */
+     uint32_t groups[MAX_GROUPS]; /* its supplementary groups, emulated */
+     int group_count;
++    unsigned long image_cwd; /* immutable directory index + 1, or native cwd */
+     char exe[PATH_MAX];      /* the guest program, as a guest path */
+     char host_exe[PATH_MAX]; /* and as a host path */
+     char name[16];           /* its process name: the file execve() was given */
+@@ -206,6 +207,12 @@
+ };
+
+ extern struct config cfg;
++const char *image_cwd(void);
++long image_chdir(const char *host, long fd);
++int image_type(const char *host, long fd, int mode);
++long image_readlink(const char *host, long fd, char *buf, long size);
++long image_open(const char *host, long flags);
++long image_getdents(long fd, char *buf, unsigned long size);
+
+ /* -- Functions -------------------------------------------------------------------- */
+
+--- a/src/config.c
++++ b/src/config.c
+@@ -43,9 +43,10 @@
+
+ long encode_config(char* to, long size, const char* exe, const char* host_exe, const char* name) {
+     char* end = to + size;
+-    char* at = put(to, end, "7");
++    char* at = put(to, end, "7-imgdir");
+     at = put(at, end, cfg.root);
+     at = put(at, end, cfg.self);
++    at = put_number(at, end, __atomic_load_n(&cfg.image_cwd, __ATOMIC_RELAXED));
+     at = put_number(at, end, cfg.real_uid);
+     at = put_number(at, end, cfg.real_gid);
+     for (int i = 0; i < ID_COUNT; i++) at = put_number(at, end, __atomic_load_n(&cfg.ids[i], __ATOMIC_RELAXED));
+@@ -90,10 +91,12 @@
+ }
+
+ int decode_config(const char* s) {
+-    char version[8];
++    char version[12];
+     unsigned long v;
+-    if (!take(&s, version, sizeof(version)) || !same(version, "7")) return 0;
++    if (!take(&s, version, sizeof(version)) || !same(version, "7-imgdir")) return 0;
+     if (!take(&s, cfg.root, sizeof(cfg.root)) || !take(&s, cfg.self, sizeof(cfg.self))) return 0;
++    if (!take_number(&s, &v)) return 0;
++    cfg.image_cwd = v;
+     if (!take_number(&s, &v)) return 0;
+     cfg.real_uid = (uint32_t) v;
+     if (!take_number(&s, &v)) return 0;
+--- a/src/main.c
++++ b/src/main.c
+@@ -223,7 +223,7 @@
+     install_handler();
+     char host[PATH_MAX];
+     long r = host_path(AT_FDCWD, workdir, 1, host);
+-    if (r < 0 || sys(NR_chdir, host, 0, 0, 0) < 0) die("cannot enter ", workdir);
++    if (r < 0 || image_chdir(host, -1) < 0) die("cannot enter ", workdir);
+
+     sys(NR_prctl, PR_SET_CHILD_SUBREAPER, 1, 0, 0);
+     struct ksigaction stop = {(uintptr_t) on_stop, 0, 0, 0};
 --- a/src/path.c
 +++ b/src/path.c
 @@ -43,12 +43,15 @@
@@ -17,7 +89,31 @@
  }
 
  /* Whether the host path @s starts with the directory @prefix (@n bytes). */
-@@ -372,7 +375,7 @@
+@@ -94,6 +97,8 @@
+ }
+
+ long host_to_guest(const char* host, char* out, long size) {
++    const struct image_node *node = metadata(host);
++    if (node) return copy(out, size, node->path);
+     const char* guest;
+     const char* rest = guest_part(host, &guest);
+     if (rest == 0) return copy(out, size, host);
+@@ -156,6 +161,14 @@
+ long guest_absolute(long dirfd, const char* path, char* out) {
+     if (path[0] == '/') {
+         long r = copy(out, PATH_MAX, path);
++        if (r >= 0) tidy(out);
++        return r < 0 ? r : 0;
++    }
++    const char *cwd = dirfd == AT_FDCWD ? image_cwd() : 0;
++    if (cwd) {
++        long n = copy(out, PATH_MAX, cwd);
++        if (n > 1) out[n++] = '/';
++        long r = join(out, out, n, path);
+         if (r >= 0) tidy(out);
+         return r < 0 ? r : 0;
+     }
+@@ -372,7 +385,7 @@
  static long probe(const char* guest, int follow, char* host, char* resolved) {
      long n = length_of(guest);
      const struct bind* b = plain(guest) ? binding_of(guest, n) : 0;
@@ -26,7 +122,7 @@
      long h = host_of(guest, n, host);
      if (h < 0) return h;
      long r = no_symlinks(host, follow, 0);
-@@ -440,14 +443,20 @@
+@@ -440,14 +453,20 @@
          if (last && !follow) break;
 
          struct kstat st;
@@ -51,7 +147,18 @@
              if (t < 0) return t;
              target[t] = 0;
              long u = unhost(target, t);
-@@ -670,7 +679,9 @@
+@@ -482,6 +501,10 @@
+     }
+     long h = host_of(out, n, host);
+     if (h < 0) return h;
++    if (slash && n > 1 && !binding_of(out, n)) {
++        const struct image_node *node = image_find(out);
++        return node && node->kind == IMG_DIR ? 0 : -ENOTDIR;
++    }
+     if (slash && n > 1) {
+         if (h + 1 >= PATH_MAX) return -ENAMETOOLONG;
+         host[h] = '/';
+@@ -670,7 +693,9 @@
  /* Whether the kernel resolves the absolute guest path @guest as we would:
   * no binding, no "." or "..", and symlinks refused (RESOLVE_NO_SYMLINKS). */
  static int direct(const char* guest) {
@@ -62,3 +169,149 @@
  }
 
  long host_fd(long dirfd, const char* path, int follow, char* host, long* fd) {
+--- a/src/trap.c
++++ b/src/trap.c
+@@ -20,7 +20,7 @@
+ static const uint16_t trapped[] = {
+     NR_setxattr, NR_lsetxattr, NR_getxattr, NR_lgetxattr, NR_listxattr, NR_llistxattr, NR_removexattr,
+     NR_lremovexattr, NR_getcwd, NR_inotify_add_watch, NR_mknodat, NR_mkdirat, NR_unlinkat, NR_symlinkat,
+-    NR_linkat, NR_renameat, NR_statfs, NR_fstatfs, NR_truncate, NR_faccessat, NR_chdir, NR_fchmodat, NR_fchownat, NR_fchown,
++    NR_linkat, NR_renameat, NR_statfs, NR_fstatfs, NR_truncate, NR_faccessat, NR_chdir, NR_fchdir, NR_fchmodat, NR_fchownat, NR_fchown,
+     NR_openat, NR_readlinkat, NR_getdents64, NR_newfstatat, NR_fstat, NR_utimensat, NR_rt_sigaction, NR_rt_sigprocmask,
+     NR_rt_sigreturn, NR_rt_sigsuspend,
+     NR_setregid, NR_setgid, NR_setreuid, NR_setuid, NR_setresuid, NR_getresuid, NR_setresgid, NR_getresgid,
+@@ -405,7 +405,10 @@
+
+ static long do_readlink(long dirfd, const char* path, char* buf, long size) {
+     if (size <= 0) return -EINVAL;
+-    if (empty(path)) return sys(NR_readlinkat, dirfd, path, buf, size);
++    if (empty(path)) {
++        long n = image_readlink(0, dirfd, buf, size);
++        return n != -ENOSYS ? n : sys(NR_readlinkat, dirfd, path, buf, size);
++    }
+     char guest[PATH_MAX], host[PATH_MAX], target[PATH_MAX];
+     if (path == 0) return -EFAULT;
+     long r = guest_absolute(dirfd, path, guest);
+@@ -421,6 +424,8 @@
+             sys(NR_close, fd, 0, 0, 0);
+             if (r == -ENOENT) r = -EINVAL; /* older kernels, on no symlink */
+         } else {
++            r = image_readlink(host, -1, buf, size);
++            if (r != -ENOSYS) return r;
+             r = sys(NR_readlinkat, AT_FDCWD, host, target, PATH_MAX - 1);
+         }
+         if (r < 0) return r;
+@@ -444,6 +449,13 @@
+ }
+
+ static long do_getcwd(char* buf, long size) {
++    const char *cwd = image_cwd();
++    if (cwd) {
++        long n = length_of(cwd) + 1;
++        if (size < n) return -ERANGE;
++        memcpy(buf, cwd, n);
++        return n;
++    }
+     char host[PATH_MAX], guest[PATH_MAX];
+     long r = sys(NR_getcwd, host, PATH_MAX, 0, 0);
+     if (r < 0) return r;
+@@ -475,7 +487,11 @@
+ static long stat_host(long dirfd, const char* path, int follow, char* host, struct kstat* st) {
+     long fd, r = host_fd(dirfd, path, follow, host, &fd);
+     if (r < 0) return r;
+-    if (fd < 0) return sys(NR_newfstatat, AT_FDCWD, host, st, follow ? 0 : AT_SYMLINK_NOFOLLOW);
++    if (fd < 0) {
++        r = sys(NR_newfstatat, AT_FDCWD, host, st, follow ? 0 : AT_SYMLINK_NOFOLLOW);
++        if (r == 0) st->mode = image_type(host, -1, st->mode);
++        return r;
++    }
+     r = sys(NR_newfstatat, fd, "", st, AT_EMPTY_PATH);
+     sys(NR_close, fd, 0, 0, 0);
+     return r;
+@@ -488,6 +504,7 @@
+     long r;
+     if (empty(path) && (flags & AT_EMPTY_PATH)) {
+         r = sys(NR_newfstatat, dirfd, path, st, flags);
++        if (r == 0) st->mode = image_type(0, dirfd, st->mode);
+     } else {
+         char host[PATH_MAX];
+         r = stat_host(dirfd, path, 0, host, st);
+@@ -506,7 +523,11 @@
+     long fd, r = host_fd(dirfd, path, follow, host, &fd);
+     if (r < 0) return r;
+     flags &= ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW);
+-    if (fd < 0) return sys6(NR_statx, AT_FDCWD, (long) host, flags | (follow ? 0 : AT_SYMLINK_NOFOLLOW), mask, (long) stx, 0);
++    if (fd < 0) {
++        r = sys6(NR_statx, AT_FDCWD, (long) host, flags | (follow ? 0 : AT_SYMLINK_NOFOLLOW), mask, (long) stx, 0);
++        if (r == 0) stx->mode = image_type(host, -1, stx->mode);
++        return r;
++    }
+     r = sys6(NR_statx, fd, (long) "", flags | AT_EMPTY_PATH, mask, (long) stx, 0);
+     sys(NR_close, fd, 0, 0, 0);
+     return r;
+@@ -516,6 +537,7 @@
+     long r;
+     if (empty(path) && (flags & AT_EMPTY_PATH)) {
+         r = sys6(NR_statx, dirfd, (long) path, flags, mask, (long) stx, 0);
++        if (r == 0) stx->mode = image_type(0, dirfd, stx->mode);
+     } else {
+         char host[PATH_MAX];
+         long nofollow = (flags & ~AT_EMPTY_PATH) | AT_SYMLINK_NOFOLLOW;
+@@ -1317,7 +1339,12 @@
+         long r = open_direct(dirfd, path, flags, (long) x[3]);
+         if (r != -ELOOP && r != -EINVAL && r != -EACCES) return l2s_path_fd(r, flags);
+         int follow = !(flags & O_NOFOLLOW) && (flags & (O_CREAT | O_EXCL)) != (O_CREAT | O_EXCL);
+-        ON_HOST(follow, l2s_path_fd(open_as_root(NR_openat, host, flags, flags, (long) x[3]), flags));
++        char host[PATH_MAX];
++        r = host_path(dirfd, path, follow, host);
++        if (r < 0) return r;
++        r = image_open(host, flags);
++        if (r != -ENOSYS) return r;
++        return l2s_path_fd(open_as_root(NR_openat, host, flags, flags, (long)x[3]), flags);
+     }
+     case NR_openat2: {
+         const struct open_how* how = (const struct open_how*) x[2];
+@@ -1337,11 +1364,16 @@
+             return emulate(NR_openat, y);
+         }
+         int follow = !(how->flags & O_NOFOLLOW) && (how->flags & (O_CREAT | O_EXCL)) != (O_CREAT | O_EXCL);
+-        ON_HOST(follow, l2s_path_fd(open_as_root(NR_openat2, host, (long) how->flags, (long) how, (long) x[3]),
+-                                    (long) how->flags));
++        char host[PATH_MAX];
++        long r = host_path(dirfd, path, follow, host);
++        if (r < 0) return r;
++        r = image_open(host, how->flags);
++        if (r != -ENOSYS) return r;
++        return l2s_path_fd(open_as_root(NR_openat2, host, (long)how->flags, (long)how, (long)x[3]), how->flags);
+     }
+     case NR_getdents64: {
+-        long r;
++        long r = image_getdents(dirfd, (char *)x[1], x[2]);
++        if (r != -ENOSYS) return r;
+         do r = sys(NR_getdents64, x[0], x[1], x[2], 0);
+         while (r > 0 && (r = l2s_dirents(dirfd, (char*) x[1], r)) == 0); /* 0 would end the listing */
+         return r;
+@@ -1349,7 +1381,9 @@
+     case NR_newfstatat: return do_stat(dirfd, path, (struct kstat*) x[2], (long) x[3]);
+     case NR_fstat: {
+         long r = sys(NR_fstat, x[0], x[1], 0, 0);
+-        fake_stat(r, (struct kstat*) x[1]);
++        struct kstat *st = (struct kstat *)x[1];
++        if (r == 0) st->mode = image_type(0, dirfd, st->mode);
++        fake_stat(r, st);
+         return r;
+     }
+     case NR_statx: return do_statx(dirfd, path, (long) x[2], (long) x[3], (struct kstatx*) x[4]);
+@@ -1359,10 +1393,11 @@
+         return do_access(dirfd, path, (long) x[2], (long) x[3]);
+     case NR_readlinkat: return do_readlink(dirfd, path, (char*) x[2], (long) x[3]);
+     case NR_getcwd: return do_getcwd((char*) x[0], (long) x[1]);
++    case NR_fchdir: return image_chdir(0, dirfd);
+     case NR_chdir: {
+         dirfd = AT_FDCWD;
+         path = (const char*) x[0];
+-        ON_HOST(1, sys(NR_chdir, host, 0, 0, 0));
++        ON_HOST(1, image_chdir(host, -1));
+     }
+     case NR_chroot: return do_chroot((const char*) x[0]);
+     case NR_mount: return do_mount((const char*) x[0], (const char*) x[1], (long) x[3]);

@@ -26,7 +26,11 @@ public final class ProbeActivity extends Activity {
         if (!GuestBuild.DYNAMIC) return true;
         if (GuestBuild.ROOTFS && !(hasLine(report, "rootfs_image=ubuntu-26.04-r1 2026-11-22")
                 && hasLine(report, "rootfs_version=26.04") && hasLine(report, "image_write=DENIED")
-                && hasLine(report, "image_create=DENIED"))) return false;
+                && hasLine(report, "image_create=DENIED") && hasLine(report, "xdesk_entries=image")
+                && hasLine(report, "cwd=/etc/xdesk relative_image=ubuntu-26.04-r1 2026-11-22")
+                && hasLine(report, "relative_link=../usr/lib/os-release")
+                && hasLine(report, "absolute_link=/usr/share/zoneinfo/Etc/UTC")
+                && hasLine(report, "bin_entries=671") && hasLine(report, "exec_cwd=/usr/bin"))) return false;
         String[] lines = report.split("\n");
         for (String name : new String[]{"libubuntu_dash.so", "libubuntu_ld.so", "libubuntu_libc.so"}) {
             String prefix = "installed=" + name + " ";

@@ -42,11 +42,26 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         "if IFS= read -r other < /owner-marker; then printf 'via_path=%s\\n' \"$other\"; "
         "else echo via_path=DENIED; fi; ";
     const char *image_checks =
+        "cd -P /etc/xdesk || exit 34; "
+        "entries=$(/usr/bin/ls -1A .) && [ \"$entries\" = image ] || exit 35; "
+        "echo xdesk_entries=$entries; "
+        "where=$(/usr/bin/pwd -P) && [ \"$where\" = /etc/xdesk ] || exit 36; "
+        "IFS= read -r relative < image && [ \"$relative\" = 'ubuntu-26.04-r1 2026-11-22' ] || exit 37; "
+        "echo cwd=$where relative_image=$relative; "
+        "cd -P .. && [ -L os-release ] || exit 38; "
+        "link=$(/usr/bin/readlink os-release) && [ \"$link\" = ../usr/lib/os-release ] || exit 39; "
+        ". ./os-release && [ \"$VERSION_ID\" = 26.04 ] || exit 40; echo relative_link=$link; "
+        "link=$(/usr/bin/readlink localtime) && [ \"$link\" = /usr/share/zoneinfo/Etc/UTC ] "
+        "&& /usr/bin/cmp -s localtime \"$link\" || exit 41; echo absolute_link=$link; "
+        "cd -P /bin && [ \"$(/usr/bin/pwd -P)\" = /usr/bin ] || exit 42; "
+        "set -- *; [ \"$#\" = 671 ] || exit 43; echo bin_entries=$#; "
+        "[ \"$(./sh -c '/usr/bin/pwd -P')\" = /usr/bin ] || exit 44; echo exec_cwd=/usr/bin; "
+        "cd / || exit 45; "
         "IFS= read -r image < /etc/xdesk/image || exit 30; echo rootfs_image=$image; "
         ". /etc/os-release || exit 31; echo rootfs_version=$VERSION_ID; "
         "if ( : >> /etc/xdesk/image ); then exit 32; fi; echo image_write=DENIED; "
         "if ( : > /etc/xdesk/.isolated-uid-write-test ); then exit 33; fi; echo image_create=DENIED; ";
-    char script[2048];
+    char script[4096];
     snprintf(script, sizeof(script), "%s%s%s", rootfs ? image_checks : "", marker_script, dynamic ?
         "domain=; IFS= read -r domain < /domain || :; printf '%s\\n' \"$domain\"; "
         "while read -r range perms offset dev ino path; do "
