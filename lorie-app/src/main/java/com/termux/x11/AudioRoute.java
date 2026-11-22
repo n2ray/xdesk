@@ -19,7 +19,18 @@ import java.util.concurrent.Executors;
  * （AudioRouter），会话结束时清除。没有 Shizuku 时只有 AudioPlayer 的 setPreferredDevice，这只是尽力而为：
  * 实测它没法在接着 HDMI 时把声音拉回手机扬声器。
  */
-final class AudioRoute {
+public final class AudioRoute {
+    /** Use the same system route and per-track fallback as the other desktop audio sources. */
+    public static AudioRoute forScreenSharing(Context context) {
+        AudioRoute route = get(context);
+        route.ui.post(() -> AppSession.get(route.context).connectForAudio());
+        return route;
+    }
+
+    public AudioDeviceInfo screenSharingDevice() {
+        return coversSystem() ? null : playerDevice();
+    }
+
     interface Listener {
         void onOutputsChanged();
         void onAudioMessage(String message);

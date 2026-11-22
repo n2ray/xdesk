@@ -20,6 +20,7 @@ final class DirectSession implements Closeable {
     final SecureRandom rng=new SecureRandom();
     final Socket control=new Socket();
     final DatagramSocket video, audio;
+    private final AudioReceiver soundReceiver;
     DataInputStream in;
     OutputStream out;
     ControlWriter records;
@@ -44,13 +45,14 @@ final class DirectSession implements Closeable {
         buf.position(12+156);buf.putInt(width).putInt(height).putInt(width).putInt(height);
         return d;
     }
-    DirectSession(AssetManager a,String h,int w,int sizeY)throws Exception {
-        assets=a;width=w;height=sizeY; host=InetAddress.getByName(h);
+    DirectSession(android.content.Context context,String h,int w,int sizeY)throws Exception {
+        assets=context.getAssets();width=w;height=sizeY; host=InetAddress.getByName(h);
         audio=new DatagramSocket(5900);
         try {video=new DatagramSocket(5901);}catch(Exception e){audio.close();throw e;}
         video.setReceiveBufferSize(4<<20); video.setSoTimeout(300);
+        soundReceiver = new AudioReceiver(context, audio, host);
     }
-    public void close(){probes.shutdownNow();audio.close();video.close();try{control.close();}catch(IOException ignored){}}
+    public void close(){probes.shutdownNow();audio.close();soundReceiver.close();video.close();try{control.close();}catch(IOException ignored){}}
     byte[] asset(String n)throws IOException{try(InputStream s=assets.open("screenshare/"+n)){ByteArrayOutputStream b=new ByteArrayOutputStream();byte[] buf=new byte[1024];int len;while((len=s.read(buf))!=-1)b.write(buf,0,len);return b.toByteArray();}}
     static byte[] cat(byte[]... parts){ByteArrayOutputStream o=new ByteArrayOutputStream();for(byte[] p:parts)o.write(p,0,p.length);return o.toByteArray();}
     static byte[] b(int... v){byte[] a=new byte[v.length];for(int i=0;i<v.length;i++)a[i]=(byte)v[i];return a;}
@@ -222,9 +224,15 @@ final class DirectSession implements Closeable {
         config.position(0x14);
         UUID id = UUID.randomUUID();
         config.putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits());
-        config.put(random(46)).put(random(46)).put(sound);
+        byte[] audioReceiveKey = random(46);
+        config.put(random(46)).put(audioReceiveKey).put(sound);
         config.put(sendKey).put(receiveKey).put(picture);
-        records.send(config.array());
+        try {
+            records.send(config.array());
+            soundReceiver.setKey(audioReceiveKey);
+        } finally {
+            Arrays.fill(audioReceiveKey, (byte) 0);
+        }
     }
 
     private void monitorControl() {

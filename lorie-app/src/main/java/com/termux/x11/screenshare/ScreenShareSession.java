@@ -290,7 +290,7 @@ public final class ScreenShareSession {
         String reason = null;
         startNs = System.nanoTime();
         Log.i(TAG, "CONNECT host=" + host.host + " size=" + width + "x" + height);
-        try (DirectSession d = new DirectSession(context.getAssets(), host.host, width, height)) {
+        try (DirectSession d = new DirectSession(context, host.host, width, height)) {
             if (closed) return;
             if (host.measure) calibrate(d.host);
             try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video, d.host)) {
