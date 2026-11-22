@@ -41,16 +41,28 @@ if chrome_index.exists():
     # The isolated UID cannot traverse the browser's writable staging directory.
     # Resolve only the build-time allowlist to APK installer-owned objects.
     prefix = "/opt/xdesk-chrome"
-    if "/opt" not in nodes or prefix in nodes:
+    if nodes.get("/opt") != ("DIR", "") or prefix in nodes or "/opt/locales" in nodes:
         raise ValueError("unexpected /opt layout")
     nodes[prefix] = ("DIR", "")
     nodes[prefix + "/locales"] = ("DIR", "")
+    nodes["/opt/locales"] = ("DIR", "")
     for line in chrome_index.read_text().splitlines():
         backing, name = line.split()
         path = prefix + "/" + name
         if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts or path in nodes:
             raise ValueError(name)
         nodes[path] = ("FILE", backing)
+        if name != "start-zygote.py":
+            browser_path = "/opt/" + name
+            if browser_path in nodes:
+                raise ValueError("browser image collision: " + browser_path)
+            # Keep the distribution helper in the isolated service's tree.
+            # Only the browser has the XDesk dispatcher as its sibling.
+            target = "libchrome158_dispatch.so" if name == "chrome-sandbox" else backing
+            nodes[browser_path] = ("FILE", target)
+    if "/opt/entry.py" in nodes:
+        raise ValueError("browser entry already present")
+    nodes["/opt/entry.py"] = ("FILE", "libchrome158_entry.so")
 
 if not all(path in nodes for path in observed):
     raise ValueError("expected Ubuntu arm64 ELFs missing")

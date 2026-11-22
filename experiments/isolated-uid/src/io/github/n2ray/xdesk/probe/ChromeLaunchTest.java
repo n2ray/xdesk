@@ -36,32 +36,17 @@ final class ChromeLaunchTest {
         Path lib = new File(app.getApplicationInfo().nativeLibraryDir).toPath();
         Path work = Files.createTempDirectory(app.getCacheDir().toPath(), "chrome158-");
         try {
-            Path opt = Files.createDirectory(work.resolve("opt"));
             Path tmp = Files.createDirectory(work.resolve("tmp"));
             Path shm = Files.createDirectory(work.resolve("shm"));
-            Files.createDirectory(opt.resolve("locales"));
-            for (String row : Files.readAllLines(lib.resolve("libchrome158_index.so"))) {
-                String[] entry = row.split(" ");
-                Path object = lib.resolve(entry[0]);
-                if (entry[1].equals("chrome-sandbox") && mode.equals("installed")) {
-                    Files.createSymbolicLink(opt.resolve(entry[1]), lib.resolve("libchrome158_dispatch.so"));
-                } else if (entry[1].equals("chrome-sandbox")) {
-                    // As in the deb post-install, set the real mode on the test
-                    // app's private copy. Preserve the file's actual owner.
-                    Path helper = opt.resolve(mode.equals("external") ? "helper" : entry[1]);
-                    Files.copy(object, helper);
-                    Os.chmod(helper.toString(), 04755);
-                } else {
-                    Files.createSymbolicLink(opt.resolve(entry[1]), object);
-                }
-            }
-            Files.createSymbolicLink(opt.resolve("entry.py"), lib.resolve("libchrome158_entry.so"));
-            Files.createSymbolicLink(opt.resolve("browser-load.so"), lib.resolve("libchrome158_observer.so"));
+            boolean installed = mode.equals("installed");
+            Path opt = work.resolve("opt");
+            if (!installed) stageBrowser(lib, opt, mode);
             File log = work.resolve("output").toFile();
-            String runtime = mode.equals("installed") ? "libburrow_chrome_fs.so" : "libburrow.so";
-            ProcessBuilder cmd = new ProcessBuilder(lib.resolve(runtime).toString(), "-r", lib.toString(),
-                    "-b", opt + ":/opt", "-b", tmp + ":/tmp", "-b", "/proc", "-b", "/dev", "-b", shm + ":/dev/shm",
-                    "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/opt/entry.py", mode);
+            String runtime = installed ? "libburrow_chrome_fs.so" : "libburrow.so";
+            ProcessBuilder cmd = new ProcessBuilder(lib.resolve(runtime).toString(), "-r", lib.toString());
+            if (!installed) cmd.command().addAll(Arrays.asList("-b", opt + ":/opt"));
+            cmd.command().addAll(Arrays.asList("-b", tmp + ":/tmp", "-b", "/proc", "-b", "/dev", "-b", shm + ":/dev/shm",
+                    "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/opt/entry.py", mode));
             Map<String, String> env = cmd.environment();
             env.clear();
             env.put("LC_ALL", "C");
@@ -116,5 +101,24 @@ final class ChromeLaunchTest {
         } finally {
             deleteTree(work);
         }
+    }
+
+    private static void stageBrowser(Path lib, Path opt, String mode) throws java.io.IOException,
+            android.system.ErrnoException {
+        Files.createDirectory(opt);
+        Files.createDirectory(opt.resolve("locales"));
+        for (String row : Files.readAllLines(lib.resolve("libchrome158_index.so"))) {
+            String[] entry = row.split(" ");
+            Path object = lib.resolve(entry[0]);
+            if (entry[1].equals("chrome-sandbox")) {
+                Path helper = opt.resolve(mode.equals("external") ? "helper" : entry[1]);
+                Files.copy(object, helper);
+                Os.chmod(helper.toString(), 04755);
+            } else {
+                Files.createSymbolicLink(opt.resolve(entry[1]), object);
+            }
+        }
+        Files.createSymbolicLink(opt.resolve("entry.py"), lib.resolve("libchrome158_entry.so"));
+        Files.createSymbolicLink(opt.resolve("browser-load.so"), lib.resolve("libchrome158_observer.so"));
     }
 }
