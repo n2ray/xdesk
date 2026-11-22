@@ -61,6 +61,10 @@ public final class ProbeActivity extends Activity {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             new Thread(() -> {
                 try {
+                    if (getIntent().getBooleanExtra("check_self_exe", false)) {
+                        Log.i("XDeskChrome158", IProbe.Stub.asInterface(binder).checkSelfExe());
+                        return;
+                    }
                     boolean mojo = getIntent().getBooleanExtra("mojo_invitation", false);
                     if (GuestBuild.ROOTFS && (mojo || getIntent().getBooleanExtra("renderer_fork", false))) {
                         HandshakeTest.runFork(ProbeActivity.this, IProbe.Stub.asInterface(binder), mojo);

@@ -10,6 +10,9 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
 import java.io.FileDescriptor;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.concurrent.TimeUnit;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
@@ -20,6 +23,27 @@ public final class ProbeService extends Service {
     static native String runHandshake(String dir, int endpoint, int registration, String expected);
     private final IProbe.Stub stub = new IProbe.Stub() {
         @Override public int serviceUid() { return Process.myUid(); }
+
+        @Override public String checkSelfExe() {
+            if (!GuestBuild.ROOTFS) return "ERROR requires rootfs";
+            String dir = getApplicationInfo().nativeLibraryDir;
+            ProcessBuilder cmd = new ProcessBuilder(dir + "/libburrow.so", "-r", dir, "-b", "/proc",
+                    "-b", dir + "/libself_exe_check.so:/self-exe.py",
+                    "-w", "/", "--", "/usr/bin/python3", "-I", "-B", "-S", "/self-exe.py");
+            cmd.environment().clear();
+            java.lang.Process child = null;
+            try {
+                child = cmd.redirectErrorStream(true).start();
+                if (!child.waitFor(10, TimeUnit.SECONDS)) return "ERROR self-exe timeout";
+                StringBuilder result = new StringBuilder("self-exe service_uid=").append(Process.myUid());
+                try (BufferedReader lines = new BufferedReader(new InputStreamReader(child.getInputStream()))) {
+                    String line;
+                    while ((line = lines.readLine()) != null) result.append('\n').append(line);
+                }
+                return result.append("\nguest_exit=").append(child.exitValue()).toString();
+            } catch (Exception e) { return "ERROR self-exe " + e; }
+            finally { if (child != null && child.isAlive()) child.destroy(); }
+        }
 
         @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration, String protocol) {
             try (ParcelFileDescriptor channel = endpoint; ParcelFileDescriptor roster = registration) {
