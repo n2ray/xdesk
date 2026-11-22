@@ -75,6 +75,7 @@ if [ -r /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so ]; then
     unset TERMUX_VA_DISABLE_AVC TERMUX_VA_DISABLE_AV1
     if [ -r /usr/local/lib/xdesk-hwvideo/revision ]; then
         unset TERMUX_VA_DISABLE_HEVC XDESK_AV1_LIMIT_1080
+        export XDESK_VA_BATCH_WRITE=1
     else
         # Earlier experimental drivers used a shorter PRIME producer timeout.
         export TERMUX_VA_DISABLE_HEVC=1 XDESK_AV1_LIMIT_1080=1
