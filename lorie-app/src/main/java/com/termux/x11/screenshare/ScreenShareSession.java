@@ -33,7 +33,7 @@ import java.util.concurrent.Executors;
  * The connection is the user's: it lasts from their connect until they disconnect (or XDesk ends, or the network
  * drops), whatever is on the screen meanwhile. The picture is separate: a screen showing the Mac attaches a Surface
  * (a hardware decoder is made for it, starting at the next IDR, which it asks the Mac for); taken off the screen it
- * detaches, the decoder goes and the frames that keep coming are dropped. Only one connection at a time: the media
+ * detaches, releases the decoder and suspends the media stream. Only one connection at a time: the media
  * ports are fixed (5900/5901 UDP), so a new one closes the old one first.
  *
  * Ported from the tested prototype (n2ray/xdesk-mac-screen-sharing 2abc482, phone-probe/Viewer.java).
@@ -68,6 +68,8 @@ public final class ScreenShareSession {
     private volatile boolean closed;
     /** The decoder for the attached Surface, or null while nothing shows the picture. */
     private MediaCodec codec;
+    // Read on the control executor as well as the UI thread.
+    private volatile boolean pictureHidden;
     private Thread drain;
     private PictureListener picture;
     private long startNs, attachNs, firstRenderNs, lastRenderNs;
@@ -128,7 +130,7 @@ public final class ScreenShareSession {
 
     /** A screen shows the Mac: decode into this Surface from the next IDR on. */
     public synchronized void attach(Surface surface, PictureListener l) {
-        detach();
+        releaseDecoder();
         if (closed) return;
         picture = l;
         attachNs = System.nanoTime();
@@ -151,11 +153,24 @@ public final class ScreenShareSession {
             codec = null;
             return;
         }
-        askKeyframe();
+        AvcReceiver r = receiver;
+        if (r != null) r.wantKeyframe = true;
+        pictureHidden = false;
+        send(d -> {
+            if (!pictureHidden) d.showPicture(receiver);
+        });
     }
 
     /** Taken off the screen: the decoder goes; the connection stays. */
     public void detach() {
+        pictureHidden = true;
+        send(d -> {
+            if (pictureHidden) d.hidePicture(receiver);
+        });
+        releaseDecoder();
+    }
+
+    private void releaseDecoder() {
         MediaCodec c;
         Thread d;
         synchronized (this) {
@@ -174,14 +189,6 @@ public final class ScreenShareSession {
         } catch (RuntimeException ignored) { }
         c.release();
         Log.i(TAG, "DETACH");
-    }
-
-    /** The next IDR, as soon as the Mac sends one: an FIR now and again until it comes, and a full update. */
-    private void askKeyframe() {
-        AvcReceiver r = receiver;
-        if (r != null) r.wantKeyframe = true;
-        final DirectSession d = direct;
-        if (d != null) send(x -> x.requestFullUpdate());
     }
 
     private void rendered(MediaCodec c, long pts, long ns) {
@@ -297,6 +304,9 @@ public final class ScreenShareSession {
                 r.feedback = d.feedback;
                 receiver = r;
                 direct = d;
+                if (pictureHidden) send(session -> {
+                    if (pictureHidden) session.hidePicture(r);
+                });
                 Log.i(TAG, "CONNECTED after " + (System.nanoTime() - startNs) / 1000000 + " ms");
                 ui.post(() -> listener.connected(this));
                 r.run(reader, 0, this::frame);

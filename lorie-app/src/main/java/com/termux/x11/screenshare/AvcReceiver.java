@@ -13,7 +13,8 @@ import static com.termux.x11.screenshare.DirectSession.*;
 
 final class AvcReceiver {
     interface Sink {void frame(byte[] data,long ns,int flags)throws Exception;}
-    final SrtpStream stream;
+    private SrtpStream stream;
+    volatile boolean suspended;
     final TreeMap<Long,byte[]> parts=new TreeMap<>();
     long firstNs, stamp=-1;
     int frames, lost, accepted, meta, idrs, firs;
@@ -27,7 +28,20 @@ final class AvcReceiver {
     AvcReceiver(byte[] seed)throws Exception{
         stream = new SrtpStream(seed);
     }
-    void packet(byte[] p,int n,long ns,Sink sink)throws Exception{
+    synchronized void restart(byte[] key, KeyframeFeedback nextFeedback) throws Exception {
+        stream = new SrtpStream(key);
+        feedback = nextFeedback;
+        parts.clear();
+        sps = pps = null;
+        frames = 0;
+        stamp = -1;
+        nextRecovery = nextKeyframeAsk = 0;
+        wantKeyframe = true;
+        suspended = false;
+    }
+
+    synchronized void packet(byte[] p,int n,long ns,Sink sink)throws Exception{
+        if (suspended) return;
         SrtpStream.Payload payload = stream.open(p, n);
         if (payload == null) return;
         long index = payload.index;
@@ -147,7 +161,8 @@ final class AvcReceiver {
     void run(Reader reader,int seconds,Sink sink)throws Exception{
         long end=System.nanoTime()+15_000_000_000L;
         boolean started=false;
-        while(System.nanoTime()<end && !reader.closed){
+        while(!reader.closed && (suspended || System.nanoTime()<end)){
+            if (suspended) end = Long.MAX_VALUE;
             Incoming p=reader.packets.poll(150,TimeUnit.MILLISECONDS);
             if(p==null)continue;
             packet(p.data,p.data.length,p.time,sink);

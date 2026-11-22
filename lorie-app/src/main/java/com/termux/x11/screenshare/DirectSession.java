@@ -119,6 +119,34 @@ final class DirectSession implements Closeable {
         return receiveKey;
     }
 
+    // These controls run on ScreenShareSession's serial input executor.
+    private boolean mediaSuspended;
+
+    void hidePicture(AvcReceiver receiver) throws Exception {
+        if (mediaSuspended || receiver == null) return;
+        records.send(displayConfig());
+        receiver.suspended = true;
+        mediaSuspended = true;
+    }
+
+    void showPicture(AvcReceiver receiver) throws Exception {
+        if (receiver == null) return;
+        if (mediaSuspended) {
+            byte[] key = random(46);
+            try {
+                synchronized (receiver) {
+                    sendMediaConfiguration(key);
+                    receiver.restart(key, feedback);
+                }
+            } finally {
+                Arrays.fill(key, (byte) 0);
+            }
+            mediaSuspended = false;
+        }
+        receiver.wantKeyframe = true;
+        requestFullUpdate();
+    }
+
     /** XDesk: a non-incremental framebuffer update request, as start() sends (a fallback when no IDR comes). */
     void requestFullUpdate() throws Exception {
         ByteBuffer update = ByteBuffer.allocate(10);
