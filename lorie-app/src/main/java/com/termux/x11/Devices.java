@@ -34,6 +34,10 @@ final class Devices {
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
     static final String SCREEN = "vnc:";
+    /** XDesk's own Linux (BuiltinLinux): its device id is LINUX + BUILTIN, its programs' scope is the same word. */
+    static final String BUILTIN = BuiltinApps.SCOPE;
+    /** Its whole desktop as a session name ("t:@builtin" in the lists): xdesk's names never have an @. */
+    static final String BUILTIN_SESSION = "@builtin";
     private static final String TERMUX_PACKAGE = "com.termux";
     /** What forgetGoneTermux did. */
     static final int TERMUX_SAME = 0, TERMUX_FORGOTTEN = 1, TERMUX_REMOVED = 2, TERMUX_REINSTALLED = 3;
@@ -109,6 +113,8 @@ final class Devices {
         void stopLinux();
         /** Termux is missing, has no permission or no sessions: what the launcher's Termux hint does. */
         void setUpLinux();
+        /** Stop the built-in Linux, after asking. */
+        void stopBuiltin();
     }
 
     private static Devices instance;
@@ -168,6 +174,7 @@ final class Devices {
         loadPhoneIme();
         reportedEnvs = parseEnvs(lines(prefs.getString(PREF_ENVS, "")));
         rebuildEnvs();
+        BuiltinLinux.get(c).addListener(this::changed);
     }
 
     /**
@@ -467,6 +474,7 @@ final class Devices {
 
     String deviceOfSession(String session) {
         if (session == null) return LINUX + TERMUX;
+        if (session.equals(BUILTIN_SESSION)) return LINUX + BUILTIN;
         if (session.endsWith(APPS_ONLY)) session = session.substring(0, session.length() - APPS_ONLY.length());
         for (Env e : envs) if (e.sessions.contains(session)) return LINUX + e.name;
         return isTermuxName(session) ? LINUX + TERMUX : LINUX + session;
@@ -505,6 +513,8 @@ final class Devices {
     List<Device> all() {
         ArrayList<Device> out = new ArrayList<>();
         out.add(new Device(PHONE, Type.PHONE, context.getString(R.string.xd_dev_phone), State.CONNECTED, null, false));
+        // The built-in Linux first: XDesk's own, the one meant to be used most
+        if (BuiltinLinux.get(context).installed()) out.add(builtin());
         for (String id : linuxIds()) out.add(linux(id));
         for (MacClient m : MacClients.all(context)) out.add(mac(m));
         for (com.termux.x11.screenshare.ScreenShareStore.Host h : com.termux.x11.screenshare.ScreenShareStore.all(context)) {
@@ -600,6 +610,7 @@ final class Devices {
     static String linuxName(Context c, String deviceId) {
         String scope = deviceId.substring(LINUX.length());
         if (scope.equals(TERMUX)) return "Termux";
+        if (scope.equals(BUILTIN)) return c.getString(R.string.xd_bl_title);
         // proot-<distro>-<desktop>, as xdesk setup names them
         if (scope.startsWith("proot-")) {
             String rest = scope.substring(6);
@@ -642,8 +653,35 @@ final class Devices {
         return new Device(id, Type.LINUX, name, State.DISCONNECTED, x ? context.getString(R.string.xd_dev_x_running) : null, stopping, x && !stopping);
     }
 
+    /** Termux's X has windows (the built-in Linux's X, when it is the one shown, is not Termux's). */
     private static boolean anyLinuxWindow(LinuxSource l) {
-        return l != null && !l.windows().isEmpty();
+        return l != null && !l.showsBuiltin() && !l.windows().isEmpty();
+    }
+
+    /**
+     * The built-in Linux: running or not, from BuiltinLinux. Its X server is its own, beside Termux's (XServers):
+     * stopping it stops only it.
+     */
+    private Device builtin() {
+        BuiltinLinux bl = BuiltinLinux.get(context);
+        String id = LINUX + BUILTIN, name = context.getString(R.string.xd_bl_title);
+        switch (bl.state()) {
+            case RUNNING: {
+                int windows = 0;
+                LinuxSource l = LinuxSource.get();
+                if (l != null && l.showsBuiltin()) windows = l.windows().size();
+                String note = context.getString(R.string.xd_dev_whole_desktop);
+                if (windows > 0) note += " · " + context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows);
+                return new Device(id, Type.LINUX, name, State.CONNECTED, note, false, true);
+            }
+            case STARTING:
+            case INSTALLING:
+                return new Device(id, Type.LINUX, name, State.CONNECTING, bl.progress(), true);
+            case STOPPING:
+                return new Device(id, Type.LINUX, name, State.CONNECTED, context.getString(R.string.xd_chooser_stopping), true);
+            default:
+                return new Device(id, Type.LINUX, name, State.DISCONNECTED, null, false);
+        }
     }
 
     private Device mac(MacClient m) {
@@ -680,6 +718,11 @@ final class Devices {
     /** A Linux device's "Stop": ends the X server all Linux devices share, with everything on it. XDeskActivity asks first. */
     void stop(String id) {
         if (!id.startsWith(LINUX)) return;
+        if (id.equals(LINUX + BUILTIN)) {
+            if (actions != null) actions.stopBuiltin();
+            changed();
+            return;
+        }
         linuxStarting = null;
         if (actions != null) actions.stopLinux();
         changed();

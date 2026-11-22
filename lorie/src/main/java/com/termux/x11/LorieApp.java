@@ -45,6 +45,8 @@ public class LorieApp extends Application {
      * on an older Android (before the sender uid check in Receiver) would otherwise grow this without bound.
      */
     private static final int MAX_PENDING_CONNECTIONS = 8, MAX_TAG_LENGTH = 256;
+    /** Set by Receiver: the uid Android says sent ACTION_START (XServers tells the built-in Linux's X by it). */
+    static final String EXTRA_SENDER_UID = "io.github.n2ray.xdesk.sender_uid";
 
     public final Prefs builtInPrefs = new Prefs();
     public final Prefs secondaryPrefs = new Prefs();
@@ -159,9 +161,41 @@ public class LorieApp extends Application {
                 IBinder activeService = activity != null && activity.service != null ? activity.service.asBinder() : null;
                 IBinder pendingConnection = pendingConnections.get(tag);
                 boolean sameConnection = binder.equals(activeService) || binder.equals(pendingConnection);
-                // Any app can send this broadcast, so a connection not checked yet must not get a real server told to quit.
-                // Off the main thread: a Binder that never returns would freeze the window.
+                // XDesk's window keeps every X server it is told of and shows one (XServers): Termux's and the
+                // built-in Linux's run side by side
+                int kept = XServers.KNOWN;
+                if (tag.isEmpty()) {
+                    kept = XServers.add(binder, intent.getIntExtra(EXTRA_SENDER_UID, XServers.UNKNOWN_UID));
+                    if (kept == XServers.FULL) {
+                        Log.w("LorieApp", "Ignoring an X server: too many are known");
+                        break;
+                    }
+                    if (kept == XServers.NEW) {
+                        WeakReference<IBinder> binderRef = new WeakReference<>(binder);
+                        try {
+                            binder.linkToDeath(() -> {
+                                IBinder deadBinder = binderRef.get();
+                                if (deadBinder != null) {
+                                    XServers.remove(deadBinder);
+                                    onConnectionDied(tag, deadBinder);
+                                }
+                            }, 0);
+                        } catch (RemoteException e) {
+                            XServers.remove(binder);
+                            break;
+                        }
+                    }
+                }
                 if (!sameConnection && activeService != null && activeService.isBinderAlive() && verifiedServers.contains(activeService)) {
+                    if (tag.isEmpty()) {
+                        // Another X shows: a new server is offered to XDesk (which shows the one just started), the one
+                        // the user chose last is taken back when it announces itself again; the rest wait
+                        if (kept == XServers.NEW) XServers.announceStarted(binder, XServers.uid(binder));
+                        else if (activity != null && binder.equals(XServers.preferred())) activity.switchServer(binder);
+                        break;
+                    }
+                    // Any app can send this broadcast, so a connection not checked yet must not get a real server told
+                    // to quit. Off the main thread: a Binder that never returns would freeze the window.
                     reportFatalErrorAsync(binder);
                     break;
                 }
@@ -175,7 +209,7 @@ public class LorieApp extends Application {
                 }
 
                 try {
-                    if (!sameConnection) {
+                    if (!sameConnection && !tag.isEmpty()) {
                         WeakReference<IBinder> binderRef = new WeakReference<>(binder);
                         binder.linkToDeath(() -> {
                             IBinder deadBinder = binderRef.get();
@@ -222,8 +256,21 @@ public class LorieApp extends Application {
         pendingConnections.remove(tag, binder);
 
         MainActivity activity = MainActivity.getInstance(tag);
-        if (activity != null && activity.service != null && activity.service.asBinder() == binder)
+        if (activity != null && activity.service != null && activity.service.asBinder() == binder) {
             activity.disconnectService();
+            // XDesk's window: another X server still runs (Termux's or the built-in Linux's), it shows now
+            if (tag.isEmpty()) {
+                IBinder next = XServers.preferred();
+                if (next == null || !next.isBinderAlive()) {
+                    java.util.List<IBinder> all = XServers.all();
+                    next = all.isEmpty() ? null : all.get(all.size() - 1);
+                }
+                if (next != null) {
+                    final IBinder other = next;
+                    activity.runOnUiThread(() -> activity.connectToService(other));
+                }
+            }
+        }
     }
 
     /**
@@ -260,6 +307,8 @@ public class LorieApp extends Application {
                 Log.w("LorieApp", "Ignored " + intent.getAction() + " from outside the app");
                 return;
             }
+            // Who sent it, for XServers; only Android may say (a sender's own value is dropped)
+            intent.removeExtra(EXTRA_SENDER_UID);
             // API 34 says who sent the broadcast. The X server runs in Termux (or as root or the shell, like
             // MainActivity.madeByXServer allows); anything else carrying a Binder here is not the server. Older
             // Androids cannot tell, but MainActivity.tryConnect still checks the socket's SO_PEERCRED.
@@ -269,6 +318,7 @@ public class LorieApp extends Application {
                     Log.w("LorieApp", "Ignored ACTION_START from uid " + uid);
                     return;
                 }
+                intent.putExtra(EXTRA_SENDER_UID, uid);
             }
             ((LorieApp) context.getApplicationContext()).onBroadcastReceive(intent);
         }

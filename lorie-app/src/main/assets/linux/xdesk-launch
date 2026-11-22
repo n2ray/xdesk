@@ -1,0 +1,24 @@
+#!/bin/sh
+# XDesk's built-in Linux: opens one program for the app's launcher (the app writes this file into the system at every
+# start). The X server runs it (XWindows, BuiltinApps) with the desktop file's values:
+#   xdesk-launch STARTUP_ID TERMINAL(0|1) DIRECTORY COMMAND
+# and reads "pid N". The program gets the desktop's environment (xdesk-session writes it) and its D-Bus session, so it
+# shares settings and single-instance programs with what runs on the desktop.
+[ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
+p=$(pgrep -o -x xfce4-session 2>/dev/null)
+[ -n "$p" ] || p=$(pgrep -o -x xfwm4 2>/dev/null)
+if [ -n "$p" ]; then
+    a=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
+    [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
+fi
+if [ -n "$1" ]; then export DESKTOP_STARTUP_ID="$1"; else unset DESKTOP_STARTUP_ID; fi
+term=$2 dir=$3 cmd=$4
+[ -n "$dir" ] && cd "$dir" 2>/dev/null
+mkdir -p /tmp/xdesk-launch
+if [ "$term" = 1 ]; then
+    set -- xfce4-terminal -x sh -c "exec $cmd"
+else
+    set -- sh -c "exec $cmd"
+fi
+setsid "$@" </dev/null >/tmp/xdesk-launch/last.log 2>&1 &
+echo "pid $!"

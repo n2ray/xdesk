@@ -106,4 +106,6 @@ case "$dpi" in
             /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml 2>/dev/null
         printf 'Xft.dpi: %s\n' "$dpi" | xrdb -merge 2>/dev/null ;;
 esac
+# What XDesk's launcher gives the programs it opens (xdesk-launch): the same environment as the desktop's
+export -p >/tmp/xdesk-env 2>/dev/null
 exec dbus-launch --exit-with-session startxfce4

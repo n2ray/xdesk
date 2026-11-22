@@ -34,6 +34,14 @@ final class XWindows {
     private static final Pattern KEY = Pattern.compile("[A-Za-z0-9._+@-]{1,100}(/[A-Za-z0-9._+@-]{1,200})?");
     private static final Pattern STARTUP_ID = Pattern.compile("[A-Za-z0-9._+@-]{0,200}");
 
+    /**
+     * The built-in Linux's X server (BuiltinLinux starts it as the app, not as Termux): its programs come from its own
+     * files and open through the command the app gave (BuiltinApps), there is no xdesk there.
+     */
+    private static final String BUILTIN_ROOT = System.getenv("XDESK_BUILTIN_ROOT");
+    private static final BuiltinApps builtin = BUILTIN_ROOT != null && !BUILTIN_ROOT.isEmpty()
+        ? new BuiltinApps(new File(BUILTIN_ROOT), new File(env("XDESK_BUILTIN_HOME", BUILTIN_ROOT + "/root"))) : null;
+
     private static IXWindowListener listener;
     private static IBinder.DeathRecipient death;
 
@@ -101,6 +109,7 @@ final class XWindows {
     }
 
     static ParcelFileDescriptor catalog() {
+        if (builtin != null) return builtinCatalog();
         String path = null;
         try {
             Process p = new ProcessBuilder(xdesk("apps", "--path")).redirectErrorStream(true).start();
@@ -116,10 +125,25 @@ final class XWindows {
         }
     }
 
+    /** The built-in Linux's catalog, written next to its other temporary files. */
+    private static ParcelFileDescriptor builtinCatalog() {
+        try {
+            File f = new File(BUILTIN_ROOT, "tmp/.xdesk-apps.tsv");
+            File tmp = new File(BUILTIN_ROOT, "tmp/.xdesk-apps.tsv.new");
+            Files.write(tmp.toPath(), builtin.catalog());
+            if (!tmp.renameTo(f)) return null;
+            return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "builtin catalog", e);
+            return null;
+        }
+    }
+
     /** "pid" or "!reason". */
     static String launch(String key, String startupId) {
         if (key == null || !KEY.matcher(key).matches()) return "!bad key";
         if (startupId == null || !STARTUP_ID.matcher(startupId).matches()) startupId = "";
+        if (builtin != null) return builtin.launch(key, startupId, System.getenv("XDESK_BUILTIN_LAUNCH"));
         try {
             String[] argv = startupId.isEmpty() ? xdesk("launch", "--", key) : xdesk("launch", "--startup-id", startupId, "--", key);
             ProcessBuilder pb = new ProcessBuilder(argv).redirectErrorStream(true);
@@ -145,7 +169,7 @@ final class XWindows {
      * break the call.
      */
     static String launchStatus(int pid) {
-        if (pid <= 0) return null;
+        if (pid <= 0 || builtin != null) return null;
         try {
             File status = new File(LAUNCH, pid + ".status");
             if (!status.isFile()) return null;
@@ -190,7 +214,8 @@ final class XWindows {
      * ones after it on this binder.
      */
     static void scale(int dpi) {
-        if (dpi < 30 || dpi > 1000) return;
+        // The built-in Linux's desktop takes its DPI from the X server when it starts (xdesk-session)
+        if (dpi < 30 || dpi > 1000 || builtin != null) return;
         new Thread(() -> {
             try {
                 ProcessBuilder pb = new ProcessBuilder(xdesk("scale", String.valueOf(dpi))).redirectErrorStream(true)

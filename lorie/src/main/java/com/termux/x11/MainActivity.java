@@ -131,6 +131,11 @@ public class MainActivity extends AppCompatActivity {
     /** The X server whose connection passed madeByXServer, for the desktop sound. */
     public static volatile ICmdEntryInterface verifiedServer;
     private boolean logcatPending;
+    /**
+     * Switching to another X server (switchServer) while this one still shows: it stays on the screen until the new
+     * one's socket is there, and comes back if the new one fails. Null when not switching.
+     */
+    private ICmdEntryInterface switchingFrom;
     public TermuxX11ExtraKeys mExtraKeys;
     private DisplayManager displayManager;
     private boolean showIMEWhileExternalConnected = true;
@@ -445,6 +450,11 @@ public class MainActivity extends AppCompatActivity {
         ImeHeightProvider.assistActivity(this);
 
         IBinder pendingConnection = app.pendingConnections.remove(tag);
+        // XDesk's window: the X server the user chose last (XServers.switchTo while there was no window), not
+        // whichever one announced itself last
+        IBinder chosen = tag.isEmpty() ? XServers.preferred() : null;
+        if (chosen != null && chosen.isBinderAlive())
+            pendingConnection = chosen;
         if (pendingConnection != null)
             connectToService(pendingConnection);
 
@@ -775,6 +785,7 @@ public class MainActivity extends AppCompatActivity {
         ICmdEntryInterface next = ICmdEntryInterface.Stub.asInterface(ibinder);
         if (service != null && (next == null || next.asBinder() != service.asBinder()))
             cancelConnectCall();
+        switchingFrom = null;
         service = next;
         // Our logcat goes to the server, so only once its socket shows it is the real one, see onXConnection
         logcatPending = true;
@@ -783,19 +794,57 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Show another X server that has announced itself (XServers), keeping the one shown now running. The new one's
+     * socket is fetched and checked first, then replaces the old one's in the view in one step: no blank screen, and
+     * if the new one fails the old one stays. Main thread.
+     */
+    public void switchServer(IBinder ibinder) {
+        if (ibinder == null || !ibinder.isBinderAlive() || isFinishing() || isDestroyed())
+            return;
+        if (service != null && service.asBinder() == ibinder) {
+            if (!getLorieView().connected())
+                tryConnect();
+            return;
+        }
+        cancelConnectCall();
+        ICmdEntryInterface current = service;
+        switchingFrom = current != null && getLorieView().connected() ? current : null;
+        // Not logcatPending: each one forks a logcat, and switching back and forth would pile them up
+        service = ICmdEntryInterface.Stub.asInterface(ibinder);
+        Log.v("MainActivity", "Switching X server");
+        tryConnect();
+    }
+
+    /** A connection attempt failed: back to the X server shown before a switch, else ask again later. */
+    private void connectFailed() {
+        ICmdEntryInterface back = switchingFrom;
+        switchingFrom = null;
+        if (back != null && back.asBinder().isBinderAlive() && getLorieView().connected()) {
+            Log.w("MainActivity", "Switching X server failed: the one shown stays");
+            service = back;
+            return;
+        }
+        service = null;
+        scheduleConnect();
+    }
+
+    /**
      * Anyone can send ACTION_START with a Binder of their own and would then get the keyboard. The socket of the X
      * connection says which uid made it, and that has to be Termux's, where the X server runs, this app's own, or root
      * or the shell (an X server started from a root shell or chroot, or over adb), which no ordinary app can be.
      */
-    private boolean madeByXServer(ParcelFileDescriptor fd) {
+    private boolean madeByXServer(ParcelFileDescriptor fd, IBinder server) {
         try {
             HiddenApiBypass.addHiddenApiExemptions("Landroid/system/Os;", "Landroid/system/StructUcred;");
             Object cred = Os.class.getMethod("getsockoptUcred", FileDescriptor.class, int.class, int.class)
                     .invoke(null, fd.getFileDescriptor(), OsConstants.SOL_SOCKET, OsConstants.SO_PEERCRED);
             int uid = cred.getClass().getField("uid").getInt(cred);
             if (uid == Process.myUid() || uid == 0 || uid == Process.SHELL_UID
-                    || uid == getPackageManager().getPackageUid("com.termux", 0))
+                    || uid == getPackageManager().getPackageUid("com.termux", 0)) {
+                if (tag.isEmpty())
+                    XServers.setUid(server, uid);
                 return true;
+            }
             Log.e("MainActivity", "Refusing an X connection made by uid " + uid);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError | PackageManager.NameNotFoundException e) {
             Log.e("MainActivity", "Refusing an X connection whose maker is unknown", e);
@@ -805,6 +854,9 @@ public class MainActivity extends AppCompatActivity {
 
     void disconnectService() {
         service = null;
+        switchingFrom = null;
+        if (tag.isEmpty())
+            XServers.setShown(null);
 
         Log.v("Lorie", "Disconnected");
         runOnUiThread(() -> {
@@ -822,7 +874,7 @@ public class MainActivity extends AppCompatActivity {
         if (isFinishing() || isDestroyed())
             return false;
 
-        if (getLorieView().connected()) {
+        if (getLorieView().connected() && switchingFrom == null) {
             handler.removeCallbacks(connectRetry);
             return false;
         }
@@ -863,8 +915,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (RejectedExecutionException e) {
             // Two calls are already stuck; do not add another
             cancelConnectCall();
-            service = null;
-            scheduleConnect();
+            connectFailed();
         }
         return false;
     }
@@ -881,9 +932,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         cancelConnectCall();
         // Never use this Binder again: it had its chance to answer
-        service = null;
         Log.w("MainActivity", "The X connection request did not answer");
-        scheduleConnect();
+        connectFailed();
     }
 
     /** Main thread: the worker got the socket, or gave up. */
@@ -898,20 +948,19 @@ public class MainActivity extends AppCompatActivity {
         if (error != null || fd == null) {
             if (error != null)
                 Log.e("MainActivity", "Something went wrong while we were establishing connection", error);
-            service = null;
-            scheduleConnect();
+            connectFailed();
             return;
         }
 
         try {
-            if (!madeByXServer(fd)) {
+            if (!madeByXServer(fd, from.asBinder())) {
                 fd.close();
-                service = null;
-                scheduleConnect();
+                connectFailed();
                 return;
             }
             app.verifiedServers.add(from.asBinder());
             verifiedServer = from;
+            switchingFrom = null;
             if (logcatPending) {
                 logcatPending = false;
                 Log.v("MainActivity", "Extracting logcat fd.");
@@ -926,15 +975,16 @@ public class MainActivity extends AppCompatActivity {
                 scheduleConnect();
                 return;
             }
+            if (tag.isEmpty())
+                XServers.setShown(from.asBinder());
             finishStartupDraw();
             getLorieView().triggerCallback();
             clientConnectedStateChanged();
             getLorieView().reloadPreferences(prefs);
         } catch (Exception e) {
             Log.e("MainActivity", "Something went wrong while we were establishing connection", e);
-            service = null;
             closeQuietly(fd);
-            scheduleConnect();
+            connectFailed();
         }
     }
 

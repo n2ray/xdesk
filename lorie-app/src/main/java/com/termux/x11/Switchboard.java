@@ -524,6 +524,14 @@ final class Switchboard {
             }
             for (AppCatalog.App a : all) add(appItem(a), q, apps, hidden);
             if (all.isEmpty() && !searching) out.add(note(str(R.string.xd_chooser_loading), null, null));
+        } else if (d.id.equals(Devices.LINUX + Devices.BUILTIN)) {
+            // XDesk's own Linux: one whole desktop, then its windows (when its X is the one shown) and programs
+            Item desktop = sessionItem(Devices.BUILTIN_SESSION);
+            if (matches(desktop, q)) {
+                if (!searching) out.add(header(str(R.string.xd_dev_desktop_header)));
+                out.add(join(desktop));
+            }
+            sourceRows(d, LinuxSource.get(), R.string.xd_dev_linux_windows, q, out, apps, hidden);
         } else if (d.type == Devices.Type.LINUX) {
             ArrayList<Item> desktops = new ArrayList<>();
             // The whole desktop is the only entry that starts an environment's desktop; its programs never do
@@ -661,6 +669,17 @@ final class Switchboard {
     private Item sessionItem(String name) {
         Item i = item(ChooserView.recentKey(name), str(R.string.xd_dev_whole_desktop));
         i.desktop = i.session = true;
+        if (name.equals(Devices.BUILTIN_SESSION)) {
+            BuiltinLinux.State st = BuiltinLinux.get(c).state();
+            i.running = st == BuiltinLinux.State.RUNNING;
+            i.where = str(R.string.xd_bl_title);
+            i.title = i.label + " · " + i.where;
+            if (st == BuiltinLinux.State.STOPPING) i.state = str(R.string.xd_chooser_stopping_short);
+            else if (st == BuiltinLinux.State.STARTING) i.state = str(R.string.xd_dev_state_starting);
+            else if (!i.current && i.running) i.state = str(R.string.xd_content_running);
+            i.search = (i.label + " " + i.where).toLowerCase();
+            return i;
+        }
         i.running = name.equals(devices.runningSession());
         String device = devices.deviceOfSession(name);
         i.where = Devices.linuxName(c, device);
@@ -735,7 +754,10 @@ final class Switchboard {
         // A Linux device removed (Termux alone, or an environment): its programs and desktops leave the favourites
         // and Docks too, while the other environments stay. What is on the display now stays while it is there
         String id = devices.deviceOf(key);
-        if (id.startsWith(Devices.LINUX) && !key.equals(current)) {
+        if (id.equals(Devices.LINUX + Devices.BUILTIN)) {
+            // The built-in Linux removed: its desktop and programs leave the favourites and Docks
+            if (!BuiltinLinux.get(c).installed() && !key.equals(current)) return null;
+        } else if (id.startsWith(Devices.LINUX) && !key.equals(current)) {
             boolean termux = id.equals(Devices.LINUX + Devices.TERMUX);
             if (termux ? !devices.termuxShown() : !devices.linuxShown()) return null;
         }
@@ -750,7 +772,8 @@ final class Switchboard {
         if (!key.startsWith("t:")) return null;
         String name = ChooserView.sessionOf(key);
         // Also one that is on the screen without being in xdesk's list (attached by hand)
-        boolean known = devices.sessions().contains(name) || name.equals(devices.runningSession()) || key.equals(current);
+        boolean known = name.equals(Devices.BUILTIN_SESSION) || devices.sessions().contains(name)
+            || name.equals(devices.runningSession()) || key.equals(current);
         return known ? sessionItem(name) : null;
     }
 

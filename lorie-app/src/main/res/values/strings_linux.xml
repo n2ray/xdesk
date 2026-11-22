@@ -14,6 +14,7 @@
     <string name="xd_bl_open">Show on the external screen</string>
     <string name="xd_bl_open_note">The desktop is running</string>
     <string name="xd_bl_stop_note">Ends the desktop and every program in it</string>
+    <string name="xd_bl_stop_confirm_title">Stop the built-in Linux?</string>
     <string name="xd_bl_about">What this is</string>
     <string name="xd_bl_about_what">A Linux of its own</string>
     <string name="xd_bl_about_what_note">Ubuntu 26.04 LTS with the XFCE desktop and a terminal, run by XDesk itself. Install anything with apt (browsers: apt install google-chrome-stable or firefox, from their makers); break it and reset it in a minute.</string>

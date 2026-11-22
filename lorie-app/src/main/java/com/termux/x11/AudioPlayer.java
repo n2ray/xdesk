@@ -49,6 +49,12 @@ final class AudioPlayer {
         thread.start();
     }
 
+    /** Another X server shows now (XServers): its sound from now on. The loop connects again, through it. */
+    void reconnect() {
+        java.io.Closeable c = connection;
+        if (c != null) try { c.close(); } catch (IOException ignored) { }
+    }
+
     void close() {
         running = false;
         thread.interrupt();

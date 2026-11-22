@@ -124,8 +124,17 @@ final class LinuxSource implements ContentSource {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService bg = Executors.newSingleThreadExecutor(r -> new Thread(r, "xdesk-linux"));
 
+    /** Every environment's programs: Termux's (termuxApps) and the built-in Linux's (builtinApps), by name. */
     private List<App> catalog = Collections.emptyList();
+    /** What Termux's X server or xdesk listed (every Termux environment), and the built-in Linux's own files. */
+    private List<App> termuxApps = Collections.emptyList(), builtinApps = Collections.emptyList();
     private long catalogAt;
+    /** The built-in Linux's directories as last read (BuiltinApps.signature), and when they were last looked at. */
+    private long builtinSig, builtinCheckedAt;
+    private boolean builtinLoading;
+    private static final long BUILTIN_CHECK_MS = 5000;
+    /** The X server shown is the built-in Linux's: its windows are its programs', never Termux's. */
+    private boolean serverBuiltin;
     private boolean catalogLoading;
     /** When the list was last asked of Termux, for as long as no X server has given one (0: never). */
     private long termuxCatalogAt;
@@ -159,7 +168,7 @@ final class LinuxSource implements ContentSource {
         if (f.exists() && !f.delete()) Log.w(TAG, "Could not delete " + f);
         LinuxSource l = get();
         if (l == null) return;
-        l.catalog = Collections.emptyList();
+        l.setTermuxApps(Collections.emptyList());
         l.catalogAt = 0;
         l.termuxCatalogAt = 0;
         l.notifyChanged();
@@ -172,8 +181,8 @@ final class LinuxSource implements ContentSource {
             if (saved == null) return;
             final List<App> apps = parseCatalog(saved);
             ui.post(() -> {
-                if (catalogAt == 0 && catalog.isEmpty()) {
-                    catalog = apps;
+                if (catalogAt == 0 && termuxApps.isEmpty()) {
+                    setTermuxApps(apps);
                     notifyChanged();
                 }
             });
@@ -183,14 +192,21 @@ final class LinuxSource implements ContentSource {
 
     // --- ContentSource ---
 
+    /** The X server shown is the built-in Linux's: windows() are its windows. */
+    boolean showsBuiltin() {
+        ensureServer();
+        return serverBuiltin;
+    }
+
     @Override public String prefix() { return PREFIX; }
 
     @Override public String title() { return context.getString(R.string.xd_linux_title); }
 
     @Override public List<Entry> apps() {
         ensureServer();
-        if (server != null && !catalogLoading && SystemClock.elapsedRealtime() - catalogAt > CATALOG_MAX_AGE_MS) loadCatalog();
-        else if (server == null && catalog.isEmpty()) loadCatalogFromTermux();
+        if (server != null && !serverBuiltin && !catalogLoading && SystemClock.elapsedRealtime() - catalogAt > CATALOG_MAX_AGE_MS) loadCatalog();
+        else if ((server == null || serverBuiltin) && termuxApps.isEmpty()) loadCatalogFromTermux();
+        checkBuiltin();
         List<Entry> out = new ArrayList<>(catalog.size());
         for (App a : catalog) out.add(new Entry(APP + a.key, a.name, a.icon, null, newestWindowOf(a) != null));
         return out;
@@ -730,6 +746,7 @@ final class LinuxSource implements ContentSource {
         if (s != null && !s.asBinder().isBinderAlive()) s = null;
         if (s == server) return s;
         server = s;
+        serverBuiltin = s != null && XServers.isBuiltin(s.asBinder());
         windows.clear();
         windowIcons.clear();
         windowScopes.clear();
@@ -803,7 +820,8 @@ final class LinuxSource implements ContentSource {
 
     private void loadCatalog() {
         final ICmdEntryInterface s = server;
-        if (s == null || catalogLoading) return;
+        // The built-in Linux's X lists only its own programs, which are read from its files here (checkBuiltin)
+        if (s == null || catalogLoading || serverBuiltin) return;
         catalogLoading = true;
         bg.execute(() -> {
             byte[] data = null;
@@ -823,9 +841,59 @@ final class LinuxSource implements ContentSource {
                 catalogLoading = false;
                 catalogAt = SystemClock.elapsedRealtime();
                 if (apps == null) return;
-                catalog = apps;
+                setTermuxApps(apps);
                 Log.i(TAG, "Catalog: " + apps.size() + " apps");
                 notifyChanged();
+            });
+        });
+    }
+
+    private void setTermuxApps(List<App> apps) {
+        termuxApps = apps;
+        mergeCatalog();
+    }
+
+    private void mergeCatalog() {
+        List<App> all = new ArrayList<>(termuxApps.size() + builtinApps.size());
+        all.addAll(termuxApps);
+        all.addAll(builtinApps);
+        final Collator c = Collator.getInstance();
+        Collections.sort(all, (x, y) -> c.compare(x.name, y.name));
+        catalog = all;
+        notifyChanged();
+    }
+
+    /**
+     * The built-in Linux's programs, read from its files (BuiltinApps) whether it runs or not: a program installed in
+     * it (apt install) shows up within seconds, a removed one goes. Looked at no more than every few seconds, when the
+     * list is read; read again only when its directories changed.
+     */
+    private void checkBuiltin() {
+        long now = SystemClock.elapsedRealtime();
+        if (builtinLoading || (builtinCheckedAt != 0 && now - builtinCheckedAt < BUILTIN_CHECK_MS)) return;
+        builtinCheckedAt = now;
+        final BuiltinLinux bl = BuiltinLinux.get(context);
+        if (!bl.installed()) {
+            if (!builtinApps.isEmpty()) {
+                builtinApps = Collections.emptyList();
+                builtinSig = 0;
+                mergeCatalog();
+            }
+            return;
+        }
+        builtinLoading = true;
+        final long was = builtinSig;
+        bg.execute(() -> {
+            BuiltinApps b = new BuiltinApps(bl.rootfs, bl.home);
+            long sig = b.signature();
+            final List<App> apps = sig != was ? parseCatalog(b.catalog()) : null;
+            ui.post(() -> {
+                builtinLoading = false;
+                if (apps == null) return;
+                builtinSig = sig;
+                builtinApps = apps;
+                Log.i(TAG, "Built-in Linux: " + apps.size() + " apps");
+                mergeCatalog();
             });
         });
     }
@@ -844,8 +912,8 @@ final class LinuxSource implements ContentSource {
                 // An xdesk without the command prints its usage: no catalog header, so no programs. No icons to decode,
                 // so the UI thread is fine
                 List<App> apps = parseCatalog(stdout.getBytes(StandardCharsets.UTF_8));
-                if (apps.isEmpty() || !catalog.isEmpty()) return;
-                catalog = apps;
+                if (apps.isEmpty() || !termuxApps.isEmpty()) return;
+                setTermuxApps(apps);
                 Log.i(TAG, "Catalog from Termux, without icons: " + apps.size() + " apps");
                 notifyChanged();
             }
@@ -898,6 +966,8 @@ final class LinuxSource implements ContentSource {
         if (key.startsWith(APP)) {
             appKey = key.substring(APP.length());
         } else if (key.startsWith(WINDOW)) {
+            // Every window of the built-in Linux's X is its own
+            if (serverBuiltin) return BuiltinApps.SCOPE;
             Win w = windows.get(parseWindow(key));
             String known = w != null ? windowScopes.get(w.id) : null;
             if (known != null) return known;
@@ -928,6 +998,7 @@ final class LinuxSource implements ContentSource {
         // All environments share one X server (DEVICES.md §2), and the same program may be installed in several: a
         // window whose environment is known is only ever a program of that one. Not known (started from a desktop's
         // panel or a terminal): the environment whose whole desktop runs first, else Termux, then any
+        if (serverBuiltin) return appOf(w, BuiltinApps.SCOPE);
         String scope = windowScopes.get(w.id);
         if (scope != null) return appOf(w, scope);
         App a = appOf(w, homeScope());
@@ -973,8 +1044,10 @@ final class LinuxSource implements ContentSource {
         return slash > 0 ? a.key.substring(0, slash) : Devices.TERMUX;
     }
 
+    /** @param scope null: any of Termux's (the built-in Linux's programs are never on Termux's X) */
     private static boolean in(App a, String scope) {
-        return scope == null || (a.key.startsWith(scope) && a.key.length() > scope.length() && a.key.charAt(scope.length()) == '/');
+        if (scope == null) return !a.key.startsWith(BuiltinApps.SCOPE + "/");
+        return (a.key.startsWith(scope) && a.key.length() > scope.length() && a.key.charAt(scope.length()) == '/');
     }
 
     private static String scopeToken(String scope) {
@@ -993,6 +1066,7 @@ final class LinuxSource implements ContentSource {
     }
 
     private String homeScope() {
+        if (serverBuiltin) return BuiltinApps.SCOPE;
         Devices d = Devices.get(context);
         return d.deviceOfSession(d.appsOnlyRunning() ? null : d.runningSession()).substring(Devices.LINUX.length());
     }
@@ -1126,7 +1200,10 @@ final class LinuxSource implements ContentSource {
                 break;
             case "refresh":
                 catalogAt = 0;
+                builtinSig = 0;
+                builtinCheckedAt = 0;
                 loadCatalog();
+                checkBuiltin();
                 break;
             default:
                 break;

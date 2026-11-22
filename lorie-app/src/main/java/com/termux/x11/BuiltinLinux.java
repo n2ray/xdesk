@@ -402,6 +402,11 @@ final class BuiltinLinux {
         x.environment().put("TMPDIR", tmp.getPath());
         x.environment().put("XKB_CONFIG_ROOT", new File(rootfs, "usr/share/X11/xkb").getPath());
         x.environment().put("XDESK_AUDIO_SOCKET", new File(tmp, "xdesk-audio").getPath());
+        // Its programs for XDesk's launcher (XWindows, BuiltinApps): read from the system's files, opened in it
+        writeAsset("xdesk-launch");
+        x.environment().put("XDESK_BUILTIN_ROOT", rootfs.getPath());
+        x.environment().put("XDESK_BUILTIN_HOME", home.getPath());
+        x.environment().put("XDESK_BUILTIN_LAUNCH", android.text.TextUtils.join("\n", containerCmd("/usr/local/bin/xdesk-launch")));
         x.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "x.log")));
         appendLog("starting X");
         if (measurePresent) x.environment().put("TERMUX_X11_MISURA", "1");

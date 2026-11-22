@@ -22,6 +22,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.text.InputType;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.os.SystemClock;
 import android.os.Handler;
 import android.os.Looper;
@@ -1365,6 +1366,10 @@ public class XDeskActivity extends Activity {
     private final Devices.Actions deviceActions = new Devices.Actions() {
         @Override public void stopLinux() { confirmStop(); }
         @Override public void setUpLinux() { chooserHost.onTermuxHint(); }
+        @Override public void stopBuiltin() {
+            ui().confirm(getString(R.string.xd_bl_stop_confirm_title), getString(R.string.xd_bl_stop_note),
+                getString(R.string.xd_stop), SettingsUi.LEVEL_STOP, () -> BuiltinLinux.get(XDeskActivity.this).stop());
+        }
     };
 
     private final ChooserView.Host chooserHost = new ChooserView.Host() {
@@ -1385,6 +1390,11 @@ public class XDeskActivity extends Activity {
         @Override public void onChooseOutput() { chooseOutput(); }
         @Override public void onSessionChosen(final String name) {
             phoneKeys = true;
+            // The built-in Linux's whole desktop: its own X, beside Termux's (no xdesk, no Termux state to ask)
+            if (Devices.BUILTIN_SESSION.equals(name)) {
+                openBuiltinDesktop();
+                return;
+            }
             if (session.stopping() != null) {
                 Toast.makeText(XDeskActivity.this, R.string.xd_desktop_stopping, Toast.LENGTH_SHORT).show();
                 return;
@@ -1611,8 +1621,11 @@ public class XDeskActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         // The built-in Linux opens its desktop here once it runs (BuiltinLinux.start)
-        BuiltinLinux.attachHook = () -> chooserHost.onAttachChosen();
+        BuiltinLinux.attachHook = this::builtinStarted;
         BuiltinLinux.registerDebug(this);
+        BuiltinLinux.get(this).addListener(builtinChanged);
+        // Termux's X and the built-in Linux's run side by side; the window shows one (XServers)
+        XServers.listener = xServers;
         // While the desktop has the keyboard its window gets the keys: Ctrl+Alt+M there gives them back
         MainActivity.keyHook = new MainActivity.KeyHook() {
             @Override public boolean onKey(KeyEvent e) {
@@ -1844,6 +1857,8 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onDestroy() {
         BuiltinLinux.attachHook = null;
+        BuiltinLinux.get(this).removeListener(builtinChanged);
+        if (XServers.listener == xServers) XServers.listener = null;
         // The pages own threads and listeners (the wireless picker's probe): closing them ends those
         closeSettings();
         if (discoveryHeld) {
@@ -1940,7 +1955,9 @@ public class XDeskActivity extends Activity {
     private void setLauncherNotice(String text, Runnable action) {
         launcherNotice = text;
         launcherNoticeAction = text != null ? action : null;
-        if (chooser != null) chooser.setNotice(text);
+        // The console already says "no external screen" in its banner (which opens the receiver picker too): the same
+        // line under it was said twice. The Launchpad has no banner and keeps the line.
+        if (chooser != null) chooser.setNotice(getString(NO_DISPLAY).equals(text) ? null : text);
         if (launchpad != null) launchpad.setNotice(text, launcherNoticeAction);
     }
 
@@ -5552,6 +5569,8 @@ public class XDeskActivity extends Activity {
     private Runnable desktopThen;
     private ContentSource.Result desktopFailed;
     private String desktopFor;
+    /** Which X desktopThen waits for: the built-in Linux's (true) or Termux's (false); null: whichever connects. */
+    private Boolean desktopWantBuiltin;
 
     private void chooseContent(final String key) {
         ContentSource s = Contents.sourceOf(key);
@@ -5672,13 +5691,36 @@ public class XDeskActivity extends Activity {
             return d != null ? d.getDisplayId() : Display.INVALID_DISPLAY;
         }
         @Override public void needDesktop(Runnable then, ContentSource.Result failed, String key) {
-            if (session.isActive() && session.isConnected()) {
+            // Each environment's programs open on its X: the built-in Linux's on its own, Termux's (and its proot
+            // and chroot systems') on Termux's. Both may run; the window shows one (XServers)
+            boolean builtin = Devices.get(XDeskActivity.this).deviceOf(key).equals(Devices.LINUX + Devices.BUILTIN);
+            boolean shownBuiltin = XServers.isBuiltin(XServers.shown());
+            boolean connected = session.isActive() && session.isConnected();
+            if (connected && shownBuiltin == builtin) {
                 then.run();
                 return;
             }
             desktopThen = then;
             desktopFailed = failed;
             desktopFor = key;
+            desktopWantBuiltin = builtin;
+            if (builtin) {
+                needBuiltinX();
+                return;
+            }
+            if (connected && shownBuiltin) {
+                // A Termux program while the built-in Linux shows: Termux's X if it runs, else its "apps only" X,
+                // which comes as a new X server and is shown (xServers.started)
+                IBinder termux = termuxX();
+                if (termux != null) {
+                    XServers.switchTo(termux);
+                } else {
+                    Devices dv = Devices.get(XDeskActivity.this);
+                    String device = dv.deviceOf(key);
+                    launchDesktop(dv.appsSession(device.startsWith(Devices.LINUX) ? device : Devices.LINUX + Devices.TERMUX), false);
+                }
+                return;
+            }
             if (runningSession != null) {
                 startXFor(key);
                 return;
@@ -5806,6 +5848,12 @@ public class XDeskActivity extends Activity {
 
     /** 桌面连上了：先做等着的事。 */
     private void desktopConnected() {
+        // Waiting for the other X server: the one connected now is not the program's
+        if (desktopThen != null && desktopWantBuiltin != null) {
+            IBinder shown = XServers.shown();
+            if (shown == null || XServers.isBuiltin(shown) != desktopWantBuiltin) return;
+        }
+        desktopWantBuiltin = null;
         Runnable then = desktopThen;
         desktopThen = null;
         desktopFailed = null;
@@ -5814,6 +5862,7 @@ public class XDeskActivity extends Activity {
 
     /** 桌面没能连上：等着的内容报失败。 */
     private void desktopFailedToConnect() {
+        desktopWantBuiltin = null;
         ContentSource.Result failed = desktopFailed;
         String key = desktopFor;
         desktopThen = null;
@@ -7011,6 +7060,110 @@ public class XDeskActivity extends Activity {
     private boolean stopAsks() {
         return checkSelfPermission(PERM) != PackageManager.PERMISSION_GRANTED || stopWindows() > 0 || stopSession() != null;
     }
+
+    // --- The built-in Linux beside Termux (XServers) ---
+
+    /** Termux's X server (any X the built-in Linux did not start), the newest, or null. */
+    private static IBinder termuxX() {
+        IBinder found = null;
+        for (IBinder b : XServers.all()) if (!XServers.isBuiltin(b)) found = b;
+        return found;
+    }
+
+    /** The built-in Linux's whole desktop on the external screen: its X shown, started first if need be. */
+    private void openBuiltinDesktop() {
+        Display d = externalDisplay();
+        if (d == null) {
+            needDisplayNotice();
+            return;
+        }
+        leaveContentChoice();
+        pendingApp = null;
+        rememberRecent(ChooserView.recentKey(Devices.BUILTIN_SESSION));
+        desktopName = null;
+        BuiltinLinux bl = BuiltinLinux.get(this);
+        IBinder x = XServers.builtin();
+        if (bl.state() == BuiltinLinux.State.RUNNING && x != null) {
+            XServers.switchTo(x);
+            if (session.isActive() && session.isConnected()) {
+                showOpened();
+                updateStatus();
+            } else {
+                if (!session.isActive()) attachDisplay(d);
+                showBuiltinWaiting();
+            }
+            return;
+        }
+        if (bl.state() != BuiltinLinux.State.STARTING) bl.start();
+        showBuiltinWaiting();
+    }
+
+    /** A program of the built-in Linux needs its X: shown if it runs, else the built-in Linux starts (builtinStarted). */
+    private void needBuiltinX() {
+        BuiltinLinux bl = BuiltinLinux.get(this);
+        IBinder x = XServers.builtin();
+        if (bl.state() == BuiltinLinux.State.RUNNING && x != null) {
+            XServers.switchTo(x);
+            Display d = externalDisplay();
+            if (!session.isActive() && d != null) attachDisplay(d);
+            return;
+        }
+        if (bl.state() != BuiltinLinux.State.STARTING && bl.state() != BuiltinLinux.State.STOPPING) bl.start();
+        else if (bl.state() == BuiltinLinux.State.STOPPING) desktopFailedToConnect();
+    }
+
+    /**
+     * BuiltinLinux.start is done: its X is shown. With the desktop window already up (Termux's X on it) the new X
+     * server is switched to as it announces itself (xServers.started); without, the window is placed and takes it.
+     */
+    private void builtinStarted() {
+        Display d = externalDisplay();
+        if (d == null) return;
+        IBinder x = XServers.builtin();
+        if (x != null) XServers.switchTo(x);
+        if (!session.isActive()) {
+            attachDisplay(d);
+            if (desktopThen == null) showBuiltinWaiting();
+        }
+    }
+
+    private void showBuiltinWaiting() {
+        showSetup(getString(R.string.xd_bl_title), getString(R.string.xd_bl_starting_desktop), true, null, null);
+    }
+
+    private final BuiltinLinux.Listener builtinChanged = () -> {
+        // Its start failed (or it was stopped) while a program of it waited for its X
+        BuiltinLinux bl = BuiltinLinux.get(XDeskActivity.this);
+        BuiltinLinux.State st = bl.state();
+        if (desktopThen != null && Boolean.TRUE.equals(desktopWantBuiltin)
+                && (st == BuiltinLinux.State.STOPPED || st == BuiltinLinux.State.NOT_INSTALLED)) {
+            desktopFailedToConnect();
+            if (launcherShown()) return;
+            backToChooser();
+        }
+    };
+
+    private final XServers.Listener xServers = new XServers.Listener() {
+        @Override public void started(IBinder server, int uid) {
+            // An X server that was just started is what the user just asked for (a desktop or a program of it, or a
+            // desktop started in Termux): it is shown, the other keeps running
+            XServers.switchTo(server);
+        }
+        @Override public void shownChanged() {
+            // Its sound now, the device list's states, and whatever waited for this X
+            AudioPlayer audio = session.audio();
+            if (audio != null) audio.reconnect();
+            Devices.get(XDeskActivity.this).touch();
+            if (!session.isActive() || !session.isConnected() || XServers.shown() == null) return;
+            if (desktopThen != null) {
+                desktopConnected();
+            } else if (pendingContent == null && (contentKey == null || !contentKey.startsWith(LinuxSource.PREFIX))) {
+                // A whole desktop was chosen (or started from a shell): it is what the screen shows now
+                showOpened();
+            }
+            updateStatus();
+        }
+    };
 
     private void confirmStop() {
         // A Linux device's Stop (DEVICES.md §2): the X server all Linux environments share ends, with everything on it.
