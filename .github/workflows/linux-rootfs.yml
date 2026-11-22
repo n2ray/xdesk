@@ -1,0 +1,38 @@
+name: Built-in Linux image
+
+# Builds the Debian 13 + XFCE image XDesk's built-in Linux installs, as an artifact (not published).
+on:
+  workflow_dispatch:
+  push:
+    branches: [builtin-linux]
+    paths: ['linux/**', '.github/workflows/linux-rootfs.yml']
+
+jobs:
+  rootfs:
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 1
+    - name: Build in debian:trixie
+      run: |
+        docker run --name xd --platform linux/arm64 -v "$PWD/linux:/build:ro" debian:trixie sh /build/build-rootfs.sh
+    - name: Export
+      run: |
+        mkdir rootfs
+        docker export xd | sudo tar -x -C rootfs
+        sudo rm -f rootfs/.dockerenv
+        sudo sh -c 'printf "127.0.0.1 localhost\n::1 localhost\n" > rootfs/etc/hosts; echo xdesk > rootfs/etc/hostname; : > rootfs/etc/resolv.conf'
+        # Android apps cannot make hard links: every file a file of its own
+        sudo tar --hard-dereference --numeric-owner -C rootfs -czf xdesk-debian13-arm64.tar.gz .
+        sha256sum xdesk-debian13-arm64.tar.gz | tee xdesk-debian13-arm64.tar.gz.sha256
+        ls -la xdesk-debian13-arm64.tar.gz
+        sudo du -sh rootfs
+    - uses: actions/upload-artifact@v7
+      with:
+        name: xdesk-debian13-arm64
+        path: |
+          xdesk-debian13-arm64.tar.gz
+          xdesk-debian13-arm64.tar.gz.sha256
+        compression-level: 0
+        retention-days: 14
