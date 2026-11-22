@@ -22,8 +22,12 @@ if command -v pulseaudio >/dev/null 2>&1; then
 fi
 
 # xfwm4's compositor syncs to the vblank with GLX by default ("auto"): through Zink on XDesk's X that leaves the
-# whole screen black but for the cursor. Off, as on the Termux desktop; a user setting in xfconf still wins.
+# whole screen black but for the cursor. Off, as on the Termux desktop. xfwm4 writes all its settings into the
+# user's xfconf file on its first start, so "auto" there is the old default, not a choice: it goes too (another
+# value the user picked stays).
 sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults 2>/dev/null
+sed -i 's|<property name="vblank_mode" type="string" value="auto"/>|<property name="vblank_mode" type="string" value="off"/>|' \
+    "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" 2>/dev/null
 if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
     # Adreno: OpenGL through Zink on Turnip (faster than freedreno on X11 in our tests)
     export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy vblank_mode=0
