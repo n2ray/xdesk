@@ -32,7 +32,7 @@ apt-get install -y --no-install-recommends ca-certificates curl gnupg
 # GNU coreutils instead of Ubuntu's default uutils: uutils is one binary that tells which tool to be by the path it was
 # run from, and the image cannot keep its hard links (Android apps cannot make them; as symlinks all paths lead to the
 # one file, as copies it is 1.1 GB)
-apt-get install -y --allow-remove-essential coreutils-from-gnu
+apt-get install -y --allow-remove-essential coreutils-from-gnu coreutils-from-uutils-
 ls --version | head -1
 
 # The makers' repositories, each key checked against its known fingerprint
