@@ -1,8 +1,9 @@
 #!/bin/sh
 # Builds XDesk's built-in Linux (Ubuntu 26.04 LTS + XFCE) inside an ubuntu:26.04 arm64 container.
 # Run by .github/workflows/linux-rootfs.yml; the result is exported from the container by the workflow.
-# Browsers come from their makers' apt repositories (Ubuntu's own Firefox and Chromium are snaps, which cannot run
-# in an app's container): Google Chrome, the default, and Firefox.
+# No browser comes with it: users install what they want. Ubuntu's own Firefox and Chromium are snaps, which cannot
+# run in an app's container, so Google's and Mozilla's apt repositories are set up instead (apt install
+# google-chrome-stable / firefox), and snapd is pinned away.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 MESA_URL=https://github.com/lfdevs/mesa-for-android-container/releases/download/mesa-27.0.0-devel-20261025-r2/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_resolute_arm64.tar.gz
@@ -47,7 +48,6 @@ apt-get install -y --no-install-recommends \
     tango-icon-theme adwaita-icon-theme librsvg2-common dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
     pulseaudio pulseaudio-utils pavucontrol \
     locales fonts-noto-cjk fonts-dejavu-core \
-    google-chrome-stable firefox \
     mesa-utils mesa-vulkan-drivers libgl1-mesa-dri vulkan-tools \
     nano less procps psmisc file unzip xz-utils wget sudo
 
@@ -61,21 +61,22 @@ rm /tmp/mesa.tgz
 apt-mark hold libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers mesa-libgallium 2>/dev/null || true
 ldconfig
 
-# Chrome with the flags and environment the session writes for this phone's GPU (/etc/xdesk/chrome.sh): its own launcher reads
-# none, so the command everything starts it by becomes a small wrapper. Chrome's updates replace /opt/google/chrome
-# and keep the diversion.
+# Chrome, once the user installs it, with the flags and environment the session writes for this phone's GPU
+# (/etc/xdesk/chrome.sh): its own launcher reads none, so the command everything starts it by is a small wrapper,
+# diverted in advance; Chrome's package then puts its own link aside. Its updates keep the diversion.
 dpkg-divert --local --rename --add --divert /usr/bin/google-chrome-stable.real /usr/bin/google-chrome-stable
 cat > /usr/bin/google-chrome-stable <<'EOF'
 #!/bin/sh
 # XDesk: Google Chrome with the flags for this container (/etc/xdesk/chrome.sh, written by xdesk-session at each start)
 CHROME_FLAGS=
 [ -r /etc/xdesk/chrome.sh ] && . /etc/xdesk/chrome.sh
+if [ ! -x /opt/google/chrome/google-chrome ]; then
+    echo "Google Chrome is not installed: sudo apt install google-chrome-stable" >&2
+    exit 127
+fi
 exec /opt/google/chrome/google-chrome $CHROME_FLAGS "$@"
 EOF
 chmod 755 /usr/bin/google-chrome-stable
-update-alternatives --set x-www-browser /usr/bin/google-chrome-stable 2>/dev/null || true
-mkdir -p /etc/xdg/xfce4
-printf 'WebBrowser=google-chrome\n' > /etc/xdg/xfce4/helpers.rc
 
 # xfwm4's compositor without GLX vblank: through Zink on XDesk's X it leaves the screen black (xdesk-session also
 # fixes the user's own settings)
@@ -95,5 +96,5 @@ printf '127.0.0.1 localhost\n::1 localhost\n' > /etc/hosts
 echo xdesk > /etc/hostname
 apt-get clean
 # What takes the room (in the build log)
-du -xsh /usr/share/locale /usr/share/doc /opt/google /usr/lib/firefox /usr/share/fonts /usr/lib/aarch64-linux-gnu /usr/share/icons 2>/dev/null || true
+du -xsh /usr/share/locale /usr/share/doc /usr/share/fonts /usr/lib/aarch64-linux-gnu /usr/share/icons 2>/dev/null || true
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*.log /var/cache/debconf/*-old
