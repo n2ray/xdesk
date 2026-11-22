@@ -67,6 +67,7 @@ final class BuiltinLinux {
     private volatile State state;
     private volatile String progress, error;
     private volatile boolean busy;
+    private final java.util.concurrent.atomic.AtomicBoolean vaProbeRunning = new java.util.concurrent.atomic.AtomicBoolean();
     /** Opens the desktop on the external screen once it runs (XDeskActivity sets it while it lives). */
     static volatile Runnable attachHook;
 
@@ -109,6 +110,7 @@ final class BuiltinLinux {
                 else if ("gpu-on".equals(cmd)) bl.setGpu(true);
                 else if ("gpu-off".equals(cmd)) bl.setGpu(false);
                 else if ("bench".equals(cmd)) bl.bench();
+                else if ("va-probe".equals(cmd)) bl.runVaProbe();
                 else if ("run".equals(cmd)) bl.runDebugScript();
                 Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
             }
@@ -490,6 +492,41 @@ final class BuiltinLinux {
                 Log.w(TAG, "run", e);
             }
         }, "builtin-linux-run").start();
+    }
+
+    /** Shell-only probe, with its own script and log files so a regular debug run is independent. */
+    private void runVaProbe() {
+        if (!vaProbeRunning.compareAndSet(false, true)) return;
+        new Thread(() -> {
+            Process daemon = null, guest = null;
+            File dir = null;
+            try {
+                File tmp = new File(rootfs, "tmp");
+                dir = java.nio.file.Files.createTempDirectory(tmp.toPath(), "va").toFile();
+                File script = new File(dir, "probe.sh");
+                java.nio.file.Files.copy(new File(c.getExternalFilesDir(null), "va300.sh").toPath(), script.toPath());
+                File socket = new File(dir, "codec.sock");
+                File helper = new File(c.getApplicationInfo().nativeLibraryDir, "libtermux_va.so");
+                daemon = new ProcessBuilder(helper.getPath(), "--sock", socket.getPath(), "-v", "-t")
+                    .redirectErrorStream(true).redirectOutput(new File(logDir(), "va300-daemon.log")).start();
+                for (int i = 0; i < 100 && daemon.isAlive() && !socket.exists(); i++) Thread.sleep(50);
+                if (!daemon.isAlive() || !socket.exists()) throw new IOException("codec socket unavailable");
+                String probeDir = "/tmp/" + dir.getName();
+                List<String> cmd = containerCmd(probeDir + "/probe.sh");
+                cmd.add(probeDir + "/codec.sock");
+                guest = new ProcessBuilder(cmd).redirectErrorStream(true)
+                    .redirectOutput(new File(logDir(), "va300-run.log")).start();
+                if (!guest.waitFor(5, java.util.concurrent.TimeUnit.MINUTES)) throw new IOException("probe timed out");
+                Log.i(TAG, "va-probe exit " + guest.exitValue());
+            } catch (Exception e) {
+                Log.e(TAG, "va-probe", e);
+            } finally {
+                if (guest != null && guest.isAlive()) guest.destroyForcibly();
+                if (daemon != null && daemon.isAlive()) daemon.destroyForcibly();
+                if (dir != null) rm(dir);
+                vaProbeRunning.set(false);
+            }
+        }, "builtin-linux-va-probe").start();
     }
 
     /** Scripts come with the app (assets/linux), so changing them needs no new image. */
