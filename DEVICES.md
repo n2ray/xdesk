@@ -82,9 +82,16 @@
 - **`xdesk launch` 自己保证有 X 和窗口管理器**：没有会话在跑时它先起那个环境的 `+apps`（从命令行直接用、或者会话在 X 下面自己退了的情况）。
 - **X 窗口已放上屏但没连上**时点应用：有会话在跑就补一个连接超时，没有就照常起轻量 X（它自带超时）；超时后内容报失败，不会一直等。
 
-#### 一个 X 服务器（硬约束）
+#### 内置 Linux：自己的 X，和 Termux 的并存（2026-11-22）
 
-所有环境共用 **一个 X 服务器（`:9`；`XDESK_DISPLAY` 可改）**，由 Termux 里的 `xdesk` 启动。它和官方 Termux:X11、用户自己的 `startx.sh` 用的 `:1` 分开；只有 xdesk 确认 `:9` 上是自己起的 `xdesk-x11` 时才往这个 X 上写设置。
+内置 Linux（`linux:builtin`，`BuiltinLinux`）不是 xdesk 的环境：它有自己的 X 服务器（App 自己起，`:1`，socket 在它的 `/tmp` 里），和 Termux 的 X 同时跑。
+- **XDesk 的窗口记住所有 X，显示其中一个**（`XServers`）：第二个 X 不再被回「already has an active X server connection」。新起的 X 直接显示，另一个继续跑；切换时先取新 X 的 socket、核对，再在视图里一次换掉，失败就留在原来那个。显示中的 X 退出时，换到还在的另一个。用户最后选的那个，重连时优先。声音跟着显示的 X 走。
+- **它是一个设备**（Linux 设备里排第一）：「整个桌面」（键 `t:@builtin`，xdesk 的会话名不会有 @）、它的 X 在显示时的窗口、它的程序。程序直接从它的文件读（`BuiltinApps`：.desktop、PNG 图标、系统语言；SVG 图标用字母），键是 `l:a:builtin/ID`。打开程序走它的 X 服务器（`XWindows` 内置模式：App 给的命令在容器里跑 `xdesk-launch`，带桌面的环境变量和 D-Bus）。
+- **每个环境的程序开在自己的 X 上**：`needDesktop` 按键的设备选 X，显示的不是就切过去，没在跑就启动（内置 Linux 启动它；Termux 起它的 `+apps`）。内置 Linux 的停止只停它自己，先问。
+
+#### 一个 X 服务器（Termux 这边的硬约束）
+
+Termux 的所有环境共用 **一个 X 服务器（`:9`；`XDESK_DISPLAY` 可改）**，由 Termux 里的 `xdesk` 启动。它和官方 Termux:X11、用户自己的 `startx.sh` 用的 `:1` 分开；只有 xdesk 确认 `:9` 上是自己起的 `xdesk-x11` 时才往这个 X 上写设置。
 
 - **只有应用时可以混着跑**：proot / chroot 里的程序只是这个 X 的普通客户端。`xdesk launch SCOPE/ID` 对 proot 是 `proot-distro login <发行版> --shared-tmp -- env DISPLAY=:9 … sh -c CMD`（`/tmp` 共享，所以够得着 X 的 socket；X 以 `-ac` 启动，只开 `/tmp/.X11-unix` 下的文件 socket，不监听 TCP，也不开任何应用都能连的抽象 socket），对 chroot 是用户写的 `NAME.launch`。窗口管理器是当前会话的那一个（哪个环境的都行），它管所有窗口；容器的 `+apps` 只起 `xfwm4`，不起 Termux 的 `xfsettingsd`，Termux 自己的 `+apps` 照旧带它。
 - **整个桌面同一时间只能有一个**：会话只有一个（`xdesk status` 的 `Session:`）。`runningSession` 就是这一个会话的名字（`NAME` 或 `NAME+apps`），和设备无关；`desktopName` 是 XDesk 自己放上屏的那个。`NAME+apps` 只是"程序跑在什么上面"：不进最近使用，Dock 和启动台「正在运行」里没有它（`currentKey` 对它返回 null，`SwitcherOverlay` 也过滤），设备状态也不把它当成"正在运行"。
