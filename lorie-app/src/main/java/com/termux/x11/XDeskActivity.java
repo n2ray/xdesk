@@ -1612,6 +1612,7 @@ public class XDeskActivity extends Activity {
         super.onCreate(b);
         // The built-in Linux opens its desktop here once it runs (BuiltinLinux.start)
         BuiltinLinux.attachHook = () -> chooserHost.onAttachChosen();
+        BuiltinLinux.registerDebug(this);
         // While the desktop has the keyboard its window gets the keys: Ctrl+Alt+M there gives them back
         MainActivity.keyHook = new MainActivity.KeyHook() {
             @Override public boolean onKey(KeyEvent e) {

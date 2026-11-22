@@ -1,11 +1,14 @@
 #!/bin/sh
-# XDesk's built-in Linux: the desktop session. The app starts it in the container with DISPLAY, LANG and
+# XDesk's built-in Linux: the desktop session (the app writes this file into the system at every start). The app starts it in the container with DISPLAY, LANG and
 # XDESK_GPU set, after its own X server is up. Sound goes the way the Termux desktop's does: a null sink whose
 # monitor XDesk reads from /tmp/xdesk-audio (through its X server).
 export XDG_RUNTIME_DIR=/tmp/runtime-root
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
 export NO_AT_BRIDGE=1
+# D-Bus needs a machine id; the image has none of its own
+[ -s /etc/machine-id ] || dbus-uuidgen > /etc/machine-id 2>/dev/null
+mkdir -p /var/lib/dbus && [ -s /var/lib/dbus/machine-id ] || cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null
 
 if command -v pulseaudio >/dev/null 2>&1; then
     pulseaudio --kill >/dev/null 2>&1

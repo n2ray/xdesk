@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [builtin-linux]
-    paths: ['linux/**', '.github/workflows/linux-rootfs.yml']
+    paths: ['linux/**', 'lorie-app/src/main/assets/linux/**', '.github/workflows/linux-rootfs.yml']
 
 jobs:
   rootfs:
@@ -16,7 +16,7 @@ jobs:
         fetch-depth: 1
     - name: Build in debian:trixie
       run: |
-        docker run --name xd --platform linux/arm64 -v "$PWD/linux:/build:ro" debian:trixie sh /build/build-rootfs.sh
+        docker run --name xd --platform linux/arm64 -v "$PWD:/src:ro" debian:trixie sh /src/linux/build-rootfs.sh
     - name: Export
       run: |
         mkdir rootfs

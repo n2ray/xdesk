@@ -32,7 +32,7 @@ printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/99xdesk
 rm -f /etc/xdg/autostart/xfce4-power-manager.desktop /etc/xdg/autostart/light-locker.desktop \
       /etc/xdg/autostart/xscreensaver.desktop /etc/xdg/autostart/blueman.desktop 2>/dev/null || true
 
-install -m 755 /build/xdesk-session /usr/local/bin/xdesk-session
+install -m 755 /src/lorie-app/src/main/assets/linux/xdesk-session /usr/local/bin/xdesk-session
 mkdir -p /etc/xdesk
 echo "debian-13-r1 $(date -u +%Y-%m-%d)" > /etc/xdesk/image
 

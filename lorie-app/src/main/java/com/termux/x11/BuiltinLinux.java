@@ -84,6 +84,37 @@ final class BuiltinLinux {
         state = installed() ? (running() ? State.RUNNING : State.STOPPED) : State.NOT_INSTALLED;
     }
 
+    static final String DEBUG_ACTION = "io.github.n2ray.xdesk.BUILTIN_LINUX";
+    private static boolean debugRegistered;
+
+    /**
+     * For testing over adb: am broadcast -a io.github.n2ray.xdesk.BUILTIN_LINUX --es cmd install|start|stop|reset|state.
+     * Only the shell and the system hold the permission the receiver asks for.
+     */
+    static synchronized void registerDebug(Context ctx) {
+        if (debugRegistered) return;
+        debugRegistered = true;
+        final BuiltinLinux bl = get(ctx);
+        android.content.BroadcastReceiver r = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(Context x, Intent i) {
+                String cmd = i.getStringExtra("cmd");
+                if ("install".equals(cmd)) bl.install();
+                else if ("start".equals(cmd)) bl.start();
+                else if ("stop".equals(cmd)) bl.stop();
+                else if ("reset".equals(cmd)) bl.reset(true);
+                else if ("gpu-on".equals(cmd)) bl.setGpu(true);
+                else if ("gpu-off".equals(cmd)) bl.setGpu(false);
+                Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
+            }
+        };
+        try {
+            bl.c.registerReceiver(r, new android.content.IntentFilter(DEBUG_ACTION), "android.permission.INTERACT_ACROSS_USERS_FULL",
+                    null, Context.RECEIVER_EXPORTED);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "debug receiver", e);
+        }
+    }
+
     void addListener(Listener l) { listeners.add(l); }
     void removeListener(Listener l) { listeners.remove(l); }
     private void changed() { main.post(() -> { for (Listener l : listeners) l.changed(); }); }
@@ -117,6 +148,7 @@ final class BuiltinLinux {
     private void set(State s, String p) {
         state = s;
         progress = p;
+        Log.i(TAG, s + (p != null ? " " + p : ""));
         changed();
     }
 
@@ -350,7 +382,7 @@ final class BuiltinLinux {
         x.environment().put("TMPDIR", tmp.getPath());
         x.environment().put("XKB_CONFIG_ROOT", new File(rootfs, "usr/share/X11/xkb").getPath());
         x.environment().put("XDESK_AUDIO_SOCKET", new File(tmp, "xdesk-audio").getPath());
-        x.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(base, "x.log")));
+        x.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "x.log")));
         appendLog("starting X");
         Process xp = x.start();
         long deadline = System.currentTimeMillis() + X_WAIT_MS;
@@ -367,6 +399,7 @@ final class BuiltinLinux {
         }
 
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
+        writeSessionScript();
         String lang = Locale.getDefault().getLanguage().equals("zh") ? "zh_CN.UTF-8" : "en_US.UTF-8";
         List<String> cmd = new ArrayList<>();
         cmd.add(burrow());
@@ -387,7 +420,7 @@ final class BuiltinLinux {
         cmd.add("/bin/sh"); cmd.add("/usr/local/bin/xdesk-session");
         ProcessBuilder s = new ProcessBuilder(cmd);
         s.environment().remove("LD_PRELOAD");
-        s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(base, "session.log")));
+        s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
         appendLog("starting the session (gpu " + gpu + ")");
         Process sp = s.start();
         Thread.sleep(1500);
@@ -396,6 +429,18 @@ final class BuiltinLinux {
             return false;
         }
         return true;
+    }
+
+    /** The session script comes with the app (assets/linux), so changing it needs no new image. */
+    private void writeSessionScript() throws IOException {
+        File f = new File(rootfs, "usr/local/bin/xdesk-session");
+        f.getParentFile().mkdirs();
+        f.delete();
+        try (InputStream in = c.getAssets().open("linux/xdesk-session"); OutputStream out = new FileOutputStream(f)) {
+            byte[] buf = new byte[8192];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+        }
+        Os_chmod(f, 0755);
     }
 
     private String burrow() { return c.getApplicationInfo().nativeLibraryDir + "/libburrow.so"; }
@@ -483,9 +528,16 @@ final class BuiltinLinux {
 
     // ---- Logs ----
 
+    /** The logs, in the app's external files (Android/data/.../files/logs) so they can be read and shared. */
+    File logDir() {
+        File d = c.getExternalFilesDir("logs");
+        if (d == null) d = base;
+        d.mkdirs();
+        return d;
+    }
+
     private void appendLog(String line) {
-        base.mkdirs();
-        try (FileWriter w = new FileWriter(new File(base, "xdesk.log"), true)) {
+        try (FileWriter w = new FileWriter(new File(logDir(), "xdesk.log"), true)) {
             w.write(new java.text.SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new java.util.Date()) + " " + line + "\n");
         } catch (IOException ignored) { }
     }
@@ -495,7 +547,7 @@ final class BuiltinLinux {
         StringBuilder sb = new StringBuilder();
         for (String name : new String[]{"xdesk.log", "x.log", "session.log"}) {
             sb.append("== ").append(name).append('\n');
-            sb.append(tail(new File(base, name), 60)).append('\n');
+            sb.append(tail(new File(logDir(), name), 60)).append('\n');
         }
         return sb.toString();
     }
