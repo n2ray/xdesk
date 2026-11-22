@@ -63,6 +63,10 @@ public final class ProbeActivity extends Activity {
                 try {
                     runTest(IProbe.Stub.asInterface(binder));
                     String source = getIntent().getStringExtra("release_marker");
+                    if (GuestBuild.ROOTFS) {
+                        UUID id = source == null ? null : UUID.fromString(source);
+                        SocketTest.run(ProbeActivity.this, IProbe.Stub.asInterface(binder), id);
+                    }
                     if (source != null) runReleaseTest(IProbe.Stub.asInterface(binder), UUID.fromString(source));
                 } catch (Exception e) {
                     Log.e(TAG, "FAIL", e);

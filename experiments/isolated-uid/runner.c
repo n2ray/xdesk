@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -19,10 +20,37 @@ static long long now_ms(void) {
     return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
 }
 
-/* Only the passed read-only file becomes stdin. The guest has to read it
- * without reopening /proc/self/fd/N. stdout/stderr form the result channel. */
+/* This datagram is written by the running Ubuntu process, without any
+ * user-supplied credential record. Read the queued kernel credentials after
+ * waitpid, when the Burrow supervisor and its guest have both exited. */
+static void socket_result(char *out, size_t size, int witness, pid_t supervisor, int status) {
+    char ready;
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(struct ucred))]; } control;
+    struct iovec iov = { .iov_base = &ready, .iov_len = 1 };
+    struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = control.bytes,
+                          .msg_controllen = sizeof(control.bytes) };
+    ssize_t n = recvmsg(witness, &msg, MSG_DONTWAIT);
+    struct cmsghdr *c = n == 1 ? CMSG_FIRSTHDR(&msg) : NULL;
+    if (!c || ready != 'R' || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
+            || c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS
+            || c->cmsg_len != CMSG_LEN(sizeof(struct ucred))) {
+        snprintf(out, size, "\nsocket_exit=%d\nmissing_android_credentials", status);
+        return;
+    }
+    struct ucred sender;
+    memcpy(&sender, CMSG_DATA(c), sizeof(sender));
+    int gone = sender.pid > 0 && kill(sender.pid, 0) < 0 && errno == ESRCH;
+    int reaped = waitpid(supervisor, NULL, WNOHANG) < 0 && errno == ECHILD;
+    snprintf(out, size, "\nsocket_exit=%d\nandroid_pid_uid=%d:%u\nlauncher_uid=%u\n"
+            "supervisor_pid=%d\nguest_gone=%s\nsupervisor_wait_again=%s",
+            status, sender.pid, sender.uid, getuid(), supervisor, gone ? "ESRCH" : "unexpected",
+            reaped ? "ECHILD" : "unexpected");
+}
+
+/* stdin is the read-only marker or the granted socket endpoint. stdout and
+ * stderr report observations independently of the socket under test. */
 JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurrow(
-        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path, jboolean dynamic, jboolean rootfs) {
+        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path, jboolean dynamic, jboolean rootfs, jint socket_role) {
     (void)cls;
     const char *dir = (*env)->GetStringUTFChars(env, directory, NULL);
     if (!dir) return NULL;
@@ -78,6 +106,21 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         "-w", "/", "--", "/bin/dash", "-c", script, NULL};
     char **args = rootfs ? root_args : dynamic ? dyn_args : static_args;
     char *environment[] = {"LC_ALL=C", "PATH=/", dynamic && !rootfs ? "LD_LIBRARY_PATH=/lib" : NULL, NULL};
+    char script_bind[4096];
+    snprintf(script_bind, sizeof(script_bind), "%s/libsocket_peer.so:/socket-peer.py", dir);
+    char *socket_args[] = {burrow, "-r", (char *)dir, "-b", file_bind, "-b", script_bind,
+        "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/socket-peer.py",
+        socket_role == 1 ? "ordinary" : "isolated", NULL};
+    int witness[2] = {-1, -1};
+    if (socket_role) {
+        int enabled = 1;
+        if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0, witness) < 0 ||
+                setsockopt(witness[0], SOL_SOCKET, SO_PASSCRED, &enabled, sizeof(enabled)) < 0) {
+            snprintf(output, sizeof(output), "observer: %s", strerror(errno));
+            goto done;
+        }
+        args = socket_args;
+    }
     size_t used = 0;
     if (dynamic) {
         const char *names[] = {"libubuntu_dash.so", "libubuntu_ld.so", "libubuntu_libc.so"};
@@ -106,6 +149,7 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         error = posix_spawn_file_actions_adddup2(&actions, marker, STDIN_FILENO);
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDOUT_FILENO);
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDERR_FILENO);
+        if (!error && socket_role) error = posix_spawn_file_actions_adddup2(&actions, witness[1], 3);
         if (!error) error = posix_spawn(&pid, burrow, &actions, NULL, args, environment);
         posix_spawn_file_actions_destroy(&actions);
     }
@@ -115,7 +159,7 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         snprintf(output, sizeof(output), "spawn: %s (%d)", strerror(error), error);
         goto done;
     }
-    long long deadline = now_ms() + 8000;
+    long long deadline = now_ms() + (socket_role ? 15000 : 8000);
     int status = 0;
     int finished = 0;
     while (now_ms() < deadline && used < sizeof(output) - 96) {
@@ -144,11 +188,16 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         if (!finished) { kill(pid, SIGKILL); while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {} }
         snprintf(output + used, sizeof(output) - used, "\nprobe_timeout_or_io_error");
     } else if (WIFEXITED(status)) {
-        snprintf(output + used, sizeof(output) - used, "\nguest_exit=%d", WEXITSTATUS(status));
+        if (socket_role)
+            socket_result(output + used, sizeof(output) - used, witness[0], pid, WEXITSTATUS(status));
+        else
+            snprintf(output + used, sizeof(output) - used, "\nguest_exit=%d", WEXITSTATUS(status));
     } else {
         snprintf(output + used, sizeof(output) - used, "\nguest_signal=%d", WTERMSIG(status));
     }
 done:
+    if (witness[0] >= 0) close(witness[0]);
+    if (witness[1] >= 0) close(witness[1]);
     (*env)->ReleaseStringUTFChars(env, owner_path, path);
     (*env)->ReleaseStringUTFChars(env, directory, dir);
     return (*env)->NewStringUTF(env, output);

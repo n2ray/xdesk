@@ -16,8 +16,13 @@ import java.nio.file.Paths;
 public final class ProbeService extends Service {
     static { System.loadLibrary("fdprobe"); }
 
-    static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic, boolean rootfs);
+    static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic, boolean rootfs, int socketRole);
     private final IProbe.Stub stub = new IProbe.Stub() {
+        @Override public String runSocket(ParcelFileDescriptor endpoint, String deniedPath) {
+            try (ParcelFileDescriptor fd = endpoint) {
+                return runBurrow(getApplicationInfo().nativeLibraryDir, fd.getFd(), deniedPath, false, true, 2);
+            } catch (Exception e) { return "ERROR " + e; }
+        }
         @Override public String run(ParcelFileDescriptor marker, String ownerPath) {
             try (ParcelFileDescriptor fd = marker) {
                 return observe(getApplicationInfo().nativeLibraryDir, fd, ownerPath);
@@ -37,7 +42,7 @@ public final class ProbeService extends Service {
         StructStat st = Os.fstat(marker.getFileDescriptor());
         return "uid=" + Process.myUid() + "\ndomain=" + domain + "\npath_errno=" + pathErrno +
                 "\nfd_mode=" + mode + "\nfile=" + st.st_dev + ":" + st.st_ino + "\n" +
-                runBurrow(libDir, marker.getFd(), ownerPath, GuestBuild.DYNAMIC, GuestBuild.ROOTFS);
+                runBurrow(libDir, marker.getFd(), ownerPath, GuestBuild.DYNAMIC, GuestBuild.ROOTFS, 0);
     }
 
     @Override public IBinder onBind(Intent intent) { return stub; }
