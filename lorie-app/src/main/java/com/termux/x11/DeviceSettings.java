@@ -106,6 +106,9 @@ final class DeviceSettings {
                     "", () -> device(d.id));
             // A first start has none: say so rather than show an empty card
             if (devices.external().isEmpty()) s.infoRow(known, c.getString(R.string.xd_dev_none), c.getString(R.string.xd_dev_none_note), null);
+            // The built-in Linux is not one of the devices xdesk lists: its own row while it is installed
+            if (BuiltinLinux.get(c).installed())
+                s.linkRow(known, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_row_note), "", () -> BuiltinLinuxPage.open(c));
             s.accentRow(known, c.getString(R.string.xd_dev_add), null, this::pickType);
             return true;
         });
@@ -128,6 +131,10 @@ final class DeviceSettings {
         s.linkRow(types, c.getString(R.string.xd_dev_type_linux), c.getString(R.string.xd_dev_type_linux_note), "", () -> {
             sheet[0].dismiss();
             linuxSetUp();
+        });
+        s.linkRow(types, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_type_note), "", () -> {
+            sheet[0].dismiss();
+            BuiltinLinuxPage.open(c);
         });
         s.linkRow(types, c.getString(R.string.xd_dev_type_mac), c.getString(R.string.xd_dev_type_mac_note), "", () -> {
             sheet[0].dismiss();

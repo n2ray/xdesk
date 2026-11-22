@@ -1610,6 +1610,8 @@ public class XDeskActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // The built-in Linux opens its desktop here once it runs (BuiltinLinux.start)
+        BuiltinLinux.attachHook = () -> chooserHost.onAttachChosen();
         // While the desktop has the keyboard its window gets the keys: Ctrl+Alt+M there gives them back
         MainActivity.keyHook = new MainActivity.KeyHook() {
             @Override public boolean onKey(KeyEvent e) {
@@ -1839,6 +1841,7 @@ public class XDeskActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        BuiltinLinux.attachHook = null;
         // The pages own threads and listeners (the wireless picker's probe): closing them ends those
         closeSettings();
         if (discoveryHeld) {
