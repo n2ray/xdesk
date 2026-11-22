@@ -671,7 +671,7 @@ final class Switchboard {
         i.desktop = i.session = true;
         if (name.equals(Devices.BUILTIN_SESSION)) {
             BuiltinLinux.State st = BuiltinLinux.get(c).state();
-            i.running = st == BuiltinLinux.State.RUNNING;
+            i.running = st == BuiltinLinux.State.RUNNING && BuiltinLinux.get(c).wholeDesktop();
             i.where = str(R.string.xd_bl_title);
             i.title = i.label + " · " + i.where;
             if (st == BuiltinLinux.State.STOPPING) i.state = str(R.string.xd_chooser_stopping_short);

@@ -670,8 +670,12 @@ final class Devices {
                 int windows = 0;
                 LinuxSource l = LinuxSource.get();
                 if (l != null && l.showsBuiltin()) windows = l.windows().size();
-                String note = context.getString(R.string.xd_dev_whole_desktop);
-                if (windows > 0) note += " · " + context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows);
+                // "Apps only" is not shown as anything: only what its programs run on
+                String note = bl.wholeDesktop() ? context.getString(R.string.xd_dev_whole_desktop) : null;
+                if (windows > 0) {
+                    String w = context.getResources().getQuantityString(R.plurals.xd_dev_windows, windows, windows);
+                    note = note != null ? note + " · " + w : w;
+                }
                 return new Device(id, Type.LINUX, name, State.CONNECTED, note, false, true);
             }
             case STARTING:

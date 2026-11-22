@@ -87,7 +87,7 @@
 内置 Linux（`linux:builtin`，`BuiltinLinux`）不是 xdesk 的环境：它有自己的 X 服务器（App 自己起，`:1`，socket 在它的 `/tmp` 里），和 Termux 的 X 同时跑。
 - **XDesk 的窗口记住所有 X，显示其中一个**（`XServers`）：第二个 X 不再被回「already has an active X server connection」。新起的 X 直接显示，另一个继续跑；切换时先取新 X 的 socket、核对，再在视图里一次换掉，失败就留在原来那个。显示中的 X 退出时，换到还在的另一个。用户最后选的那个，重连时优先。声音跟着显示的 X 走。
 - **它是一个设备**（Linux 设备里排第一）：「整个桌面」（键 `t:@builtin`，xdesk 的会话名不会有 @）、它的 X 在显示时的窗口、它的程序。程序直接从它的文件读（`BuiltinApps`：.desktop、PNG 图标、系统语言；SVG 图标用字母），键是 `l:a:builtin/ID`。打开程序走它的 X 服务器（`XWindows` 内置模式：App 给的命令在容器里跑 `xdesk-launch`，带桌面的环境变量和 D-Bus）。
-- **每个环境的程序开在自己的 X 上**：`needDesktop` 按键的设备选 X，显示的不是就切过去，没在跑就启动（内置 Linux 启动它；Termux 起它的 `+apps`）。内置 Linux 的停止只停它自己，先问。
+- **每个环境的程序开在自己的 X 上**：`needDesktop` 按键的设备选 X，显示的不是就切过去，没在跑就启动（内置 Linux 起它的「只开应用」：X、xfwm4、xfsettingsd，`XDESK_APPS_ONLY=1`；Termux 起它的 `+apps`）。之后点「整个桌面」，在同一条 D-Bus 上补上面板和桌面（`xdesk-desktop`），已开的程序不关。「只开应用」不算整个桌面在跑（设备说明和「整个桌面」的运行点都按有没有 xfce4-panel 判断）。内置 Linux 的停止只停它自己，先问。
 
 #### 一个 X 服务器（Termux 这边的硬约束）
 

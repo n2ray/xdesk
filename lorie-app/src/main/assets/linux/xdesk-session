@@ -108,4 +108,9 @@ case "$dpi" in
 esac
 # What XDesk's launcher gives the programs it opens (xdesk-launch): the same environment as the desktop's
 export -p >/tmp/xdesk-env 2>/dev/null
+# "Apps only" (a program was opened from XDesk's launcher with the system not running): the window manager and the
+# settings daemon, no panel or desktop. Opening the whole desktop later adds those (xdesk-desktop)
+if [ "${XDESK_APPS_ONLY:-0}" = 1 ]; then
+    exec dbus-launch --exit-with-session sh -c 'xfsettingsd --daemon >/dev/null 2>&1; exec xfwm4'
+fi
 exec dbus-launch --exit-with-session startxfce4

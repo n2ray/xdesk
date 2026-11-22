@@ -7085,6 +7085,8 @@ public class XDeskActivity extends Activity {
         IBinder x = XServers.builtin();
         if (bl.state() == BuiltinLinux.State.RUNNING && x != null) {
             XServers.switchTo(x);
+            // Running "apps only": its panel and desktop come in beside the open programs
+            bl.showDesktop();
             if (session.isActive() && session.isConnected()) {
                 showOpened();
                 updateStatus();
@@ -7094,7 +7096,8 @@ public class XDeskActivity extends Activity {
             }
             return;
         }
-        if (bl.state() != BuiltinLinux.State.STARTING) bl.start();
+        if (bl.state() == BuiltinLinux.State.STARTING) bl.showDesktop();
+        else bl.start();
         showBuiltinWaiting();
     }
 
@@ -7108,7 +7111,8 @@ public class XDeskActivity extends Activity {
             if (!session.isActive() && d != null) attachDisplay(d);
             return;
         }
-        if (bl.state() != BuiltinLinux.State.STARTING && bl.state() != BuiltinLinux.State.STOPPING) bl.start();
+        // Not running: only what its programs need (X and the window manager), as Termux's "+apps"
+        if (bl.state() != BuiltinLinux.State.STARTING && bl.state() != BuiltinLinux.State.STOPPING) bl.startApps();
         else if (bl.state() == BuiltinLinux.State.STOPPING) desktopFailedToConnect();
     }
 

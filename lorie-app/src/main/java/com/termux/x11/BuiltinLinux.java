@@ -108,7 +108,9 @@ final class BuiltinLinux {
             @Override public void onReceive(Context x, Intent i) {
                 String cmd = i.getStringExtra("cmd");
                 if ("install".equals(cmd)) bl.install();
-                else if ("start".equals(cmd)) bl.start(i.getBooleanExtra("measure", false));
+                else if ("start".equals(cmd)) bl.start(i.getBooleanExtra("measure", false), false);
+                else if ("start-apps".equals(cmd)) bl.start(false, true);
+                else if ("desktop".equals(cmd)) bl.showDesktop();
                 else if ("stop".equals(cmd)) bl.stop();
                 else if ("reset".equals(cmd)) bl.reset(true);
                 else if ("gpu-on".equals(cmd)) bl.setGpu(true);
@@ -348,16 +350,22 @@ final class BuiltinLinux {
 
     // ---- Start and stop ----
 
-    void start() { start(false); }
+    /** The whole desktop (XFCE with its panel). */
+    void start() { start(false, false); }
 
-    private void start(boolean measurePresent) {
+    /** "Apps only": X, the window manager and the settings daemon, for programs opened from XDesk's launcher. */
+    void startApps() { start(false, true); }
+
+    private void start(boolean measurePresent, boolean appsOnly) {
         if (!installed() || !begin()) return;
+        desktopWanted = !appsOnly;
+        desktopCheckedAt = 0;
         set(State.STARTING, c.getString(R.string.xd_bl_starting_x));
         final boolean gpu = gpu();
         new Thread(() -> {
             boolean ok = false;
             try {
-                ok = startNow(gpu, measurePresent);
+                ok = startNow(gpu, measurePresent, appsOnly);
             } catch (Throwable t) {
                 fail(c.getString(R.string.xd_bl_start_failed), t);
             }
@@ -367,6 +375,9 @@ final class BuiltinLinux {
                 return;
             }
             end(State.RUNNING);
+            desktopCheckedAt = 0;
+            // The whole desktop was asked for while "apps only" started
+            if (appsOnly && desktopWanted) showDesktop();
             // SSH access on: it comes with the desktop (kept if it was already running alone)
             startSsh();
             Runnable attach = attachHook;
@@ -374,7 +385,7 @@ final class BuiltinLinux {
         }, "builtin-linux-start").start();
     }
 
-    private boolean startNow(boolean gpu, boolean measurePresent) throws IOException, InterruptedException {
+    private boolean startNow(boolean gpu, boolean measurePresent, boolean appsOnly) throws IOException, InterruptedException {
         try {
             c.startForegroundService(new Intent(c, LinuxService.class));
         } catch (RuntimeException e) {
@@ -427,7 +438,7 @@ final class BuiltinLinux {
         startVideoHelper(tmp);
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
         writeAsset("xdesk-session");
-        ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session"));
+        ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session", "XDESK_APPS_ONLY=" + (appsOnly ? 1 : 0)));
         s.environment().remove("LD_PRELOAD");
         s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
         appendLog("starting the session (gpu " + gpu + ")");
@@ -795,6 +806,51 @@ final class BuiltinLinux {
             if (exe.equals(burrow) || exe.endsWith("/libburrow.so") || exe.endsWith("/" + VIDEO_HELPER) || isX(pid)) out.add(pid);
         }
         return out;
+    }
+
+    private volatile boolean desktopWanted;
+    private volatile long desktopCheckedAt;
+    private volatile boolean desktopSeen;
+
+    /** Its whole desktop runs (the panel is there), not only "apps only". Looked up at most every 2 s (the lists ask often). */
+    boolean wholeDesktop() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - desktopCheckedAt < 2000) return desktopSeen;
+        boolean seen = false;
+        if (state() == State.RUNNING) for (int p : ours()) if (cmdline(p).contains("xfce4-panel")) { seen = true; break; }
+        desktopSeen = seen;
+        desktopCheckedAt = now;
+        return seen;
+    }
+
+    /**
+     * The whole desktop over a running "apps only" session: the panel and desktop added, the open programs stay.
+     * While it starts, once it runs.
+     */
+    void showDesktop() {
+        State st = state();
+        if (st == State.STARTING) {
+            desktopWanted = true;
+            return;
+        }
+        if (st != State.RUNNING) return;
+        new Thread(() -> {
+            desktopCheckedAt = 0;
+            if (wholeDesktop()) return;
+            try {
+                writeAsset("xdesk-desktop");
+                ProcessBuilder b = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-desktop"));
+                b.environment().remove("LD_PRELOAD");
+                b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
+                appendLog("adding the whole desktop");
+                b.start();
+                Thread.sleep(1500);
+            } catch (IOException | InterruptedException e) {
+                Log.w(TAG, "desktop", e);
+            }
+            desktopCheckedAt = 0;
+            changed();
+        }, "builtin-linux-desktop").start();
     }
 
     private static boolean isX(int pid) {
