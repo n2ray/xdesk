@@ -87,31 +87,34 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         }
     }
 
-    /** A plain arrow, white with a dark outline, its tip at (tip, tip). */
+    /**
+     * The same arrow as a Sill Mac's until it sends its own (MacActivity.defaultArrow): black, white edge, the Mac's
+     * size (u: picture pixels per Mac pixel), its tip at (tip, tip).
+     */
     private static final class ArrowView extends View {
         final int tip;
         private final android.graphics.Path path = new android.graphics.Path();
-        private final android.graphics.Paint fill = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG),
-            line = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final float u;
 
-        ArrowView(android.content.Context c, int size) {
+        ArrowView(android.content.Context c, float u) {
             super(c);
-            tip = Math.max(2, size / 10);
-            float u = size / 24f;
-            path.moveTo(tip, tip);
-            path.lineTo(tip, tip + 17 * u);
-            path.lineTo(tip + 4.5f * u, tip + 13 * u);
-            path.lineTo(tip + 7.5f * u, tip + 19.5f * u);
-            path.lineTo(tip + 10 * u, tip + 18.5f * u);
-            path.lineTo(tip + 7 * u, tip + 12 * u);
-            path.lineTo(tip + 12.5f * u, tip + 12 * u);
+            this.u = u;
+            tip = Math.round(1.5f * u);
+            path.moveTo(1.5f * u, 1.5f * u);
+            path.lineTo(1.5f * u, 19f * u);
+            path.lineTo(5.8f * u, 15f * u);
+            path.lineTo(8.8f * u, 22f * u);
+            path.lineTo(11.6f * u, 20.8f * u);
+            path.lineTo(8.7f * u, 14f * u);
+            path.lineTo(14.5f * u, 14f * u);
             path.close();
-            fill.setColor(Color.WHITE);
-            line.setColor(0xff202020);
-            line.setStyle(android.graphics.Paint.Style.STROKE);
-            line.setStrokeWidth(Math.max(1.5f, 1.4f * u));
-            line.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+            paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+            paint.setStrokeWidth(2f * u);
         }
+
+        int w() { return Math.round(17 * u); }
+        int h() { return Math.round(25 * u); }
 
         /**
          * The SurfaceView marks its whole area transparent for the composition; a view without a background gives
@@ -127,8 +130,12 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         }
 
         @Override protected void onDraw(android.graphics.Canvas c) {
-            c.drawPath(path, fill);
-            c.drawPath(path, line);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setColor(Color.WHITE);
+            c.drawPath(path, paint);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(Color.BLACK);
+            c.drawPath(path, paint);
         }
     }
 
@@ -165,10 +172,12 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         });
         view.getHolder().setFixedSize(width, height);
         view.getHolder().addCallback(this);
-        int size = Math.round(24 * getResources().getDisplayMetrics().density);
-        arrow = new ArrowView(this, size);
+        // The Mac's own pointer size: its virtual screen is drawn this many screen pixels per Mac pixel
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        float u = Math.max(1f, Math.min((float) dm.widthPixels / width, (float) dm.heightPixels / height));
+        arrow = new ArrowView(this, u);
         arrow.setVisibility(View.INVISIBLE);
-        frame.addView(arrow, new FrameLayout.LayoutParams(size + 2 * arrow.tip, size + 2 * arrow.tip, Gravity.TOP | Gravity.START));
+        frame.addView(arrow, new FrameLayout.LayoutParams(arrow.w(), arrow.h(), Gravity.TOP | Gravity.START));
         view.addOnLayoutChangeListener((v, l, t, r, bottom, ol, ot, or, ob) -> placeArrow());
         setContentView(frame);
         Log.i(ScreenShareSession.TAG, "SCREEN display=" + getDisplay().getDisplayId() + " picture=" + width + "x" + height);
