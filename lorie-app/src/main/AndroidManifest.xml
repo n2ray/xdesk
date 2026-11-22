@@ -27,8 +27,6 @@
         </intent>
     </queries>
     <application
-        android:extractNativeLibs="true"
-        tools:replace="android:extractNativeLibs"
         android:icon="@mipmap/xdesk_icon"
         android:localeConfig="@xml/locales_config"
         android:label="@string/lorie_app_name"

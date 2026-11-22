@@ -22,8 +22,10 @@ abstract class VerifySharedUidProcess extends DefaultTask {
 }
 
 android {
-    // Burrow (the built-in Linux) is a static binary at a fixed address that runs from the native library
-    // directory: kept as it is, not stripped
+    // Burrow (the built-in Linux) is a program: it runs from the native library directory, so the libraries are
+    // extracted at install (NativeLibs loads them from there in app_process). Kept as it is, not stripped: a static
+    // binary at a fixed address
+    packagingOptions.jniLibs.useLegacyPackaging true
     packagingOptions.jniLibs.keepDebugSymbols += ["**/libburrow.so"]
     namespace 'com.termux.x11.app'
     compileSdkVersion 34

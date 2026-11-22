@@ -16,11 +16,8 @@ final class Evdev {
         try {
             System.loadLibrary("xdesk_evdev");
         } catch (UnsatisfiedLinkError e) {
-            // Plain app_process: its class loader only has the APK. Stored uncompressed, so it loads from there, as in CmdEntryPoint
-            String abi = android.os.Process.is64Bit() ? android.os.Build.SUPPORTED_64_BIT_ABIS[0] : android.os.Build.SUPPORTED_32_BIT_ABIS[0];
-            java.net.URL lib = Evdev.class.getClassLoader().getResource("lib/" + abi + "/libxdesk_evdev.so");
-            if (lib == null) throw e;
-            System.load(lib.getFile().replace("file:", ""));
+            // Plain app_process: its class loader only has the APK (NativeLibs finds the extracted library)
+            if (!NativeLibs.load(Evdev.class.getClassLoader(), "xdesk_evdev")) throw e;
         }
     }
 
