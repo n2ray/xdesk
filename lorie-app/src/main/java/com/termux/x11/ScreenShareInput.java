@@ -62,6 +62,23 @@ final class ScreenShareInput implements InputSink {
         shown();
     }
 
+    /** A Mac's whole screen: the Dock and the notification centre over it as over a Sill Mac's desktop. */
+    @Override public io.github.n2ray.xdesk.input.Caps caps() {
+        return io.github.n2ray.xdesk.input.Caps.MAC_DESKTOP;
+    }
+
+    /**
+     * For the Dock and the notification centre (DockPointer): where the pointer is, 0 to 1 across, and down 1 at the
+     * bottom row it stops at. The picture fills the screen it is shown on (the Mac's virtual screen is made its size).
+     */
+    @Override public boolean pointerPlace(float[] out) {
+        ScreenShareSession s = session();
+        if (s == null) return false;
+        out[0] = (float) x / Math.max(1, s.width - 1);
+        out[1] = y >= s.height - 2 ? 1f : (float) y / s.height;
+        return true;
+    }
+
     @Override public boolean screenPlace(float[] out) {
         ScreenShareSession s = session();
         if (s == null) return false;

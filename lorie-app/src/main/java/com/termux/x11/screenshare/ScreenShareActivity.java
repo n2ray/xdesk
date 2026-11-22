@@ -49,14 +49,31 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             return;
         }
         ScreenShareActivity a = showing;
-        if (a == null || !hostId.equals(a.hostId) || a.isFinishing()) return;
+        if (a == null || !hostId.equals(a.hostId) || a.isFinishing()) {
+            logArrow("no screen for " + hostId + " (showing " + (a != null ? a.hostId : "none") + ")");
+            return;
+        }
         a.pointerX = x;
         a.pointerY = y;
         a.placeArrow();
     }
 
+    private static long arrowLoggedAt;
+
+    /** At most once every 2 s: the pointer is drawn or why not. */
+    private static void logArrow(String what) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - arrowLoggedAt < 2000) return;
+        arrowLoggedAt = now;
+        Log.i(ScreenShareSession.TAG, "pointer " + what);
+    }
+
     private void placeArrow() {
-        if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) return;
+        if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) {
+            logArrow("not drawn: arrow " + (arrow != null) + " view " + view.getWidth() + " at " + pointerX);
+            return;
+        }
+        logArrow("at " + pointerX + "," + pointerY + " in " + view.getWidth() + "x" + view.getHeight() + "+" + view.getLeft() + "," + view.getTop());
         arrow.setVisibility(View.VISIBLE);
         arrow.setTranslationX(view.getLeft() + (float) pointerX * view.getWidth() / session.width - arrow.tip);
         arrow.setTranslationY(view.getTop() + (float) pointerY * view.getHeight() / session.height - arrow.tip);
