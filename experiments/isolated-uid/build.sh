@@ -5,8 +5,11 @@ here=$(cd "$(dirname "$0")" && pwd)
 : "${ANDROID_SDK_ROOT:?set the Android SDK path}"
 : "${ANDROID_NDK_ROOT:?set the Android NDK path}"
 : "${JAVA_HOME:?use a JDK such as 21}"
-out=${1:?usage: bash build.sh OUTPUT_DIRECTORY BUSYBOX_STATIC_DEB}
-deb=${2:?supply the Ubuntu resolute arm64 busybox-static deb}
+if [[ $# != 2 && $# != 3 ]]; then
+    echo 'usage: build.sh OUT BUSYBOX_STATIC_DEB | build.sh OUT DASH_DEB LIBC6_DEB' >&2
+    exit 1
+fi
+out=$1
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 sdk="$ANDROID_SDK_ROOT/platforms/android-35"
@@ -21,17 +24,35 @@ pkg=io/github/n2ray/xdesk/probe
 stage=$(mktemp -d "$out/build.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 lib="$stage/lib/arm64-v8a"
-mkdir -p "$lib" "$stage/classes" "$stage/dex" "$stage/generated"
-expected=fcf50794faf920455895d7ef103d1c54b9ebf7f18d2e52982dbf3903b7769592
-actual=$(shasum -a 256 "$deb" | cut -d ' ' -f 1)
-[[ "$actual" == "$expected" ]] || { echo 'Wrong Ubuntu busybox-static package' >&2; exit 1; }
-ar -p "$deb" data.tar.zst | bsdtar -xOf - ./usr/bin/busybox > "$lib/libubuntu_busybox.so"
+mkdir -p "$lib" "$stage/classes" "$stage/dex" "$stage/generated/$pkg"
+verify_deb() {
+    local actual
+    actual=$(shasum -a 256 "$1" | cut -d ' ' -f 1)
+    [[ "$actual" == "$2" ]] || { echo "Unexpected Ubuntu package: $1" >&2; exit 1; }
+}
+extract_elf() {
+    ar -p "$1" data.tar.zst | bsdtar -xOf - "$2" > "$lib/$3"
+}
+dynamic=false
+if [[ $# == 3 ]]; then
+    dynamic=true
+    verify_deb "$2" 55d2de41583e56ced56cdd0ed830704a936fd78a00435ad7ba142797546e8758
+    verify_deb "$3" 183cc011d1c93bc15778e02b4a8d9b0cbdbe29e0c0ea59a1cb80ccf5f5dcb157
+    extract_elf "$2" ./usr/bin/dash libubuntu_dash.so
+    extract_elf "$3" ./usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 libubuntu_ld.so
+    extract_elf "$3" ./usr/lib/aarch64-linux-gnu/libc.so.6 libubuntu_libc.so
+else
+    verify_deb "$2" fcf50794faf920455895d7ef103d1c54b9ebf7f18d2e52982dbf3903b7769592
+    extract_elf "$2" ./usr/bin/busybox libubuntu_busybox.so
+fi
+printf 'package io.github.n2ray.xdesk.probe; class GuestBuild { static final boolean DYNAMIC = %s; }\n' \
+    "$dynamic" > "$stage/generated/$pkg/GuestBuild.java"
 cp "$here/../../lorie-app/src/main/jniLibs/arm64-v8a/libburrow.so" "$lib/"
 "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/$host/bin/aarch64-linux-android30-clang" \
     -shared -fPIC -O2 -Wall -Wextra -Werror "$here/runner.c" -o "$lib/libfdprobe.so"
 "$bt/aidl" -p"$sdk/framework.aidl" -I"$here/src" -o"$stage/generated" "$here/src/$pkg/IProbe.aidl"
 javac --release 8 -cp "$sdk/android.jar" -d "$stage/classes" \
-    "$here/src/$pkg/"*.java "$stage/generated/$pkg/IProbe.java"
+    "$here/src/$pkg/"*.java "$stage/generated/$pkg/"*.java
 jar cf "$stage/classes.jar" -C "$stage/classes" .
 "$bt/d8" --min-api 30 --lib "$sdk/android.jar" --output "$stage/dex" "$stage/classes.jar"
 "$bt/aapt2" link -I "$sdk/android.jar" --manifest "$here/AndroidManifest.xml" -o "$stage/base.apk"

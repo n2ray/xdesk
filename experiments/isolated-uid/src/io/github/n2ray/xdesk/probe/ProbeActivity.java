@@ -22,13 +22,30 @@ public final class ProbeActivity extends Activity {
     private static boolean hasLine(String report, String line) {
         return ("\n" + report + "\n").contains("\n" + line + "\n");
     }
+    private static boolean imagesMapped(String report) {
+        if (!GuestBuild.DYNAMIC) return true;
+        String[] lines = report.split("\n");
+        for (String name : new String[]{"libubuntu_dash.so", "libubuntu_ld.so", "libubuntu_libc.so"}) {
+            String prefix = "installed=" + name + " ";
+            boolean mapped = false;
+            for (String line : lines) {
+                if (!line.startsWith(prefix)) continue;
+                String mapping = "exec_map=" + line.substring(prefix.length()) + " ";
+                for (String candidate : lines) {
+                    if (candidate.startsWith(mapping)) mapped = true;
+                }
+            }
+            if (!mapped) return false;
+        }
+        return true;
+    }
     private static boolean isolatedResult(String report, String token, String identity) {
         // Android app-data isolation may hide the directory altogether.
         boolean denied = hasLine(report, "path_errno=2") || hasLine(report, "path_errno=13");
         String diagnostic = report.toLowerCase(Locale.ROOT);
         boolean guestDenied = diagnostic.contains("/owner-marker: no such file")
                 || diagnostic.contains("/owner-marker: permission denied");
-        return denied && hasLine(report, "file=" + identity) && hasLine(report, "via_fd=" + token)
+        return imagesMapped(report) && denied && hasLine(report, "file=" + identity) && hasLine(report, "via_fd=" + token)
                 && guestDenied && hasLine(report, "fd_mode=0") && hasLine(report, "via_path=DENIED")
                 && hasLine(report, "guest_exit=0") && report.contains("domain=u:r:isolated_app:")
                 && report.contains("\nu:r:isolated_app:") && !hasLine(report, "uid=" + android.os.Process.myUid());
@@ -75,7 +92,7 @@ public final class ProbeActivity extends Activity {
             }
             StructStat st = Os.stat(path);
             String identity = st.st_dev + ":" + st.st_ino;
-            boolean ok = hasLine(control, "path_errno=0") && hasLine(control, "via_path=" + token)
+            boolean ok = imagesMapped(control) && hasLine(control, "path_errno=0") && hasLine(control, "via_path=" + token)
                     && hasLine(control, "via_fd=" + token) && hasLine(control, "guest_exit=0")
                     && hasLine(control, "file=" + identity) && isolatedResult(restricted, token, identity)
                     && new String(Files.readAllBytes(marker.toPath()), StandardCharsets.US_ASCII).equals(token + "\n");
