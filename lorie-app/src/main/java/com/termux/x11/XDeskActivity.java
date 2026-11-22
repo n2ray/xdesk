@@ -1413,6 +1413,11 @@ public class XDeskActivity extends Activity {
         private void sessionDecided(final String name) {
             leaveContentChoice();
             pendingApp = null;  // an Android app still waiting for its activation is no longer what was chosen
+            // A Termux desktop chosen while the built-in Linux's X is shown: Termux's X comes back first (owner,
+            // 22 November: once back on the built-in one, Termux's desktop could not be reached again; its session
+            // ran, so it was only "shown as opened", on the built-in X)
+            IBinder termux = termuxX();
+            if (termux != null && XServers.isBuiltin(XServers.shown())) XServers.switchTo(termux);
             // Only a whole desktop is chosen here (整个桌面, the one thing that starts an environment's XFCE). "NAME+apps",
             // what Linux programs run on, is started by needDesktop alone and is never listed as recent
             boolean appsOnly = name.endsWith(Devices.APPS_ONLY);

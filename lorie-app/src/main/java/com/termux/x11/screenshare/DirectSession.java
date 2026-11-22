@@ -89,7 +89,8 @@ final class DirectSession implements Closeable {
         records.send(msg);
     }
     /** M4 single-display session. The first connection wakes the system sharing service. */
-    byte[] start(String username, char[] password) throws Exception {
+    byte[] start(String username, char[] password, java.util.function.IntConsumer stage) throws Exception {
+        stage.accept(ScreenShareSession.STAGE_CONNECT);
         InetSocketAddress server = new InetSocketAddress(host, 5900);
         try (Socket wake = new Socket()) {
             wake.connect(server, 5000);
@@ -103,8 +104,10 @@ final class DirectSession implements Closeable {
         in = new DataInputStream(new BufferedInputStream(control.getInputStream()));
         out = control.getOutputStream();
         banner(control);
+        stage.accept(ScreenShareSession.STAGE_LOGIN);
         byte[] wrap = new AppleLogin(this).authenticate(username, password);
         Log.i("XDeskScreenShare", "SRP verified, direct TCP "+control.getLocalAddress()+" -> "+server);
+        stage.accept(ScreenShareSession.STAGE_MEDIA);
         beginDesktop();
         enableRecords(wrap);
         Arrays.fill(wrap, (byte)0);

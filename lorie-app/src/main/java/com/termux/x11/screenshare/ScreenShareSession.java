@@ -75,6 +75,14 @@ public final class ScreenShareSession {
     private long startNs, attachNs, firstRenderNs, lastRenderNs;
     private int rendered;
     private boolean pictureSeen, anyPicture;
+    /** Where the connection is, for the screen's 正在连接 card (ConnectingCard): the Mac woken, the password, the media. */
+    public static final int STAGE_CONNECT = 0, STAGE_LOGIN = 1, STAGE_MEDIA = 2, STAGE_PICTURE = 3;
+    public volatile int stage = STAGE_CONNECT;
+
+    /** A picture came since the connection started (not only since this screen attached). */
+    public synchronized boolean hadPicture() {
+        return anyPicture;
+    }
     /** Test only: the Mac's clock (its clock_meter) minus ours, and whether it was measured. */
     public volatile long offsetNs;
     public volatile boolean clockCalibrated;
@@ -303,10 +311,11 @@ public final class ScreenShareSession {
             try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video, d.host)) {
                 byte[] seed;
                 try {
-                    seed = d.start(host.account, password);
+                    seed = d.start(host.account, password, v -> stage = v);
                 } finally {
                     Arrays.fill(password, (char) 0);
                 }
+                stage = STAGE_PICTURE;
                 AvcReceiver r = new AvcReceiver(seed, d.clock);
                 r.feedback = d.feedback;
                 receiver = r;

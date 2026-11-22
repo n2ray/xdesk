@@ -24,6 +24,11 @@
     <string name="xd_ss_login_keys">Type on the phone · Enter connects · Esc cancels</string>
     <string name="xd_ss_login_keys_keep">Type on the phone · Enter connects · Tab remembers · Esc cancels</string>
     <string name="xd_ss_login_on_screen">Type the Mac password: the box is on the external screen</string>
+    <string name="xd_ss_connecting">Connecting to %1$s…</string>
+    <string name="xd_ss_stage_connect">Reaching the Mac</string>
+    <string name="xd_ss_stage_login">Checking the password</string>
+    <string name="xd_ss_stage_media">Setting up picture and sound</string>
+    <string name="xd_ss_stage_picture">Waiting for the first picture</string>
     <string name="xd_ss_save_title">Keep the password for %1$s</string>
     <string name="xd_ss_not_saved">The password was not kept; connecting anyway</string>
     <string name="xd_ss_unlock_title">Connect to %1$s</string>

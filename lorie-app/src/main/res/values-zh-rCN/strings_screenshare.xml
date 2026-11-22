@@ -24,6 +24,11 @@
     <string name="xd_ss_login_keys">在手机上打字 · 回车连接 · Esc 取消</string>
     <string name="xd_ss_login_keys_keep">在手机上打字 · 回车连接 · Tab 记住密码 · Esc 取消</string>
     <string name="xd_ss_login_on_screen">输入 Mac 密码：密码框在外接屏上</string>
+    <string name="xd_ss_connecting">正在连接 %1$s…</string>
+    <string name="xd_ss_stage_connect">正在联系 Mac</string>
+    <string name="xd_ss_stage_login">正在验证密码</string>
+    <string name="xd_ss_stage_media">正在准备画面和声音</string>
+    <string name="xd_ss_stage_picture">正在等第一帧画面</string>
     <string name="xd_ss_save_title">为 %1$s 保存密码</string>
     <string name="xd_ss_not_saved">密码没有保存，继续连接</string>
     <string name="xd_ss_unlock_title">连接 %1$s</string>

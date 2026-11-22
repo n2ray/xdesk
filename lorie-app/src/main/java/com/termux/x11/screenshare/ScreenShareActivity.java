@@ -16,6 +16,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
+import com.termux.x11.app.R;
+
 /**
  * A connected Mac's screen (macOS Screen Sharing), full screen on the display it was started on: the Mac's H.264,
  * decoded by the phone's hardware into this SurfaceView. It only shows the picture: the connection (and XDesk's
@@ -144,6 +146,26 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         if (a != null && hostId.equals(a.hostId)) a.finish();
     }
 
+    /** 正在连接, until the first picture. */
+    private com.termux.x11.ConnectingCard connecting;
+    private int stageShown;
+    private final Runnable showStage = new Runnable() {
+        @Override public void run() {
+            ScreenShareSession s = session;
+            com.termux.x11.ConnectingCard c = connecting;
+            if (s == null || c == null) return;
+            int now = s.stage;
+            if (now != stageShown) {
+                stageShown = now;
+                int line = now == ScreenShareSession.STAGE_LOGIN ? R.string.xd_ss_stage_login
+                    : now == ScreenShareSession.STAGE_MEDIA ? R.string.xd_ss_stage_media
+                    : now == ScreenShareSession.STAGE_PICTURE ? R.string.xd_ss_stage_picture : R.string.xd_ss_stage_connect;
+                c.step(getString(line));
+            }
+            ui.postDelayed(this, 250);
+        }
+    };
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         hostId = getIntent().getStringExtra(EXTRA_HOST);
@@ -179,6 +201,13 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         arrow.setVisibility(View.INVISIBLE);
         frame.addView(arrow, new FrameLayout.LayoutParams(arrow.w(), arrow.h(), Gravity.TOP | Gravity.START));
         view.addOnLayoutChangeListener((v, l, t, r, bottom, ol, ot, or, ob) -> placeArrow());
+        // Black until the first picture (about ten seconds after the password): say what is going on
+        if (!s.hadPicture()) {
+            connecting = new com.termux.x11.ConnectingCard(this, getDisplay(), getString(R.string.xd_ss_connecting, s.host.label()));
+            frame.addView(connecting, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+            stageShown = -1;
+            showStage.run();
+        }
         setContentView(frame);
         Log.i(ScreenShareSession.TAG, "SCREEN display=" + getDisplay().getDisplayId() + " picture=" + width + "x" + height);
     }
@@ -196,6 +225,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     @Override protected void onDestroy() {
+        ui.removeCallbacks(showStage);
         sampling = false;
         if (session != null) session.detach();
         if (showing == this) showing = null;
@@ -203,6 +233,11 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     @Override public void firstFrame(long ms) {
+        if (connecting != null) {
+            ui.removeCallbacks(showStage);
+            ((android.view.ViewGroup) connecting.getParent()).removeView(connecting);
+            connecting = null;
+        }
         final ScreenShareSession s = session;
         if (s == null || !s.host.measure || sampling) return;
         // Test only: the time bar read off the picture, and the numbers of the 35 seconds from here
