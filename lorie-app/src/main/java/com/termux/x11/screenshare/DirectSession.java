@@ -25,7 +25,8 @@ final class DirectSession implements Closeable {
     DataInputStream in;
     OutputStream out;
     ControlWriter records;
-    final int width,height;
+    /** The frame buffer (= the video) in pixels, and the desktop in points: equal at 1x, half for HiDPI. */
+    final int width,height,pointsW,pointsH;
     Cipher pointerCipher;
     KeyframeFeedback feedback;
     private final ScheduledExecutorService probes = Executors.newSingleThreadScheduledExecutor();
@@ -38,16 +39,21 @@ final class DirectSession implements Closeable {
         encrypted(cat(b(16,0),pointerCipher.doFinal(event)));
     }
     byte[] displayConfig()throws Exception {
-        // One virtual display, one 1x mode. DisplayInfo starts at byte 12.
+        // One virtual display with one mode. DisplayInfo starts at byte 12 (mprobe.py build_display_config): its
+        // largest size at 0x8A/0x8E, the panel's millimetres at 0x82/0x86, the mode count at 0x9A; a mode is the
+        // frame buffer's pixels, then the desktop's points (twice: HiDPI), then 60 Hz.
         byte[] d=Arrays.copyOf(asset("display"),12+156+28);
         ByteBuffer buf=ByteBuffer.wrap(d);buf.putShort(2,(short)(d.length-4));
         buf.putShort(12,(short)(d.length-12));buf.putShort(12+154,(short)1);
         buf.putInt(12+138,width);buf.putInt(12+142,height);
-        buf.position(12+156);buf.putInt(width).putInt(height).putInt(width).putInt(height);
+        // The template's 344×194 mm panel in this picture's proportions (same area), so no pixel is taken as oblong
+        double area=344.0*194.0, ratio=(double)width/height;
+        buf.putFloat(12+0x82,(float)Math.sqrt(area*ratio));buf.putFloat(12+0x86,(float)Math.sqrt(area/ratio));
+        buf.position(12+156);buf.putInt(width).putInt(height).putInt(pointsW).putInt(pointsH);
         return d;
     }
-    DirectSession(android.content.Context context,String h,int w,int sizeY)throws Exception {
-        assets=context.getAssets();width=w;height=sizeY; host=InetAddress.getByName(h);
+    DirectSession(android.content.Context context,String h,int w,int sizeY,int dw,int dh)throws Exception {
+        assets=context.getAssets();width=w;height=sizeY;pointsW=dw;pointsH=dh; host=InetAddress.getByName(h);
         audio=new DatagramSocket(5900);
         try {video=new DatagramSocket(5901);}catch(Exception e){audio.close();throw e;}
         video.setReceiveBufferSize(4<<20); video.setSoTimeout(300);
@@ -160,8 +166,10 @@ final class DirectSession implements Closeable {
         if (in.readUnsignedShort() != 0) throw new IOException("expected initial framebuffer update");
         int rectangles = in.readUnsignedShort();
         for (int i = 0; i < rectangles; i++) {
-            read(in, 8);
+            ByteBuffer r = ByteBuffer.wrap(read(in, 8));
             int kind = in.readInt();
+            // What the Mac made of the display asked for (桌面缩放 checks: a mode it refused shows here)
+            Log.i("XDeskScreenShare", "initial rect " + kind + " at " + word(r) + "," + word(r) + " size " + word(r) + "x" + word(r));
             if (kind == 1010 || kind == 1011) {
                 read(in, in.readUnsignedShort());
                 continue;

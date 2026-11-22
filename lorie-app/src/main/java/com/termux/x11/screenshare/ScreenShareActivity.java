@@ -194,9 +194,10 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         });
         view.getHolder().setFixedSize(width, height);
         view.getHolder().addCallback(this);
-        // The Mac's own pointer size: its virtual screen is drawn this many screen pixels per Mac pixel
+        // The Mac's own pointer size: its desktop is drawn this many screen pixels per Mac point (twice as many
+        // with 大字's HiDPI, a third more with 适度放大), the picture as large as it fits
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        float u = Math.max(1f, Math.min((float) dm.widthPixels / width, (float) dm.heightPixels / height));
+        float u = Math.max(1f, Math.min((float) dm.widthPixels / s.sizing.desktopW, (float) dm.heightPixels / s.sizing.desktopH));
         arrow = new ArrowView(this, u);
         arrow.setVisibility(View.INVISIBLE);
         frame.addView(arrow, new FrameLayout.LayoutParams(arrow.w(), arrow.h(), Gravity.TOP | Gravity.START));

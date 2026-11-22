@@ -29,6 +29,17 @@
     <string name="xd_ss_stage_login">正在验证密码</string>
     <string name="xd_ss_stage_media">正在准备画面和声音</string>
     <string name="xd_ss_stage_picture">正在等第一帧画面</string>
+    <string name="xd_ss_scale">桌面缩放</string>
+    <string name="xd_ss_scale_native">原生大小</string>
+    <string name="xd_ss_scale_moderate">适度放大（约 1.33×）</string>
+    <string name="xd_ss_scale_large">大字（2×）</string>
+    <string name="xd_ss_scale_result">桌面 %1$s · 视频 %2$s</string>
+    <string name="xd_ss_scale_hidpi">HiDPI</string>
+    <string name="xd_ss_scale_upscaled">降低分辨率后放大显示</string>
+    <string name="xd_ss_scale_limited">受上限缩小</string>
+    <string name="xd_ss_scale_on">按当前外接屏（%1$s）计算，每次连接时重新计算。</string>
+    <string name="xd_ss_scale_no_screen">没接外接屏：按 1920×1080 估算，连接时按实际屏幕重新计算。</string>
+    <string name="xd_ss_scale_got">上次连接：请求视频 %1$s，Mac 实际给了 %2$s。</string>
     <string name="xd_ss_save_title">为 %1$s 保存密码</string>
     <string name="xd_ss_not_saved">密码没有保存，继续连接</string>
     <string name="xd_ss_unlock_title">连接 %1$s</string>

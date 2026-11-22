@@ -15,6 +15,7 @@ import com.termux.x11.app.R;
 import com.termux.x11.screenshare.ScreenShareActivity;
 import com.termux.x11.screenshare.ScreenShareLoginActivity;
 import com.termux.x11.screenshare.ScreenShareSession;
+import com.termux.x11.screenshare.ScreenShareSizing;
 import com.termux.x11.screenshare.ScreenShareStore;
 
 import java.util.ArrayList;
@@ -166,6 +167,13 @@ final class ScreenShareSource implements ContentSource {
         context.startActivity(i);
     }
 
+    /** The sizes for this Mac on that display (its output now; an assumed 1920×1080 one when it is not there). */
+    static ScreenShareSizing sizing(Context c, int displayId, int tier) {
+        Display d = c.getSystemService(DisplayManager.class).getDisplay(displayId);
+        int[] out = ScreenShareSizing.output(d);
+        return out != null ? ScreenShareSizing.of(tier, out[0], out[1]) : ScreenShareSizing.of(tier, 0, 0);
+    }
+
     /** The login's password: connect, then show the Mac where it was asked for. */
     private void connect(String hostId, char[] password) {
         Object[] p = pending.remove(hostId);
@@ -175,18 +183,11 @@ final class ScreenShareSource implements ContentSource {
             return;
         }
         int displayId = (Integer) p[1];
-        int w = 1920, height = 1080;
-        if (!h.fixed1080) {
-            // One virtual screen the size of the screen it shows on, at most 4K, even
-            Display d = context.getSystemService(DisplayManager.class).getDisplay(displayId);
-            if (d != null) {
-                Display.Mode mode = d.getMode();
-                double fit = Math.min(1, Math.min(3840.0 / mode.getPhysicalWidth(), 2160.0 / mode.getPhysicalHeight()));
-                w = 2 * (int) (mode.getPhysicalWidth() * fit / 2);
-                height = 2 * (int) (mode.getPhysicalHeight() * fit / 2);
-            }
-        }
-        ScreenShareSession.start(context, h, password, w, height, sessions);
+        // 桌面缩放: worked out afresh at each connection from the screen it shows on, as it is driven now (its mode,
+        // its rotation), and this Mac's tier; another screen, a turn or a new mode counts from the next connection
+        ScreenShareSizing z = h.fixed1080 ? ScreenShareSizing.fixed1080()
+            : sizing(context, displayId, h.scale);
+        ScreenShareSession.start(context, h, password, z, sessions);
         show(hostId, displayId, (String) p[0], (Result) p[2]);
         notifyChanged();
     }

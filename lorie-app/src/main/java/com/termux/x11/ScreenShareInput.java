@@ -44,11 +44,24 @@ final class ScreenShareInput implements InputSink {
         com.termux.x11.screenshare.ScreenShareActivity.pointerAt(hostId, x, y);
     }
 
+    /** Fractions of a frame-buffer pixel left over from the moves (a screen pixel is less than one at 适度放大). */
+    private float restX, restY;
+
+    /**
+     * The touchpad's moves are screen pixels: the frame buffer may be smaller than the screen (适度放大, or a limit),
+     * so they are scaled to it and the pointer goes as fast on the screen at every 桌面缩放.
+     */
     @Override public void move(int dx, int dy) {
         ScreenShareSession s = session();
         if (s == null) return;
-        x = Math.max(0, Math.min(s.width - 1, x + dx));
-        y = Math.max(0, Math.min(s.height - 1, y + dy));
+        float k = s.sizing.screenW > 0 ? (float) s.width / s.sizing.screenW : 1f;
+        restX += dx * k;
+        restY += dy * k;
+        int mx = Math.round(restX), my = Math.round(restY);
+        restX -= mx;
+        restY -= my;
+        x = Math.max(0, Math.min(s.width - 1, x + mx));
+        y = Math.max(0, Math.min(s.height - 1, y + my));
         s.pointer(buttons, x, y);
         shown();
     }

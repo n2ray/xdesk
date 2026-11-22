@@ -58,7 +58,12 @@ public final class ScreenShareSession {
     private static ScreenShareSession current;
 
     public final ScreenShareStore.Host host;
+    /** The video and the frame buffer, in pixels: what the decoder, the surface and the pointer's coordinates use. */
     public final int width, height;
+    /** 桌面缩放: the screen, the Mac's desktop (points) and the video this session asked for. */
+    public final ScreenShareSizing sizing;
+    /** The picture's size as the decoder found it in the stream (0 until then): the Mac may give another than asked. */
+    public volatile int actualW, actualH;
     private final Context context;
     private final Listener listener;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -90,11 +95,12 @@ public final class ScreenShareSession {
     private final ArrayList<Double> pipeline = new ArrayList<>();
     private final ArrayList<Double> ages = new ArrayList<>();
 
-    private ScreenShareSession(Context c, ScreenShareStore.Host h, int w, int height, Listener l) {
+    private ScreenShareSession(Context c, ScreenShareStore.Host h, ScreenShareSizing z, Listener l) {
         context = c.getApplicationContext();
         host = h;
-        width = w;
-        this.height = height;
+        sizing = z;
+        width = z.videoW;
+        height = z.videoH;
         listener = l;
     }
 
@@ -104,9 +110,9 @@ public final class ScreenShareSession {
 
     /** Connects; the password is cleared once the authentication used it. */
     public static synchronized ScreenShareSession start(Context c, ScreenShareStore.Host h, char[] password,
-                                                        int w, int height, Listener l) {
+                                                        ScreenShareSizing z, Listener l) {
         if (current != null) current.close();
-        ScreenShareSession s = new ScreenShareSession(c, h, w, height, l);
+        ScreenShareSession s = new ScreenShareSession(c, h, z, l);
         current = s;
         Thread t = new Thread(() -> s.run(password), "screen-sharing");
         t.start();
@@ -235,10 +241,24 @@ public final class ScreenShareSession {
                     else c.releaseOutputBuffer(idx, false);
                     if (end) break;
                 } else if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    Log.i(TAG, "FORMAT " + c.getOutputFormat());
+                    MediaFormat f = c.getOutputFormat();
+                    Log.i(TAG, "FORMAT " + f);
+                    noteActual(f);
                 }
             }
         } catch (IllegalStateException ignored) { }
+    }
+
+    /** The size the stream really has (its crop): kept for the settings' "last connection" line. */
+    private void noteActual(MediaFormat f) {
+        int w = f.containsKey("crop-right") ? f.getInteger("crop-right") - f.getInteger("crop-left") + 1 : f.getInteger(MediaFormat.KEY_WIDTH);
+        int h = f.containsKey("crop-bottom") ? f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1 : f.getInteger(MediaFormat.KEY_HEIGHT);
+        if (w == actualW && h == actualH) return;
+        actualW = w;
+        actualH = h;
+        boolean asked = w == width && h == height;
+        Log.i(TAG, "VIDEO " + w + "x" + h + (asked ? " as asked" : " (asked " + width + "x" + height + ")"));
+        ScreenShareStore.setResult(context, host.id, sizing, w, h);
     }
 
     /** One access unit from the Mac: to the decoder if a screen shows the picture and it has had its IDR. */
@@ -304,8 +324,8 @@ public final class ScreenShareSession {
     private void run(char[] password) {
         String reason = null;
         startNs = System.nanoTime();
-        Log.i(TAG, "CONNECT host=" + host.host + " size=" + width + "x" + height);
-        try (DirectSession d = new DirectSession(context, host.host, width, height)) {
+        Log.i(TAG, "CONNECT host=" + host.host + " size=" + width + "x" + height + " (" + sizing + ")");
+        try (DirectSession d = new DirectSession(context, host.host, width, height, sizing.desktopW, sizing.desktopH)) {
             if (closed) return;
             if (host.measure) calibrate(d.host);
             try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video, d.host)) {

@@ -29,6 +29,17 @@
     <string name="xd_ss_stage_login">Checking the password</string>
     <string name="xd_ss_stage_media">Setting up picture and sound</string>
     <string name="xd_ss_stage_picture">Waiting for the first picture</string>
+    <string name="xd_ss_scale">Desktop scaling</string>
+    <string name="xd_ss_scale_native">Native</string>
+    <string name="xd_ss_scale_moderate">Larger (1.33×)</string>
+    <string name="xd_ss_scale_large">Large text (2×)</string>
+    <string name="xd_ss_scale_result">Desktop %1$s · video %2$s</string>
+    <string name="xd_ss_scale_hidpi">HiDPI</string>
+    <string name="xd_ss_scale_upscaled">lower resolution, enlarged on the screen</string>
+    <string name="xd_ss_scale_limited">reduced to fit the limits</string>
+    <string name="xd_ss_scale_on">On the external screen now (%1$s); counted again at each connection.</string>
+    <string name="xd_ss_scale_no_screen">No external screen attached: shown for a 1920×1080 one; counted again when connecting.</string>
+    <string name="xd_ss_scale_got">Last connection: asked for video %1$s, the Mac sent %2$s.</string>
     <string name="xd_ss_save_title">Keep the password for %1$s</string>
     <string name="xd_ss_not_saved">The password was not kept; connecting anyway</string>
     <string name="xd_ss_unlock_title">Connect to %1$s</string>
