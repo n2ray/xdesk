@@ -31,7 +31,9 @@ final class AudioReceiver {
     private static final byte[] CONFIG = {(byte)0xf8,(byte)0xe6,0x51,0x34,(byte)0xe0,0};
     // One silent AU emitted by the M4 with this format. Preserve sample time on short losses.
     private static final byte[] SILENCE = {0, 0x68, 0x34, 0};
-    private static final int REORDER_MS = 20, MAX_GAP = 8;
+    // Keep a decoded runway for bursts on Wi-Fi. Video follows the actual track timestamp.
+    private static final int PRIME_FRAMES = RATE * 16 / 100; // 160 ms
+    private static final int REORDER_MS = 60, MAX_GAP = 12, MAX_PENDING = 32;
     private static final String TAG = "XDeskShareAudio";
     private final Context context;
     private final DatagramSocket socket;
@@ -95,10 +97,10 @@ final class AudioReceiver {
                     .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                             .setChannelMask(mask).setEncoding(pcm).build())
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    .setBufferSizeInBytes(Math.max(min, FRAME * CHANNELS * 2 * 5)).build();
+                    .setBufferSizeInBytes(Math.max(min, (PRIME_FRAMES + FRAME * 4) * CHANNELS * 2)).build();
             AudioRoute route = AudioRoute.forScreenSharing(context);
             track.setPreferredDevice(route.screenSharingDevice());
-            track.play();
+            boolean playing = false;
             byte[] storage = new byte[65535];
             DatagramPacket packet = new DatagramPacket(storage, storage.length);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
@@ -133,7 +135,7 @@ final class AudioReceiver {
                             gapSince = 0;
                         }
                         if (au.index < expected || pending.putIfAbsent(au.index, au.data) != null) late++;
-                        if (pending.size() > 12) {
+                        if (pending.size() > MAX_PENDING) {
                             long skipped = pending.lastKey() - expected;
                             expected = pending.lastKey();
                             pending.headMap(expected).clear();
@@ -154,7 +156,7 @@ final class AudioReceiver {
                             continue;
                         }
                     }
-                    int index = decoder.dequeueInputBuffer(0);
+                    int index = decoder.dequeueInputBuffer(1000);
                     if (index < 0) break;
                     byte[] data = gap == 0 ? pending.remove(expected) : SILENCE;
                     ByteBuffer in = decoder.getInputBuffer(index);
@@ -171,7 +173,7 @@ final class AudioReceiver {
                     try {
                         ByteBuffer out = decoder.getOutputBuffer(i);
                         long now = System.nanoTime();
-                        if (now >= nextTiming && audible(out) && track.getTimestamp(hardware)) {
+                        if (playing && now >= nextTiming && audible(out) && track.getTimestamp(hardware)) {
                             long due = hardware.nanoTime + (written / 4 - hardware.framePosition) * 1000000000L / RATE;
                             if (Math.abs(due - now) < 500000000L) {
                                 int sample = (int)((info.presentationTimeUs * RATE + 500000) / 1000000);
@@ -183,6 +185,10 @@ final class AudioReceiver {
                             int n = track.write(out, out.remaining(), AudioTrack.WRITE_BLOCKING);
                             if (n <= 0) throw new IOException("AudioTrack write " + n);
                             written += n;
+                            if (!playing && written / (CHANNELS * 2) >= PRIME_FRAMES) {
+                                track.play();
+                                playing = true;
+                            }
                         }
                     } finally { decoder.releaseOutputBuffer(i,false); }
                 }
