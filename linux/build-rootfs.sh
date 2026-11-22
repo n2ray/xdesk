@@ -67,14 +67,14 @@ rm /tmp/mesa.tgz
 apt-mark hold libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers mesa-libgallium 2>/dev/null || true
 ldconfig
 # Keep Chrome's VA frontend separate from the image's GL and Vulkan drivers.
-driver_url=https://github.com/n2ray/mesa-for-android-container/releases/download/xdesk-2026-11-22-8df76475fe0f
+driver_url=https://github.com/n2ray/mesa-for-android-container/releases/download/xdesk-2026-11-22-dc33d1cfb6b9
 (
     cd /tmp
     curl -fSL --retry 3 -O "$driver_url/termuxva_drv_video.so"
-    curl -fSL --retry 3 -O "$driver_url/termuxva_drv_video.so.sha256"
-    sha256sum -c termuxva_drv_video.so.sha256
+    echo "5153ff14bc1d0ba47a1f19be8b69f4962b8d9515212127b3554d45beffe6eacc  termuxva_drv_video.so" | sha256sum -c -
     install -D -m 755 termuxva_drv_video.so /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so
-    rm termuxva_drv_video.so termuxva_drv_video.so.sha256
+    echo dc33d1cfb6b9 > /usr/local/lib/xdesk-hwvideo/revision
+    rm termuxva_drv_video.so
 )
 
 # Chrome, once the user installs it, with the flags and environment the session writes for this phone's GPU

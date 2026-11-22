@@ -72,7 +72,13 @@ export MESA_LOADER_DRIVER_OVERRIDE=kgsl TURNIP_KMD=kgsl
 # Older images use the stock profile mask to keep Chrome responsive.
 if [ -r /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so ]; then
     export LIBVA_DRIVERS_PATH=/usr/local/lib/xdesk-hwvideo XDESK_VPP_WAIT=1
-    unset TERMUX_VA_DISABLE_AVC TERMUX_VA_DISABLE_AV1 TERMUX_VA_DISABLE_HEVC XDESK_AV1_LIMIT_1080
+    unset TERMUX_VA_DISABLE_AVC TERMUX_VA_DISABLE_AV1
+    if [ -r /usr/local/lib/xdesk-hwvideo/revision ]; then
+        unset TERMUX_VA_DISABLE_HEVC XDESK_AV1_LIMIT_1080
+    else
+        # Earlier experimental drivers used a shorter PRIME producer timeout.
+        export TERMUX_VA_DISABLE_HEVC=1 XDESK_AV1_LIMIT_1080=1
+    fi
     export XDESK_AV1_PACKET=1 DMD_AV1_OUTPUT_HIDDEN=0 DMD_AV1_INLINE_SHOW=1
 else
     export TERMUX_VA_DISABLE_AVC=1 TERMUX_VA_DISABLE_AV1=1 TERMUX_VA_DISABLE_HEVC=1
