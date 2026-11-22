@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xd_ss_title">Mac Screen Sharing</string>
-    <string name="xd_ss_type">Mac (Screen Sharing)</string>
-    <string name="xd_ss_type_note">macOS\'s own Screen Sharing, high-performance mode: nothing to install on the Mac (experimental)</string>
+    <string name="xd_ss_type">Shared desktop</string>
+    <string name="xd_ss_type_note">The whole Mac desktop through macOS\'s own Screen Sharing; nothing to install on the Mac (experimental)</string>
     <string name="xd_ss_entry_note">Screen Sharing</string>
     <string name="xd_ss_add_title">Mac through Screen Sharing</string>
     <string name="xd_ss_add_note">Turn on Screen Sharing on the Mac (System Settings › General › Sharing). Address on the local network or Tailscale. The password is asked when connecting; you can choose to keep it, encrypted and unlocked with your fingerprint or screen lock. The connection stays while you switch to other apps, until you disconnect it or end XDesk.</string>

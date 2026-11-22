@@ -122,29 +122,56 @@ final class DeviceSettings {
         }
     }
 
-    /** SetDevices' sheet: what to add, Linux or a Mac, each opening its own set-up. */
+    /**
+     * SetDevices' sheet, two levels (DEVICES.md §5): first the kind of computer, Linux or Mac; then how to reach it.
+     * Linux: Termux (itself, and the proot / chroot environments its xdesk knows) or XDesk's built-in Linux. Mac:
+     * a Sill connection (windows and apps, Sill installed on the Mac) or the Mac's own Screen Sharing (the whole
+     * desktop, nothing to install). Each choice opens its own set-up.
+     */
     private void pickType() {
+        sheet(c.getString(R.string.xd_dev_add_pick),
+            new Choice(c.getString(R.string.xd_dev_type_linux), c.getString(R.string.xd_dev_type_linux_note), this::pickLinux),
+            new Choice(c.getString(R.string.xd_dev_type_mac), c.getString(R.string.xd_dev_type_mac_note), this::pickMac));
+    }
+
+    /** Add device › Linux: Termux (native, proot, chroot) or the built-in Linux. */
+    private void pickLinux() {
+        sheet(c.getString(R.string.xd_dev_type_linux),
+            new Choice(c.getString(R.string.xd_dev_linux_termux), c.getString(R.string.xd_dev_linux_termux_note), this::linuxSetUp),
+            new Choice(c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_type_note), () -> BuiltinLinuxPage.open(c)));
+    }
+
+    /** Add device › Mac: a Sill connection or the Mac's own Screen Sharing. */
+    private void pickMac() {
+        sheet(c.getString(R.string.xd_dev_type_mac),
+            new Choice(c.getString(R.string.xd_dev_mac_sill), c.getString(R.string.xd_dev_mac_sill_note), this::pickMacAdd),
+            new Choice(c.getString(R.string.xd_ss_type), c.getString(R.string.xd_ss_type_note), () -> ScreenShareSettings.add(c)));
+    }
+
+    private static final class Choice {
+        final String title, note;
+        final Runnable action;
+
+        Choice(String title, String note, Runnable action) {
+            this.title = title;
+            this.note = note;
+            this.action = action;
+        }
+    }
+
+    /** A bottom sheet of choices; picking one closes it and runs that choice. */
+    private void sheet(String heading, Choice... choices) {
         LinearLayout content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout types = s.card(content);
+        LinearLayout card = s.card(content);
         final Dialog[] sheet = new Dialog[1];
-        s.linkRow(types, c.getString(R.string.xd_dev_type_linux), c.getString(R.string.xd_dev_type_linux_note), "", () -> {
-            sheet[0].dismiss();
-            linuxSetUp();
-        });
-        s.linkRow(types, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_type_note), "", () -> {
-            sheet[0].dismiss();
-            BuiltinLinuxPage.open(c);
-        });
-        s.linkRow(types, c.getString(R.string.xd_dev_type_mac), c.getString(R.string.xd_dev_type_mac_note), "", () -> {
-            sheet[0].dismiss();
-            pickMacAdd();
-        });
-        s.linkRow(types, c.getString(R.string.xd_ss_type), c.getString(R.string.xd_ss_type_note), "", () -> {
-            sheet[0].dismiss();
-            ScreenShareSettings.add(c);
-        });
-        android.widget.TextView title = Style.label(c, c.getString(R.string.xd_dev_add_pick), Style.TEXT, 17);
+        for (final Choice ch : choices) {
+            s.linkRow(card, ch.title, ch.note, "", () -> {
+                sheet[0].dismiss();
+                ch.action.run();
+            });
+        }
+        android.widget.TextView title = Style.label(c, heading, Style.TEXT, 17);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setPadding(0, 0, 0, Style.dp(c, 4));
         sheet[0] = s.bottomSheet(title, content);

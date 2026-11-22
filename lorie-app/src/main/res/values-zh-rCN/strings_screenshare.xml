@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xd_ss_title">Mac 屏幕共享</string>
-    <string name="xd_ss_type">Mac（屏幕共享）</string>
-    <string name="xd_ss_type_note">macOS 自带的屏幕共享（高性能模式），Mac 上不用装软件（试验）</string>
+    <string name="xd_ss_type">共享桌面</string>
+    <string name="xd_ss_type_note">经 macOS 自带的屏幕共享连整个 Mac 桌面，Mac 上不用装软件（试验）</string>
     <string name="xd_ss_entry_note">屏幕共享</string>
     <string name="xd_ss_add_title">经屏幕共享连 Mac</string>
     <string name="xd_ss_add_note">先在 Mac 上打开屏幕共享（系统设置 › 通用 › 共享）。地址可以是局域网或 Tailscale 的。密码在连接时输入，可以选择保存：加密存放，每次用指纹或锁屏密码解锁。切换到别的应用时连接不断，直到你主动断开或结束 XDesk。</string>

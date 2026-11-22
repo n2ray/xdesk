@@ -194,10 +194,20 @@ XDesk                 [触摸板] [键鼠在外屏] [声音] [设置]
     ○ Ubuntu · proot     未运行                    → 同上，另有 [移除这个设备]
     ● M4                 已连接          [断开]   → 点行：Mac 设置（原 MacSettings）
   [+ 添加设备]
-      → 选类型：Linux（Termux、proot、chroot） / Mac（Sill） / Windows（即将支持） / Android 设备（即将支持）
-          Linux → 「xdesk 命令知道的环境」：Termux 本身（始终是设备）；其他每个环境一行，点一下添加，再点一下移除
-                  下面是让 xdesk 知道更多环境的步骤：没装 Termux 去下载；`xdesk setup`（找 proot）、`xdesk add NAME 'CMD'`（chroot），可复制命令；「重新读取」
-          Mac   → 配对流程：地址 → Sill 显示的 12 位码 → 配对；或扫 Sill 配对窗口里的二维码；输码的框里也能「让 Mac 显示配对码」（Mac 答应时，随后的配对只认这台 Mac）
+      → 第一层，电脑的种类（用户 2026-11-22 定）：Linux / Mac
+          Linux → 第二层：Termux（原生、proot、chroot） / 内置 Linux
+              Termux     → 「xdesk 命令知道的环境」：Termux 本身（始终是设备）；其他每个环境一行，点一下添加，再点一下移除
+                           下面是让 xdesk 知道更多环境的步骤：没装 Termux 去下载；`xdesk setup`（找 proot）、`xdesk add NAME 'CMD'`（chroot），可复制命令；「重新读取」
+              内置 Linux → 内置 Linux 的页面（BuiltinLinuxPage）：安装（下载或用已有的镜像，解压）→ 启动 / 停止、GPU 开关、
+                           重置（保留或清空 home）、删除。装好后作为一个设备出现在列表里，点它回到这个页面
+          Mac   → 第二层：Sill 连接 / 共享桌面
+              Sill 连接 → 配对流程：地址 → Sill 显示的 12 位码 → 配对；或扫 Sill 配对窗口里的二维码；输码的框里也能「让 Mac 显示配对码」（Mac 答应时，随后的配对只认这台 Mac）
+              共享桌面  → macOS 自带的屏幕共享（高性能模式），Mac 上不用装软件，看到的是整个桌面（试验，ScreenShareSettings）：
+                           地址（局域网或 Tailscale）、Mac 账户、名称、固定 1920×1080 还是跟随这块屏幕；不填密码。
+                           添加后是一个设备（`vnc:<id>`），内容是 `v:<id>:desktop`。第一次打开时在手机上输入密码，可选「记住密码」
+                           （Android Keystore 加密，每次用指纹或锁屏密码解锁）；连上后一直保持，切到别的应用只是让画面退到后面，
+                           直到用户在设备上「断开」、关闭这个条目或结束 XDesk。点设备行打开同一个表单，可改、可忘记密码、可删除
+          （Windows、Android 设备以后加在第一层）
 ```
 
 - Linux 环境只是"添加成设备"：加和移除都只改 XDesk 记的名单（`linux`），不动环境本身，也不运行任何东西。xdesk 不再报告的环境，它的设备自动不显示（名单里留着，环境回来就又有了）。Termux 本身不能移除。
