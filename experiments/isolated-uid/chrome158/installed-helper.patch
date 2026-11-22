@@ -1,0 +1,39 @@
+--- a/src/trap.c
++++ b/src/trap.c
+@@ -333,0 +334,19 @@
++/* Guest installation metadata for the dispatcher in the immutable APK.
++ * Take the backing inode from the actual executable's installation directory.
++ * Neither a guest pathname nor a caller-provided bind selects this object. */
++static struct kstat installed_dispatch;
++static void init_dispatch_inode(void) {
++    char exe[PATH_MAX];
++    long n = sys(NR_readlinkat, AT_FDCWD, "/proc/self/exe", exe, sizeof(exe) - 1);
++    if (n <= 0 || n >= (long)sizeof(exe) - 1) return;
++    exe[n] = 0;
++    if (!starts_with(exe, "/data/app/")) return;
++    while (n && exe[n - 1] != '/') --n;
++    if (!same(exe + n, "libburrow_chrome_fs.so") ||
++        copy(exe + n, sizeof(exe) - n, "libchrome158_dispatch.so") < 0) return;
++    struct kstat st;
++    if (!sys(NR_newfstatat, AT_FDCWD, exe, &st, AT_SYMLINK_NOFOLLOW) &&
++        (st.mode & S_IFMT) == S_IFREG && (st.mode & 0022) == 0 && (st.mode & 0001))
++        installed_dispatch = st;
++}
++
+@@ -335,0 +355,5 @@
++    if (installed_dispatch.ino && st->dev == installed_dispatch.dev && st->ino == installed_dispatch.ino) {
++        st->uid = st->gid = 0;
++        st->mode = S_IFREG | 04755;
++        return;
++    }
+@@ -342,0 +367,8 @@
++    uint64_t dev = installed_dispatch.dev;
++    if (installed_dispatch.ino && stx->ino == installed_dispatch.ino &&
++        stx->dev_major == ((dev >> 8) & 0xfff) && stx->dev_minor == ((dev & 0xff) | ((dev >> 12) & 0xfff00))) {
++        if (stx->mask & STATX_UID) stx->uid = 0;
++        if (stx->mask & STATX_GID) stx->gid = 0;
++        if (stx->mask & 2 /* STATX_MODE */) stx->mode = S_IFREG | 04755;
++        return;
++    }
+@@ -1724,0 +1757 @@
++    init_dispatch_inode();

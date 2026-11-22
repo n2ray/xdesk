@@ -5,6 +5,7 @@ import os
 import socket
 import sys
 
+print(f"xdesk_helper_exec pid={os.getpid()} guest_euid={os.geteuid()}", file=sys.stderr, flush=True)
 if sys.argv[1:] == ["--get-api"]:
     print(1)
     sys.exit(0)
@@ -22,4 +23,6 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as request:
     if request.sendmsg([b"Z"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, rights)]) != 1:
         sys.exit(125)
     reply = request.recv(2)
-    sys.exit(reply[0] if len(reply) == 1 else 125)
+    status = reply[0] if len(reply) == 1 else 125
+    print(f"xdesk_helper_reply={status}", file=sys.stderr, flush=True)
+    sys.exit(status)

@@ -12,5 +12,6 @@ python3 "$here/pack.py" "$archive" "$lib" "$stage/burrow/src/image-nodes.inc"
 make -s -C "$stage/burrow" CC="$compiler" OUT="$lib/libburrow.so"
 if [[ -n ${CHROME158_DEBS:-} ]]; then
     patch -s -d "$stage/burrow" -p1 < "$here/../chrome158/kernel-chroot.patch"
+    patch -s -d "$stage/burrow" -p1 < "$here/../chrome158/installed-helper.patch"
     make -s -C "$stage/burrow" CC="$compiler" OUT="$lib/libburrow_chrome_fs.so"
 fi

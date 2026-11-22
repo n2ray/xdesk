@@ -1,3 +1,4 @@
+#include <android/log.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <jni.h>
@@ -62,10 +63,27 @@ JNIEXPORT jint JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runChromeZy
     socklen_t size = sizeof(peer);
     if (getsockopt(request, SOL_SOCKET, SO_PEERCRED, &peer, &size) || peer.uid != (uid_t)owner)
         return -EACCES;
+    /* Observe the launch message without consuming the zygote handles. */
+    struct pollfd ready = {.fd = request, .events = POLLIN};
+    int polled;
+    do { polled = poll(&ready, 1, 3000); } while (polled < 0 && errno == EINTR);
+    if (polled < 0) return -errno;
+    if (!polled) return -ETIMEDOUT;
+    char operation;
+    if (recv(request, &operation, 1, MSG_PEEK | MSG_TRUNC | MSG_DONTWAIT) != 1 || operation != 'Z')
+        return -EPROTO;
+    __android_log_print(ANDROID_LOG_INFO, "XDeskChrome158",
+        "isolated_request=Z service_pid=%d service_uid=%u helper_pid=%d helper_uid=%u",
+        getpid(), getuid(), peer.pid, peer.uid);
     struct __user_cap_header_struct header = { .version = _LINUX_CAPABILITY_VERSION_3 };
     struct __user_cap_data_struct caps[2] = {0};
     if (syscall(__NR_capget, &header, caps)) return -errno;
-    if (!(caps[0].effective & (1u << CAP_SYS_CHROOT))) return -EPERM;
+    if (!(caps[0].effective & (1u << CAP_SYS_CHROOT))) {
+        /* Closing a seqpacket socket with an unread request can reset the
+         * peer before it sees the rejection. Discard the request and rights. */
+        if (recv(request, &operation, 1, MSG_DONTWAIT) != 1) return -EPROTO;
+        return -EPERM;
+    }
 
     const char *dir = (*env)->GetStringUTFChars(env, directory, NULL);
     if (!dir) return -ENOMEM;
