@@ -98,6 +98,9 @@ chmod 755 /usr/bin/google-chrome-stable
 # fixes the user's own settings)
 sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults
 
+# The look: Flat Remix GTK (blue, dark) and its window borders, one panel at the top and no dock
+sh /src/linux/xdesk-look.sh
+
 # SSH (XDesk starts it when the user turns on SSH access): no host keys in the image, or every installation would share
 # them; xdesk-sshd makes them on first start. Nothing starts it here (no systemd).
 rm -f /etc/ssh/ssh_host_*
@@ -110,7 +113,7 @@ rm -f /etc/xdg/autostart/xfce4-power-manager.desktop /etc/xdg/autostart/light-lo
 
 install -m 755 /src/lorie-app/src/main/assets/linux/xdesk-session /usr/local/bin/xdesk-session
 mkdir -p /etc/xdesk
-echo "ubuntu-26.04-r1 $(date -u +%Y-%m-%d)" > /etc/xdesk/image
+echo "ubuntu-26.04-r2 $(date -u +%Y-%m-%d)" > /etc/xdesk/image
 
 printf '127.0.0.1 localhost\n::1 localhost\n' > /etc/hosts
 echo xdesk > /etc/hostname
