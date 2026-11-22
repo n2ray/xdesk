@@ -109,13 +109,19 @@ final class ScreenShareInput implements InputSink {
         button(button, false);
     }
 
+    /**
+     * Screen Sharing scrolls about a line per wheel event, and a mouse notch (or a touchpad's step) is one: three
+     * each, as a Mac's own wheel goes (owner, 22 November: it scrolled, very slowly).
+     */
+    private static final int EVENTS_PER_STEP = 3;
+
     @Override public void scroll(int dy, int dx) {
-        step(dy > 0 ? 16 : 8, Math.abs(dy));
-        step(dx > 0 ? 64 : 32, Math.abs(dx));
+        step(dy > 0 ? 16 : 8, Math.abs(dy) * EVENTS_PER_STEP);
+        step(dx > 0 ? 64 : 32, Math.abs(dx) * EVENTS_PER_STEP);
     }
 
     private void step(int wheel, int n) {
-        for (int i = 0; i < Math.min(16, n); i++) {
+        for (int i = 0; i < Math.min(48, n); i++) {
             ScreenShareSession s = session();
             if (s == null) return;
             s.pointer(buttons | wheel, x, y);
