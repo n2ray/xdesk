@@ -91,7 +91,21 @@ final class ScreenShareInput implements InputSink {
         return button == 1 ? 1 : button == 2 ? 2 : button == 3 ? 4 : 0;
     }
 
+    /** The right button is down as Control + the left one (see button). */
+    private boolean rightAsControl;
+
     @Override public void button(int button, boolean isDown) {
+        if (button == 3) {
+            // Screen Sharing's fast mode takes no right button from the mask (nothing happened): the Mac's own
+            // secondary click, Control and the left button, which every Mac app takes as the right one
+            if (isDown == rightAsControl) return;
+            rightAsControl = isDown;
+            if (isDown) keysym(true, 0xffe3);
+            buttons = isDown ? buttons | 1 : buttons & ~1;
+            send();
+            if (!isDown) keysym(false, 0xffe3);
+            return;
+        }
         int b = bit(button);
         if (b == 0) return;
         buttons = isDown ? buttons | b : buttons & ~b;
@@ -160,6 +174,10 @@ final class ScreenShareInput implements InputSink {
 
     /** Lets go of every key and button held (the input leaves, the screen goes). */
     void releaseAll() {
+        if (rightAsControl) {
+            rightAsControl = false;
+            keysym(false, 0xffe3);
+        }
         for (int sym : down.values()) keysym(false, sym);
         down.clear();
         if (buttons != 0) {
