@@ -10,11 +10,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.termux.x11.app.R;
+import com.termux.x11.screenshare.ScreenSharePasswords;
 import com.termux.x11.screenshare.ScreenShareStore;
 
 /**
  * Add device › Mac (Screen Sharing): the Mac's address (local network or Tailscale), the account and how big a
- * screen to ask for. No password here: it is asked at each connection. The same dialog edits or removes one.
+ * screen to ask for. The password is asked at each connection (and kept, encrypted, only if the user chooses so at
+ * the login, ScreenSharePasswords); here it can be forgotten. The same dialog edits or removes one.
  */
 final class ScreenShareSettings {
     private ScreenShareSettings() { }
@@ -39,6 +41,9 @@ final class ScreenShareSettings {
         fixed.setText(R.string.xd_ss_fixed1080);
         fixed.setChecked(old != null && old.fixed1080);
         box.addView(fixed);
+        final CheckBox forget = new CheckBox(c);
+        forget.setText(R.string.xd_ss_forget);
+        if (old != null && ScreenSharePasswords.has(c, old.id)) box.addView(forget);
         final CheckBox measure = new CheckBox(c);
         measure.setText(R.string.xd_ss_measure);
         measure.setChecked(old != null && old.measure);
@@ -50,12 +55,15 @@ final class ScreenShareSettings {
             .setPositiveButton(android.R.string.ok, (d, w) -> {
                 String h = host.getText().toString().trim(), a = account.getText().toString().trim();
                 if (h.isEmpty() || a.isEmpty()) return;
+                if (old != null && (forget.isChecked() || !a.equals(old.account) || !h.equals(old.host)))
+                    ScreenSharePasswords.forget(c, old.id);
                 ScreenShareStore.save(c, id, name.getText().toString().trim(), h, a, fixed.isChecked(), measure.isChecked());
                 changed(c);
             });
         if (old != null) b.setNeutralButton(R.string.xd_ss_remove, (d, w) -> {
             ScreenShareSource src = ScreenShareSource.get();
             if (src != null) src.disconnect(id);
+            ScreenSharePasswords.forget(c, id);
             ScreenShareStore.remove(c, id);
             changed(c);
         });

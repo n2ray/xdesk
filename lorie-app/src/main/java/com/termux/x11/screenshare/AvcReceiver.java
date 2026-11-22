@@ -21,7 +21,9 @@ final class AvcReceiver {
     byte[] sps,pps;
     private int seenTypes;
     KeyframeFeedback feedback;
-    private long nextRecovery;
+    private long nextRecovery, nextKeyframeAsk;
+    /** XDesk: set when a decoder was (re)attached; cleared by the next IDR. */
+    volatile boolean wantKeyframe;
     AvcReceiver(byte[] seed)throws Exception{
         stream = new SrtpStream(seed);
     }
@@ -47,6 +49,12 @@ final class AvcReceiver {
                 Log.i("XDeskScreenShare", "FIR sent (no picture yet)");
                 nextRecovery = ns + 1000000000L;
             }
+        } else if (wantKeyframe && feedback != null && ns >= nextKeyframeAsk) {
+            // XDesk: a new decoder (the picture back on a screen) starts at the next IDR: ask for one now
+            feedback.request(h.getInt(8));
+            firs++;
+            Log.i("XDeskScreenShare", "FIR sent (picture shown again)");
+            nextKeyframeAsk = ns + 500000000L;
         }
         accepted++;
         haveSsrc = true;
@@ -102,7 +110,7 @@ final class AvcReceiver {
         for(byte[] u:units){
             int t=u[0]&31;
             if(t==7){sps=u;continue;}if(t==8){pps=u;continue;}
-            if(t==5){idr=true;idrs++;}
+            if(t==5){idr=true;idrs++;wantKeyframe=false;}
             pic.write(b(0,0,0,1));pic.write(u);
         }
         if(pic.size()>0 && sps!=null && pps!=null && (frames>0||idr)){

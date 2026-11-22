@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.termux.x11;
 
+import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
+import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
+import android.view.Display;
+import android.widget.Toast;
 
 import com.termux.x11.app.R;
 import com.termux.x11.screenshare.ScreenShareActivity;
@@ -13,26 +18,49 @@ import com.termux.x11.screenshare.ScreenShareSession;
 import com.termux.x11.screenshare.ScreenShareStore;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
 /**
  * Macs reached through macOS's own Screen Sharing (no app on the Mac, unlike Sill), as one ContentSource, prefix
- * "v:": "v:<id>:desktop" is that Mac's desktop, one virtual screen the size of the screen it shows on (or the
- * 1920×1080 baseline). Opening it asks the password on the phone (ScreenShareLoginActivity), then
- * ScreenShareActivity shows the picture on the chosen display and XDesk's input goes to ScreenShareInput. Taken
- * off the screen (hidden) or closed, the session ends: the Mac's display layout comes back and the ports are free.
+ * "v:": "v:<id>:desktop" is that Mac's desktop, one virtual screen the size of the screen it first shows on (or the
+ * 1920×1080 baseline).
+ *
+ * The connection is the user's: opened once (the password asked on the phone, or unlocked if they chose to keep
+ * it, ScreenShareLoginActivity), it stays until they disconnect (the device's Disconnect, closing the entry) or
+ * XDesk ends. Putting a Linux or Android app on the screen only takes the picture away (hidden: the decoder goes,
+ * the connection and the Mac's virtual screen stay); opening the Mac again shows it at once, from a fresh IDR.
  */
 final class ScreenShareSource implements ContentSource {
     static final String PREFIX = "v:";
+    private static final String TAG = ScreenShareSession.TAG;
     private static ScreenShareSource instance;
 
     private final Context context;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Runnable changed;
     private final HashMap<String, ScreenShareInput> inputs = new HashMap<>();
-    /** Host id -> the open() waiting for its login. */
+    /** Host id -> the open() waiting for its login: key, display id, result. */
     private final HashMap<String, Object[]> pending = new HashMap<>();
+
+    private final ScreenShareSession.Listener sessions = new ScreenShareSession.Listener() {
+        @Override public void connected(ScreenShareSession s) {
+            notifyChanged();
+        }
+        @Override public void ended(ScreenShareSession s, String reason) {
+            String id = s.host.id;
+            if (reason != null) Toast.makeText(context, context.getString(R.string.xd_ss_ended, s.host.label(), reason),
+                Toast.LENGTH_LONG).show();
+            ScreenShareInput in = inputs.get(id);
+            if (in != null) in.releaseAll();
+            boolean wasShown = ScreenShareActivity.isShowing(id);
+            ScreenShareActivity.finishFor(id);
+            Contents.Host host = Contents.host();
+            if (host != null && wasShown) host.contentEnded(key(id));
+            notifyChanged();
+        }
+    };
 
     private ScreenShareSource(Context c) {
         context = c.getApplicationContext();
@@ -41,17 +69,9 @@ final class ScreenShareSource implements ContentSource {
     static void start(Context c) {
         if (instance != null) return;
         instance = new ScreenShareSource(c);
-        ScreenShareActivity.events = new ScreenShareActivity.Events() {
-            @Override public void connected(String hostId, ScreenShareSession session) {
-                instance.notifyChanged();
-            }
-            @Override public void ended(String hostId, String reason) {
-                instance.ended(hostId);
-            }
-        };
         ScreenShareLoginActivity.outcome = new ScreenShareLoginActivity.Outcome() {
-            @Override public void started(String hostId) {
-                instance.loginDone(hostId);
+            @Override public void password(String hostId, char[] password) {
+                instance.connect(hostId, password);
             }
             @Override public void cancelled(String hostId) {
                 instance.loginCancelled(hostId);
@@ -79,16 +99,17 @@ final class ScreenShareSource implements ContentSource {
         notifyChanged();
     }
 
+    /** Connected (or connecting) to this Mac, whether or not it is on a screen now. */
     boolean running(String hostId) {
         ScreenShareSession s = ScreenShareSession.current();
-        return s != null && s.host.id.equals(hostId) && ScreenShareActivity.isShowing(hostId);
+        return s != null && s.host.id.equals(hostId) && s.alive();
     }
 
-    /** Ends that Mac's session (the device's Disconnect, or the Mac removed). */
+    /** The user's disconnect: the device's Disconnect, the entry closed, the Mac removed. */
     void disconnect(String hostId) {
-        ScreenShareActivity.finishFor(hostId);
         ScreenShareSession s = ScreenShareSession.current();
         if (s != null && s.host.id.equals(hostId)) s.close();
+        else ScreenShareActivity.finishFor(hostId);
     }
 
     private void notifyChanged() {
@@ -129,37 +150,65 @@ final class ScreenShareSource implements ContentSource {
             return;
         }
         if (running(id)) {
-            result.shown(key, input(id));
+            show(id, displayId, key, result);
             return;
         }
         Object[] old = pending.put(id, new Object[] { key, displayId, result });
         if (old != null) ((Result) old[2]).failed((String) old[0], context.getString(R.string.xd_ss_cancelled));
         Intent i = new Intent(context, ScreenShareLoginActivity.class);
         i.putExtra(ScreenShareLoginActivity.EXTRA_HOST, id);
-        i.putExtra(ScreenShareLoginActivity.EXTRA_DISPLAY, displayId);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         context.startActivity(i);
     }
 
-    private void loginDone(String hostId) {
+    /** The login's password: connect, then show the Mac where it was asked for. */
+    private void connect(String hostId, char[] password) {
         Object[] p = pending.remove(hostId);
+        ScreenShareStore.Host h = ScreenShareStore.find(context, hostId);
+        if (h == null || p == null) {
+            Arrays.fill(password, (char) 0);
+            return;
+        }
+        int displayId = (Integer) p[1];
+        int w = 1920, height = 1080;
+        if (!h.fixed1080) {
+            // One virtual screen the size of the screen it shows on, at most 4K, even
+            Display d = context.getSystemService(DisplayManager.class).getDisplay(displayId);
+            if (d != null) {
+                Display.Mode mode = d.getMode();
+                double fit = Math.min(1, Math.min(3840.0 / mode.getPhysicalWidth(), 2160.0 / mode.getPhysicalHeight()));
+                w = 2 * (int) (mode.getPhysicalWidth() * fit / 2);
+                height = 2 * (int) (mode.getPhysicalHeight() * fit / 2);
+            }
+        }
+        ScreenShareSession.start(context, h, password, w, height, sessions);
+        show(hostId, displayId, (String) p[0], (Result) p[2]);
+        notifyChanged();
+    }
+
+    private void show(String hostId, int displayId, String key, Result result) {
         Contents.Host host = Contents.host();
         if (host != null) host.freeDisplay();
-        if (p != null) ((Result) p[2]).shown((String) p[0], input(hostId));
-        notifyChanged();
+        if (!ScreenShareActivity.isShowing(hostId)) {
+            try {
+                Intent i = new Intent(context, ScreenShareActivity.class);
+                i.putExtra(ScreenShareActivity.EXTRA_HOST, hostId);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                ActivityOptions o = ActivityOptions.makeBasic();
+                if (displayId >= 0) o.setLaunchDisplayId(displayId);
+                context.startActivity(i, o.toBundle());
+            } catch (RuntimeException e) {
+                Log.w(TAG, "cannot show the Mac", e);
+                result.failed(key, e.getMessage());
+                return;
+            }
+        }
+        result.shown(key, input(hostId));
     }
 
     private void loginCancelled(String hostId) {
         Object[] p = pending.remove(hostId);
         if (p != null) ((Result) p[2]).failed((String) p[0], context.getString(R.string.xd_ss_cancelled));
-    }
-
-    private void ended(String hostId) {
-        ScreenShareInput in = inputs.get(hostId);
-        if (in != null) in.releaseAll();
-        Contents.Host host = Contents.host();
-        if (host != null) host.contentEnded(key(hostId));
-        notifyChanged();
     }
 
     private ScreenShareInput input(String hostId) {
@@ -171,17 +220,19 @@ final class ScreenShareSource implements ContentSource {
         return in;
     }
 
+    /** The explicit close (quit) of the entry: the user disconnects. */
     @Override public void close(String key) {
         String id = hostOf(key);
         if (id != null) disconnect(id);
     }
 
+    /** Something else took the screen: the picture goes, the connection stays. */
     @Override public void hidden(String key) {
         String id = hostOf(key);
         if (id == null) return;
         ScreenShareInput in = inputs.get(id);
         if (in != null) in.releaseAll();
-        disconnect(id);
+        ScreenShareActivity.finishFor(id);
     }
 
     @Override public void setListener(Runnable changed) {

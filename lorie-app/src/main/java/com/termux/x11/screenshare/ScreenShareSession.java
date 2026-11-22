@@ -28,22 +28,31 @@ import java.util.concurrent.Executors;
 /**
  * One connection to a Mac's own Screen Sharing (high-performance mode): DirectSession authenticates (the server's
  * SRP proof is checked), asks for one virtual display of the given size and negotiates the media with keys made
- * for this connection; AvcReceiver takes the authenticated RTP, and its H.264 is decoded by the phone's hardware
- * straight into the given Surface. Only one at a time: the media ports are fixed (5900/5901 UDP), so a new session
- * closes the old one first.
+ * for this connection; AvcReceiver takes the authenticated RTP.
+ *
+ * The connection is the user's: it lasts from their connect until they disconnect (or XDesk ends, or the network
+ * drops), whatever is on the screen meanwhile. The picture is separate: a screen showing the Mac attaches a Surface
+ * (a hardware decoder is made for it, starting at the next IDR, which it asks the Mac for); taken off the screen it
+ * detaches, the decoder goes and the frames that keep coming are dropped. Only one connection at a time: the media
+ * ports are fixed (5900/5901 UDP), so a new one closes the old one first.
  *
  * Ported from the tested prototype (n2ray/xdesk-mac-screen-sharing 2abc482, phone-probe/Viewer.java).
  */
 public final class ScreenShareSession {
     public static final String TAG = "XDeskScreenShare";
 
+    /** The connection's life, for the app (ScreenShareSource). On the UI thread. */
     public interface Listener {
-        /** Authenticated and the media negotiated: the picture follows. */
-        void connected();
-        /** The first decoded picture is on the screen, this long after the connection started. */
+        /** Authenticated and the media negotiated. */
+        void connected(ScreenShareSession s);
+        /** It ended: by close() (reason null) or by an error (the reason to show). */
+        void ended(ScreenShareSession s, String reason);
+    }
+
+    /** The picture's, for the screen showing it (ScreenShareActivity). On the UI thread. */
+    public interface PictureListener {
+        /** The first picture since attach(), this long after it (or after the connect, for the first). */
         void firstFrame(long ms);
-        /** The session ended: by close() (reason null) or by an error. On the UI thread. */
-        void ended(String reason);
     }
 
     private static ScreenShareSession current;
@@ -55,16 +64,21 @@ public final class ScreenShareSession {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService input = Executors.newSingleThreadExecutor();
     private volatile DirectSession direct;
+    private volatile AvcReceiver receiver;
     private volatile boolean closed;
-    private Thread thread;
-    private long startNs, firstRenderNs, lastRenderNs;
+    /** The decoder for the attached Surface, or null while nothing shows the picture. */
+    private MediaCodec codec;
+    private Thread drain;
+    private PictureListener picture;
+    private long startNs, attachNs, firstRenderNs, lastRenderNs;
     private int rendered;
+    private boolean pictureSeen, anyPicture;
     /** Test only: the Mac's clock (its clock_meter) minus ours, and whether it was measured. */
     public volatile long offsetNs;
     public volatile boolean clockCalibrated;
     public volatile double clockRttMs = -1;
     private final ArrayList<Double> pipeline = new ArrayList<>();
-    public final ArrayList<Double> ages = new ArrayList<>();
+    private final ArrayList<Double> ages = new ArrayList<>();
 
     private ScreenShareSession(Context c, ScreenShareStore.Host h, int w, int height, Listener l) {
         context = c.getApplicationContext();
@@ -78,31 +92,162 @@ public final class ScreenShareSession {
         return current;
     }
 
-    /** Starts a session; the password is cleared once the authentication used it. */
+    /** Connects; the password is cleared once the authentication used it. */
     public static synchronized ScreenShareSession start(Context c, ScreenShareStore.Host h, char[] password,
-                                                        Surface surface, int w, int height, Listener l) {
+                                                        int w, int height, Listener l) {
         if (current != null) current.close();
         ScreenShareSession s = new ScreenShareSession(c, h, w, height, l);
         current = s;
-        s.thread = new Thread(() -> s.run(password, surface), "screen-sharing");
-        s.thread.start();
+        Thread t = new Thread(() -> s.run(password), "screen-sharing");
+        t.start();
         return s;
     }
 
-    public boolean active() {
+    /** Connected, or still connecting (not ended). */
+    public boolean alive() {
+        return !closed;
+    }
+
+    public boolean connected() {
         return direct != null && !closed;
     }
 
-    /** Ends the session: sockets, decoder; the Mac's display layout comes back when its sharing session ends. */
+    /** Disconnects: sockets and decoder; the Mac's display layout comes back when its sharing session ends. */
     public void close() {
         closed = true;
         DirectSession d = direct;
         if (d != null) d.close();
         input.shutdown();
+        detach();
         synchronized (ScreenShareSession.class) {
             if (current == this) current = null;
         }
     }
+
+    // --- the picture ---
+
+    /** A screen shows the Mac: decode into this Surface from the next IDR on. */
+    public synchronized void attach(Surface surface, PictureListener l) {
+        detach();
+        if (closed) return;
+        picture = l;
+        attachNs = System.nanoTime();
+        pictureSeen = false;
+        try {
+            MediaCodec c = MediaCodec.createByCodecName(decoder());
+            MediaFormat fmt = MediaFormat.createVideoFormat("video/avc", width, height);
+            fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+            fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 4 * 1024 * 1024);
+            c.configure(fmt, surface, null, 0);
+            c.setOnFrameRenderedListener(this::rendered, ui);
+            c.start();
+            codec = c;
+            final MediaCodec mine = c;
+            drain = new Thread(() -> drain(mine), "screen-sharing-render");
+            drain.start();
+            Log.i(TAG, "ATTACH size=" + width + "x" + height);
+        } catch (IOException | RuntimeException e) {
+            Log.e(TAG, "decoder", e);
+            codec = null;
+            return;
+        }
+        askKeyframe();
+    }
+
+    /** Taken off the screen: the decoder goes; the connection stays. */
+    public void detach() {
+        MediaCodec c;
+        Thread d;
+        synchronized (this) {
+            c = codec;
+            d = drain;
+            codec = null;
+            drain = null;
+            picture = null;
+        }
+        if (c == null) return;
+        try {
+            if (d != null) d.join(300);
+        } catch (InterruptedException ignored) { }
+        try {
+            c.stop();
+        } catch (RuntimeException ignored) { }
+        c.release();
+        Log.i(TAG, "DETACH");
+    }
+
+    /** The next IDR, as soon as the Mac sends one: an FIR now and again until it comes, and a full update. */
+    private void askKeyframe() {
+        AvcReceiver r = receiver;
+        if (r != null) r.wantKeyframe = true;
+        final DirectSession d = direct;
+        if (d != null) send(x -> x.requestFullUpdate());
+    }
+
+    private void rendered(MediaCodec c, long pts, long ns) {
+        if (pts <= 0) return;
+        long delivered = System.nanoTime();
+        PictureListener l;
+        long since;
+        boolean first;
+        synchronized (this) {
+            if (rendered++ == 0) firstRenderNs = delivered;
+            lastRenderNs = delivered;
+            if (host.measure) pipeline.add((delivered - pts * 1000) / 1e6);
+            if (pictureSeen || c != codec) return;
+            pictureSeen = true;
+            l = picture;
+            since = (delivered - (anyPicture ? attachNs : startNs)) / 1000000;
+            first = !anyPicture;
+            anyPicture = true;
+        }
+        AvcReceiver r = receiver;
+        Log.i(TAG, "FIRST_FRAME ms=" + since + (first ? " (connect)" : " (shown again)") + " firs=" + (r != null ? r.firs : -1));
+        if (l != null) l.firstFrame(since);
+    }
+
+    private void drain(MediaCodec c) {
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        try {
+            while (!closed) {
+                synchronized (this) {
+                    if (codec != c) return;
+                }
+                int idx = c.dequeueOutputBuffer(info, 20000);
+                if (idx >= 0) {
+                    boolean end = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                    if (!end && info.size > 0) c.releaseOutputBuffer(idx, System.nanoTime());
+                    else c.releaseOutputBuffer(idx, false);
+                    if (end) break;
+                } else if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    Log.i(TAG, "FORMAT " + c.getOutputFormat());
+                }
+            }
+        } catch (IllegalStateException ignored) { }
+    }
+
+    /** One access unit from the Mac: to the decoder if a screen shows the picture and it has had its IDR. */
+    private void frame(byte[] data, long ns, int flags) {
+        MediaCodec c;
+        synchronized (this) {
+            c = codec;
+        }
+        if (c == null) return;
+        AvcReceiver r = receiver;
+        if (r != null && r.wantKeyframe && (flags & 1) == 0) return;
+        try {
+            int idx = c.dequeueInputBuffer(20000);
+            if (idx < 0) return;
+            ByteBuffer buf = c.getInputBuffer(idx);
+            buf.clear();
+            buf.put(data);
+            c.queueInputBuffer(idx, 0, data.length, ns / 1000, flags);
+        } catch (IllegalStateException e) {
+            // Detached meanwhile
+        }
+    }
+
+    // --- input ---
 
     /** VNC pointer: mask bits 1 left, 2 middle, 4 right, 8/16 wheel up/down, 32/64 left/right; x, y in pixels. */
     public void pointer(int mask, int x, int y) {
@@ -132,7 +277,9 @@ public final class ScreenShareSession {
         } catch (RuntimeException ignored) { }
     }
 
-    private void run(char[] password, Surface surface) {
+    // --- the connection ---
+
+    private void run(char[] password) {
         String reason = null;
         startNs = System.nanoTime();
         Log.i(TAG, "CONNECT host=" + host.host + " size=" + width + "x" + height);
@@ -146,12 +293,13 @@ public final class ScreenShareSession {
                 } finally {
                     Arrays.fill(password, (char) 0);
                 }
-                AvcReceiver receiver = new AvcReceiver(seed);
-                receiver.feedback = d.feedback;
+                AvcReceiver r = new AvcReceiver(seed);
+                r.feedback = d.feedback;
+                receiver = r;
                 direct = d;
                 Log.i(TAG, "CONNECTED after " + (System.nanoTime() - startNs) / 1000000 + " ms");
-                ui.post(listener::connected);
-                play(reader, receiver, surface);
+                ui.post(() -> listener.connected(this));
+                r.run(reader, 0, this::frame);
             }
         } catch (Exception e) {
             if (!closed) {
@@ -161,10 +309,11 @@ public final class ScreenShareSession {
         } finally {
             Arrays.fill(password, (char) 0);
             direct = null;
+            receiver = null;
             summary();
             close();
             final String why = reason;
-            ui.post(() -> listener.ended(why));
+            ui.post(() -> listener.ended(this, why));
         }
     }
 
@@ -207,70 +356,6 @@ public final class ScreenShareSession {
         throw new IllegalStateException("No hardware AVC decoder");
     }
 
-    private void play(AvcReceiver.Reader reader, AvcReceiver receiver, Surface surface) throws Exception {
-        String name = decoder();
-        MediaCodec codec = MediaCodec.createByCodecName(name);
-        MediaFormat fmt = MediaFormat.createVideoFormat("video/avc", width, height);
-        fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
-        fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 4 * 1024 * 1024);
-        codec.configure(fmt, surface, null, 0);
-        codec.setOnFrameRenderedListener((c, pts, ns) -> {
-            if (pts <= 0) return;
-            long delivered = System.nanoTime();
-            boolean first;
-            synchronized (this) {
-                first = rendered++ == 0;
-                if (first) firstRenderNs = delivered;
-                lastRenderNs = delivered;
-                if (host.measure) pipeline.add((delivered - pts * 1000) / 1e6);
-            }
-            if (first) {
-                long ms = (delivered - startNs) / 1000000;
-                Log.i(TAG, "FIRST_FRAME ms=" + ms + " firs=" + receiver.firs);
-                listener.firstFrame(ms);
-            }
-        }, ui);
-        codec.start();
-        Log.i(TAG, "START hardware=" + name + " size=" + width + "x" + height);
-        Thread drain = new Thread(() -> {
-            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-            try {
-                while (!closed) {
-                    int idx = codec.dequeueOutputBuffer(info, 20000);
-                    if (idx >= 0) {
-                        boolean end = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
-                        if (!end && info.size > 0) codec.releaseOutputBuffer(idx, System.nanoTime());
-                        else codec.releaseOutputBuffer(idx, false);
-                        if (end) break;
-                    } else if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        Log.i(TAG, "FORMAT " + codec.getOutputFormat());
-                    }
-                }
-            } catch (IllegalStateException ignored) { }
-        }, "screen-sharing-render");
-        drain.start();
-        try {
-            receiver.run(reader, 0, (data, ns, flags) -> {
-                int idx;
-                do {
-                    idx = codec.dequeueInputBuffer(20000);
-                } while (idx < 0 && !closed);
-                if (closed) throw new IOException("closed");
-                ByteBuffer buf = codec.getInputBuffer(idx);
-                buf.clear();
-                buf.put(data);
-                codec.queueInputBuffer(idx, 0, data.length, ns / 1000, flags);
-            });
-        } finally {
-            closed = true;
-            try { drain.join(1500); } catch (InterruptedException ignored) { }
-            try {
-                codec.stop();
-            } catch (RuntimeException ignored) { }
-            codec.release();
-        }
-    }
-
     private static String stats(ArrayList<Double> v) {
         if (v.isEmpty()) return "n=0";
         ArrayList<Double> s = new ArrayList<>(v);
@@ -285,6 +370,14 @@ public final class ScreenShareSession {
             "RESULT frames=%d span=%.3fs fps=%.2f phone_rtp_to_callback=[%s] marker_to_pixelcopy=[%s] clock_rtt_ms=%.2f",
             rendered, (lastRenderNs - firstRenderNs) / 1e9,
             Math.max(0, rendered - 1) * 1e9 / Math.max(1, lastRenderNs - firstRenderNs), stats(pipeline), stats(ages), clockRttMs));
+    }
+
+    /** Starts a fresh measurement window (the test's 35 seconds). */
+    public synchronized void resetStats() {
+        rendered = 0;
+        firstRenderNs = lastRenderNs = 0;
+        pipeline.clear();
+        ages.clear();
     }
 
     /** Called for each time-bar sample the test reads off the screen (ms between drawn on the Mac and seen here). */

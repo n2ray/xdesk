@@ -119,6 +119,15 @@ final class DirectSession implements Closeable {
         return receiveKey;
     }
 
+    /** XDesk: a non-incremental framebuffer update request, as start() sends (a fallback when no IDR comes). */
+    void requestFullUpdate() throws Exception {
+        ByteBuffer update = ByteBuffer.allocate(10);
+        update.put((byte)3);
+        update.position(6);
+        update.putShort((short)0xffff).putShort((short)0xffff);
+        records.send(update.array());
+    }
+
     private void beginDesktop() throws Exception {
         out.write(0xc1);
         read(in, 20); // dimensions and pixel format
