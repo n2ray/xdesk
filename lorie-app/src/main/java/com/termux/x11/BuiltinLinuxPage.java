@@ -133,6 +133,8 @@ final class BuiltinLinuxPage {
                 android.widget.Toast.makeText(c, R.string.xd_bl_gpu_restart, android.widget.Toast.LENGTH_LONG).show();
         });
 
+        fillSsh();
+
         LinearLayout keep = s.section(content, c.getString(R.string.xd_bl_upkeep));
         s.infoRow(keep, c.getString(R.string.xd_bl_space), null,
             usageMb < 0 ? "…" : c.getString(R.string.xd_bl_space_mb, usageMb));
@@ -145,6 +147,62 @@ final class BuiltinLinuxPage {
                 s.confirm(c.getString(R.string.xd_bl_remove_confirm_title), c.getString(R.string.xd_bl_remove_confirm),
                     c.getString(R.string.xd_bl_remove_action), SettingsUi.LEVEL_DANGER, () -> { bl.removeAll(); measureLater(); }));
         }
+    }
+
+    /**
+     * SSH access, the one way in to manage the system (n2ray/xdesk-linux docs/design-ssh-access.md): the switch (off by
+     * default), where it can be reached, the network switch (off: this phone only), the public keys. Keys only, never
+     * passwords: any app on the phone can reach 127.0.0.1.
+     */
+    private void fillSsh() {
+        LinearLayout ssh = s.section(content, c.getString(R.string.xd_bl_ssh_section));
+        s.switchRow(ssh, c.getString(R.string.xd_bl_ssh), c.getString(R.string.xd_bl_ssh_note), bl.sshEnabled(), bl::setSsh);
+        if (!bl.sshEnabled()) return;
+        boolean up = bl.sshRunning();
+        s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_where), addresses(),
+            c.getString(up ? R.string.xd_dev_state_running : R.string.xd_dev_state_not_running));
+        // The system stopped: SSH alone, without starting the desktop
+        if (!up && bl.state() == BuiltinLinux.State.STOPPED)
+            s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_start), c.getString(R.string.xd_bl_ssh_start_note), "", bl::startSsh);
+        s.switchRow(ssh, c.getString(R.string.xd_bl_ssh_lan), c.getString(R.string.xd_bl_ssh_lan_note), bl.sshLan(), bl::setSshLan);
+        java.util.List<String> keys = bl.sshKeys();
+        if (keys.isEmpty()) s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_no_keys), c.getString(R.string.xd_bl_ssh_no_keys_note), null);
+        for (final String k : keys) {
+            String[] parts = k.split(" ", 3);
+            String type = parts[0], body = parts.length > 1 ? parts[1] : "";
+            String name = parts.length > 2 ? parts[2] : type;
+            String tail = body.length() > 12 ? "…" + body.substring(body.length() - 12) : body;
+            TextView v = s.valueRow(ssh, name, type + " " + tail, c.getString(R.string.xd_bl_ssh_key_remove), () ->
+                s.confirm(c.getString(R.string.xd_bl_ssh_key_remove_title, name), c.getString(R.string.xd_bl_ssh_key_remove_note),
+                    c.getString(R.string.xd_bl_ssh_key_remove), SettingsUi.LEVEL_DANGER, () -> bl.removeSshKey(k)));
+            v.setTextColor(Style.DANGER);
+        }
+        s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_add_key), c.getString(R.string.xd_bl_ssh_add_key_note), "", () ->
+            s.input(c.getString(R.string.xd_bl_ssh_add_key), c.getString(R.string.xd_bl_ssh_add_key_note), "ssh-ed25519 AAAA…", "",
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+                c.getString(R.string.xd_bl_ssh_add), text -> {
+                    if (bl.addSshKey(text)) return true;
+                    android.widget.Toast.makeText(c, R.string.xd_bl_ssh_bad_key, android.widget.Toast.LENGTH_LONG).show();
+                    return false;
+                }, null));
+    }
+
+    /** Where SSH can be reached: this phone only, or also its Wi-Fi / Tailscale addresses. */
+    private String addresses() {
+        int port = BuiltinLinux.SSH_PORT;
+        StringBuilder sb = new StringBuilder("ssh -p " + port + " root@127.0.0.1");
+        if (!bl.sshLan()) return sb.toString();
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses())) {
+                    if (!(a instanceof java.net.Inet4Address) || a.isLinkLocalAddress()) continue;
+                    sb.append("\n").append(ni.getName().startsWith("tun") ? "Tailscale " : ni.getName() + " ")
+                        .append(a.getHostAddress());
+                }
+            }
+        } catch (java.net.SocketException ignored) { }
+        return sb.toString();
     }
 
     private void measureLater() {

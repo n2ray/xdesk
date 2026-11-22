@@ -55,7 +55,7 @@ apt-get install -y --no-install-recommends \
     pulseaudio pulseaudio-utils pavucontrol \
     locales fonts-noto-cjk fonts-dejavu-core \
     mesa-utils mesa-vulkan-drivers libgl1-mesa-dri vulkan-tools \
-    nano less procps psmisc file unzip xz-utils wget sudo
+    nano less procps psmisc file unzip xz-utils wget sudo openssh-server
 
 # English by default; other languages are the user's to add (language-pack-*, update-locale): translations are kept
 locale-gen en_US.UTF-8
@@ -87,6 +87,10 @@ chmod 755 /usr/bin/google-chrome-stable
 # xfwm4's compositor without GLX vblank: through Zink on XDesk's X it leaves the screen black (xdesk-session also
 # fixes the user's own settings)
 sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults
+
+# SSH (XDesk starts it when the user turns on SSH access): no host keys in the image, or every installation would share
+# them; xdesk-sshd makes them on first start. Nothing starts it here (no systemd).
+rm -f /etc/ssh/ssh_host_*
 
 # apt under a fake root: its sandbox user cannot be switched to
 printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/99xdesk

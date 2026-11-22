@@ -58,4 +58,22 @@
     <string name="xd_bl_added">Added</string>
     <string name="xd_bl_added_note">It is in your devices: tap it there to start, stop, reset or remove it</string>
     <string name="xd_bl_manage">Open its device page</string>
+    <string name="xd_bl_ssh_section">SSH access</string>
+    <string name="xd_bl_ssh">SSH access</string>
+    <string name="xd_bl_ssh_note">The way in for tools and agents to manage this system. Port 8222, keys only, never passwords</string>
+    <string name="xd_bl_ssh_where">Address</string>
+    <string name="xd_bl_ssh_start">Start SSH only</string>
+    <string name="xd_bl_ssh_start_note">Without the desktop; Stop above ends it</string>
+    <string name="xd_bl_ssh_lan">Also from the local network and Tailscale</string>
+    <string name="xd_bl_ssh_lan_note">Off: only from this phone (127.0.0.1). On: other devices with an allowed key can log in</string>
+    <string name="xd_bl_ssh_no_keys">No keys yet</string>
+    <string name="xd_bl_ssh_no_keys_note">Nobody can log in until you add a public key</string>
+    <string name="xd_bl_ssh_key_remove">Remove</string>
+    <string name="xd_bl_ssh_key_remove_title">Remove the key %1$s?</string>
+    <string name="xd_bl_ssh_key_remove_note">Whoever holds it can no longer log in. Sessions open now keep running until they end.</string>
+    <string name="xd_bl_ssh_add_key">Add a public key</string>
+    <string name="xd_bl_ssh_add_key_note">Paste one line, as in authorized_keys (ssh-ed25519 AAAA… name)</string>
+    <string name="xd_bl_ssh_add">Add</string>
+    <string name="xd_bl_ssh_bad_key">That is not a public key line (ssh-ed25519, ssh-rsa, ecdsa or a security key)</string>
+    <string name="xd_bl_ssh_failed">SSH did not start</string>
 </resources>
