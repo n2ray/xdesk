@@ -109,6 +109,7 @@ final class BuiltinLinux {
                 else if ("gpu-on".equals(cmd)) bl.setGpu(true);
                 else if ("gpu-off".equals(cmd)) bl.setGpu(false);
                 else if ("bench".equals(cmd)) bl.bench();
+                else if ("run".equals(cmd)) bl.runDebugScript();
                 Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
             }
         };
@@ -464,6 +465,31 @@ final class BuiltinLinux {
                 Log.w(TAG, "bench", e);
             }
         }, "builtin-linux-bench").start();
+    }
+
+    /**
+     * Debug only (the shell's broadcast): runs debug.sh from the app's external files (where the shell can put it)
+     * inside the container with the session's environment, output in logs/run.log.
+     */
+    void runDebugScript() {
+        File src = new File(c.getExternalFilesDir(null), "debug.sh");
+        if (!src.isFile()) { Log.w(TAG, "run: no " + src); return; }
+        new Thread(() -> {
+            try {
+                File dst = new File(rootfs, "tmp/xdesk-debug.sh");
+                dst.getParentFile().mkdirs();
+                try (InputStream in = new java.io.FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
+                    byte[] buf = new byte[8192];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                }
+                ProcessBuilder b = new ProcessBuilder(containerCmd("/tmp/xdesk-debug.sh"));
+                b.environment().remove("LD_PRELOAD");
+                b.redirectErrorStream(true).redirectOutput(new File(logDir(), "run.log"));
+                Log.i(TAG, "run done " + b.start().waitFor());
+            } catch (Exception e) {
+                Log.w(TAG, "run", e);
+            }
+        }, "builtin-linux-run").start();
     }
 
     /** Scripts come with the app (assets/linux), so changing them needs no new image. */
