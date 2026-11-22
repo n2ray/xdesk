@@ -1,0 +1,37 @@
+#!/bin/sh
+# XDesk's built-in Linux: the SSH server, the one way in to manage this system (n2ray/xdesk-linux docs/design-ssh-access.md).
+# Started by the app (device page › SSH access), with or without the desktop. Keys only, never passwords: every app on
+# the phone can reach 127.0.0.1, so a password would be an open door. Listens on 127.0.0.1 unless the user allowed the
+# local network / Tailscale (XDESK_SSH_LAN=1). Keys come from the app (/etc/xdesk/ssh/authorized_keys, rewritten at each
+# start) and from root's own ~/.ssh/authorized_keys.
+PORT=${XDESK_SSH_PORT:-8222}
+if [ ! -x /usr/sbin/sshd ]; then
+    echo "openssh-server is not installed: sudo apt install openssh-server (or reset the system to the current image)"
+    exit 3
+fi
+mkdir -p /run/sshd /etc/ssh/sshd_config.d /etc/xdesk/ssh
+chmod 755 /run/sshd
+# Host keys of this installation (the image carries none, or every install would share them)
+ssh-keygen -A >/dev/null 2>&1
+if [ "${XDESK_SSH_LAN:-0}" = 1 ]; then LISTEN4=0.0.0.0 LISTEN6=::; else LISTEN4=127.0.0.1 LISTEN6=::1; fi
+# First value wins in sshd: this file is read before the others (Include at the top of Ubuntu's sshd_config)
+cat >/etc/ssh/sshd_config.d/00-xdesk.conf <<EOF
+# Written by XDesk at each start; change SSH access in XDesk (device page), not here.
+Port $PORT
+ListenAddress $LISTEN4
+ListenAddress $LISTEN6
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+UsePAM no
+StrictModes no
+AuthorizedKeysFile .ssh/authorized_keys /etc/xdesk/ssh/authorized_keys
+PidFile /run/sshd.pid
+X11Forwarding no
+PrintMotd no
+EOF
+/usr/sbin/sshd -t || exit 4
+echo "sshd on port $PORT, listening on $LISTEN4 and $LISTEN6, $(grep -c . /etc/xdesk/ssh/authorized_keys 2>/dev/null || echo 0) key(s) from XDesk"
+exec /usr/sbin/sshd -D -e

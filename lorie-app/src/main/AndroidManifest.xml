@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -110,6 +111,24 @@
             android:excludeFromRecents="true"
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
+            android:exported="false" />
+        <!-- 外接屏上经 macOS 自带屏幕共享连的 Mac（H.264 硬解到 SurfaceView）。自己一个任务，不进最近任务 -->
+        <activity
+            android:name="com.termux.x11.screenshare.ScreenShareActivity"
+            android:label="Mac"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:taskAffinity=".XDeskScreenShare"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
+            android:exported="false" />
+        <!-- 手机上输入屏幕共享的 Mac 密码（只在内存里交给这次认证，不保存、不进截图） -->
+        <activity
+            android:name="com.termux.x11.screenshare.ScreenShareLoginActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=".XDeskScreenShareLogin"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="stateAlwaysVisible"
             android:exported="false" />
         <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只由 XDesk 自己打开，不进最近任务 -->
         <activity android:name="com.termux.x11.mac.PairScannerActivity" android:exported="false"

@@ -755,6 +755,10 @@ final class ExternalDock implements AppSession.EdgeListener {
             FrameLayout ring = new FrameLayout(dc);
             int ringGap = Math.max(1, dp(3 * scale));
             ring.setPadding(ringGap, ringGap, ringGap, ringGap);
+            // The zoom grows the icon past the ring: the ring must not cut it (it was the one level still clipping,
+            // so the zoomed icon showed in a square)
+            ring.setClipChildren(false);
+            ring.setClipToPadding(false);
             ring.setBackground(Style.iconRing(density, ICON_DP * scale, current));
             ring.addView(icon, new FrameLayout.LayoutParams(iconPx, iconPx));
             box.addView(ring, new LayoutParams(iconPx + 2 * ringGap, iconPx + 2 * ringGap));

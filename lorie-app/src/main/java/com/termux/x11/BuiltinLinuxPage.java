@@ -9,25 +9,37 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * Settings › Devices › Add device › Built-in Linux, and the built-in Linux's own page: install, start and stop,
- * the GPU switch, reset (keeping the home or not) and the logs.
+ * The built-in Linux in two pages (DEVICES.md §5: adding only connects, the device list manages):
+ * - Add device › Linux › Built-in Linux (add): only the install, its progress and what it is; once installed,
+ *   that it is added and a way to its device page.
+ * - Its row in the device list (manage): start and stop, opening the desktop, the GPU switch, the space it takes,
+ *   the logs, reset (keeping the home or not) and removing it.
  */
 final class BuiltinLinuxPage {
     private final Context c;
     private final SettingsUi s;
     private final BuiltinLinux bl;
+    private final boolean manage;
     private LinearLayout content;
+    private Dialog dialog;
     /** Measured off the main thread when the page opens and after each change. */
     private volatile long usageMb = -1;
 
-    private BuiltinLinuxPage(Context c) {
+    private BuiltinLinuxPage(Context c, boolean manage) {
         this.c = c;
+        this.manage = manage;
         s = new SettingsUi(c);
         bl = BuiltinLinux.get(c);
     }
 
-    static Dialog open(Context c) {
-        return new BuiltinLinuxPage(c).show();
+    /** Add device › Linux › Built-in Linux: the install. */
+    static Dialog add(Context c) {
+        return new BuiltinLinuxPage(c, false).show();
+    }
+
+    /** The device list's built-in Linux: managing it. */
+    static Dialog manage(Context c) {
+        return new BuiltinLinuxPage(c, true).show();
     }
 
     private Dialog show() {
@@ -37,9 +49,9 @@ final class BuiltinLinuxPage {
         bl.addListener(l);
         fill();
         measure();
-        Dialog d = s.page(c.getString(R.string.xd_bl_title), content);
-        d.setOnDismissListener(x -> bl.removeListener(l));
-        return d;
+        dialog = s.page(c.getString(R.string.xd_bl_title), content);
+        dialog.setOnDismissListener(x -> bl.removeListener(l));
+        return dialog;
     }
 
     private void measure() {
@@ -49,8 +61,49 @@ final class BuiltinLinuxPage {
         }, "builtin-linux-du").start();
     }
 
+    /** Installed or not, as last seen: when it changes the device list gains or loses its row. */
+    private Boolean installed;
+
     private void fill() {
+        boolean now = bl.installed();
+        if (installed != null && installed != now) Devices.get(c).touch();
+        installed = now;
+        // Removed (from this page or meanwhile): the device is gone, and its page with it
+        if (manage && !now && bl.state() == BuiltinLinux.State.NOT_INSTALLED) {
+            if (dialog != null) dialog.dismiss();
+            else content.post(() -> { if (dialog != null) dialog.dismiss(); });
+            return;
+        }
         content.removeAllViews();
+        if (manage) fillManage();
+        else fillAdd();
+    }
+
+    /** Add device: only the install. Once it is installed the device is added; managing it is on its device page. */
+    private void fillAdd() {
+        BuiltinLinux.State st = bl.state();
+        LinearLayout state = s.card(content);
+        String note = bl.progress();
+        if (note == null) note = bl.error();
+        if (st == BuiltinLinux.State.NOT_INSTALLED || st == BuiltinLinux.State.INSTALLING) {
+            s.dotRow(state, false, c.getString(label(st)), note);
+            if (st == BuiltinLinux.State.NOT_INSTALLED)
+                s.accentRow(state, c.getString(R.string.xd_bl_install),
+                    c.getString(bl.imageCached() ? R.string.xd_bl_install_local_note : R.string.xd_bl_install_note), bl::install);
+        } else {
+            s.dotRow(state, true, c.getString(R.string.xd_bl_added), c.getString(R.string.xd_bl_added_note));
+            s.linkRow(state, c.getString(R.string.xd_bl_manage), null, "", () -> {
+                if (dialog != null) dialog.dismiss();
+                manage(c);
+            });
+        }
+        LinearLayout about = s.section(content, c.getString(R.string.xd_bl_about));
+        s.infoRow(about, c.getString(R.string.xd_bl_about_what), c.getString(R.string.xd_bl_about_what_note), null);
+        s.infoRow(about, c.getString(R.string.xd_bl_about_termux), c.getString(R.string.xd_bl_about_termux_note), null);
+    }
+
+    /** The device page: start and stop, the GPU, upkeep, reset and removal. */
+    private void fillManage() {
         BuiltinLinux.State st = bl.state();
         LinearLayout state = s.card(content);
         boolean on = st == BuiltinLinux.State.RUNNING;
@@ -58,10 +111,6 @@ final class BuiltinLinuxPage {
         if (note == null) note = bl.error();
         s.dotRow(state, on, c.getString(label(st)), note);
         switch (st) {
-            case NOT_INSTALLED:
-                s.accentRow(state, c.getString(R.string.xd_bl_install),
-                    c.getString(bl.imageCached() ? R.string.xd_bl_install_local_note : R.string.xd_bl_install_note), bl::install);
-                break;
             case STOPPED:
                 s.accentRow(state, c.getString(R.string.xd_bl_start), c.getString(R.string.xd_bl_start_note), bl::start);
                 break;
@@ -75,12 +124,6 @@ final class BuiltinLinuxPage {
             default:
                 break;
         }
-        if (st == BuiltinLinux.State.NOT_INSTALLED) {
-            LinearLayout about = s.section(content, c.getString(R.string.xd_bl_about));
-            s.infoRow(about, c.getString(R.string.xd_bl_about_what), c.getString(R.string.xd_bl_about_what_note), null);
-            s.infoRow(about, c.getString(R.string.xd_bl_about_termux), c.getString(R.string.xd_bl_about_termux_note), null);
-            return;
-        }
         boolean idle = st == BuiltinLinux.State.STOPPED || st == BuiltinLinux.State.RUNNING;
 
         LinearLayout gfx = s.section(content, c.getString(R.string.xd_bl_graphics));
@@ -89,6 +132,8 @@ final class BuiltinLinuxPage {
             if (bl.state() == BuiltinLinux.State.RUNNING)
                 android.widget.Toast.makeText(c, R.string.xd_bl_gpu_restart, android.widget.Toast.LENGTH_LONG).show();
         });
+
+        fillSsh();
 
         LinearLayout keep = s.section(content, c.getString(R.string.xd_bl_upkeep));
         s.infoRow(keep, c.getString(R.string.xd_bl_space), null,
@@ -102,6 +147,62 @@ final class BuiltinLinuxPage {
                 s.confirm(c.getString(R.string.xd_bl_remove_confirm_title), c.getString(R.string.xd_bl_remove_confirm),
                     c.getString(R.string.xd_bl_remove_action), SettingsUi.LEVEL_DANGER, () -> { bl.removeAll(); measureLater(); }));
         }
+    }
+
+    /**
+     * SSH access, the one way in to manage the system (n2ray/xdesk-linux docs/design-ssh-access.md): the switch (off by
+     * default), where it can be reached, the network switch (off: this phone only), the public keys. Keys only, never
+     * passwords: any app on the phone can reach 127.0.0.1.
+     */
+    private void fillSsh() {
+        LinearLayout ssh = s.section(content, c.getString(R.string.xd_bl_ssh_section));
+        s.switchRow(ssh, c.getString(R.string.xd_bl_ssh), c.getString(R.string.xd_bl_ssh_note), bl.sshEnabled(), bl::setSsh);
+        if (!bl.sshEnabled()) return;
+        boolean up = bl.sshRunning();
+        s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_where), addresses(),
+            c.getString(up ? R.string.xd_dev_state_running : R.string.xd_dev_state_not_running));
+        // The system stopped: SSH alone, without starting the desktop
+        if (!up && bl.state() == BuiltinLinux.State.STOPPED)
+            s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_start), c.getString(R.string.xd_bl_ssh_start_note), "", bl::startSsh);
+        s.switchRow(ssh, c.getString(R.string.xd_bl_ssh_lan), c.getString(R.string.xd_bl_ssh_lan_note), bl.sshLan(), bl::setSshLan);
+        java.util.List<String> keys = bl.sshKeys();
+        if (keys.isEmpty()) s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_no_keys), c.getString(R.string.xd_bl_ssh_no_keys_note), null);
+        for (final String k : keys) {
+            String[] parts = k.split(" ", 3);
+            String type = parts[0], body = parts.length > 1 ? parts[1] : "";
+            String name = parts.length > 2 ? parts[2] : type;
+            String tail = body.length() > 12 ? "…" + body.substring(body.length() - 12) : body;
+            TextView v = s.valueRow(ssh, name, type + " " + tail, c.getString(R.string.xd_bl_ssh_key_remove), () ->
+                s.confirm(c.getString(R.string.xd_bl_ssh_key_remove_title, name), c.getString(R.string.xd_bl_ssh_key_remove_note),
+                    c.getString(R.string.xd_bl_ssh_key_remove), SettingsUi.LEVEL_DANGER, () -> bl.removeSshKey(k)));
+            v.setTextColor(Style.DANGER);
+        }
+        s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_add_key), c.getString(R.string.xd_bl_ssh_add_key_note), "", () ->
+            s.input(c.getString(R.string.xd_bl_ssh_add_key), c.getString(R.string.xd_bl_ssh_add_key_note), "ssh-ed25519 AAAA…", "",
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
+                c.getString(R.string.xd_bl_ssh_add), text -> {
+                    if (bl.addSshKey(text)) return true;
+                    android.widget.Toast.makeText(c, R.string.xd_bl_ssh_bad_key, android.widget.Toast.LENGTH_LONG).show();
+                    return false;
+                }, null));
+    }
+
+    /** Where SSH can be reached: this phone only, or also its Wi-Fi / Tailscale addresses. */
+    private String addresses() {
+        int port = BuiltinLinux.SSH_PORT;
+        StringBuilder sb = new StringBuilder("ssh -p " + port + " root@127.0.0.1");
+        if (!bl.sshLan()) return sb.toString();
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses())) {
+                    if (!(a instanceof java.net.Inet4Address) || a.isLinkLocalAddress()) continue;
+                    sb.append("\n").append(ni.getName().startsWith("tun") ? "Tailscale " : ni.getName() + " ")
+                        .append(a.getHostAddress());
+                }
+            }
+        } catch (java.net.SocketException ignored) { }
+        return sb.toString();
     }
 
     private void measureLater() {

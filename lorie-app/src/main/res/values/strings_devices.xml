@@ -48,9 +48,13 @@
     <string name="xd_dev_add">Add device</string>
     <string name="xd_dev_add_pick">What to connect</string>
     <string name="xd_dev_type_linux">Linux</string>
-    <string name="xd_dev_type_linux_note">Termux, proot, chroot</string>
+    <string name="xd_dev_type_linux_note">Termux (native, proot, chroot) or the built-in Linux</string>
+    <string name="xd_dev_linux_termux">Termux</string>
+    <string name="xd_dev_linux_termux_note">Termux itself and the proot / chroot environments its xdesk command knows</string>
     <string name="xd_dev_type_mac">Mac</string>
-    <string name="xd_dev_type_mac_note">Pair with Sill on the Mac</string>
+    <string name="xd_dev_type_mac_note">Sill connection or the Mac\'s own Screen Sharing</string>
+    <string name="xd_dev_mac_sill">Sill connection</string>
+    <string name="xd_dev_mac_sill_note">Windows and apps of the Mac one by one; pair with Sill installed on the Mac</string>
     <string name="xd_dev_linux_steps">To make xdesk know more</string>
     <string name="xd_dev_linux_install">Install Termux</string>
     <string name="xd_dev_linux_install_note">From F-Droid or GitHub, then install xdesk in it</string>

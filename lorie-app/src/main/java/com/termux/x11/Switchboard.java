@@ -558,6 +558,10 @@ final class Switchboard {
             sourceRows(d, LinuxSource.get(), R.string.xd_dev_linux_windows, q, out, apps, hidden);
         } else if (d.type == Devices.Type.MAC) {
             sourceRows(d, Contents.sourceOf(MacSource.PREFIX), R.string.xd_dev_mac_windows, q, out, apps, hidden);
+        } else if (d.type == Devices.Type.SCREEN) {
+            for (ContentSource.Entry e : ScreenShareSource.get().apps()) {
+                if (devices.deviceOf(e.key).equals(d.id)) add(entryItem(e), q, apps, hidden);
+            }
         }
         if (apps.isEmpty()) return;
         sort(apps);

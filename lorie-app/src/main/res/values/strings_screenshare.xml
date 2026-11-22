@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xd_ss_title">Mac Screen Sharing</string>
+    <string name="xd_ss_type">Shared desktop</string>
+    <string name="xd_ss_type_note">The whole Mac desktop through macOS\'s own Screen Sharing; nothing to install on the Mac (experimental)</string>
+    <string name="xd_ss_entry_note">Screen Sharing</string>
+    <string name="xd_ss_add_title">Mac through Screen Sharing</string>
+    <string name="xd_ss_add_note">Turn on Screen Sharing on the Mac (System Settings › General › Sharing). Address on the local network or Tailscale. The password is asked when connecting; you can choose to keep it, encrypted and unlocked with your fingerprint or screen lock. The connection stays while you switch to other apps, until you disconnect it or end XDesk.</string>
+    <string name="xd_ss_host">Mac address (IP or name)</string>
+    <string name="xd_ss_account">Mac account</string>
+    <string name="xd_ss_name">Name (optional)</string>
+    <string name="xd_ss_fixed1080">1920×1080 instead of this screen\'s size</string>
+    <string name="xd_ss_measure">Test: clock and time bar (needs the test tools on the Mac)</string>
+    <string name="xd_ss_remove">Remove</string>
+    <string name="xd_ss_login_title">Connect to %1$s</string>
+    <string name="xd_ss_login_who">%1$s on %2$s</string>
+    <string name="xd_ss_password">Mac password</string>
+    <string name="xd_ss_connect">Connect</string>
+    <string name="xd_ss_cancelled">Cancelled</string>
+    <string name="xd_ss_unknown">This Mac is no longer set up</string>
+    <string name="xd_ss_remember">Remember the password (unlocked with your fingerprint or screen lock each time)</string>
+    <string name="xd_ss_save_title">Keep the password for %1$s</string>
+    <string name="xd_ss_not_saved">The password was not kept; connecting anyway</string>
+    <string name="xd_ss_unlock_title">Connect to %1$s</string>
+    <string name="xd_ss_password_invalidated">The kept password can no longer be unlocked (fingerprints or screen lock changed): type it again</string>
+    <string name="xd_ss_forget">Forget the kept password</string>
+    <string name="xd_ss_ended">%1$s disconnected: %2$s</string>
+    <string name="xd_about_licenses">Licences</string>
+</resources>

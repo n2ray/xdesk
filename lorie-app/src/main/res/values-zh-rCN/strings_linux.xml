@@ -55,4 +55,25 @@
     <string name="xd_bl_x_timeout">X 服务器 20 秒内没起来，请看日志</string>
     <string name="xd_bl_session_failed">桌面一启动就退出了（%1$d），请看日志</string>
     <string name="xd_bl_running_notification">内置 Linux 正在运行</string>
+    <string name="xd_bl_added">已添加</string>
+    <string name="xd_bl_added_note">已经在你的设备里：在设备列表里点它，可以启动、停止、重置或删除</string>
+    <string name="xd_bl_manage">打开它的设备页</string>
+    <string name="xd_bl_ssh_section">SSH 访问</string>
+    <string name="xd_bl_ssh">SSH 访问</string>
+    <string name="xd_bl_ssh_note">工具和 AI 管理这个系统的入口。端口 8222，只认密钥，不用密码</string>
+    <string name="xd_bl_ssh_where">地址</string>
+    <string name="xd_bl_ssh_start">只启动 SSH</string>
+    <string name="xd_bl_ssh_start_note">不开桌面；上面的「停止」会一起停掉</string>
+    <string name="xd_bl_ssh_lan">也允许局域网和 Tailscale 连接</string>
+    <string name="xd_bl_ssh_lan_note">关：只有这台手机（127.0.0.1）能连。开：其他设备有已授权的密钥也能登录</string>
+    <string name="xd_bl_ssh_no_keys">还没有公钥</string>
+    <string name="xd_bl_ssh_no_keys_note">加上公钥之前，谁都登录不了</string>
+    <string name="xd_bl_ssh_key_remove">删除</string>
+    <string name="xd_bl_ssh_key_remove_title">删除公钥 %1$s？</string>
+    <string name="xd_bl_ssh_key_remove_note">持有它的人就不能再登录了。已经连着的会话会保持到它自己结束。</string>
+    <string name="xd_bl_ssh_add_key">添加公钥</string>
+    <string name="xd_bl_ssh_add_key_note">粘贴一行，格式同 authorized_keys（ssh-ed25519 AAAA… 名称）</string>
+    <string name="xd_bl_ssh_add">添加</string>
+    <string name="xd_bl_ssh_bad_key">这不是一行公钥（支持 ssh-ed25519、ssh-rsa、ecdsa 和安全密钥）</string>
+    <string name="xd_bl_ssh_failed">SSH 没能启动</string>
 </resources>

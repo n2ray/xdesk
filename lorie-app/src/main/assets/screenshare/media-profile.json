@@ -1,0 +1,27 @@
+{
+  "negotiatorVersion": "Viceroy 1.7.0",
+  "video": {
+    "mode": 7,
+    "payloadType": 123,
+    "tiles": 1,
+    "codecOptions": ["FLS", "MS:-1", "LF:-1", "LTR", "CABAC", "POS:0", "EOD:1", "HTS:2", "RR:3", "SW:4", "AR:8/5,5/8", "XR:8/5,5/8"],
+    "formats": [1, 2, 1, 2],
+    "formatField3": 50115,
+    "field8": 255
+  },
+  "audio": {"mode": 8, "field4": 7807},
+  "bandwidthModes": {
+    "mobile": [4074, 0, 16384],
+    "immersiveWifi": [0, 75000000, 524288],
+    "lowLatencyWifi": [0, 20000000, 98304],
+    "defaultWifi": [1, 299],
+    "screenWifi": [0, 40000000, 12288],
+    "lowLatencyWired": [0, 60000000, 262144],
+    "legacyScreenWifi": [16, 4100],
+    "faceTimeWifi": [4, 6500],
+    "immersiveWired": [0, 100000000, 1048576],
+    "multiwayWifi": [0, 6000000, 131072]
+  },
+  "videoModeOrder": ["mobile", "immersiveWifi", "lowLatencyWifi", "defaultWifi", "screenWifi", "lowLatencyWired", "legacyScreenWifi", "faceTimeWifi", "immersiveWired", "multiwayWifi"],
+  "audioModeOrder": ["mobile", "immersiveWifi", "lowLatencyWifi", "screenWifi", "lowLatencyWired", "defaultWifi", "immersiveWired", "legacyScreenWifi", "multiwayWifi", "faceTimeWifi"]
+}

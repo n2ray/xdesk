@@ -54,6 +54,9 @@ final class BuiltinLinux {
     /** termux-va's MediaCodec service, packaged as a "library" so it is installed executable. */
     private static final String VIDEO_HELPER = "libtermux_va.so";
     private static final String PREFS = "builtin_linux", PREF_GPU = "gpu";
+    /** SSH access (docs/design-ssh-access.md in n2ray/xdesk-linux): on or off, also from the network, the public keys. */
+    private static final String PREF_SSH = "ssh", PREF_SSH_LAN = "ssh_lan", PREF_SSH_KEYS = "ssh_keys";
+    static final int SSH_PORT = 8222;
     private static final int X_WAIT_MS = 20000;
 
     enum State { NOT_INSTALLED, INSTALLING, STOPPED, STARTING, RUNNING, STOPPING }
@@ -364,6 +367,8 @@ final class BuiltinLinux {
                 return;
             }
             end(State.RUNNING);
+            // SSH access on: it comes with the desktop (kept if it was already running alone)
+            startSsh();
             Runnable attach = attachHook;
             if (attach != null) main.post(attach);
         }, "builtin-linux-start").start();
@@ -375,7 +380,7 @@ final class BuiltinLinux {
         } catch (RuntimeException e) {
             Log.w(TAG, "no foreground service", e);
         }
-        stopNow();
+        stopNow(true);
         File tmp = new File(rootfs, "tmp");
         tmp.mkdirs();
         File socket = new File(tmp, ".X11-unix/X1");
@@ -453,7 +458,7 @@ final class BuiltinLinux {
     }
 
     /** The command line that runs a shell script inside the container, with the session's environment. */
-    private List<String> containerCmd(String script) {
+    private List<String> containerCmd(String script, String... env) {
         List<String> cmd = new ArrayList<>();
         cmd.add(burrow());
         cmd.add("-r"); cmd.add(rootfs.getPath());
@@ -472,6 +477,7 @@ final class BuiltinLinux {
         cmd.add("LANG=en_US.UTF-8");
         cmd.add("DISPLAY=" + DISPLAY);
         cmd.add("XDESK_GPU=" + (gpu() ? "1" : "0"));
+        for (String e : env) cmd.add(e);
         cmd.add("/bin/sh"); cmd.add(script);
         return cmd;
     }
@@ -577,14 +583,186 @@ final class BuiltinLinux {
 
     /** Ends the session and the X server: every process of ours running Burrow or named as the X server. */
     private void stopNow() {
-        List<Integer> pids = ours();
+        stopNow(false);
+    }
+
+    /**
+     * As stopNow(); keepSsh leaves the SSH server and its sessions running (the desktop restarting, not the system
+     * stopping).
+     */
+    private void stopNow(boolean keepSsh) {
+        List<Integer> pids = ours(keepSsh);
         if (pids.isEmpty()) return;
-        appendLog("stopping " + pids.size() + " processes");
+        appendLog("stopping " + pids.size() + " processes" + (keepSsh ? " (SSH kept)" : ""));
         for (int p : pids) kill(p, OsConstants.SIGTERM);
-        for (int i = 0; i < 20 && !ours().isEmpty(); i++) {
+        for (int i = 0; i < 20 && !ours(keepSsh).isEmpty(); i++) {
             try { Thread.sleep(100); } catch (InterruptedException e) { break; }
         }
-        for (int p : ours()) kill(p, OsConstants.SIGKILL);
+        for (int p : ours(keepSsh)) kill(p, OsConstants.SIGKILL);
+    }
+
+    private List<Integer> ours(boolean keepSsh) {
+        List<Integer> out = ours();
+        if (keepSsh) out.removeIf(BuiltinLinux::isSsh);
+        return out;
+    }
+
+    // ---- SSH access (the one way in to manage the system; n2ray/xdesk-linux docs/design-ssh-access.md) ----
+
+    boolean sshEnabled() { return c.getSharedPreferences(PREFS, 0).getBoolean(PREF_SSH, false); }
+    boolean sshLan() { return c.getSharedPreferences(PREFS, 0).getBoolean(PREF_SSH_LAN, false); }
+
+    /** On: the server starts now (alone, or next to the desktop). Off: it stops, with its sessions. */
+    void setSsh(boolean on) {
+        c.getSharedPreferences(PREFS, 0).edit().putBoolean(PREF_SSH, on).apply();
+        if (on) startSsh();
+        else stopSsh();
+    }
+
+    /** Also from the local network and Tailscale (else 127.0.0.1 only): a running server restarts with it. */
+    void setSshLan(boolean on) {
+        c.getSharedPreferences(PREFS, 0).edit().putBoolean(PREF_SSH_LAN, on).apply();
+        if (sshRunning()) restartSsh();
+    }
+
+    /** The public keys allowed in, one per line as in authorized_keys. */
+    List<String> sshKeys() {
+        List<String> out = new ArrayList<>();
+        for (String k : c.getSharedPreferences(PREFS, 0).getString(PREF_SSH_KEYS, "").split("\n"))
+            if (!k.trim().isEmpty()) out.add(k.trim());
+        return out;
+    }
+
+    /** Adds a public key (one line, "type base64 [comment]"); false when it is not one. */
+    boolean addSshKey(String key) {
+        String k = key.trim().replaceAll("\\s+", " ");
+        if (!k.matches("(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\\.com|sk-ecdsa-sha2-nistp256@openssh\\.com) [A-Za-z0-9+/=]{20,}( .*)?"))
+            return false;
+        List<String> keys = sshKeys();
+        if (!keys.contains(k)) keys.add(k);
+        saveSshKeys(keys);
+        return true;
+    }
+
+    void removeSshKey(String key) {
+        List<String> keys = sshKeys();
+        keys.remove(key);
+        saveSshKeys(keys);
+    }
+
+    private void saveSshKeys(List<String> keys) {
+        c.getSharedPreferences(PREFS, 0).edit().putString(PREF_SSH_KEYS, String.join("\n", keys)).apply();
+        // A running server reads the file at each login: the change counts at once
+        try {
+            writeSshKeys();
+        } catch (IOException e) {
+            Log.w(TAG, "ssh keys", e);
+        }
+        changed();
+    }
+
+    private void writeSshKeys() throws IOException {
+        if (!installed()) return;
+        File dir = new File(rootfs, "etc/xdesk/ssh");
+        dir.mkdirs();
+        File f = new File(dir, "authorized_keys");
+        try (FileWriter w = new FileWriter(f)) {
+            for (String k : sshKeys()) w.write(k + "\n");
+        }
+        Os_chmod(f, 0600);
+    }
+
+    boolean sshRunning() {
+        for (int p : ours()) if (isSsh(p)) return true;
+        return false;
+    }
+
+    /** Starts the SSH server if it is on and not running: with the desktop, or alone (the system in the background). */
+    void startSsh() {
+        if (!installed() || !sshEnabled() || sshRunning()) return;
+        new Thread(() -> {
+            try {
+                try {
+                    c.startForegroundService(new Intent(c, LinuxService.class));
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "no foreground service", e);
+                }
+                writeResolvConf();
+                writeSshKeys();
+                writeAsset("xdesk-sshd");
+                ProcessBuilder b = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-sshd",
+                    "XDESK_SSH_PORT=" + SSH_PORT, "XDESK_SSH_LAN=" + (sshLan() ? "1" : "0")));
+                b.environment().remove("LD_PRELOAD");
+                b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "ssh.log")));
+                b.start();
+                appendLog("SSH started (port " + SSH_PORT + (sshLan() ? ", network" : ", this phone only") + ")");
+                // sshd takes a moment; the page then shows it running
+                main.postDelayed(this::changed, 1500);
+            } catch (IOException e) {
+                fail(c.getString(R.string.xd_bl_ssh_failed), e);
+                changed();
+            }
+        }, "builtin-linux-ssh").start();
+    }
+
+    /** Stops the SSH server and its sessions; the desktop stays. Without a desktop the app stops keeping it alive. */
+    void stopSsh() {
+        new Thread(() -> {
+            List<Integer> pids = new ArrayList<>();
+            for (int p : ours()) if (isSsh(p)) pids.add(p);
+            for (int p : pids) kill(p, OsConstants.SIGTERM);
+            try { Thread.sleep(500); } catch (InterruptedException ignored) { }
+            for (int p : ours()) if (isSsh(p)) kill(p, OsConstants.SIGKILL);
+            if (!pids.isEmpty()) appendLog("SSH stopped");
+            if (!running()) c.stopService(new Intent(c, LinuxService.class));
+            changed();
+        }, "builtin-linux-ssh-stop").start();
+    }
+
+    private void restartSsh() {
+        new Thread(() -> {
+            for (int p : ours()) if (isSsh(p)) kill(p, OsConstants.SIGTERM);
+            for (int i = 0; i < 20 && sshRunning(); i++) {
+                try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+            }
+            startSsh();
+        }, "builtin-linux-ssh-restart").start();
+    }
+
+    /**
+     * The SSH server or one of its sessions: its launcher (Burrow running xdesk-sshd), sshd itself ("sshd ..." or
+     * "sshd: ..." as its title), or anything started under one of them.
+     */
+    private static boolean isSsh(int pid) {
+        for (int i = 0, p = pid; i < 12 && p > 1; i++) {
+            String cmd = cmdline(p);
+            if (cmd.contains("xdesk-sshd") || cmd.startsWith("sshd") || cmd.contains("/sshd ") || cmd.endsWith("/sshd"))
+                return true;
+            p = parent(p);
+        }
+        return false;
+    }
+
+    private static String cmdline(int pid) {
+        try (FileInputStream in = new FileInputStream("/proc/" + pid + "/cmdline")) {
+            byte[] b = new byte[512];
+            int n = in.read(b);
+            return n > 0 ? new String(b, 0, n, StandardCharsets.UTF_8).replace('\0', ' ').trim() : "";
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private static int parent(int pid) {
+        try (FileInputStream in = new FileInputStream("/proc/" + pid + "/stat")) {
+            byte[] b = new byte[512];
+            int n = in.read(b);
+            String s = new String(b, 0, Math.max(0, n), StandardCharsets.US_ASCII);
+            String[] f = s.substring(s.lastIndexOf(')') + 2).split(" ");
+            return Integer.parseInt(f[1]);
+        } catch (IOException | RuntimeException e) {
+            return 0;
+        }
     }
 
     boolean running() {

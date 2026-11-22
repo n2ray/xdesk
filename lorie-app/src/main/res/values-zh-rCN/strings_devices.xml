@@ -45,9 +45,13 @@
     <string name="xd_dev_add">添加设备</string>
     <string name="xd_dev_add_pick">要连接什么</string>
     <string name="xd_dev_type_linux">Linux</string>
-    <string name="xd_dev_type_linux_note">Termux、proot、chroot</string>
+    <string name="xd_dev_type_linux_note">Termux（原生、proot、chroot）或内置 Linux</string>
+    <string name="xd_dev_linux_termux">Termux</string>
+    <string name="xd_dev_linux_termux_note">Termux 本身，以及它的 xdesk 命令知道的 proot / chroot 环境</string>
     <string name="xd_dev_type_mac">Mac</string>
-    <string name="xd_dev_type_mac_note">和 Mac 上的 Sill 配对</string>
+    <string name="xd_dev_type_mac_note">Sill 连接，或 Mac 自带的屏幕共享</string>
+    <string name="xd_dev_mac_sill">Sill 连接</string>
+    <string name="xd_dev_mac_sill_note">Mac 的窗口和应用逐个串流；和 Mac 上装的 Sill 配对</string>
     <string name="xd_dev_linux_steps">让 xdesk 知道更多环境</string>
     <string name="xd_dev_linux_install">安装 Termux</string>
     <string name="xd_dev_linux_install_note">从 F-Droid 或 GitHub 安装，再在里面装 xdesk</string>
