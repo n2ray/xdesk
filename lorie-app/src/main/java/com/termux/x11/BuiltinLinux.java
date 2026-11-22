@@ -51,6 +51,8 @@ final class BuiltinLinux {
     static final String IMAGE_URL = "https://github.com/n2ray/xdesk/releases/download/linux-ubuntu2604-r1/" + IMAGE;
     private static final String X_NAME = "xdesk-builtin-x";
     private static final String DISPLAY = ":1";
+    /** termux-va's MediaCodec service, packaged as a "library" so it is installed executable. */
+    private static final String VIDEO_HELPER = "libtermux_va.so";
     private static final String PREFS = "builtin_linux", PREF_GPU = "gpu";
     private static final int X_WAIT_MS = 20000;
 
@@ -409,6 +411,7 @@ final class BuiltinLinux {
             Thread.sleep(200);
         }
 
+        startVideoHelper(tmp);
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
         writeAsset("xdesk-session");
         ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session"));
@@ -422,6 +425,28 @@ final class BuiltinLinux {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Hardware video decoding for the container: termux-va's MediaCodec service (built from lfdevs/termux-va into
+     * lib/libtermux_va.so), run as the app so it may use the phone's decoders. It listens on the socket Mesa's
+     * termuxva VA-API driver looks for by default, /tmp/termux-va/termux-va.sock; stopNow ends it with the rest.
+     */
+    private void startVideoHelper(File tmp) {
+        File helper = new File(c.getApplicationInfo().nativeLibraryDir, VIDEO_HELPER);
+        if (!helper.canExecute()) return;
+        File dir = new File(tmp, "termux-va");
+        dir.mkdirs();
+        new File(dir, "termux-va.sock").delete();
+        try {
+            ProcessBuilder b = new ProcessBuilder(helper.getPath(), "--sock", dir.getPath(), "-t");
+            b.environment().remove("LD_PRELOAD");
+            b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "video.log")));
+            b.start();
+            appendLog("video decoding service started");
+        } catch (IOException e) {
+            Log.w(TAG, "video helper", e);
+        }
     }
 
     /** The command line that runs a shell script inside the container, with the session's environment. */
@@ -574,7 +599,7 @@ final class BuiltinLinux {
             if (pid == me) continue;
             String exe;
             try { exe = Os.readlink("/proc/" + pid + "/exe"); } catch (ErrnoException e) { exe = ""; }
-            if (exe.equals(burrow) || exe.endsWith("/libburrow.so") || isX(pid)) out.add(pid);
+            if (exe.equals(burrow) || exe.endsWith("/libburrow.so") || exe.endsWith("/" + VIDEO_HELPER) || isX(pid)) out.add(pid);
         }
         return out;
     }

@@ -54,9 +54,29 @@ EOF
 else
     echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' >/etc/chromium.d/xdesk
 fi
-# Google Chrome: the same, read by the image's wrapper /usr/bin/google-chrome-stable
+# Hardware video decoding: Mesa's termuxva VA-API driver, which hands the stream to the app's MediaCodec service
+# (termux-va, started by the app; it listens on /tmp/termux-va/termux-va.sock, where the driver looks by default).
+[ -S /tmp/termux-va/termux-va.sock ] && export LIBVA_DRIVER_NAME=termuxva
+
+# Google Chrome (apt install google-chrome-stable), read by the image's wrapper /usr/bin/google-chrome-stable.
+# On the GPU, termux-va's recipe for Termux:X11 (docs/termux-va.rst in lfdevs' Mesa): GL on Freedreno over KGSL,
+# ANGLE on EGL (it can import dma-bufs; GLX shows imported buffers black), and its preload, which answers Chrome's
+# DRI3 Open (that XDesk's X refuses) with a KGSL descriptor so Chrome can allocate buffers for decoded video.
 mkdir -p /etc/xdesk
-sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
+if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ] && [ -S /tmp/termux-va/termux-va.sock ]; then
+    cat >/etc/xdesk/chrome.sh <<'EOF'
+export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtva_drm_shim_wayland.so
+export LIBVA_DRIVER_NAME=termuxva TERMUX_VA_BRIDGE=1 TERMUX_VA_GPU_BACKEND=kgsl TERMUX_VA_X11_DRI3=1
+export MESA_LOADER_DRIVER_OVERRIDE=kgsl TURNIP_KMD=kgsl
+CHROME_FLAGS="--no-sandbox --ozone-platform=x11 --use-gl=angle --use-angle=gles-egl --ignore-gpu-blocklist
+ --disable-gpu-rasterization --enable-gpu-compositing --enable-zero-copy --enable-native-gpu-memory-buffers
+ --enable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL,PlatformHEVCDecoderSupport
+ --disable-features=AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiVideoMinResolutionForPerformance
+ --hardware-video-device-path=/dev/kgsl-3d0"
+EOF
+else
+    sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
+fi
 
 # The screen's size and DPI come once the app shows the desktop (X starts at 1280x1024, 96 DPI): wait for it, or the
 # wallpaper keeps the wrong size and everything is drawn at 96 DPI, tiny on a phone or a monitor
