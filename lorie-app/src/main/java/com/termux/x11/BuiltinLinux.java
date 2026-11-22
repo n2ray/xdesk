@@ -377,6 +377,11 @@ final class BuiltinLinux {
         socket.delete();
         new File(tmp, ".X1-lock").delete();
         writeResolvConf();
+        // Android's /dev has no shm: Chromium (and glibc's shm_open) need one, emptied at each start
+        File shm = shm();
+        rm(shm);
+        shm.mkdirs();
+        Os_chmod(shm, 01777);
 
         ApplicationInfo ai = c.getApplicationInfo();
         ProcessBuilder x = new ProcessBuilder("/system/bin/app_process", "-Xnoimage-dex2oat", "/",
@@ -425,6 +430,7 @@ final class BuiltinLinux {
         cmd.add(burrow());
         cmd.add("-r"); cmd.add(rootfs.getPath());
         cmd.add("-b"); cmd.add("/dev");
+        cmd.add("-b"); cmd.add(shm().getPath() + ":/dev/shm");
         cmd.add("-b"); cmd.add("/proc");
         cmd.add("-b"); cmd.add("/sys");
         cmd.add("-b"); cmd.add(home.getPath() + ":/root");
@@ -471,6 +477,8 @@ final class BuiltinLinux {
         }
         Os_chmod(f, 0755);
     }
+
+    private File shm() { return new File(base, "shm"); }
 
     private String burrow() { return c.getApplicationInfo().nativeLibraryDir + "/libburrow.so"; }
 

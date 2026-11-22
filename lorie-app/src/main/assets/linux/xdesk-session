@@ -30,4 +30,17 @@ fi
 # Firefox's sandboxes need namespaces the container does not have
 export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_SANDBOX=1 MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
 
+# Chromium (apt install chromium), read by Debian's launcher: no sandbox (no namespaces either). On the GPU, ANGLE
+# on GL (Zink): with Vulkan compositing WebGL and the compositor share no memory and every frame stalls on
+# ReadPixels; sysmem keeps Turnip's tiles from flickering when SurfaceFlinger composes the screen on the GPU.
+mkdir -p /etc/chromium.d
+if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
+    cat >/etc/chromium.d/xdesk <<'EOF'
+export TU_DEBUG="${TU_DEBUG:-sysmem}"
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox --disable-gpu-sandbox --ignore-gpu-blocklist --use-angle=gl --disable-features=Vulkan"
+EOF
+else
+    echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' >/etc/chromium.d/xdesk
+fi
+
 exec dbus-launch --exit-with-session startxfce4

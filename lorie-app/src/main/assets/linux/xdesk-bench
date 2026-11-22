@@ -33,4 +33,58 @@ timeout 90 glmark2 --off-screen -s 1280x720 $G 2>&1 | grep -E '^\[|Score' | sed 
 timeout 60 vkmark --winsys headless -s 1280x720 -b vertex:duration=5 -b cube:duration=5 -b texture:duration=5 2>&1 | grep -E '^\[|Score|Device' | sed 's/^/  /'
 echo "== software (llvmpipe)"
 env -u MESA_LOADER_DRIVER_OVERRIDE LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe timeout 90 glmark2 --off-screen -s 1280x720 $G 2>&1 | grep -E '^\[|Score' | sed 's/^/  /'
+
+# Chromium: start-up, JavaScript, and WebGL headless and in a real window on this X
+command -v chromium >/dev/null || { echo "installing chromium..."; apt-get install -y -qq --no-install-recommends chromium >/dev/null 2>&1; }
+mkdir -p /tmp/cb
+cat >/tmp/cb/blank.html <<'PAGE'
+<html><body>hi</body></html>
+PAGE
+cat >/tmp/cb/js.html <<'PAGE'
+<html><body><pre id=r></pre><script>
+const T=[];let t=performance.now();const lap=n=>{const x=performance.now();T.push(n+' '+Math.round(x-t));t=x;};
+let s=0;for(let i=0;i<3e7;i++)s+=i%7;lap('loop');
+let o=[];for(let i=0;i<200000;i++)o.push({a:i,b:'x'+i});JSON.parse(JSON.stringify(o));lap('json');
+const d=document.createElement('div');for(let i=0;i<20000;i++){const e=document.createElement('span');e.textContent='item '+i;e.style.padding=(i%5)+'px';d.appendChild(e);}
+document.body.appendChild(d);document.body.offsetHeight;lap('dom');d.remove();
+let r=0;for(const m of ('123-abc ').repeat(200000).matchAll(/(\d+)-(\w+)/g))r++;lap('regex');
+const c=document.createElement('canvas');c.width=1024;c.height=1024;const g=c.getContext('2d');for(let i=0;i<20000;i++){g.fillStyle='hsl('+(i%360)+',50%,50%)';g.fillRect(i%1000,(i*7)%1000,20,20);}g.getImageData(0,0,1,1);lap('canvas2d');
+document.getElementById('r').textContent='RESULT '+T.join(' | ');
+</script></body></html>
+PAGE
+cat >/tmp/cb/gl.html <<'PAGE'
+<html><body><pre id=r></pre><script>
+const c=document.createElement('canvas');c.width=1280;c.height=720;const gl=c.getContext('webgl2');
+let out='';
+if(!gl){out='no webgl2';}else{
+const ext=gl.getExtension('WEBGL_debug_renderer_info');out=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);
+const vs=`#version 300 es
+in vec2 p;uniform float t;void main(){float a=t+float(gl_VertexID)*0.001;gl_Position=vec4(p*0.5+vec2(sin(a),cos(a))*0.3,0,1);}`;
+const fs=`#version 300 es
+precision highp float;out vec4 o;uniform float t;void main(){float v=0.;for(int i=0;i<64;i++)v+=sin(gl_FragCoord.x*0.01+float(i)+t)*cos(gl_FragCoord.y*0.01-float(i));o=vec4(v,0.5,0.2,1);}`;
+const sh=(ty,s)=>{const x=gl.createShader(ty);gl.shaderSource(x,s);gl.compileShader(x);return x;};
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+const N=300,a=new Float32Array(N*6);for(let i=0;i<a.length;i++)a[i]=Math.random()*2-1;
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,a,gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+const u=gl.getUniformLocation(pr,'t');const px=new Uint8Array(4);
+const t0=performance.now();let f=0;while(performance.now()-t0<3000){gl.uniform1f(u,f*0.01);gl.drawArrays(gl.TRIANGLES,0,N*3);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);f++;}
+out+=' | frames/s '+Math.round(f/((performance.now()-t0)/1000));}
+document.getElementById("r").textContent="RESULT "+out;document.title="RESULT "+out;
+</script></body></html>
+PAGE
+echo "== chromium $(chromium --version 2>/dev/null)"
+ms() { echo $(( ($(date +%s%N)-$1)/1000000 )); }
+F="--headless=new --no-sandbox --disable-gpu --no-first-run --disable-dev-shm-usage"
+for i in 1 2 3; do rm -rf /tmp/cbp; s=$(date +%s%N); chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, new profile: $(ms $s) ms"; done
+for i in 1 2 3; do s=$(date +%s%N); chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, same profile: $(ms $s) ms"; done
+for i in 1 2; do chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/js.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1; done
+rm -rf /tmp/cbp
+echo "webgl headless vulkan: $(timeout 60 chromium --headless=new --no-sandbox --no-first-run --ignore-gpu-blocklist --use-angle=vulkan --enable-features=Vulkan --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/gl.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1)"
+rm -rf /tmp/cbp
+# A window, with the flags of /etc/chromium.d/xdesk (the desktop's own)
+chromium --no-first-run --user-data-dir=/tmp/cbp --window-size=1280,800 file:///tmp/cb/gl.html >/tmp/cb/x.log 2>&1 &
+cp=$!; got=
+for i in $(seq 40); do got=$(xwininfo -root -tree 2>/dev/null | grep -o 'RESULT [^"]*' | head -1); [ -n "$got" ] && break; sleep 1; done
+echo "webgl window (desktop flags): ${got:-none}"
+kill $cp 2>/dev/null; sleep 2; kill -9 $cp 2>/dev/null; rm -rf /tmp/cbp
 echo "== done"
