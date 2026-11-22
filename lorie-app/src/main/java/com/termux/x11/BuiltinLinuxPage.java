@@ -61,7 +61,19 @@ final class BuiltinLinuxPage {
         }, "builtin-linux-du").start();
     }
 
+    /** Installed or not, as last seen: when it changes the device list gains or loses its row. */
+    private Boolean installed;
+
     private void fill() {
+        boolean now = bl.installed();
+        if (installed != null && installed != now) Devices.get(c).touch();
+        installed = now;
+        // Removed (from this page or meanwhile): the device is gone, and its page with it
+        if (manage && !now && bl.state() == BuiltinLinux.State.NOT_INSTALLED) {
+            if (dialog != null) dialog.dismiss();
+            else content.post(() -> { if (dialog != null) dialog.dismiss(); });
+            return;
+        }
         content.removeAllViews();
         if (manage) fillManage();
         else fillAdd();
@@ -99,10 +111,6 @@ final class BuiltinLinuxPage {
         if (note == null) note = bl.error();
         s.dotRow(state, on, c.getString(label(st)), note);
         switch (st) {
-            case NOT_INSTALLED:
-                // Removed (here or meanwhile): installing again is Add device's
-                s.infoRow(state, c.getString(R.string.xd_bl_not_installed_hint), null, null);
-                return;
             case STOPPED:
                 s.accentRow(state, c.getString(R.string.xd_bl_start), c.getString(R.string.xd_bl_start_note), bl::start);
                 break;

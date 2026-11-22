@@ -58,5 +58,4 @@
     <string name="xd_bl_added">Added</string>
     <string name="xd_bl_added_note">It is in your devices: tap it there to start, stop, reset or remove it</string>
     <string name="xd_bl_manage">Open its device page</string>
-    <string name="xd_bl_not_installed_hint">Not installed. Install it from Add device › Linux › Built-in Linux</string>
 </resources>

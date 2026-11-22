@@ -58,5 +58,4 @@
     <string name="xd_bl_added">已添加</string>
     <string name="xd_bl_added_note">已经在你的设备里：在设备列表里点它，可以启动、停止、重置或删除</string>
     <string name="xd_bl_manage">打开它的设备页</string>
-    <string name="xd_bl_not_installed_hint">没有安装。请在「添加设备 › Linux › 内置 Linux」里安装</string>
 </resources>
