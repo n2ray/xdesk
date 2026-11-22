@@ -36,7 +36,7 @@ jobs:
     - uses: actions/checkout@v7
       with:
         repository: n2ray/termux-va
-        ref: 190b0ec9cd064914b6ef1836281e7e41ddb7ce6e
+        ref: faf10039dfc41756d16139926d323374811a322a
         path: build/termux-va-src
         persist-credentials: false
     - name: Build the MediaCodec service for the built-in Linux

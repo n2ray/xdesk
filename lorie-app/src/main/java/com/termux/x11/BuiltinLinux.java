@@ -105,13 +105,13 @@ final class BuiltinLinux {
             @Override public void onReceive(Context x, Intent i) {
                 String cmd = i.getStringExtra("cmd");
                 if ("install".equals(cmd)) bl.install();
-                else if ("start".equals(cmd)) bl.start();
+                else if ("start".equals(cmd)) bl.start(i.getBooleanExtra("measure", false));
                 else if ("stop".equals(cmd)) bl.stop();
                 else if ("reset".equals(cmd)) bl.reset(true);
                 else if ("gpu-on".equals(cmd)) bl.setGpu(true);
                 else if ("gpu-off".equals(cmd)) bl.setGpu(false);
                 else if ("bench".equals(cmd)) bl.bench();
-                else if ("run".equals(cmd)) bl.runDebugScript();
+                else if ("run".equals(cmd)) bl.runDebugScript(i.getBooleanExtra("stats", false));
                 Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
             }
         };
@@ -345,14 +345,16 @@ final class BuiltinLinux {
 
     // ---- Start and stop ----
 
-    void start() {
+    void start() { start(false); }
+
+    private void start(boolean measurePresent) {
         if (!installed() || !begin()) return;
         set(State.STARTING, c.getString(R.string.xd_bl_starting_x));
         final boolean gpu = gpu();
         new Thread(() -> {
             boolean ok = false;
             try {
-                ok = startNow(gpu);
+                ok = startNow(gpu, measurePresent);
             } catch (Throwable t) {
                 fail(c.getString(R.string.xd_bl_start_failed), t);
             }
@@ -367,7 +369,7 @@ final class BuiltinLinux {
         }, "builtin-linux-start").start();
     }
 
-    private boolean startNow(boolean gpu) throws IOException, InterruptedException {
+    private boolean startNow(boolean gpu, boolean measurePresent) throws IOException, InterruptedException {
         try {
             c.startForegroundService(new Intent(c, LinuxService.class));
         } catch (RuntimeException e) {
@@ -397,6 +399,7 @@ final class BuiltinLinux {
         x.environment().put("XDESK_AUDIO_SOCKET", new File(tmp, "xdesk-audio").getPath());
         x.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "x.log")));
         appendLog("starting X");
+        if (measurePresent) x.environment().put("TERMUX_X11_MISURA", "1");
         Process xp = x.start();
         long deadline = System.currentTimeMillis() + X_WAIT_MS;
         while (!socket.exists()) {
@@ -496,7 +499,7 @@ final class BuiltinLinux {
      * Debug only (the shell's broadcast): runs debug.sh from the app's external files (where the shell can put it)
      * inside the container with the session's environment, output in logs/run.log.
      */
-    void runDebugScript() {
+    void runDebugScript(boolean countSyscalls) {
         File src = new File(c.getExternalFilesDir(null), "debug.sh");
         if (!src.isFile()) { Log.w(TAG, "run: no " + src); return; }
         new Thread(() -> {
@@ -507,7 +510,14 @@ final class BuiltinLinux {
                     byte[] buf = new byte[8192];
                     for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
                 }
-                ProcessBuilder b = new ProcessBuilder(containerCmd("/tmp/xdesk-debug.sh"));
+                List<String> cmd = containerCmd("/tmp/xdesk-debug.sh");
+                if (countSyscalls) {
+                    // Burrow aggregates this run and its child processes in a shared counter file.
+                    File stats = File.createTempFile("burrow-", ".stats", logDir());
+                    cmd.add(1, "-s");
+                    cmd.add(2, stats.getAbsolutePath());
+                }
+                ProcessBuilder b = new ProcessBuilder(cmd);
                 b.environment().remove("LD_PRELOAD");
                 b.redirectErrorStream(true).redirectOutput(new File(logDir(), "run.log"));
                 Log.i(TAG, "run done " + b.start().waitFor());
