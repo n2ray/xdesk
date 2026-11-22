@@ -35,7 +35,7 @@ echo "== software (llvmpipe)"
 env -u MESA_LOADER_DRIVER_OVERRIDE LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe timeout 90 glmark2 --off-screen -s 1280x720 $G 2>&1 | grep -E '^\[|Score' | sed 's/^/  /'
 
 # Chromium: start-up, JavaScript, and WebGL headless and in a real window on this X
-command -v chromium >/dev/null || { echo "installing chromium..."; apt-get install -y -qq --no-install-recommends chromium >/dev/null 2>&1; }
+C=$(command -v google-chrome-stable || command -v chromium) || { echo "no chrome or chromium"; exit 0; }
 mkdir -p /tmp/cb
 cat >/tmp/cb/blank.html <<'PAGE'
 <html><body>hi</body></html>
@@ -72,17 +72,17 @@ out+=' | frames/s '+Math.round(f/((performance.now()-t0)/1000));}
 document.getElementById("r").textContent="RESULT "+out;document.title="RESULT "+out;
 </script></body></html>
 PAGE
-echo "== chromium $(chromium --version 2>/dev/null)"
+echo "== $($C --version 2>/dev/null)"
 ms() { echo $(( ($(date +%s%N)-$1)/1000000 )); }
 F="--headless=new --no-sandbox --disable-gpu --no-first-run --disable-dev-shm-usage"
-for i in 1 2 3; do rm -rf /tmp/cbp; s=$(date +%s%N); chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, new profile: $(ms $s) ms"; done
-for i in 1 2 3; do s=$(date +%s%N); chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, same profile: $(ms $s) ms"; done
-for i in 1 2; do chromium $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/js.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1; done
+for i in 1 2 3; do rm -rf /tmp/cbp; s=$(date +%s%N); $C $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, new profile: $(ms $s) ms"; done
+for i in 1 2 3; do s=$(date +%s%N); $C $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/blank.html >/dev/null 2>&1; echo "start, same profile: $(ms $s) ms"; done
+for i in 1 2; do $C $F --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/js.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1; done
 rm -rf /tmp/cbp
-echo "webgl headless vulkan: $(timeout 60 chromium --headless=new --no-sandbox --no-first-run --ignore-gpu-blocklist --use-angle=vulkan --enable-features=Vulkan --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/gl.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1)"
+echo "webgl headless vulkan: $(timeout 60 $C --headless=new --no-sandbox --no-first-run --ignore-gpu-blocklist --use-angle=vulkan --enable-features=Vulkan --user-data-dir=/tmp/cbp --dump-dom file:///tmp/cb/gl.html 2>/dev/null | grep -o 'RESULT [^<]*' | head -1)"
 rm -rf /tmp/cbp
 # A window, with the flags of /etc/chromium.d/xdesk (the desktop's own)
-chromium --no-first-run --user-data-dir=/tmp/cbp --window-size=1280,800 file:///tmp/cb/gl.html >/tmp/cb/x.log 2>&1 &
+$C --no-first-run --user-data-dir=/tmp/cbp --window-size=1280,800 file:///tmp/cb/gl.html >/tmp/cb/x.log 2>&1 &
 cp=$!; got=
 for i in $(seq 40); do got=$(xwininfo -root -tree 2>/dev/null | grep -o 'RESULT [^"]*' | head -1); [ -n "$got" ] && break; sleep 1; done
 echo "webgl window (desktop flags): ${got:-none}"

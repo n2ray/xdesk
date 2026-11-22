@@ -37,7 +37,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.zip.GZIPInputStream;
 
 /**
- * XDesk's built-in Linux: a Debian 13 + XFCE image run with Burrow (lib/libburrow.so, a seccomp + SIGSYS
+ * XDesk's built-in Linux: an Ubuntu 26.04 LTS + XFCE image run with Burrow (lib/libburrow.so, a seccomp + SIGSYS
  * container runtime) in the app's own files, without Termux. The app starts its own X server (CmdEntryPoint through
  * app_process, as the xdesk command does in Termux) with its socket in the container's /tmp, then the session.
  *
@@ -46,9 +46,9 @@ import java.util.zip.GZIPInputStream;
  */
 final class BuiltinLinux {
     private static final String TAG = "BuiltinLinux";
-    static final String IMAGE = "xdesk-debian13-arm64.tar.gz";
+    static final String IMAGE = "xdesk-ubuntu2604-arm64.tar.gz";
     /** Where the image comes from when it is not on the phone yet. Not published yet: the test image is copied in. */
-    static final String IMAGE_URL = "https://github.com/n2ray/xdesk/releases/download/linux-debian13-r1/" + IMAGE;
+    static final String IMAGE_URL = "https://github.com/n2ray/xdesk/releases/download/linux-ubuntu2604-r1/" + IMAGE;
     private static final String X_NAME = "xdesk-builtin-x";
     private static final String DISPLAY = ":1";
     private static final String PREFS = "builtin_linux", PREF_GPU = "gpu";

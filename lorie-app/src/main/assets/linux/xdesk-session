@@ -49,6 +49,9 @@ EOF
 else
     echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' >/etc/chromium.d/xdesk
 fi
+# Google Chrome: the same, read by the image's wrapper /usr/bin/google-chrome-stable
+mkdir -p /etc/xdesk
+sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
 
 # The screen's size and DPI come once the app shows the desktop (X starts at 1280x1024, 96 DPI): wait for it, or the
 # wallpaper keeps the wrong size and everything is drawn at 96 DPI, tiny on a phone or a monitor

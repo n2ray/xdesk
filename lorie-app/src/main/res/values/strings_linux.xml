@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xd_bl_title">Built-in Linux</string>
-    <string name="xd_bl_type_note">Debian with XFCE inside XDesk, no Termux (experimental)</string>
-    <string name="xd_bl_row_note">Debian 13 · XFCE</string>
+    <string name="xd_bl_type_note">Ubuntu with XFCE inside XDesk, no Termux (experimental)</string>
+    <string name="xd_bl_row_note">Ubuntu 26.04 · XFCE</string>
     <string name="xd_bl_state_not_installed">Not installed</string>
     <string name="xd_bl_state_installing">Working…</string>
     <string name="xd_bl_state_stopping">Stopping…</string>
-    <string name="xd_bl_install">Install Debian 13 with XFCE</string>
+    <string name="xd_bl_install">Install Ubuntu 26.04 with XFCE</string>
     <string name="xd_bl_install_note">Downloads about 600 MB once and needs about 2.5 GB. Stays in XDesk: uninstalling XDesk or clearing its data removes it</string>
     <string name="xd_bl_install_local_note">The image is already on the phone: no download</string>
     <string name="xd_bl_start">Start the desktop</string>
@@ -16,7 +16,7 @@
     <string name="xd_bl_stop_note">Ends the desktop and every program in it</string>
     <string name="xd_bl_about">What this is</string>
     <string name="xd_bl_about_what">A Linux of its own</string>
-    <string name="xd_bl_about_what_note">Debian 13 with the XFCE desktop, Firefox and a terminal, run by XDesk itself. Install anything with apt; break it and reset it in a minute.</string>
+    <string name="xd_bl_about_what_note">Ubuntu 26.04 LTS with the XFCE desktop, Chrome, Firefox and a terminal, run by XDesk itself. Install anything with apt; break it and reset it in a minute.</string>
     <string name="xd_bl_about_termux">Termux stays as it is</string>
     <string name="xd_bl_about_termux_note">The Termux desktops are separate and keep working. Run one desktop at a time.</string>
     <string name="xd_bl_graphics">Graphics</string>

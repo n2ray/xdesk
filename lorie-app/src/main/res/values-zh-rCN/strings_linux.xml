@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="xd_bl_title">内置 Linux</string>
-    <string name="xd_bl_type_note">XDesk 自带的 Debian 和 XFCE，不用 Termux（试验）</string>
-    <string name="xd_bl_row_note">Debian 13 · XFCE</string>
+    <string name="xd_bl_type_note">XDesk 自带的 Ubuntu 和 XFCE，不用 Termux（试验）</string>
+    <string name="xd_bl_row_note">Ubuntu 26.04 · XFCE</string>
     <string name="xd_bl_state_not_installed">还没安装</string>
     <string name="xd_bl_state_installing">处理中…</string>
     <string name="xd_bl_state_stopping">正在停止…</string>
-    <string name="xd_bl_install">安装 Debian 13 和 XFCE</string>
+    <string name="xd_bl_install">安装 Ubuntu 26.04 和 XFCE</string>
     <string name="xd_bl_install_note">只下载一次，约 600 MB，装好约占 2.5 GB。装在 XDesk 里：卸载 XDesk 或清除它的数据会一起删掉</string>
     <string name="xd_bl_install_local_note">安装包已经在手机上，不用下载</string>
     <string name="xd_bl_start">启动桌面</string>
@@ -16,7 +16,7 @@
     <string name="xd_bl_stop_note">结束桌面和里面所有程序</string>
     <string name="xd_bl_about">这是什么</string>
     <string name="xd_bl_about_what">一个自己的 Linux</string>
-    <string name="xd_bl_about_what_note">Debian 13，带 XFCE 桌面、Firefox 和终端，由 XDesk 自己运行。想装什么用 apt 装；折腾坏了，一分钟重置。</string>
+    <string name="xd_bl_about_what_note">Ubuntu 26.04 LTS，带 XFCE 桌面、Chrome、Firefox 和终端，由 XDesk 自己运行。想装什么用 apt 装；折腾坏了，一分钟重置。</string>
     <string name="xd_bl_about_termux">Termux 不受影响</string>
     <string name="xd_bl_about_termux_note">Termux 里的桌面是分开的，照常能用。同一时间只开一个桌面。</string>
     <string name="xd_bl_graphics">图形</string>
