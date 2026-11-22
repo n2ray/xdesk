@@ -6,6 +6,7 @@ import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
+import android.media.AudioTimestamp;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Process;
@@ -35,11 +36,14 @@ final class AudioReceiver {
     private final Context context;
     private final DatagramSocket socket;
     private final InetAddress host;
+    private final MediaClock clock;
+    private MediaClock.Reports reports;
     private volatile SrtpStream incoming;
     private volatile boolean closed;
     private Thread worker;
 
-    AudioReceiver(Context context, DatagramSocket socket, InetAddress host) {
+    AudioReceiver(Context context, DatagramSocket socket, InetAddress host, MediaClock clock) {
+        this.clock = clock;
         this.context = context;
         this.socket = socket;
         this.host = host;
@@ -47,6 +51,7 @@ final class AudioReceiver {
 
     synchronized void setKey(byte[] key) throws GeneralSecurityException {
         if (closed) return;
+        reports = new MediaClock.Reports(key);
         incoming = new SrtpStream(key);
         if (worker == null) {
             worker = new Thread(this::receive, "screen-sharing-audio");
@@ -58,6 +63,15 @@ final class AudioReceiver {
         closed = true;
         incoming = null;
         if (worker != null) worker.interrupt();
+    }
+
+    // Keep silent desktops interactive. Expire the presentation anchor after one second of silence.
+    private static boolean audible(ByteBuffer pcm) {
+        for (int i = pcm.position(); i + 1 < pcm.limit(); i += 16) {
+            int sample = (pcm.get(i) & 255) | (pcm.get(i + 1) << 8);
+            if (Math.abs(sample) > 32) return true;
+        }
+        return false;
     }
 
     private void receive() {
@@ -90,13 +104,20 @@ final class AudioReceiver {
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             SrtpStream current = null;
             TreeMap<Long, byte[]> pending = new TreeMap<>();
-            long expected = -1, gapSince = 0;
+            long expected = -1, gapSince = 0, originIndex = 0;
+            int originStamp = 0, ssrc = 0;
+            AudioTimestamp hardware = new AudioTimestamp();
+            long nextTiming = 0;
             long nextRoute = 0, nextReport = SystemClock.elapsedRealtime()+10000;
             while (!closed) {
                 packet.setLength(storage.length);
                 boolean received = true;
                 try { socket.receive(packet); } catch (SocketTimeoutException idle) { received = false; }
                 SrtpStream key = incoming;
+                if (received && key != null && host.equals(packet.getAddress()) && packet.getLength() >= 2
+                        && (storage[1] & 255) == 200) {
+                    reports.accept(storage, packet.getLength(), clock.audio);
+                }
                 if (received && key != null && host.equals(packet.getAddress())
                         && packet.getLength() >= 23 && (storage[1] & 127) == 101) {
                     SrtpStream.Payload au = key.open(storage, packet.getLength());
@@ -105,6 +126,10 @@ final class AudioReceiver {
                             current = key;
                             pending.clear();
                             expected = au.index;
+                            originIndex = au.index;
+                            ByteBuffer header = ByteBuffer.wrap(storage);
+                            originStamp = header.getInt(4);
+                            ssrc = header.getInt(8);
                             gapSince = 0;
                         }
                         if (au.index < expected || pending.putIfAbsent(au.index, au.data) != null) late++;
@@ -135,7 +160,8 @@ final class AudioReceiver {
                     ByteBuffer in = decoder.getInputBuffer(index);
                     int size = data.length <= in.remaining() ? data.length : 0;
                     if (size > 0) in.put(data);
-                    decoder.queueInputBuffer(index, 0, size, frames * 10000, 0);
+                    long sample = Integer.toUnsignedLong(originStamp) + (expected - originIndex) * FRAME;
+                    decoder.queueInputBuffer(index, 0, size, sample * 1000000L / RATE, 0);
                     if (gap > 0) lost++;
                     else gapSince = 0;
                     frames++;
@@ -144,6 +170,15 @@ final class AudioReceiver {
                 for (int i; !closed && (i = decoder.dequeueOutputBuffer(info,0)) >= 0;) {
                     try {
                         ByteBuffer out = decoder.getOutputBuffer(i);
+                        long now = System.nanoTime();
+                        if (now >= nextTiming && audible(out) && track.getTimestamp(hardware)) {
+                            long due = hardware.nanoTime + (written / 4 - hardware.framePosition) * 1000000000L / RATE;
+                            if (Math.abs(due - now) < 500000000L) {
+                                int sample = (int)((info.presentationTimeUs * RATE + 500000) / 1000000);
+                                clock.played(ssrc, sample, due);
+                            }
+                            nextTiming = now + 50000000L;
+                        }
                         while (!closed && out.hasRemaining()) {
                             int n = track.write(out, out.remaining(), AudioTrack.WRITE_BLOCKING);
                             if (n <= 0) throw new IOException("AudioTrack write " + n);
@@ -161,6 +196,7 @@ final class AudioReceiver {
                 }
                 if (now >= nextReport) {
                     Log.i(TAG,"au="+frames+" pcmFrames="+written/4+" lost="+lost+" late="+late
+                            +" audioHz="+clock.audio.rateHz()+" videoHz="+clock.video.rateHz()+" videoWaitMs="+clock.lastVideoWaitMs
                             +" underruns="+track.getUnderrunCount()+" playHead="+Integer.toUnsignedLong(track.getPlaybackHeadPosition()));
                     nextReport = now + 10000;
                 }

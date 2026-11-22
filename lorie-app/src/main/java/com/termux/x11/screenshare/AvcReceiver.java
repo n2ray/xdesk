@@ -12,8 +12,11 @@ import javax.crypto.spec.*;
 import static com.termux.x11.screenshare.DirectSession.*;
 
 final class AvcReceiver {
-    interface Sink {void frame(byte[] data,long ns,int flags)throws Exception;}
-    private SrtpStream stream;
+    interface Sink {void frame(byte[] data,long ns,int flags,long dueNs)throws Exception;}
+    private final SrtpStream stream;
+    private final MediaClock clock;
+    private final MediaClock.Reports reports;
+    private int mediaSsrc;
     volatile boolean suspended;
     final TreeMap<Long,byte[]> parts=new TreeMap<>();
     long firstNs, stamp=-1;
@@ -28,7 +31,9 @@ final class AvcReceiver {
     /** The last packet's index, to see a packet missing between pictures too (-1: none yet). */
     private long lastIndex = -1;
     int gaps;
-    AvcReceiver(byte[] seed)throws Exception{
+    AvcReceiver(byte[] seed, MediaClock clock)throws Exception{
+        this.clock = clock;
+        reports = new MediaClock.Reports(seed);
         stream = new SrtpStream(seed);
     }
     synchronized void hide() {
@@ -40,6 +45,10 @@ final class AvcReceiver {
 
     synchronized void packet(byte[] p,int n,long ns,Sink sink)throws Exception{
         // Track authenticated sequence rollovers while hidden so a long detach can resume.
+        if (n >= 2 && (p[1] & 255) == 200) {
+            reports.accept(p, n, clock.video);
+            return;
+        }
         SrtpStream.Payload payload = stream.open(p, n);
         if (payload == null || suspended) return;
         long index = payload.index;
@@ -55,6 +64,7 @@ final class AvcReceiver {
         }
         if (index > lastIndex) lastIndex = index;
         ByteBuffer h = ByteBuffer.wrap(p);
+        mediaSsrc = h.getInt(8);
         int nal = pay[0] & 31;
         if ((seenTypes & (1 << nal)) == 0) {
             seenTypes |= 1 << nal;
@@ -138,7 +148,7 @@ final class AvcReceiver {
         if(pic.size()>0 && sps!=null && pps!=null && (frames>0||idr)){
             byte[] data=pic.toByteArray();
             if(idr)data=cat(b(0,0,0,1),sps,b(0,0,0,1),pps,data);
-            sink.frame(data,firstNs,idr?1:0);frames++;
+            sink.frame(data,firstNs,idr?1:0,clock.presentAt(mediaSsrc,(int)stamp,System.nanoTime()));frames++;
         }
     }
     static final class Incoming {

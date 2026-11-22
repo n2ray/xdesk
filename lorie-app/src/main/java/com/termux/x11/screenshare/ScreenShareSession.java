@@ -234,7 +234,7 @@ public final class ScreenShareSession {
     }
 
     /** One access unit from the Mac: to the decoder if a screen shows the picture and it has had its IDR. */
-    private void frame(byte[] data, long ns, int flags) {
+    private void frame(byte[] data, long ns, int flags, long dueNs) {
         MediaCodec c;
         synchronized (this) {
             c = codec;
@@ -242,6 +242,13 @@ public final class ScreenShareSession {
         if (c == null) return;
         AvcReceiver r = receiver;
         if (r != null && r.wantKeyframe && (flags & 1) == 0) return;
+        // Wait on the packet consumer. The UDP reader keeps its bounded compressed queue.
+        while (!closed && !pictureHidden) {
+            long wait = dueNs - System.nanoTime();
+            if (wait <= 0) break;
+            java.util.concurrent.locks.LockSupport.parkNanos(Math.min(wait, 10000000L));
+        }
+        if (closed || pictureHidden) return;
         try {
             int idx = c.dequeueInputBuffer(20000);
             if (idx < 0) return;
@@ -300,7 +307,7 @@ public final class ScreenShareSession {
                 } finally {
                     Arrays.fill(password, (char) 0);
                 }
-                AvcReceiver r = new AvcReceiver(seed);
+                AvcReceiver r = new AvcReceiver(seed, d.clock);
                 r.feedback = d.feedback;
                 receiver = r;
                 direct = d;
