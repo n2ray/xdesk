@@ -186,11 +186,27 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         frame.setBackgroundColor(Color.BLACK);
         view = new SurfaceView(this);
         frame.addView(view, new FrameLayout.LayoutParams(1, 1, Gravity.CENTER));
-        // The picture as large as it fits, in its own proportions
+        // The picture as large as it fits, in its own proportions on the panel: the window's size (B) may have another
+        // shape than the output mode (P) when Android squeezes a display whose EDID millimetres are wrong (a 2560x1440
+        // AOC given 2560x1508) and PanelFit is not on; the whole window is then mapped onto the whole mode, so the
+        // picture is drawn that much narrower here and comes out right there (nx2android's external_aspect, owner
+        // 22 November). With PanelFit the window is the panel's size and the factor is 1: never corrected twice.
         frame.addOnLayoutChangeListener((v, l, t, r, bottom, ol, ot, or, ob) -> {
-            int w = Math.min(r - l, (bottom - t) * width / height);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, w * height / width, Gravity.CENTER);
-            if (view.getWidth() != w || view.getHeight() != lp.height) view.post(() -> view.setLayoutParams(lp));
+            int bw = r - l, bh = bottom - t;
+            if (bw < 2 || bh < 2) return;
+            int[] p = ScreenShareSizing.output(getDisplay());
+            double factor = p != null ? ((double) p[0] / p[1]) / ((double) bw / bh) : 1;
+            if (!(factor >= 0.25 && factor <= 4)) factor = 1;
+            double cw = width / factor;
+            double k = Math.min(bw / cw, (double) bh / height);
+            int w = (int) Math.floor(cw * k), hh = (int) Math.floor(height * k);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, hh, Gravity.CENTER);
+            if (view.getWidth() != w || view.getHeight() != hh) {
+                Log.i(ScreenShareSession.TAG, "PICTURE in " + bw + "x" + bh + " (mode " + (p != null ? p[0] + "x" + p[1] : "?")
+                    + ", factor " + String.format(java.util.Locale.ROOT, "%.4f", factor) + "): " + w + "x" + hh
+                    + " at " + (bw - w) / 2 + "," + (bh - hh) / 2);
+                view.post(() -> view.setLayoutParams(lp));
+            }
         });
         view.getHolder().setFixedSize(width, height);
         view.getHolder().addCallback(this);
