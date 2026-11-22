@@ -46,4 +46,16 @@ else
     echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"' >/etc/chromium.d/xdesk
 fi
 
+# The screen's size and DPI come once the app shows the desktop (X starts at 1280x1024, 96 DPI): wait for it, or the
+# wallpaper keeps the wrong size and everything is drawn at 96 DPI, tiny on a phone or a monitor
+i=0
+while [ $i -lt 16 ] && xdpyinfo 2>/dev/null | grep -q 'dimensions: *1280x1024 '; do sleep 0.5; i=$((i+1)); done
+dpi=$(xdpyinfo 2>/dev/null | sed -n 's/.*resolution: *\([0-9]*\)x.*/\1/p' | head -1)
+# XFCE's own default is 96 (in /etc/xdg); a DPI the user sets in XFCE's settings still wins
+case "$dpi" in
+    [0-9][0-9]|[0-9][0-9][0-9])
+        sed -i "s|<property name=\"DPI\" type=\"int\" value=\"[0-9]*\"/>|<property name=\"DPI\" type=\"int\" value=\"$dpi\"/>|" \
+            /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml 2>/dev/null
+        printf 'Xft.dpi: %s\n' "$dpi" | xrdb -merge 2>/dev/null ;;
+esac
 exec dbus-launch --exit-with-session startxfce4

@@ -8,7 +8,7 @@ MESA_URL=https://github.com/lfdevs/mesa-for-android-container/releases/download/
 apt-get update
 apt-get install -y --no-install-recommends \
     xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar \
-    tango-icon-theme adwaita-icon-theme dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
+    tango-icon-theme adwaita-icon-theme librsvg2-common dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
     pulseaudio pulseaudio-utils pavucontrol \
     locales fonts-noto-cjk fonts-dejavu-core \
     firefox-esr \
