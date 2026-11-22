@@ -332,6 +332,8 @@ final class TextBridge {
 
     private final class Connection extends BaseInputConnection {
         private long mine;
+        /** The input method has called it: it is the one the input method uses. */
+        private boolean used;
 
         Connection(long mine) {
             super(view, true);
@@ -340,17 +342,26 @@ final class TextBridge {
 
         private boolean valid() {
             if (generation != mine) {
-                if (active != this) {
-                    // Replaced by a newer connection: the input method has not switched over yet
+                if (active != this && (!(active instanceof Connection) || ((Connection) active).used)) {
+                    // Replaced by a newer connection the input method already uses: a late call on this one
                     Log.d(TAG, "IME: call on a replaced connection, dropped");
                     return false;
                 }
-                // A restart asked for a new connection and none was made (the window had no focus then), so the
-                // input method still uses this one. It starts afresh, as the restart meant: refusing it would
-                // drop everything typed from now on
-                Log.d(TAG, "IME: connection kept over a restart");
+                if (active != this) {
+                    // Several connections made in a row (the focus coming back from the content's screen made four
+                    // within 2 ms) and the input method stayed on this one, never calling the newest: dropping its
+                    // calls lost everything typed from then on. The one it calls is the one in use
+                    Log.d(TAG, "IME: the input method stayed on an older connection, which is taken on");
+                    active = this;
+                } else {
+                    // A restart asked for a new connection and none was made (the window had no focus then), so the
+                    // input method still uses this one. It starts afresh, as the restart meant: refusing it would
+                    // drop everything typed from now on
+                    Log.d(TAG, "IME: connection kept over a restart");
+                }
                 mine = activeGeneration = generation;
             }
+            used = true;
             checkFresh();
             return true;
         }
