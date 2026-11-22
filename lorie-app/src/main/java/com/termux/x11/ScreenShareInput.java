@@ -100,7 +100,13 @@ final class ScreenShareInput implements InputSink {
         }
     }
 
+    /** Says what arrives (lengths and codes, never the text): the phone's keyboard reaching a Mac or not. */
+    private static void log(String what) {
+        android.util.Log.i(com.termux.x11.screenshare.ScreenShareSession.TAG, "input " + what);
+    }
+
     @Override public void key(int scan, boolean isDown) {
+        if (isDown) log("key " + scan + " sym 0x" + Integer.toHexString(keysym(scan)) + (session() == null ? " (no session)" : ""));
         if (isDown) {
             int sym = keysym(scan);
             if (sym == 0 || down.containsKey(scan)) return;
@@ -118,6 +124,7 @@ final class ScreenShareInput implements InputSink {
     }
 
     @Override public void text(String s) {
+        log("text of " + s.codePointCount(0, s.length()) + " characters" + (session() == null ? " (no session)" : ""));
         for (int i = 0; i < s.length(); ) {
             int c = s.codePointAt(i);
             i += Character.charCount(c);
@@ -131,6 +138,7 @@ final class ScreenShareInput implements InputSink {
     private void keysym(boolean isDown, int sym) {
         ScreenShareSession s = session();
         if (s != null) s.key(isDown, sym);
+        else if (isDown) log("keysym dropped: no session for " + hostId);
     }
 
     /** Lets go of every key and button held (the input leaves, the screen goes). */
