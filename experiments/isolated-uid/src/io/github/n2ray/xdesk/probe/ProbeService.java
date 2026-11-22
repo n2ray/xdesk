@@ -17,7 +17,16 @@ public final class ProbeService extends Service {
     static { System.loadLibrary("fdprobe"); }
 
     static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic, boolean rootfs, int socketRole);
+    static native String runHandshake(String dir, int endpoint, int registration, String expected);
     private final IProbe.Stub stub = new IProbe.Stub() {
+        @Override public int serviceUid() { return Process.myUid(); }
+
+        @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration) {
+            try (ParcelFileDescriptor channel = endpoint; ParcelFileDescriptor roster = registration) {
+                return runHandshake(getApplicationInfo().nativeLibraryDir, channel.getFd(), roster.getFd(), null);
+            } catch (Exception e) { return "ERROR " + e; }
+        }
+
         @Override public String runSocket(ParcelFileDescriptor endpoint, String deniedPath) {
             try (ParcelFileDescriptor fd = endpoint) {
                 return runBurrow(getApplicationInfo().nativeLibraryDir, fd.getFd(), deniedPath, false, true, 2);

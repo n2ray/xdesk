@@ -63,3 +63,16 @@ The results apply to the pinned image, the tested filesystem operations and read
 The rootfs build also runs the image's `/usr/bin/python3` in two separate Burrow processes. The ordinary side runs under the experimental Android app UID. The second runs under its non-exported isolated service. The app creates an AF_UNIX SOCK_SEQPACKET socketpair, enables SO_PASSCRED on both endpoints, and grants one connected endpoint to the isolated service via Binder. Only the ordinary guest opens the random marker file. The isolated guest receives its descriptor in SCM_RIGHTS, checks O_RDONLY, attempts a write, and returns the marker content with the challenge response.
 
 The PASS line requires each guest's SCM_CREDENTIALS sender PID and UID to match the other guest as measured on a separate native Android credential socket. SO_PEERCRED on the inherited socketpair is logged separately. Each launcher must successfully wait for its Burrow supervisor, see ECHILD on a second wait, and see ESRCH for its guest PID. With the release UUID supplied above, the isolated socket participant also tries to open the real XDesk marker by pathname while the release app holds it. Look for `PASS Unix socket` and `PASS release private path` in the same owner window.
+
+## Sandboxed zygote startup records
+
+With the rootfs APK installed, run the dedicated handshake fixture:
+
+```sh
+adb shell am start -n "$activity" --ez zygote_handshake true
+adb logcat -d -v epoch -s XDeskFdProbe:I
+```
+
+Check the current run for `PASS zygote handshake match=1 rejected=3`. Each case uses fresh unnamed socketpairs. An isolated Ubuntu boot process sends the first Chromium 158 startup record and forks a child to send the second. The ordinary Ubuntu receiver checks the two fixed records in order, including their terminating NUL, their kernel sender credentials, and the absence of file descriptors. The control channel carries only those two packets.
+
+On a separate registration channel the Android launcher obtains the boot and child PIDs from kernel credentials and checks their UID against the isolated service's UID. Both processes stay alive until the decision. The fixture supplies these expectations to the receiver before it processes the control channel. Negative cases change only the launch expectations. The receiver must exit 23 at the first mismatch; only an accepted handshake returns zero. This additional PID/UID policy belongs to XDesk. Upstream Chromium checks the sender PIDs and records the final PID. The fixture covers startup messaging and leaves Chromium, namespace setup, the renderer and Mojo outside the run.

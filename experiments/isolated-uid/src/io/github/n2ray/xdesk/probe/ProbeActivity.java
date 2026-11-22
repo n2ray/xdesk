@@ -61,6 +61,10 @@ public final class ProbeActivity extends Activity {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             new Thread(() -> {
                 try {
+                    if (GuestBuild.ROOTFS && getIntent().getBooleanExtra("zygote_handshake", false)) {
+                        HandshakeTest.run(ProbeActivity.this, IProbe.Stub.asInterface(binder));
+                        return;
+                    }
                     runTest(IProbe.Stub.asInterface(binder));
                     String source = getIntent().getStringExtra("release_marker");
                     if (GuestBuild.ROOTFS) {

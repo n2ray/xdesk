@@ -20,25 +20,37 @@ static long long now_ms(void) {
     return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
 }
 
-/* This datagram is written by the running Ubuntu process, without any
- * user-supplied credential record. Read the queued kernel credentials after
- * waitpid, when the Burrow supervisor and its guest have both exited. */
-static void socket_result(char *out, size_t size, int witness, pid_t supervisor, int status) {
-    char ready;
-    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(struct ucred))]; } control;
-    struct iovec iov = { .iov_base = &ready, .iov_len = 1 };
+/* Only the kernel-supplied credentials for the expected one-byte record count. */
+static int receive_credentials(int fd, int flags, char record, struct ucred *sender) {
+    char byte;
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(*sender))]; } control;
+    struct iovec iov = { .iov_base = &byte, .iov_len = 1 };
     struct msghdr msg = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = control.bytes,
                           .msg_controllen = sizeof(control.bytes) };
-    ssize_t n = recvmsg(witness, &msg, MSG_DONTWAIT);
+    ssize_t n = recvmsg(fd, &msg, flags);
     struct cmsghdr *c = n == 1 ? CMSG_FIRSTHDR(&msg) : NULL;
-    if (!c || ready != 'R' || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
+    if (!c || byte != record || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))
             || c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_CREDENTIALS
-            || c->cmsg_len != CMSG_LEN(sizeof(struct ucred))) {
+            || c->cmsg_len != CMSG_LEN(sizeof(*sender))) return 0;
+    memcpy(sender, CMSG_DATA(c), sizeof(*sender));
+    return sender->pid > 1;
+}
+
+JNIEXPORT jlong JNICALL Java_io_github_n2ray_xdesk_probe_HandshakeTest_registration(
+        JNIEnv *env, jclass cls, jint fd, jbyte record) {
+    (void)env;
+    (void)cls;
+    struct ucred sender;
+    if (!receive_credentials(fd, 0, record, &sender)) return -1;
+    return ((jlong)sender.pid << 32) | sender.uid;
+}
+
+static void socket_result(char *out, size_t size, int witness, pid_t supervisor, int status) {
+    struct ucred sender;
+    if (!receive_credentials(witness, MSG_DONTWAIT, 'R', &sender)) {
         snprintf(out, size, "\nsocket_exit=%d\nmissing_android_credentials", status);
         return;
     }
-    struct ucred sender;
-    memcpy(&sender, CMSG_DATA(c), sizeof(sender));
     int gone = sender.pid > 0 && kill(sender.pid, 0) < 0 && errno == ESRCH;
     int reaped = waitpid(supervisor, NULL, WNOHANG) < 0 && errno == ECHILD;
     snprintf(out, size, "\nsocket_exit=%d\nandroid_pid_uid=%d:%u\nlauncher_uid=%u\n"
@@ -49,12 +61,11 @@ static void socket_result(char *out, size_t size, int witness, pid_t supervisor,
 
 /* stdin is the read-only marker or the granted socket endpoint. stdout and
  * stderr report observations independently of the socket under test. */
-JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurrow(
-        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path, jboolean dynamic, jboolean rootfs, jint socket_role) {
-    (void)cls;
+static jstring run_probe(
+        JNIEnv *env, jstring directory, jint marker, jstring owner_path, jboolean dynamic, jboolean rootfs, jint socket_role, int registration, const char *expected) {
     const char *dir = (*env)->GetStringUTFChars(env, directory, NULL);
     if (!dir) return NULL;
-    const char *path = (*env)->GetStringUTFChars(env, owner_path, NULL);
+    const char *path = owner_path ? (*env)->GetStringUTFChars(env, owner_path, NULL) : "";
     if (!path) { (*env)->ReleaseStringUTFChars(env, directory, dir); return NULL; }
     char burrow[4096], guest_bind[4096], file_bind[4096], output[4096] = "";
     snprintf(burrow, sizeof(burrow), "%s/libburrow.so", dir);
@@ -111,6 +122,11 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
     char *socket_args[] = {burrow, "-r", (char *)dir, "-b", file_bind, "-b", script_bind,
         "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/socket-peer.py",
         socket_role == 1 ? "ordinary" : "isolated", NULL};
+    char handshake_bind[4096];
+    snprintf(handshake_bind, sizeof(handshake_bind), "%s/libzygote_probe.so:/handshake.py", dir);
+    char *handshake_args[] = {burrow, "-r", (char *)dir, "-b", handshake_bind,
+        "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/handshake.py",
+        registration >= 0 ? "send" : "receive", (char *)expected, NULL};
     int witness[2] = {-1, -1};
     if (socket_role) {
         int enabled = 1;
@@ -119,7 +135,7 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
             snprintf(output, sizeof(output), "observer: %s", strerror(errno));
             goto done;
         }
-        args = socket_args;
+        args = socket_role == 3 ? handshake_args : socket_args;
     }
     size_t used = 0;
     if (dynamic) {
@@ -150,6 +166,7 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDOUT_FILENO);
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDERR_FILENO);
         if (!error && socket_role) error = posix_spawn_file_actions_adddup2(&actions, witness[1], 3);
+        if (!error && registration >= 0) error = posix_spawn_file_actions_adddup2(&actions, registration, 4);
         if (!error) error = posix_spawn(&pid, burrow, &actions, NULL, args, environment);
         posix_spawn_file_actions_destroy(&actions);
     }
@@ -198,7 +215,24 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
 done:
     if (witness[0] >= 0) close(witness[0]);
     if (witness[1] >= 0) close(witness[1]);
-    (*env)->ReleaseStringUTFChars(env, owner_path, path);
+    if (owner_path) (*env)->ReleaseStringUTFChars(env, owner_path, path);
     (*env)->ReleaseStringUTFChars(env, directory, dir);
     return (*env)->NewStringUTF(env, output);
+}
+
+JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurrow(
+        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path,
+        jboolean dynamic, jboolean rootfs, jint socket_role) {
+    (void)cls;
+    return run_probe(env, directory, marker, owner_path, dynamic, rootfs, socket_role, -1, NULL);
+}
+
+JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runHandshake(
+        JNIEnv *env, jclass cls, jstring directory, jint endpoint, jint registration, jstring policy) {
+    (void)cls;
+    const char *expected = policy ? (*env)->GetStringUTFChars(env, policy, NULL) : NULL;
+    if (policy && !expected) return NULL;
+    jstring result = run_probe(env, directory, endpoint, NULL, JNI_FALSE, JNI_TRUE, 3, registration, expected);
+    if (policy) (*env)->ReleaseStringUTFChars(env, policy, expected);
+    return result;
 }
