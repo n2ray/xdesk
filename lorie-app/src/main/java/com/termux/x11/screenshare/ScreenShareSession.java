@@ -256,7 +256,7 @@ public final class ScreenShareSession {
 
     // --- input ---
 
-    /** VNC pointer: mask bits 1 left, 2 middle, 4 right, 8/16 wheel up/down, 32/64 left/right; x, y in pixels. */
+    /** Apple pointer: mask bits 1 left, 2 right, 4 middle, 8/16 wheel up/down, 32/64 left/right; x, y in pixels. */
     public void pointer(int mask, int x, int y) {
         send(d -> d.pointer(mask, x, y));
     }
