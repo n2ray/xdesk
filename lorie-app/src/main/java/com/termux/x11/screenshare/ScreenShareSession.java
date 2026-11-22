@@ -33,7 +33,7 @@ import java.util.concurrent.Executors;
  * The connection is the user's: it lasts from their connect until they disconnect (or XDesk ends, or the network
  * drops), whatever is on the screen meanwhile. The picture is separate: a screen showing the Mac attaches a Surface
  * (a hardware decoder is made for it, starting at the next IDR, which it asks the Mac for); taken off the screen it
- * detaches, releases the decoder and suspends the media stream. Only one connection at a time: the media
+ * detaches and releases the video decoder while audio continues. Only one connection at a time: the media
  * ports are fixed (5900/5901 UDP), so a new one closes the old one first.
  *
  * Ported from the tested prototype (n2ray/xdesk-mac-screen-sharing 2abc482, phone-probe/Viewer.java).

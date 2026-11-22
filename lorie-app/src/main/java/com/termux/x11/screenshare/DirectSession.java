@@ -122,29 +122,14 @@ final class DirectSession implements Closeable {
     }
 
     // These controls run on ScreenShareSession's serial input executor.
-    private boolean mediaSuspended;
-
-    void hidePicture(AvcReceiver receiver) throws Exception {
-        if (mediaSuspended || receiver == null) return;
-        records.send(displayConfig());
-        receiver.suspended = true;
-        mediaSuspended = true;
+    void hidePicture(AvcReceiver receiver) {
+        // The same-size display reconfiguration stops audio as well as video on M4.
+        if (receiver != null) receiver.hide();
     }
 
     void showPicture(AvcReceiver receiver) throws Exception {
         if (receiver == null) return;
-        if (mediaSuspended) {
-            byte[] key = random(46);
-            try {
-                synchronized (receiver) {
-                    sendMediaConfiguration(key);
-                    receiver.restart(key, feedback);
-                }
-            } finally {
-                Arrays.fill(key, (byte) 0);
-            }
-            mediaSuspended = false;
-        }
+        receiver.suspended = false;
         receiver.wantKeyframe = true;
         requestFullUpdate();
     }

@@ -21,12 +21,16 @@ import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
+import java.util.TreeMap;
 
 /** M4 mode 8: a complete 480-sample AAC-ELD/SBR stereo AU per authenticated PT 101 packet. */
 final class AudioReceiver {
     private static final int RATE = 48000, CHANNELS = 2, FRAME = 480;
     // AudioSpecificConfig from the M4 aacf@48000#480 stereo encoder.
     private static final byte[] CONFIG = {(byte)0xf8,(byte)0xe6,0x51,0x34,(byte)0xe0,0};
+    // One silent AU emitted by the M4 with this format. Preserve sample time on short losses.
+    private static final byte[] SILENCE = {0, 0x68, 0x34, 0};
+    private static final int REORDER_MS = 20, MAX_GAP = 8;
     private static final String TAG = "XDeskShareAudio";
     private final Context context;
     private final DatagramSocket socket;
@@ -62,7 +66,7 @@ final class AudioReceiver {
         AudioTrack track = null;
         long frames = 0, written = 0, lost = 0, late = 0;
         try {
-            socket.setSoTimeout(50);
+            socket.setSoTimeout(10);
             MediaFormat format = MediaFormat.createAudioFormat("audio/mp4a-latm", RATE, CHANNELS);
             format.setByteBuffer("csd-0", ByteBuffer.wrap(CONFIG));
             decoder = MediaCodec.createDecoderByType("audio/mp4a-latm");
@@ -85,7 +89,9 @@ final class AudioReceiver {
             DatagramPacket packet = new DatagramPacket(storage, storage.length);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             SrtpStream current = null;
-            long last = -1, nextRoute = 0, nextReport = SystemClock.elapsedRealtime()+10000;
+            TreeMap<Long, byte[]> pending = new TreeMap<>();
+            long expected = -1, gapSince = 0;
+            long nextRoute = 0, nextReport = SystemClock.elapsedRealtime()+10000;
             while (!closed) {
                 packet.setLength(storage.length);
                 boolean received = true;
@@ -95,20 +101,45 @@ final class AudioReceiver {
                         && packet.getLength() >= 23 && (storage[1] & 127) == 101) {
                     SrtpStream.Payload au = key.open(storage, packet.getLength());
                     if (au != null) {
-                        if (key != current) { current = key; last = -1; }
-                        if (au.index > last) {
-                            if (last >= 0) lost += au.index - last - 1;
-                            last = au.index;
-                            int index = decoder.dequeueInputBuffer(2000);
-                            if (index >= 0) {
-                                ByteBuffer in = decoder.getInputBuffer(index);
-                                int size = au.data.length <= in.remaining() ? au.data.length : 0;
-                                if (size > 0) in.put(au.data);
-                                decoder.queueInputBuffer(index, 0, size, frames * 10000, 0);
-                                frames++;
-                            } else late++;
-                        } else late++;
+                        if (key != current) {
+                            current = key;
+                            pending.clear();
+                            expected = au.index;
+                            gapSince = 0;
+                        }
+                        if (au.index < expected || pending.putIfAbsent(au.index, au.data) != null) late++;
+                        if (pending.size() > 12) {
+                            long skipped = pending.lastKey() - expected;
+                            expected = pending.lastKey();
+                            pending.headMap(expected).clear();
+                            late += skipped;
+                            gapSince = 0;
+                        }
                     }
+                }
+                while (!pending.isEmpty() && !closed) {
+                    long gap = pending.firstKey() - expected;
+                    if (gap > 0) {
+                        long now = SystemClock.elapsedRealtime();
+                        if (gapSince == 0) gapSince = now;
+                        if (now - gapSince < REORDER_MS && pending.size() <= MAX_GAP) break;
+                        if (gap > MAX_GAP) {
+                            lost += gap;
+                            expected += gap;
+                            continue;
+                        }
+                    }
+                    int index = decoder.dequeueInputBuffer(0);
+                    if (index < 0) break;
+                    byte[] data = gap == 0 ? pending.remove(expected) : SILENCE;
+                    ByteBuffer in = decoder.getInputBuffer(index);
+                    int size = data.length <= in.remaining() ? data.length : 0;
+                    if (size > 0) in.put(data);
+                    decoder.queueInputBuffer(index, 0, size, frames * 10000, 0);
+                    if (gap > 0) lost++;
+                    else gapSince = 0;
+                    frames++;
+                    expected++;
                 }
                 for (int i; !closed && (i = decoder.dequeueOutputBuffer(info,0)) >= 0;) {
                     try {

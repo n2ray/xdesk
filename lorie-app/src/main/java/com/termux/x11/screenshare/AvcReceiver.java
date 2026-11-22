@@ -31,23 +31,17 @@ final class AvcReceiver {
     AvcReceiver(byte[] seed)throws Exception{
         stream = new SrtpStream(seed);
     }
-    synchronized void restart(byte[] key, KeyframeFeedback nextFeedback) throws Exception {
-        stream = new SrtpStream(key);
-        feedback = nextFeedback;
+    synchronized void hide() {
+        suspended = true;
         parts.clear();
-        sps = pps = null;
-        frames = 0;
         stamp = -1;
-        nextRecovery = nextKeyframeAsk = 0;
         lastIndex = -1;
-        wantKeyframe = true;
-        suspended = false;
     }
 
     synchronized void packet(byte[] p,int n,long ns,Sink sink)throws Exception{
-        if (suspended) return;
+        // Track authenticated sequence rollovers while hidden so a long detach can resume.
         SrtpStream.Payload payload = stream.open(p, n);
-        if (payload == null) return;
+        if (payload == null || suspended) return;
         long index = payload.index;
         byte[] pay = payload.data;
         // XDesk: a packet missing (over Tailscale or a busy Wi-Fi UDP loses some) breaks every picture after it until
