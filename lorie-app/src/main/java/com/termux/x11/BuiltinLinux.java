@@ -635,7 +635,7 @@ final class BuiltinLinux {
                 return n;
             }
         };
-        String destPath = dest.getCanonicalPath();
+        String destPath = dest.getAbsolutePath();
         List<String[]> dirModes = new ArrayList<>();
         try (InputStream in = new BufferedInputStream(new GZIPInputStream(raw, 1 << 16), 1 << 16)) {
             byte[] h = new byte[512];
@@ -672,10 +672,11 @@ final class BuiltinLinux {
 
                 while (name.startsWith("./")) name = name.substring(2);
                 while (name.startsWith("/")) name = name.substring(1);
+                while (name.endsWith("/")) name = name.substring(0, name.length() - 1);
                 if (name.isEmpty() || name.equals(".")) { skip(in, len + pad(len)); continue; }
                 File out = new File(dest, name);
                 String outPath = out.getPath();
-                if (!outPath.startsWith(destPath + "/") || name.contains("/../") || name.startsWith("../"))
+                if (!outPath.startsWith(destPath + "/") || ("/" + name + "/").contains("/../"))
                     throw new IOException("bad path " + name);
                 File parent = out.getParentFile();
                 if (parent != null && !parent.isDirectory()) parent.mkdirs();
