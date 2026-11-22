@@ -436,7 +436,7 @@ final class BuiltinLinux {
         cmd.add("TERM=xterm-256color");
         cmd.add("LANG=" + lang); cmd.add("LANGUAGE=" + lang.substring(0, 5) + ":en");
         cmd.add("DISPLAY=" + DISPLAY);
-        cmd.add("XDESK_GPU=" + (gpu ? "1" : "0"));
+        cmd.add("XDESK_GPU=" + (gpu() ? "1" : "0"));
         cmd.add("/bin/sh"); cmd.add(script);
         return cmd;
     }
