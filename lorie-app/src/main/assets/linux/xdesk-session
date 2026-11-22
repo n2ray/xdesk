@@ -16,13 +16,19 @@ export NO_AT_BRIDGE=1
 mkdir -p /var/lib/dbus && [ -s /var/lib/dbus/machine-id ] || cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null
 
 if command -v pulseaudio >/dev/null 2>&1; then
+    # --kill only asks: a daemon still going away makes the new one fail ("Daemon startup failed", no sound at all)
     pulseaudio --kill >/dev/null 2>&1
+    i=0
+    while [ $i -lt 30 ] && pulseaudio --check 2>/dev/null; do sleep 0.1; i=$((i+1)); done
     rm -f /tmp/xdesk-audio
-    pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
-        -L module-native-protocol-unix \
-        -L "module-null-sink sink_name=xdesk rate=48000 channels=2" \
-        -L "module-simple-protocol-unix socket=/tmp/xdesk-audio source=xdesk.monitor record=true playback=false format=s16le rate=48000 channels=2" \
-        -L module-always-sink >/tmp/pulseaudio.log 2>&1
+    for try in 1 2 3; do
+        pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
+            -L module-native-protocol-unix \
+            -L "module-null-sink sink_name=xdesk rate=48000 channels=2" \
+            -L "module-simple-protocol-unix socket=/tmp/xdesk-audio source=xdesk.monitor record=true playback=false format=s16le rate=48000 channels=2" \
+            -L module-always-sink >/tmp/pulseaudio.log 2>&1 && break
+        sleep 1
+    done
     pactl set-default-sink xdesk >/dev/null 2>&1
 fi
 
@@ -94,6 +100,12 @@ else
     sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
 fi
 
+# What XDesk's launcher gives the programs it opens (xdesk-launch): the same environment as the desktop's
+# (before the wait for the screen below: a program may be asked for as soon as X is there)
+export -p >/tmp/xdesk-env 2>/dev/null
+# Opens the programs XDesk's launcher asks for, as part of this session (xdesk-launch says why)
+sh /usr/local/bin/xdesk-launch --serve </dev/null >/dev/null 2>&1 &
+
 # The screen's size and DPI come once the app shows the desktop (X starts at 1280x1024, 96 DPI): wait for it, or the
 # wallpaper keeps the wrong size and everything is drawn at 96 DPI, tiny on a phone or a monitor
 i=0
@@ -106,8 +118,6 @@ case "$dpi" in
             /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml 2>/dev/null
         printf 'Xft.dpi: %s\n' "$dpi" | xrdb -merge 2>/dev/null ;;
 esac
-# What XDesk's launcher gives the programs it opens (xdesk-launch): the same environment as the desktop's
-export -p >/tmp/xdesk-env 2>/dev/null
 # "Apps only" (a program was opened from XDesk's launcher with the system not running): the window manager and the
 # settings daemon, no panel or desktop. Opening the whole desktop later adds those (xdesk-desktop)
 if [ "${XDESK_APPS_ONLY:-0}" = 1 ]; then

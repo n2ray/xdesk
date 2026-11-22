@@ -31,12 +31,67 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private final Handler ui = new Handler(Looper.getMainLooper());
     private String hostId;
     private SurfaceView view;
+    /** The pointer: Screen Sharing's fast mode does not put the Mac's cursor in the picture, so it is drawn here. */
+    private ArrowView arrow;
+    private int pointerX = -1, pointerY = -1;
     private ScreenShareSession session;
     private boolean sampling;
 
     public static boolean isShowing(String hostId) {
         ScreenShareActivity a = showing;
         return a != null && hostId.equals(a.hostId) && !a.isFinishing();
+    }
+
+    /** Where XDesk's pointer is on this Mac's screen, in its pixels (ScreenShareInput). Any thread. */
+    public static void pointerAt(String hostId, int x, int y) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            new Handler(Looper.getMainLooper()).post(() -> pointerAt(hostId, x, y));
+            return;
+        }
+        ScreenShareActivity a = showing;
+        if (a == null || !hostId.equals(a.hostId) || a.isFinishing()) return;
+        a.pointerX = x;
+        a.pointerY = y;
+        a.placeArrow();
+    }
+
+    private void placeArrow() {
+        if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) return;
+        arrow.setVisibility(View.VISIBLE);
+        arrow.setTranslationX(view.getLeft() + (float) pointerX * view.getWidth() / session.width - arrow.tip);
+        arrow.setTranslationY(view.getTop() + (float) pointerY * view.getHeight() / session.height - arrow.tip);
+    }
+
+    /** A plain arrow, white with a dark outline, its tip at (tip, tip). */
+    private static final class ArrowView extends View {
+        final int tip;
+        private final android.graphics.Path path = new android.graphics.Path();
+        private final android.graphics.Paint fill = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG),
+            line = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        ArrowView(android.content.Context c, int size) {
+            super(c);
+            tip = Math.max(2, size / 10);
+            float u = size / 24f;
+            path.moveTo(tip, tip);
+            path.lineTo(tip, tip + 17 * u);
+            path.lineTo(tip + 4.5f * u, tip + 13 * u);
+            path.lineTo(tip + 7.5f * u, tip + 19.5f * u);
+            path.lineTo(tip + 10 * u, tip + 18.5f * u);
+            path.lineTo(tip + 7 * u, tip + 12 * u);
+            path.lineTo(tip + 12.5f * u, tip + 12 * u);
+            path.close();
+            fill.setColor(Color.WHITE);
+            line.setColor(0xff202020);
+            line.setStyle(android.graphics.Paint.Style.STROKE);
+            line.setStrokeWidth(Math.max(1.5f, 1.4f * u));
+            line.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            c.drawPath(path, fill);
+            c.drawPath(path, line);
+        }
     }
 
     public static void finishFor(String hostId) {
@@ -72,6 +127,11 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         });
         view.getHolder().setFixedSize(width, height);
         view.getHolder().addCallback(this);
+        int size = Math.round(24 * getResources().getDisplayMetrics().density);
+        arrow = new ArrowView(this, size);
+        arrow.setVisibility(View.INVISIBLE);
+        frame.addView(arrow, new FrameLayout.LayoutParams(size + 2 * arrow.tip, size + 2 * arrow.tip, Gravity.TOP | Gravity.START));
+        view.addOnLayoutChangeListener((v, l, t, r, bottom, ol, ot, or, ob) -> placeArrow());
         setContentView(frame);
         Log.i(ScreenShareSession.TAG, "SCREEN display=" + getDisplay().getDisplayId() + " picture=" + width + "x" + height);
     }

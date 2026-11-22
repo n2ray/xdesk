@@ -2,23 +2,71 @@
 # XDesk's built-in Linux: opens one program for the app's launcher (the app writes this file into the system at every
 # start). The X server runs it (XWindows, BuiltinApps) with the desktop file's values:
 #   xdesk-launch STARTUP_ID TERMINAL(0|1) DIRECTORY COMMAND
-# and reads "pid N". The program gets the desktop's environment (xdesk-session writes it) and its D-Bus session, so it
-# shares settings and single-instance programs with what runs on the desktop.
-[ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
-p=$(pgrep -o -x xfce4-session 2>/dev/null)
-[ -n "$p" ] || p=$(pgrep -o -x xfwm4 2>/dev/null)
-if [ -n "$p" ]; then
-    a=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
-    [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
-fi
-if [ -n "$1" ]; then export DESKTOP_STARTUP_ID="$1"; else unset DESKTOP_STARTUP_ID; fi
-term=$2 dir=$3 cmd=$4
-[ -n "$dir" ] && cd "$dir" 2>/dev/null
-mkdir -p /tmp/xdesk-launch
-if [ "$term" = 1 ]; then
-    set -- xfce4-terminal -x sh -c "exec $cmd"
-else
-    set -- sh -c "exec $cmd"
-fi
-setsid "$@" </dev/null >/tmp/xdesk-launch/last.log 2>&1 &
-echo "pid $!"
+# and reads "pid N".
+#
+# The program is not started from here: Burrow ends everything a container command started once that command exits,
+# so it would close with this script. The session runs "xdesk-launch --serve" (xdesk-session), which lives as long
+# as the desktop; this hands it the request and waits for the pid. The program gets the desktop's environment
+# (xdesk-session writes it) and its D-Bus session, so it shares settings and single-instance programs with what runs
+# on the desktop, and it ends with the desktop.
+D=/tmp/xdesk-launch
+
+case "$1" in
+--serve)
+    mkdir -p "$D"
+    rm -f "$D"/*.req "$D"/*.pid "$D"/*.log "$D/req"
+    mkfifo "$D/req" || exit 1
+    while :; do
+        while IFS= read -r id; do
+            case "$id" in ''|*[!A-Za-z0-9_.-]*) continue ;; esac
+            sh "$0" --run "$id"
+        done <"$D/req"
+    done
+    ;;
+--run)
+    id=$2 f=$D/$2.req
+    { IFS= read -r sid; IFS= read -r term; IFS= read -r dir; IFS= read -r cmd; } <"$f"
+    rm -f "$f"
+    [ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
+    p=$(pgrep -o -x xfce4-session 2>/dev/null)
+    [ -n "$p" ] || p=$(pgrep -o -x xfwm4 2>/dev/null)
+    if [ -n "$p" ]; then
+        a=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
+        [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
+    fi
+    if [ -n "$sid" ]; then export DESKTOP_STARTUP_ID="$sid"; else unset DESKTOP_STARTUP_ID; fi
+    cd "${dir:-/root}" 2>/dev/null || cd /root
+    if [ "$term" = 1 ]; then
+        set -- xfce4-terminal -x sh -c "exec $cmd"
+    else
+        set -- sh -c "exec $cmd"
+    fi
+    setsid "$@" </dev/null >"$D/$id.log" 2>&1 &
+    echo $! >"$D/$id.pid.new" && mv "$D/$id.pid.new" "$D/$id.pid"
+    ;;
+*)
+    # Just started: the session sets up the server a moment after X is there
+    i=0
+    while [ ! -p "$D/req" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+    if [ ! -p "$D/req" ]; then
+        echo "The built-in Linux's desktop is not running"
+        exit 1
+    fi
+    id=$$-$(date +%s%N)
+    printf '%s\n%s\n%s\n%s\n' "$1" "$2" "$3" "$4" >"$D/$id.req"
+    # A session that is gone leaves the pipe with no reader: do not wait for ever
+    if ! timeout 5 sh -c 'echo "$1" >"$2"' sh "$id" "$D/req"; then
+        rm -f "$D/$id.req"
+        echo "The built-in Linux's desktop did not answer"
+        exit 1
+    fi
+    i=0
+    while [ ! -s "$D/$id.pid" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+    if [ ! -s "$D/$id.pid" ]; then
+        echo "The built-in Linux's desktop did not start the program"
+        exit 1
+    fi
+    echo "pid $(cat "$D/$id.pid")"
+    rm -f "$D/$id.pid"
+    ;;
+esac

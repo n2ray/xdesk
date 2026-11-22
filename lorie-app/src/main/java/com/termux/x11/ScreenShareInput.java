@@ -39,12 +39,18 @@ final class ScreenShareInput implements InputSink {
         if (s != null) s.pointer(buttons, x, y);
     }
 
+    /** The picture does not carry the Mac's cursor (fast mode): the screen draws XDesk's where it is. */
+    private void shown() {
+        com.termux.x11.screenshare.ScreenShareActivity.pointerAt(hostId, x, y);
+    }
+
     @Override public void move(int dx, int dy) {
         ScreenShareSession s = session();
         if (s == null) return;
         x = Math.max(0, Math.min(s.width - 1, x + dx));
         y = Math.max(0, Math.min(s.height - 1, y + dy));
         s.pointer(buttons, x, y);
+        shown();
     }
 
     @Override public void moveToFraction(float fx, float fy) {
@@ -53,6 +59,7 @@ final class ScreenShareInput implements InputSink {
         x = Math.max(0, Math.min(s.width - 1, Math.round(fx * s.width)));
         y = Math.max(0, Math.min(s.height - 1, Math.round(fy * s.height)));
         s.pointer(buttons, x, y);
+        shown();
     }
 
     @Override public boolean screenPlace(float[] out) {

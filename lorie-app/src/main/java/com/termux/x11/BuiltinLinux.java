@@ -397,6 +397,8 @@ final class BuiltinLinux {
         File socket = new File(tmp, ".X11-unix/X1");
         socket.delete();
         new File(tmp, ".X1-lock").delete();
+        // The last session's launch pipe: xdesk-launch waits for this session's own (xdesk-session)
+        new File(tmp, "xdesk-launch/req").delete();
         writeResolvConf();
         // Android's /dev has no shm: Chromium (and glibc's shm_open) need one, emptied at each start
         File shm = shm();
