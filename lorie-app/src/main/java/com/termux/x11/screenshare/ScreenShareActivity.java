@@ -75,8 +75,16 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         }
         logArrow("at " + pointerX + "," + pointerY + " in " + view.getWidth() + "x" + view.getHeight() + "+" + view.getLeft() + "," + view.getTop());
         arrow.setVisibility(View.VISIBLE);
-        arrow.setTranslationX(view.getLeft() + (float) pointerX * view.getWidth() / session.width - arrow.tip);
-        arrow.setTranslationY(view.getTop() + (float) pointerY * view.getHeight() / session.height - arrow.tip);
+        // Placed by layout, not translation: the window's transparent region (the SurfaceView's hole, which also
+        // made the system leave the whole window out of the composition) is gathered again only after a layout
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) arrow.getLayoutParams();
+        int left = Math.round(view.getLeft() + (float) pointerX * view.getWidth() / session.width - arrow.tip);
+        int top = Math.round(view.getTop() + (float) pointerY * view.getHeight() / session.height - arrow.tip);
+        if (lp.leftMargin != left || lp.topMargin != top) {
+            lp.leftMargin = left;
+            lp.topMargin = top;
+            arrow.setLayoutParams(lp);
+        }
     }
 
     /** A plain arrow, white with a dark outline, its tip at (tip, tip). */
@@ -103,6 +111,19 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             line.setStyle(android.graphics.Paint.Style.STROKE);
             line.setStrokeWidth(Math.max(1.5f, 1.4f * u));
             line.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+        }
+
+        /**
+         * The SurfaceView marks its whole area transparent for the composition; a view without a background gives
+         * none of it back, so the window seemed empty and was left out: no arrow. Its own square is not transparent.
+         */
+        @Override public boolean gatherTransparentRegion(android.graphics.Region region) {
+            if (region != null && getVisibility() == VISIBLE) {
+                int[] at = new int[2];
+                getLocationInWindow(at);
+                region.op(at[0], at[1], at[0] + getWidth(), at[1] + getHeight(), android.graphics.Region.Op.DIFFERENCE);
+            }
+            return true;
         }
 
         @Override protected void onDraw(android.graphics.Canvas c) {
