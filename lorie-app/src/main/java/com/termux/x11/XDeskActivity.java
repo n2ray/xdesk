@@ -1629,6 +1629,7 @@ public class XDeskActivity extends Activity {
         Contents.setHost(contentsHost);
         // Paired Macs as contents (MacSource): reads the saved list, connects nothing yet
         MacSource.start(this);
+        ScreenShareSource.start(this);
         ShareHub.get(this);  // one clipboard for every device from the start: its listener, the Linux desktop's copies
         MacSource.switcher = prefix -> showSwitcher(true);
         LinuxSource.install(this); // "l:" Linux programs and X windows
@@ -4529,6 +4530,37 @@ public class XDeskActivity extends Activity {
         settingsPage(getString(R.string.xd_x11_settings), c, null);
     }
 
+    /** About › Licences: XDesk's GPL-3.0 and the third-party notices it carries (assets/licenses). */
+    private void showLicenses() {
+        StringBuilder all = new StringBuilder();
+        try {
+            String[] names = getAssets().list("licenses");
+            if (names != null) {
+                java.util.Arrays.sort(names);
+                for (String n : names) {
+                    all.append("==== ").append(n).append(" ====\n\n");
+                    try (java.io.InputStream in = getAssets().open("licenses/" + n)) {
+                        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        for (int r; (r = in.read(buf)) > 0; ) b.write(buf, 0, r);
+                        all.append(b.toString("UTF-8")).append("\n\n");
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            all.append(e);
+        }
+        TextView t = new TextView(this);
+        t.setText(all);
+        t.setTextIsSelectable(true);
+        t.setTextSize(12);
+        t.setPadding(dp(16), dp(8), dp(16), dp(8));
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(t);
+        new android.app.AlertDialog.Builder(this).setTitle(R.string.xd_about_licenses).setView(sv)
+            .setPositiveButton(android.R.string.ok, null).show();
+    }
+
     private void showAboutSettings() {
         final SettingsUi s = ui();
         LinearLayout c = new LinearLayout(this);
@@ -4557,6 +4589,7 @@ public class XDeskActivity extends Activity {
         s.linkRow(links, getString(R.string.xd_about_github), null, "", () -> openLink("https://github.com/n2ray/xdesk"));
         s.linkRow(links, getString(R.string.xd_about_changelog), null, "",
             () -> openLink("https://github.com/n2ray/xdesk/releases"));
+        s.linkRow(links, getString(R.string.xd_about_licenses), null, "", this::showLicenses);
         LinearLayout about = s.card(c);
         ((LinearLayout.LayoutParams) about.getLayoutParams()).topMargin = dp(16);
         s.switchRow(about, getString(R.string.xd_diag_setting), getString(R.string.xd_diag_setting_note), prefs.getBoolean(PREF_DIAG, false), on -> {

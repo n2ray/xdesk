@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xd_ss_title">Mac 屏幕共享</string>
+    <string name="xd_ss_type">Mac（屏幕共享）</string>
+    <string name="xd_ss_type_note">macOS 自带的屏幕共享（高性能模式），Mac 上不用装软件（试验）</string>
+    <string name="xd_ss_entry_note">屏幕共享</string>
+    <string name="xd_ss_add_title">经屏幕共享连 Mac</string>
+    <string name="xd_ss_add_note">先在 Mac 上打开屏幕共享（系统设置 › 通用 › 共享）。地址可以是局域网或 Tailscale 的。密码每次连接时再问，不保存。</string>
+    <string name="xd_ss_host">Mac 的地址（IP 或名字）</string>
+    <string name="xd_ss_account">Mac 账户</string>
+    <string name="xd_ss_name">名称（可不填）</string>
+    <string name="xd_ss_fixed1080">固定 1920×1080，不跟随这块屏幕</string>
+    <string name="xd_ss_measure">测试：校时和时间条（需要 Mac 上的测试工具）</string>
+    <string name="xd_ss_remove">删除</string>
+    <string name="xd_ss_login_title">连接 %1$s</string>
+    <string name="xd_ss_login_who">%2$s 上的 %1$s</string>
+    <string name="xd_ss_password">Mac 密码</string>
+    <string name="xd_ss_connect">连接</string>
+    <string name="xd_ss_cancelled">已取消</string>
+    <string name="xd_ss_unknown">这台 Mac 已不在设置里</string>
+    <string name="xd_about_licenses">开源许可</string>
+</resources>

@@ -140,6 +140,10 @@ final class DeviceSettings {
             sheet[0].dismiss();
             pickMacAdd();
         });
+        s.linkRow(types, c.getString(R.string.xd_ss_type), c.getString(R.string.xd_ss_type_note), "", () -> {
+            sheet[0].dismiss();
+            ScreenShareSettings.add(c);
+        });
         android.widget.TextView title = Style.label(c, c.getString(R.string.xd_dev_add_pick), Style.TEXT, 17);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setPadding(0, 0, 0, Style.dp(c, 4));
@@ -162,6 +166,10 @@ final class DeviceSettings {
         if (first == null) return;
         if (first.type == Devices.Type.MAC) {
             macDevicePage(first.name, id);
+            return;
+        }
+        if (first.type == Devices.Type.SCREEN) {
+            ScreenShareSettings.edit(c, id.substring(Devices.SCREEN.length()));
             return;
         }
         live(first.name, content -> fillLinuxDevice(content, id));

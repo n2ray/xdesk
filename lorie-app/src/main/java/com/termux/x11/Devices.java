@@ -33,6 +33,7 @@ final class Devices {
     /** xdesk's "apps only" variant of a session: X, xfwm4 and xfsettingsd, no panel or desktop. */
     static final String APPS_ONLY = "+apps";
     static final String PHONE = "phone", LINUX = "linux:", MAC = "mac:", TERMUX = "termux";
+    static final String SCREEN = "vnc:";
     private static final String TERMUX_PACKAGE = "com.termux";
     /** What forgetGoneTermux did. */
     static final int TERMUX_SAME = 0, TERMUX_FORGOTTEN = 1, TERMUX_REMOVED = 2, TERMUX_REINSTALLED = 3;
@@ -44,7 +45,8 @@ final class Devices {
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
-    enum Type { PHONE, LINUX, MAC }
+    /** SCREEN: a Mac through macOS Screen Sharing (ScreenShareSource), no app on the Mac. */
+    enum Type { PHONE, LINUX, MAC, SCREEN }
 
     /** For a Linux device CONNECTED reads "running", CONNECTING "starting" and DISCONNECTED "not running" (stateLabel). */
     enum State { NOT_SET_UP, DISCONNECTED, CONNECTING, CONNECTED, FAILED }
@@ -489,6 +491,7 @@ final class Devices {
             // terminal there), else Termux, which runs X
             return deviceOfSession(appsOnlyRunning() ? null : runningSession);
         }
+        if (key.startsWith(ScreenShareSource.PREFIX)) return SCREEN + ScreenShareSource.hostOf(key);
         if (key.startsWith(MacSource.PREFIX)) {
             int end = key.indexOf(':', MacSource.PREFIX.length());
             return MAC + (end > 0 ? key.substring(MacSource.PREFIX.length(), end) : "");
@@ -504,6 +507,12 @@ final class Devices {
         out.add(new Device(PHONE, Type.PHONE, context.getString(R.string.xd_dev_phone), State.CONNECTED, null, false));
         for (String id : linuxIds()) out.add(linux(id));
         for (MacClient m : MacClients.all(context)) out.add(mac(m));
+        for (com.termux.x11.screenshare.ScreenShareStore.Host h : com.termux.x11.screenshare.ScreenShareStore.all(context)) {
+            ScreenShareSource src = ScreenShareSource.get();
+            boolean on = src != null && src.running(h.id);
+            out.add(new Device(SCREEN + h.id, Type.SCREEN, h.label(), on ? State.CONNECTED : State.DISCONNECTED,
+                context.getString(R.string.xd_ss_entry_note), false));
+        }
         return out;
     }
 
@@ -677,6 +686,12 @@ final class Devices {
     }
 
     void disconnect(String id) {
+        if (id.startsWith(SCREEN)) {
+            ScreenShareSource src = ScreenShareSource.get();
+            if (src != null) src.disconnect(id.substring(SCREEN.length()));
+            changed();
+            return;
+        }
         if (id.startsWith(MAC)) {
             String macId = id.substring(MAC.length());
             setOff(id, true);

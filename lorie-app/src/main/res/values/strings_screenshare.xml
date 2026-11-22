@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xd_ss_title">Mac Screen Sharing</string>
+    <string name="xd_ss_type">Mac (Screen Sharing)</string>
+    <string name="xd_ss_type_note">macOS\'s own Screen Sharing, high-performance mode: nothing to install on the Mac (experimental)</string>
+    <string name="xd_ss_entry_note">Screen Sharing</string>
+    <string name="xd_ss_add_title">Mac through Screen Sharing</string>
+    <string name="xd_ss_add_note">Turn on Screen Sharing on the Mac (System Settings › General › Sharing). Address on the local network or Tailscale. The password is asked at each connection and never kept.</string>
+    <string name="xd_ss_host">Mac address (IP or name)</string>
+    <string name="xd_ss_account">Mac account</string>
+    <string name="xd_ss_name">Name (optional)</string>
+    <string name="xd_ss_fixed1080">1920×1080 instead of this screen\'s size</string>
+    <string name="xd_ss_measure">Test: clock and time bar (needs the test tools on the Mac)</string>
+    <string name="xd_ss_remove">Remove</string>
+    <string name="xd_ss_login_title">Connect to %1$s</string>
+    <string name="xd_ss_login_who">%1$s on %2$s</string>
+    <string name="xd_ss_password">Mac password</string>
+    <string name="xd_ss_connect">Connect</string>
+    <string name="xd_ss_cancelled">Cancelled</string>
+    <string name="xd_ss_unknown">This Mac is no longer set up</string>
+    <string name="xd_about_licenses">Licences</string>
+</resources>
