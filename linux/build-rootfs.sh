@@ -46,13 +46,13 @@ apt-get install -y --no-install-recommends \
     xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar \
     tango-icon-theme adwaita-icon-theme librsvg2-common dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
     pulseaudio pulseaudio-utils pavucontrol \
-    locales language-pack-zh-hans fonts-noto-cjk fonts-dejavu-core \
-    google-chrome-stable firefox firefox-l10n-zh-cn \
+    locales fonts-noto-cjk fonts-dejavu-core \
+    google-chrome-stable firefox \
     mesa-utils mesa-vulkan-drivers libgl1-mesa-dri vulkan-tools \
     nano less procps psmisc file unzip xz-utils wget sudo
 
-# Locales the app picks from (the phone's language): English and Chinese
-locale-gen en_US.UTF-8 zh_CN.UTF-8
+# English by default; other languages are the user's to add (language-pack-*, update-locale): translations are kept
+locale-gen en_US.UTF-8
 
 # Mesa with Turnip on KGSL (Adreno) and Zink, over Ubuntu's own; held so an upgrade does not take it back
 curl -fsSL -o /tmp/mesa.tgz "$MESA_URL"
@@ -94,4 +94,6 @@ echo "ubuntu-26.04-r1 $(date -u +%Y-%m-%d)" > /etc/xdesk/image
 printf '127.0.0.1 localhost\n::1 localhost\n' > /etc/hosts
 echo xdesk > /etc/hostname
 apt-get clean
+# What takes the room (in the build log)
+du -xsh /usr/share/locale /usr/share/doc /opt/google /usr/lib/firefox /usr/share/fonts /usr/lib/aarch64-linux-gnu /usr/share/icons 2>/dev/null || true
 rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/log/*.log /var/cache/debconf/*-old

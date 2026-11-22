@@ -2,6 +2,11 @@
 # XDesk's built-in Linux: the desktop session (the app writes this file into the system at every start). The app starts it in the container with DISPLAY, LANG and
 # XDESK_GPU set, after its own X server is up. Sound goes the way the Termux desktop's does: a null sink whose
 # monitor XDesk reads from /tmp/xdesk-audio (through its X server).
+# The system's own language when the user has set one (sudo update-locale LANG=...), else the app's English
+if [ -r /etc/default/locale ]; then
+    . /etc/default/locale
+    export LANG LANGUAGE LC_ALL LC_MESSAGES 2>/dev/null
+fi
 export XDG_RUNTIME_DIR=/tmp/runtime-root
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share

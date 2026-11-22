@@ -426,7 +426,6 @@ final class BuiltinLinux {
 
     /** The command line that runs a shell script inside the container, with the session's environment. */
     private List<String> containerCmd(String script) {
-        String lang = Locale.getDefault().getLanguage().equals("zh") ? "zh_CN.UTF-8" : "en_US.UTF-8";
         List<String> cmd = new ArrayList<>();
         cmd.add(burrow());
         cmd.add("-r"); cmd.add(rootfs.getPath());
@@ -441,7 +440,8 @@ final class BuiltinLinux {
         cmd.add("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
         cmd.add("HOME=/root"); cmd.add("USER=root"); cmd.add("LOGNAME=root"); cmd.add("SHELL=/bin/bash");
         cmd.add("TERM=xterm-256color");
-        cmd.add("LANG=" + lang); cmd.add("LANGUAGE=" + lang.substring(0, 5) + ":en");
+        // English; the system's own locale (update-locale, /etc/default/locale) wins in xdesk-session
+        cmd.add("LANG=en_US.UTF-8");
         cmd.add("DISPLAY=" + DISPLAY);
         cmd.add("XDESK_GPU=" + (gpu() ? "1" : "0"));
         cmd.add("/bin/sh"); cmd.add(script);
