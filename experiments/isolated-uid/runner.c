@@ -124,7 +124,9 @@ static jstring run_probe(
         socket_role == 1 ? "ordinary" : "isolated", NULL};
     char handshake_bind[4096];
     snprintf(handshake_bind, sizeof(handshake_bind), "%s/libzygote_probe.so:/handshake.py", dir);
-    char *handshake_args[] = {burrow, "-r", (char *)dir, "-b", handshake_bind,
+    char fork_bind[4096];
+    snprintf(fork_bind, sizeof(fork_bind), "%s/librenderer_fork.so:/renderer-fork.py", dir);
+    char *handshake_args[] = {burrow, "-r", (char *)dir, "-b", handshake_bind, "-b", fork_bind,
         "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/handshake.py",
         registration >= 0 ? "send" : "receive", (char *)expected, NULL};
     int witness[2] = {-1, -1};

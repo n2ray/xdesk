@@ -39,6 +39,7 @@ if [[ $# == 3 && $2 == --rootfs ]]; then
     dynamic=true
     rootfs=true
     cp "$here/zygote-handshake.py" "$lib/libzygote_probe.so"
+    cp "$here/renderer-fork.py" "$lib/librenderer_fork.so"
     cp "$here/socket-peer.py" "$lib/libsocket_peer.so"
     verify_input "$3" b2efc37b009681c24eb128c103264c808559ab8e3c3af8ea4adf4f62fcf3068e
     bash "$here/rootfs/build-image.sh" "$stage" "$lib" "$3" "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/$host/bin/clang"

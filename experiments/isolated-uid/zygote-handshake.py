@@ -32,7 +32,7 @@ def receive_fixed(control, expected):
     return credentials[0][:2]
 
 
-def receiver(control, launch):
+def receiver(control, launch, fork):
     boot_pid, hello_pid, isolated_uid = map(int, launch.split(":"))
     for stage, packet, authorized_pid in (("boot", BOOT, boot_pid), ("hello", HELLO, hello_pid)):
         pid, uid = receive_fixed(control, packet)
@@ -43,10 +43,12 @@ def receiver(control, launch):
             print(f"decision=reject_{stage}_{reason}")
             return 23
     print("decision=accept")
+    if fork:
+        fork["browser"](control, receive_fixed, boot_pid, hello_pid, isolated_uid)
     return 0
 
 
-def sender(control):
+def sender(control, fork):
     with socket.socket(fileno=4) as registration:
         registration.settimeout(8)
         registration.sendall(b"B")
@@ -57,8 +59,13 @@ def sender(control):
             try:
                 registration.sendall(b"H")
                 control.sendall(HELLO)
+                if fork:
+                    fork["zygote"](control, registration)
                 # Keep both identities live until the receiver makes its decision.
                 done = registration.recv(1) == b"D"
+            except Exception:
+                import traceback
+                traceback.print_exc()
             finally:
                 os._exit(0 if done else 1)
         _, status = os.waitpid(child, 0)
@@ -71,4 +78,10 @@ os.dup2(0, 3)
 os.close(0)
 with socket.socket(fileno=3) as control:
     control.settimeout(6)
-    sys.exit(sender(control) if sys.argv[1] == "send" else receiver(control, sys.argv[2]))
+    policy = sys.argv[2] if len(sys.argv) > 2 else ""
+    fork = None
+    if policy.startswith("fork:"):
+        import runpy
+        fork = runpy.run_path("/renderer-fork.py")
+        policy = policy[5:]
+    sys.exit(sender(control, fork) if sys.argv[1] == "send" else receiver(control, policy, fork))

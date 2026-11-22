@@ -21,9 +21,9 @@ public final class ProbeService extends Service {
     private final IProbe.Stub stub = new IProbe.Stub() {
         @Override public int serviceUid() { return Process.myUid(); }
 
-        @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration) {
+        @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration, boolean rendererFork) {
             try (ParcelFileDescriptor channel = endpoint; ParcelFileDescriptor roster = registration) {
-                return runHandshake(getApplicationInfo().nativeLibraryDir, channel.getFd(), roster.getFd(), null);
+                return runHandshake(getApplicationInfo().nativeLibraryDir, channel.getFd(), roster.getFd(), rendererFork ? "fork:" : null);
             } catch (Exception e) { return "ERROR " + e; }
         }
 

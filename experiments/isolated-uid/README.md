@@ -76,3 +76,16 @@ adb logcat -d -v epoch -s XDeskFdProbe:I
 Check the current run for `PASS zygote handshake match=1 rejected=3`. Each case uses fresh unnamed socketpairs. An isolated Ubuntu boot process sends the first Chromium 158 startup record and forks a child to send the second. The ordinary Ubuntu receiver checks the two fixed records in order, including their terminating NUL, their kernel sender credentials, and the absence of file descriptors. The control channel carries only those two packets.
 
 On a separate registration channel the Android launcher obtains the boot and child PIDs from kernel credentials and checks their UID against the isolated service's UID. Both processes stay alive until the decision. The fixture supplies these expectations to the receiver before it processes the control channel. Negative cases change only the launch expectations. The receiver must exit 23 at the first mismatch; only an accepted handshake returns zero. This additional PID/UID policy belongs to XDesk. Upstream Chromium checks the sender PIDs and records the final PID. The fixture covers startup messaging and leaves Chromium, namespace setup, the renderer and Mojo outside the run.
+
+## Renderer fork and reap
+
+With the same Ubuntu rootfs APK, run the fork fixture and read the new log entries.
+
+```sh
+adb shell am start -n "$activity" --ez renderer_fork true
+adb logcat -d -v epoch -s XDeskFdProbe:I
+```
+
+Look for `PASS renderer fork android_registered=<pid>:<uid>`. After BOOT and HELLO, the ordinary Ubuntu process sends the status query and a Chromium 158 fork request over the control socket. Descriptor zero in the request is the PID oracle endpoint. The other descriptor is the read end of a pipe containing 16 random bytes. The fixed child reports on the oracle, reads back its global PID through its parent's pipe, and records the marker. Android compares the two marker values and independently checks the child's kernel credentials. The child logs Burrow’s guest-visible UID separately from the Android UID reported by the kernel. The isolated zygote handles the one-way Reap request and logs its actual wait result and a second wait returning ECHILD.
+
+The fixture accepts one fixed renderer argument list, one experiment descriptor key, and the empty UMA reply. The raw sandbox-status word is zero. All sockets belong to this test. It exercises the no-helper fork protocol with Ubuntu Python and does not launch a Chrome renderer or initialize Mojo.
