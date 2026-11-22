@@ -108,7 +108,7 @@ final class DeviceSettings {
             if (devices.external().isEmpty()) s.infoRow(known, c.getString(R.string.xd_dev_none), c.getString(R.string.xd_dev_none_note), null);
             // The built-in Linux is not one of the devices xdesk lists: its own row while it is installed
             if (BuiltinLinux.get(c).installed())
-                s.linkRow(known, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_row_note), "", () -> BuiltinLinuxPage.open(c));
+                s.linkRow(known, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_row_note), "", () -> BuiltinLinuxPage.manage(c));
             s.accentRow(known, c.getString(R.string.xd_dev_add), null, this::pickType);
             return true;
         });
@@ -138,7 +138,7 @@ final class DeviceSettings {
     private void pickLinux() {
         sheet(c.getString(R.string.xd_dev_type_linux),
             new Choice(c.getString(R.string.xd_dev_linux_termux), c.getString(R.string.xd_dev_linux_termux_note), this::linuxSetUp),
-            new Choice(c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_type_note), () -> BuiltinLinuxPage.open(c)));
+            new Choice(c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_type_note), () -> BuiltinLinuxPage.add(c)));
     }
 
     /** Add device › Mac: a Sill connection or the Mac's own Screen Sharing. */
@@ -488,24 +488,19 @@ final class DeviceSettings {
             else for (final Devices.Env e : devices.environments()) {
                 final boolean added = devices.isLinuxAdded(e.name);
                 final String name = envName(e);
-                android.widget.TextView value = s.valueRow(found, name, envNote(e),
+                // Adding only adds (DEVICES.md §5): one already added opens its device page, where it is managed and
+                // removed
+                s.valueRow(found, name, envNote(e),
                     c.getString(added ? R.string.xd_dev_env_added : R.string.xd_dev_env_add), () -> {
-                        Devices.Actions a = devices.actions();
-                        if (!added) {
-                            devices.setLinuxAdded(e.name, true);
-                            // Added: ask Termux what it has now (its permission first, the first time)
-                            if (a != null) a.setUpLinux();
+                        if (added) {
+                            device(Devices.LINUX + e.name);
                             return;
                         }
-                        // Taking an environment away asks first, like every other removal
-                        String note = c.getString(e.name.equals(Devices.TERMUX)
-                            ? R.string.xd_dev_remove_termux_note : R.string.xd_dev_remove_linux_note);
-                        s.confirm(c.getString(R.string.xd_dev_remove_title, name), note,
-                            c.getString(R.string.xd_dev_remove_action), SettingsUi.LEVEL_DANGER,
-                            () -> devices.setLinuxAdded(e.name, false));
+                        devices.setLinuxAdded(e.name, true);
+                        // Added: ask Termux what it has now (its permission first, the first time)
+                        Devices.Actions a = devices.actions();
+                        if (a != null) a.setUpLinux();
                     });
-                // The value says the tap removes: red, as on the device's own page
-                if (added) value.setTextColor(Style.DANGER);
             }
             s.infoRow(found, c.getString(R.string.xd_dev_linux_how), c.getString(R.string.xd_dev_linux_how_note), null);
             LinearLayout steps = s.section(content, c.getString(R.string.xd_dev_linux_steps));

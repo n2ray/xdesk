@@ -9,25 +9,37 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * Settings › Devices › Add device › Built-in Linux, and the built-in Linux's own page: install, start and stop,
- * the GPU switch, reset (keeping the home or not) and the logs.
+ * The built-in Linux in two pages (DEVICES.md §5: adding only connects, the device list manages):
+ * - Add device › Linux › Built-in Linux (add): only the install, its progress and what it is; once installed,
+ *   that it is added and a way to its device page.
+ * - Its row in the device list (manage): start and stop, opening the desktop, the GPU switch, the space it takes,
+ *   the logs, reset (keeping the home or not) and removing it.
  */
 final class BuiltinLinuxPage {
     private final Context c;
     private final SettingsUi s;
     private final BuiltinLinux bl;
+    private final boolean manage;
     private LinearLayout content;
+    private Dialog dialog;
     /** Measured off the main thread when the page opens and after each change. */
     private volatile long usageMb = -1;
 
-    private BuiltinLinuxPage(Context c) {
+    private BuiltinLinuxPage(Context c, boolean manage) {
         this.c = c;
+        this.manage = manage;
         s = new SettingsUi(c);
         bl = BuiltinLinux.get(c);
     }
 
-    static Dialog open(Context c) {
-        return new BuiltinLinuxPage(c).show();
+    /** Add device › Linux › Built-in Linux: the install. */
+    static Dialog add(Context c) {
+        return new BuiltinLinuxPage(c, false).show();
+    }
+
+    /** The device list's built-in Linux: managing it. */
+    static Dialog manage(Context c) {
+        return new BuiltinLinuxPage(c, true).show();
     }
 
     private Dialog show() {
@@ -37,9 +49,9 @@ final class BuiltinLinuxPage {
         bl.addListener(l);
         fill();
         measure();
-        Dialog d = s.page(c.getString(R.string.xd_bl_title), content);
-        d.setOnDismissListener(x -> bl.removeListener(l));
-        return d;
+        dialog = s.page(c.getString(R.string.xd_bl_title), content);
+        dialog.setOnDismissListener(x -> bl.removeListener(l));
+        return dialog;
     }
 
     private void measure() {
@@ -51,6 +63,35 @@ final class BuiltinLinuxPage {
 
     private void fill() {
         content.removeAllViews();
+        if (manage) fillManage();
+        else fillAdd();
+    }
+
+    /** Add device: only the install. Once it is installed the device is added; managing it is on its device page. */
+    private void fillAdd() {
+        BuiltinLinux.State st = bl.state();
+        LinearLayout state = s.card(content);
+        String note = bl.progress();
+        if (note == null) note = bl.error();
+        if (st == BuiltinLinux.State.NOT_INSTALLED || st == BuiltinLinux.State.INSTALLING) {
+            s.dotRow(state, false, c.getString(label(st)), note);
+            if (st == BuiltinLinux.State.NOT_INSTALLED)
+                s.accentRow(state, c.getString(R.string.xd_bl_install),
+                    c.getString(bl.imageCached() ? R.string.xd_bl_install_local_note : R.string.xd_bl_install_note), bl::install);
+        } else {
+            s.dotRow(state, true, c.getString(R.string.xd_bl_added), c.getString(R.string.xd_bl_added_note));
+            s.linkRow(state, c.getString(R.string.xd_bl_manage), null, "", () -> {
+                if (dialog != null) dialog.dismiss();
+                manage(c);
+            });
+        }
+        LinearLayout about = s.section(content, c.getString(R.string.xd_bl_about));
+        s.infoRow(about, c.getString(R.string.xd_bl_about_what), c.getString(R.string.xd_bl_about_what_note), null);
+        s.infoRow(about, c.getString(R.string.xd_bl_about_termux), c.getString(R.string.xd_bl_about_termux_note), null);
+    }
+
+    /** The device page: start and stop, the GPU, upkeep, reset and removal. */
+    private void fillManage() {
         BuiltinLinux.State st = bl.state();
         LinearLayout state = s.card(content);
         boolean on = st == BuiltinLinux.State.RUNNING;
@@ -59,9 +100,9 @@ final class BuiltinLinuxPage {
         s.dotRow(state, on, c.getString(label(st)), note);
         switch (st) {
             case NOT_INSTALLED:
-                s.accentRow(state, c.getString(R.string.xd_bl_install),
-                    c.getString(bl.imageCached() ? R.string.xd_bl_install_local_note : R.string.xd_bl_install_note), bl::install);
-                break;
+                // Removed (here or meanwhile): installing again is Add device's
+                s.infoRow(state, c.getString(R.string.xd_bl_not_installed_hint), null, null);
+                return;
             case STOPPED:
                 s.accentRow(state, c.getString(R.string.xd_bl_start), c.getString(R.string.xd_bl_start_note), bl::start);
                 break;
@@ -74,12 +115,6 @@ final class BuiltinLinuxPage {
                 break;
             default:
                 break;
-        }
-        if (st == BuiltinLinux.State.NOT_INSTALLED) {
-            LinearLayout about = s.section(content, c.getString(R.string.xd_bl_about));
-            s.infoRow(about, c.getString(R.string.xd_bl_about_what), c.getString(R.string.xd_bl_about_what_note), null);
-            s.infoRow(about, c.getString(R.string.xd_bl_about_termux), c.getString(R.string.xd_bl_about_termux_note), null);
-            return;
         }
         boolean idle = st == BuiltinLinux.State.STOPPED || st == BuiltinLinux.State.RUNNING;
 
