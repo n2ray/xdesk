@@ -38,6 +38,9 @@ rootfs=false
 if [[ $# == 3 && $2 == --rootfs ]]; then
     dynamic=true
     rootfs=true
+    if [[ -n ${MOJO_GUEST_ELF:-} ]]; then
+        cp "$MOJO_GUEST_ELF" "$lib/libmojo_guest.so"
+    fi
     cp "$here/zygote-handshake.py" "$lib/libzygote_probe.so"
     cp "$here/renderer-fork.py" "$lib/librenderer_fork.so"
     cp "$here/socket-peer.py" "$lib/libsocket_peer.so"

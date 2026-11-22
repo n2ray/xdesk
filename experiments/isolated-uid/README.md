@@ -89,3 +89,42 @@ adb logcat -d -v epoch -s XDeskFdProbe:I
 Look for `PASS renderer fork android_registered=<pid>:<uid>`. After BOOT and HELLO, the ordinary Ubuntu process sends the status query and a Chromium 158 fork request over the control socket. Descriptor zero in the request is the PID oracle endpoint. The other descriptor is the read end of a pipe containing 16 random bytes. The fixed child reports on the oracle, reads back its global PID through its parent's pipe, and records the marker. Android compares the two marker values and independently checks the child's kernel credentials. The child logs Burrow’s guest-visible UID separately from the Android UID reported by the kernel. The isolated zygote handles the one-way Reap request and logs its actual wait result and a second wait returning ECHILD.
 
 The fixture accepts one fixed renderer argument list, one experiment descriptor key, and the empty UMA reply. The raw sandbox-status word is zero. All sockets belong to this test. It exercises the no-helper fork protocol with Ubuntu Python and does not launch a Chrome renderer or initialize Mojo.
+
+## Mojo invitation after renderer fork
+
+Build the standalone `mojo_guest` target against the Chromium release source for
+`158.0.8127.36` (commit `14d6f648e8cd7ad750a4044200ce94d3321be260`). In a disposable
+Chromium Linux build tree, copy this experiment's `mojo/` directory to
+`//xdesk_probe`. Use an ARM64 Linux target with `is_component_build=false`.
+With the matching Chromium tools and dependencies available:
+
+```sh
+gn gen out/xdesk-mojo --root-target=//xdesk_probe:mojo_guest \
+  --args='target_os="linux" target_cpu="arm64" is_debug=false is_component_build=false symbol_level=0'
+ninja -C out/xdesk-mojo mojo_guest
+```
+
+The device-tested build used a native Ubuntu 26.04 ARM64 toolchain (LLVM 24
+and Rust nightly 2026-10-16), native LLD, and Chromium's pinned GN. For this
+Rust distribution, the GN argument `added_rust_stdlib_libs` included
+`addr2line`, `adler2`, `gimli`, and `miniz_oxide`. The ELF used on the phone
+had SHA-256 `181721d9606d0cdd4fca9b9c70f95936ae379dbef6f5168cdd4592d34be0e382`.
+
+Pass the resulting Linux ELF to the rootfs APK build, then run the activity:
+
+```sh
+MOJO_GUEST_ELF="$chromium/out/xdesk-mojo/mojo_guest" BURROW_SRC="$burrow" \
+  bash build.sh "$out" --rootfs "$out/rootfs.tar.gz"
+adb install --no-incremental -r "$out/probe.apk"
+adb shell am start -n "$activity" --ez mojo_invitation true
+adb logcat -d -v epoch -s XDeskFdProbe:I
+```
+
+The fork request passes the private PID oracle followed by a nonblocking Unix
+stream socket under Linux descriptor key 2. After confirming the child PID, the
+ordinary Ubuntu requester and isolated child each exec the same test ELF with
+their granted endpoint. The requester initializes Mojo as the broker. The child
+accepts the standard invitation and extracts numeric attachment 0. Each process
+sends its own 16-byte nonce and echoes its peer's nonce over that Mojo message
+pipe. The parent zygote reports the child's actual exit status and a second
+wait returning ECHILD. Look for `PASS Mojo invitation` in the new log entries.

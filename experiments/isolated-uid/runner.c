@@ -126,9 +126,17 @@ static jstring run_probe(
     snprintf(handshake_bind, sizeof(handshake_bind), "%s/libzygote_probe.so:/handshake.py", dir);
     char fork_bind[4096];
     snprintf(fork_bind, sizeof(fork_bind), "%s/librenderer_fork.so:/renderer-fork.py", dir);
-    char *handshake_args[] = {burrow, "-r", (char *)dir, "-b", handshake_bind, "-b", fork_bind,
-        "-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/handshake.py",
+    char mojo_bind[4096];
+    char *handshake_args[24] = {burrow, "-r", (char *)dir, "-b", handshake_bind, "-b", fork_bind};
+    size_t next_arg = 7;
+    if (expected && strncmp(expected, "mojo:", 5) == 0) {
+        snprintf(mojo_bind, sizeof(mojo_bind), "%s/libmojo_guest.so:/mojo-guest", dir);
+        handshake_args[next_arg++] = "-b";
+        handshake_args[next_arg++] = mojo_bind;
+    }
+    char *guest_args[] = {"-w", "/", "--", "/usr/bin/python3", "-I", "-S", "-B", "/handshake.py",
         registration >= 0 ? "send" : "receive", (char *)expected, NULL};
+    memcpy(handshake_args + next_arg, guest_args, sizeof(guest_args));
     int witness[2] = {-1, -1};
     if (socket_role) {
         int enabled = 1;

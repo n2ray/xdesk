@@ -21,9 +21,11 @@ public final class ProbeService extends Service {
     private final IProbe.Stub stub = new IProbe.Stub() {
         @Override public int serviceUid() { return Process.myUid(); }
 
-        @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration, boolean rendererFork) {
+        @Override public String handshake(ParcelFileDescriptor endpoint, ParcelFileDescriptor registration, String protocol) {
             try (ParcelFileDescriptor channel = endpoint; ParcelFileDescriptor roster = registration) {
-                return runHandshake(getApplicationInfo().nativeLibraryDir, channel.getFd(), roster.getFd(), rendererFork ? "fork:" : null);
+                if (protocol != null && !"mojo:".equals(protocol) && !"fork:".equals(protocol))
+                    throw new IllegalArgumentException("unknown probe protocol");
+                return runHandshake(getApplicationInfo().nativeLibraryDir, channel.getFd(), roster.getFd(), protocol);
             } catch (Exception e) { return "ERROR " + e; }
         }
 

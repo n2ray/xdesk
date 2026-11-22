@@ -11,6 +11,8 @@ import java.io.FileDescriptor;
 import java.util.Arrays;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class HandshakeTest {
     static { System.loadLibrary("fdprobe"); }
@@ -53,8 +55,10 @@ final class HandshakeTest {
              ParcelFileDescriptor child = ParcelFileDescriptor.dup(control.writer);
              ParcelFileDescriptor admin = ParcelFileDescriptor.dup(roster.reader);
              ParcelFileDescriptor worker = ParcelFileDescriptor.dup(roster.writer)) {
-            boolean fork = scenario.equals("renderer_fork");
-            FutureTask<String> sender = new FutureTask<>(() -> isolated.handshake(child, worker, fork));
+            boolean mojo = scenario.equals("mojo_invitation");
+            boolean fork = mojo || scenario.equals("renderer_fork");
+            String protocol = mojo ? "mojo:" : fork ? "fork:" : null;
+            FutureTask<String> sender = new FutureTask<>(() -> isolated.handshake(child, worker, protocol));
             new Thread(sender, "isolated-boot").start();
             int boot = registeredPid(admin.getFd(), 'B', uid);
             int hello = registeredPid(admin.getFd(), 'H', uid);
@@ -68,7 +72,7 @@ final class HandshakeTest {
             String received;
             try {
                 received = ProbeService.runHandshake(app.getApplicationInfo().nativeLibraryDir,
-                        host.getFd(), -1, fork ? "fork:" + policy : policy);
+                        host.getFd(), -1, fork ? protocol + policy : policy);
             } finally {
                 Os.write(roster.reader, new byte[]{'D'}, 0, 1);
             }
@@ -92,10 +96,24 @@ final class HandshakeTest {
             if (fork) {
                 int pid = registeredPid(admin.getFd(), 'C', uid);
                 require(pid != boot && pid != hello && rx.contains("oracle_pid_uid=" + pid + ":" + uid
-                        + " fork_reply_pid=" + pid + " reap_requested=" + pid), "browser/Android PID mismatch");
+                        + " fork_reply_pid=" + pid + (mojo ? " channel_key=2" : " reap_requested=" + pid)), "browser/Android PID mismatch");
                 require(tx.contains("renderer_pid=" + pid + " parent=" + hello + " global_pid=" + pid)
                         && tx.contains("fork_pid=" + pid + " wait_pid=" + pid + " exit=0 wait_again=ECHILD"),
                         "zygote/renderer PID or reap mismatch");
+                if (mojo) {
+                    Matcher broker = exchange(rx, "broker");
+                    Matcher childReport = exchange(tx, "child");
+                    require(rx.contains("android_pid_uid=" + broker.group(1) + ":" + Process.myUid())
+                            && childReport.group(1).equals(Integer.toString(pid))
+                            && broker.group(2).equals(childReport.group(3))
+                            && broker.group(3).equals(childReport.group(2))
+                            && !broker.group(2).equals(childReport.group(2)), "Mojo endpoint PID or nonce mismatch");
+                    require(rx.contains("mojo_invitation=sent attachment=0")
+                            && tx.contains("mojo_invitation=accepted attachment=0")
+                            && rx.contains("mojo_reap_requested=" + pid), "Mojo invitation or Reap missing");
+                    Log.i(TAG, "PASS Mojo invitation android_registered=" + pid + ":" + uid);
+                    return;
+                }
                 String marker = null;
                 for (String line : rx) if (line.matches("marker=[0-9a-f]{32}")) marker = line;
                 require(marker != null && tx.contains(marker) && tx.contains("fd_key=73 mode=O_RDONLY write=EBADF"),
@@ -105,10 +123,22 @@ final class HandshakeTest {
         }
     }
 
-    static void runFork(Activity app, IProbe isolated) throws Exception {
+    private static Matcher exchange(java.util.List<String> lines, String role) {
+        Pattern pattern = Pattern.compile("mojo_" + role + "_pid=([0-9]+) sent=([0-9A-Fa-f]{32})"
+                + " received=([0-9A-Fa-f]{32}) echo=ok");
+        for (String line : lines) {
+            Matcher match = pattern.matcher(line);
+            if (match.matches()) return match;
+        }
+        throw new IllegalStateException("missing verified exchange from " + role);
+    }
+
+    static void runFork(Activity app, IProbe isolated, boolean mojo) throws Exception {
         int uid = isolated.serviceUid();
         require(uid != Process.myUid(), "missing isolated UID");
-        trial(app, isolated, uid, "renderer_fork");
+        if (mojo) require(new java.io.File(app.getApplicationInfo().nativeLibraryDir, "libmojo_guest.so").isFile(),
+                "build the rootfs APK with MOJO_GUEST_ELF");
+        trial(app, isolated, uid, mojo ? "mojo_invitation" : "renderer_fork");
     }
 
     static void run(Activity app, IProbe isolated) throws Exception {
