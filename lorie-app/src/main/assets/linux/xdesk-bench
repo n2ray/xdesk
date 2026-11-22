@@ -1,0 +1,36 @@
+#!/bin/sh
+# XDesk debug benchmark (am broadcast ... --es cmd bench): the same test that is run against native Termux.
+# Output goes to Android/data/<app>/files/logs/bench.log.
+echo "cgroup: $(cat /proc/self/cgroup 2>/dev/null | tr '\n' ' ')"
+if ! command -v glmark2 >/dev/null || ! command -v vkmark >/dev/null; then
+    echo "installing glmark2 and vkmark..."
+    apt-get update -qq >/dev/null 2>&1; apt-get install -y -qq glmark2-x11 vkmark >/dev/null 2>&1 || echo "apt failed"
+fi
+if [ "$XDESK_GPU" = 1 ] && [ -e /dev/kgsl-3d0 ]; then export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy
+else export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe; fi
+W=${TMPDIR:-/tmp}/benchw.$$; rm -rf $W; mkdir -p $W; cd $W
+now() { date +%s%N; }
+t() { s=$(now); "$@" >/dev/null 2>&1; e=$(now); echo $(( (e-s)/1000000 )); }
+for p in /data/data/com.termux/files/usr/bin/true /usr/bin/true; do [ -x $p ] && TRUE=$p && break; done
+spawn() { i=0; while [ $i -lt 1000 ]; do $TRUE; i=$((i+1)); done; }
+mk() { mkdir d; i=0; while [ $i -lt 3000 ]; do echo x > d/f$i; i=$((i+1)); done; }
+echo "== xdesk-builtin (gpu $XDESK_GPU)"
+echo "exec 1000x true (ms): $(t spawn)"
+echo "create 3000 files (ms): $(t mk)"
+echo "ls -lR 3000 files (ms): $(t ls -lR d)"
+echo "tar 3000 files (ms): $(t tar cf t.tar d)"
+echo "rm 3000 files (ms): $(t rm -rf d)"
+seq 1 3000000 > s.txt
+echo "xz -6 22MB 1 thread (ms): $(t xz -6 -T1 -c s.txt)"
+echo "sha256 22MB x10 (ms): $(t sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do sha256sum s.txt; done')"
+echo "sh startup x300 (ms): $(t sh -c 'i=0; while [ $i -lt 300 ]; do sh -c :; i=$((i+1)); done')"
+cd /; rm -rf $W
+export vblank_mode=0
+echo "renderer: $(glxinfo -B 2>/dev/null | grep -E 'renderer string' | cut -d: -f2)"
+echo "version: $(glxinfo -B 2>/dev/null | grep -E 'core profile version' | cut -d: -f2)"
+G="-b build:duration=5 -b texture:duration=5 -b shading:shading=phong:duration=5 -b terrain:duration=5 -b refract:duration=5"
+timeout 90 glmark2 --off-screen -s 1280x720 $G 2>&1 | grep -E '^\[|Score' | sed 's/^/  /'
+timeout 60 vkmark --winsys headless -s 1280x720 -b vertex:duration=5 -b cube:duration=5 -b texture:duration=5 2>&1 | grep -E '^\[|Score|Device' | sed 's/^/  /'
+echo "== software (llvmpipe)"
+env -u MESA_LOADER_DRIVER_OVERRIDE LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe timeout 90 glmark2 --off-screen -s 1280x720 $G 2>&1 | grep -E '^\[|Score' | sed 's/^/  /'
+echo "== done"

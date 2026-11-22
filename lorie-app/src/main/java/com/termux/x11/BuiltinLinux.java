@@ -108,6 +108,7 @@ final class BuiltinLinux {
                 else if ("reset".equals(cmd)) bl.reset(true);
                 else if ("gpu-on".equals(cmd)) bl.setGpu(true);
                 else if ("gpu-off".equals(cmd)) bl.setGpu(false);
+                else if ("bench".equals(cmd)) bl.bench();
                 Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
             }
         };
@@ -403,7 +404,22 @@ final class BuiltinLinux {
         }
 
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
-        writeSessionScript();
+        writeAsset("xdesk-session");
+        ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session"));
+        s.environment().remove("LD_PRELOAD");
+        s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
+        appendLog("starting the session (gpu " + gpu + ")");
+        Process sp = s.start();
+        Thread.sleep(1500);
+        if (!sp.isAlive()) {
+            fail(c.getString(R.string.xd_bl_session_failed, sp.exitValue()), null);
+            return false;
+        }
+        return true;
+    }
+
+    /** The command line that runs a shell script inside the container, with the session's environment. */
+    private List<String> containerCmd(String script) {
         String lang = Locale.getDefault().getLanguage().equals("zh") ? "zh_CN.UTF-8" : "en_US.UTF-8";
         List<String> cmd = new ArrayList<>();
         cmd.add(burrow());
@@ -421,26 +437,35 @@ final class BuiltinLinux {
         cmd.add("LANG=" + lang); cmd.add("LANGUAGE=" + lang.substring(0, 5) + ":en");
         cmd.add("DISPLAY=" + DISPLAY);
         cmd.add("XDESK_GPU=" + (gpu ? "1" : "0"));
-        cmd.add("/bin/sh"); cmd.add("/usr/local/bin/xdesk-session");
-        ProcessBuilder s = new ProcessBuilder(cmd);
-        s.environment().remove("LD_PRELOAD");
-        s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
-        appendLog("starting the session (gpu " + gpu + ")");
-        Process sp = s.start();
-        Thread.sleep(1500);
-        if (!sp.isAlive()) {
-            fail(c.getString(R.string.xd_bl_session_failed, sp.exitValue()), null);
-            return false;
-        }
-        return true;
+        cmd.add("/bin/sh"); cmd.add(script);
+        return cmd;
     }
 
-    /** The session script comes with the app (assets/linux), so changing it needs no new image. */
-    private void writeSessionScript() throws IOException {
-        File f = new File(rootfs, "usr/local/bin/xdesk-session");
+    /**
+     * Debug only (the shell's broadcast): runs the bundled benchmark inside the running desktop's container, the
+     * same one run against native Termux, and writes logs/bench.log.
+     */
+    void bench() {
+        if (state() != State.RUNNING) { Log.w(TAG, "bench: desktop not running"); return; }
+        new Thread(() -> {
+            try {
+                writeAsset("xdesk-bench");
+                ProcessBuilder b = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-bench"));
+                b.environment().remove("LD_PRELOAD");
+                b.redirectErrorStream(true).redirectOutput(new File(logDir(), "bench.log"));
+                Log.i(TAG, "bench done " + b.start().waitFor());
+            } catch (Exception e) {
+                Log.w(TAG, "bench", e);
+            }
+        }, "builtin-linux-bench").start();
+    }
+
+    /** Scripts come with the app (assets/linux), so changing them needs no new image. */
+    private void writeAsset(String name) throws IOException {
+        File f = new File(rootfs, "usr/local/bin/" + name);
         f.getParentFile().mkdirs();
         f.delete();
-        try (InputStream in = c.getAssets().open("linux/xdesk-session"); OutputStream out = new FileOutputStream(f)) {
+        try (InputStream in = c.getAssets().open("linux/" + name); OutputStream out = new FileOutputStream(f)) {
             byte[] buf = new byte[8192];
             for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
         }
