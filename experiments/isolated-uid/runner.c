@@ -22,7 +22,7 @@ static long long now_ms(void) {
 /* Only the passed read-only file becomes stdin. The guest has to read it
  * without reopening /proc/self/fd/N. stdout/stderr form the result channel. */
 JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurrow(
-        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path, jboolean dynamic) {
+        JNIEnv *env, jclass cls, jstring directory, jint marker, jstring owner_path, jboolean dynamic, jboolean rootfs) {
     (void)cls;
     const char *dir = (*env)->GetStringUTFChars(env, directory, NULL);
     if (!dir) return NULL;
@@ -41,8 +41,13 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         "IFS= read -r token || exit 20; printf 'via_fd=%s\\n' \"$token\"; "
         "if IFS= read -r other < /owner-marker; then printf 'via_path=%s\\n' \"$other\"; "
         "else echo via_path=DENIED; fi; ";
-    char script[1536];
-    snprintf(script, sizeof(script), "%s%s", marker_script, dynamic ?
+    const char *image_checks =
+        "IFS= read -r image < /etc/xdesk/image || exit 30; echo rootfs_image=$image; "
+        ". /etc/os-release || exit 31; echo rootfs_version=$VERSION_ID; "
+        "if ( : >> /etc/xdesk/image ); then exit 32; fi; echo image_write=DENIED; "
+        "if ( : > /etc/xdesk/.isolated-uid-write-test ); then exit 33; fi; echo image_create=DENIED; ";
+    char script[2048];
+    snprintf(script, sizeof(script), "%s%s%s", rootfs ? image_checks : "", marker_script, dynamic ?
         "domain=; IFS= read -r domain < /domain || :; printf '%s\\n' \"$domain\"; "
         "while read -r range perms offset dev ino path; do "
         "case $perms in *x*) if [ \"$ino\" != 0 ]; then "
@@ -53,7 +58,11 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
     char *dyn_args[] = {burrow, "-r", (char *)dir, "-b", guest_bind, "-b", file_bind,
         "-b", "/proc/self/attr/current:/domain", "-b", "/proc/self/maps:/self-maps",
         "-b", lib_bind, "-b", ld_bind, "-b", libc_bind, "-w", "/", "--", "/dash", "-c", script, NULL};
-    char *environment[] = {"LC_ALL=C", "PATH=/", dynamic ? "LD_LIBRARY_PATH=/lib" : NULL, NULL};
+    char *root_args[] = {burrow, "-r", (char *)dir, "-b", file_bind,
+        "-b", "/proc/self/attr/current:/domain", "-b", "/proc/self/maps:/self-maps",
+        "-w", "/", "--", "/bin/dash", "-c", script, NULL};
+    char **args = rootfs ? root_args : dynamic ? dyn_args : static_args;
+    char *environment[] = {"LC_ALL=C", "PATH=/", dynamic && !rootfs ? "LD_LIBRARY_PATH=/lib" : NULL, NULL};
     size_t used = 0;
     if (dynamic) {
         const char *names[] = {"libubuntu_dash.so", "libubuntu_ld.so", "libubuntu_libc.so"};
@@ -82,7 +91,7 @@ JNIEXPORT jstring JNICALL Java_io_github_n2ray_xdesk_probe_ProbeService_runBurro
         error = posix_spawn_file_actions_adddup2(&actions, marker, STDIN_FILENO);
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDOUT_FILENO);
         if (!error) error = posix_spawn_file_actions_adddup2(&actions, channel[1], STDERR_FILENO);
-        if (!error) error = posix_spawn(&pid, burrow, &actions, NULL, dynamic ? dyn_args : static_args, environment);
+        if (!error) error = posix_spawn(&pid, burrow, &actions, NULL, args, environment);
         posix_spawn_file_actions_destroy(&actions);
     }
     close(channel[1]);

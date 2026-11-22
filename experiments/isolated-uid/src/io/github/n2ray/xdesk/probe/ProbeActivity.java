@@ -24,6 +24,9 @@ public final class ProbeActivity extends Activity {
     }
     private static boolean imagesMapped(String report) {
         if (!GuestBuild.DYNAMIC) return true;
+        if (GuestBuild.ROOTFS && !(hasLine(report, "rootfs_image=ubuntu-26.04-r1 2026-11-22")
+                && hasLine(report, "rootfs_version=26.04") && hasLine(report, "image_write=DENIED")
+                && hasLine(report, "image_create=DENIED"))) return false;
         String[] lines = report.split("\n");
         for (String name : new String[]{"libubuntu_dash.so", "libubuntu_ld.so", "libubuntu_libc.so"}) {
             String prefix = "installed=" + name + " ";

@@ -16,7 +16,7 @@ import java.nio.file.Paths;
 public final class ProbeService extends Service {
     static { System.loadLibrary("fdprobe"); }
 
-    static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic);
+    static native String runBurrow(String appLibDir, int markerFd, String ownerPath, boolean dynamic, boolean rootfs);
     private final IProbe.Stub stub = new IProbe.Stub() {
         @Override public String run(ParcelFileDescriptor marker, String ownerPath) {
             try (ParcelFileDescriptor fd = marker) {
@@ -37,7 +37,7 @@ public final class ProbeService extends Service {
         StructStat st = Os.fstat(marker.getFileDescriptor());
         return "uid=" + Process.myUid() + "\ndomain=" + domain + "\npath_errno=" + pathErrno +
                 "\nfd_mode=" + mode + "\nfile=" + st.st_dev + ":" + st.st_ino + "\n" +
-                runBurrow(libDir, marker.getFd(), ownerPath, GuestBuild.DYNAMIC);
+                runBurrow(libDir, marker.getFd(), ownerPath, GuestBuild.DYNAMIC, GuestBuild.ROOTFS);
     }
 
     @Override public IBinder onBind(Intent intent) { return stub; }

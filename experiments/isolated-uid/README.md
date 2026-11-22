@@ -39,4 +39,17 @@ adb logcat -d -v epoch -s XDeskFdProbe:I
 
 Require `PASS release private path UUID` between the owner's `READY` and `OWNER_RECHECK_OK`. Both owner records must show the same inode and UUID. The owner keeps its 0600 file open, verifies the random content by reopening the pathname before and after the check, and unlinks it. In this case the isolated child is passed a separate read-only marker from the experimental APK while trying to open the real XDesk file by pathname. No data from the real XDesk marker is sent across applications.
 
-Both variants load code from the installed APK directory. The dynamic variant exercises the interpreter and libc of one ELF. The full Ubuntu rootfs and browser are outside this experiment.
+## XDesk Ubuntu read-only rootfs
+
+This mode takes the complete XDesk `xdesk-ubuntu2604-arm64.tar.gz` used by the phone installer. The build pins its SHA-256 (`b2efc37b009681c24eb128c103264c808559ab8e3c3af8ea4adf4f62fcf3068e`). Set `BURROW_SRC` to a checkout containing commit `8705740dc78e472d15a80c99f0e785c029b1e1d8`. Only a temporary copy is patched. The build also uses Python 3, git, make and patch.
+
+```sh
+adb pull /sdcard/Android/data/io.github.n2ray.xdesk.x11/files/xdesk-ubuntu2604-arm64.tar.gz "$out/rootfs.tar.gz"
+BURROW_SRC=/path/to/burrow bash build.sh "$out" --rootfs "$out/rootfs.tar.gz"
+adb install --no-incremental -r "$out/probe.apk"
+adb shell am start -n "$activity"
+```
+
+The signed APK contains every regular file from the archive as a separately installed object. Its compiled path index records the archive's directories and symlink targets. The experimental Burrow build resolves absolute guest paths against this index, then opens the corresponding installer-owned file. Burrow starts `/bin/dash`; the interpreter and multiarch libraries are resolved from the image. The runner supplies no individual ELF bindings or library search override in this mode.
+
+Both PASS checks additionally require the original XDesk image ID, Ubuntu version, refusal to open the image marker for append and refusal to create a file alongside it. Run the private-file check above for the release package control. These are tests of absolute path lookup and file-backed execution. The prototype maps directory nodes to a shared backing directory. Directory enumeration, relative lookup after changing directories, symlink metadata and POSIX ownership/modes do not reproduce the original filesystem. Updating the image requires rebuilding and reinstalling the experiment APK.

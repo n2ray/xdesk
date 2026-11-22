@@ -1,0 +1,64 @@
+--- a/src/path.c
++++ b/src/path.c
+@@ -43,12 +43,15 @@
+     return an + bn;
+ }
+
++
++#include "image-path.inc"
++
+ /* The host path of the resolved guest path @p (@n bytes), as the kernel would
+  * find it without symlinks. */
+ static long host_of(const char* p, long n, char* host) {
+     const struct bind* b = binding_of(p, n);
+     if (b != 0) return join(host, b->host, b->host_length, p + b->guest_length);
+-    return join(host, cfg.root, cfg.root_length, n == 1 ? "" : p);
++    return image_host(p, host);
+ }
+
+ /* Whether the host path @s starts with the directory @prefix (@n bytes). */
+@@ -372,7 +375,7 @@
+ static long probe(const char* guest, int follow, char* host, char* resolved) {
+     long n = length_of(guest);
+     const struct bind* b = plain(guest) ? binding_of(guest, n) : 0;
+-    if (!plain(guest) || (b != 0 && !b->walked)) return -ELOOP;
++    if (b == 0 || !b->walked) return -ELOOP;
+     long h = host_of(guest, n, host);
+     if (h < 0) return h;
+     long r = no_symlinks(host, follow, 0);
+@@ -440,14 +443,20 @@
+         if (last && !follow) break;
+
+         struct kstat st;
+-        long r = host_of(out, n, host);
+-        if (r < 0) return r;
+-        r = sys(NR_newfstatat, AT_FDCWD, host, &st, AT_SYMLINK_NOFOLLOW);
++        const struct image_node *node = b ? 0 : image_find(out);
++        long r;
++        if (node) {
++            st.mode = node->kind == IMG_LINK ? S_IFLNK : node->kind == IMG_DIR ? S_IFDIR : S_IFREG;
++            r = 0;
++        } else {
++            r = host_of(out, n, host);
++            if (r >= 0) r = sys(NR_newfstatat, AT_FDCWD, host, &st, AT_SYMLINK_NOFOLLOW);
++        }
+         if (r == -ENOENT && last) break; /* to be created */
+         if (r < 0) return r;
+         if ((st.mode & S_IFMT) == S_IFLNK) {
+             if (++links > 40) return -ELOOP;
+-            long t = sys(NR_readlinkat, AT_FDCWD, host, target, PATH_MAX - 1);
++            long t = node ? copy(target, PATH_MAX, node->value) : sys(NR_readlinkat, AT_FDCWD, host, target, PATH_MAX - 1);
+             if (t < 0) return t;
+             target[t] = 0;
+             long u = unhost(target, t);
+@@ -670,7 +679,9 @@
+ /* Whether the kernel resolves the absolute guest path @guest as we would:
+  * no binding, no "." or "..", and symlinks refused (RESOLVE_NO_SYMLINKS). */
+ static int direct(const char* guest) {
+-    return plain(guest) && !starts_with(guest, "/proc/") && binding_of(guest, length_of(guest)) == 0;
++    /* The APK stores objects by ID. Guest components must go through the index. */
++    (void)guest;
++    return 0;
+ }
+
+ long host_fd(long dirfd, const char* path, int follow, char* host, long* fd) {
