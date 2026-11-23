@@ -137,6 +137,11 @@ public final class MacLogin {
         void loginReleased();
         /** For the fingerprint prompt when the password is to be kept: XDesk's window on the phone. */
         Activity phoneActivity();
+        /**
+         * An Android app is what the external screen shows: its keys and mouse are the injector's (or Android's own),
+         * read past XDesk's window. The card then takes the display's focus and Android's pointer itself.
+         */
+        boolean overAndroidApp();
     }
 
     static volatile Host host;
@@ -159,8 +164,9 @@ public final class MacLogin {
         close(false);
         Card c;
         try {
-            c = new Card(context.createDisplayContext(d), d, mac);
+            c = new Card(context.createDisplayContext(d), d, mac, h.overAndroidApp());
             c.wm.addView(c.root, c.params());
+            if (c.own) c.root.requestFocus();
         } catch (RuntimeException e) {
             Log.w(TAG, "can't show the password card", e);
             return false;
@@ -252,8 +258,12 @@ public final class MacLogin {
         boolean remember;
         float px, py;
 
-        Card(Context c, Display d, ScreenShareStore.Host mac) {
+        /** Keys and Android's pointer come to the card's own window (Host.overAndroidApp), not through INPUT. */
+        final boolean own;
+
+        Card(Context c, Display d, ScreenShareStore.Host mac, boolean own) {
             this.c = c;
+            this.own = own;
             this.mac = mac;
             displayId = d.getDisplayId();
             wm = c.getSystemService(WindowManager.class);
@@ -312,6 +322,7 @@ public final class MacLogin {
             root.addView(box, cp);
             pointer = CursorOverlay.arrow(c, density);
             root.addView(pointer);
+            if (own) takeAndroidInput();
             show();
             px = width / 2f;
             py = height * 0.72f;
@@ -321,7 +332,7 @@ public final class MacLogin {
         WindowManager.LayoutParams params() {
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(-1, -1,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_SECURE
+                (own ? 0 : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) | WindowManager.LayoutParams.FLAG_SECURE
                     | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
@@ -331,6 +342,27 @@ public final class MacLogin {
 
         int dp(float v) {
             return Math.round(v * density);
+        }
+
+        /**
+         * Over an Android app (owner, 23 November: the pointer that moved clicked nothing, the keys went to the app):
+         * the injector's taps and Android's mouse come here as touches and hovers, a keyboard's keys as this focused
+         * window's. The card's own arrow goes: Android's is the one that moves.
+         */
+        void takeAndroidInput() {
+            pointer.setVisibility(View.GONE);
+            root.setFocusable(true);
+            root.setFocusableInTouchMode(true);
+            root.setOnKeyListener((v, code, e) -> MacLogin.key(e));
+            root.setOnHoverListener((v, e) -> {
+                place(e.getX(), e.getY());
+                return true;
+            });
+            root.setOnTouchListener((v, e) -> {
+                place(e.getX(), e.getY());
+                if (e.getActionMasked() == android.view.MotionEvent.ACTION_UP) click(1);
+                return true;
+            });
         }
 
         TextView text(String s, int color, float size) {

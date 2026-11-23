@@ -5556,6 +5556,7 @@ public class XDeskActivity extends Activity {
     private boolean loginOpenedKeys;
 
     private final MacLogin.Host loginHost = new MacLogin.Host() {
+        @Override public boolean overAndroidApp() { return apps.isActive() && contentKey == null; }
         @Override public void loginTaken() {
             InputSink c = client;
             if (c == SwitcherOverlay.INPUT) c = beforeSwitcher;
