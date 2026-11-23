@@ -164,6 +164,9 @@ RefreshRate desktop_rate(Display *dpy) {
     int major, event, error;
     if (XQueryExtension(dpy, "XFree86-VidModeExtension", &major, &event, &error) ||
         !XQueryExtension(dpy, "RANDR", &major, &event, &error)) return {};
+    int randr_major = 0, randr_minor = 0;
+    if (!XRRQueryVersion(dpy, &randr_major, &randr_minor) ||
+        randr_major < 1 || (randr_major == 1 && randr_minor < 3)) return {};
     auto *resources = XRRGetScreenResourcesCurrent(dpy, DefaultRootWindow(dpy));
     if (!resources) return {};
     RefreshRate rate;
@@ -199,19 +202,26 @@ extern "C" Bool glXGetMscRateOML(Display *dpy, GLXDrawable drawable, int32_t *n,
     static Display *display = nullptr;
     static Clock::time_point expiry;
     static RefreshRate rate;
+    RefreshRate current;
+    bool cached;
+    auto now = Clock::now();
     {
         std::lock_guard<std::mutex> guard(rate_lock);
-        auto now = Clock::now();
-        if (display != dpy || now >= expiry) {
-            rate = desktop_rate(dpy);
-            display = dpy;
-            expiry = now + std::chrono::seconds(1);
-        }
-        if (rate.numerator) {
-            *n = rate.numerator;
-            *d = rate.denominator;
-            return True;
-        }
+        cached = display == dpy && now < expiry;
+        if (cached) current = rate;
+    }
+    if (!cached) {
+        // Xlib can acquire the display lock here. Keep it outside our cache lock.
+        current = desktop_rate(dpy);
+        std::lock_guard<std::mutex> guard(rate_lock);
+        display = dpy;
+        rate = current;
+        expiry = now + std::chrono::seconds(1);
+    }
+    if (current.numerator) {
+        *n = current.numerator;
+        *d = current.denominator;
+        return True;
     }
     static auto original = proc<decltype(&glXGetMscRateOML)>("glXGetMscRateOML");
     return original ? original(dpy, drawable, n, d) : False;
