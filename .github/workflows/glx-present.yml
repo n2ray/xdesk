@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sdkmanager "ndk;29.0.14206865" "build-tools;35.0.0" "platforms;android-35"
+      - run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865" "build-tools;35.0.0" "platforms;android-35"'
       - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865" tools/glx-present/build-display.sh build/glx 800
       - uses: actions/upload-artifact@v4
         with:
