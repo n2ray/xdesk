@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include "linux/input-event-codes.h"
 #include "buffer.h"
+#include "frame-permit.h"
 
 #define PORT 7892
 #define DOCUMENT_PORT_BASE 7900
@@ -286,10 +287,9 @@ struct lorie_shared_server_state {
      * But eglSwapBuffers will not return until Android actually displays the frame.
      * Since we want to proceed as quickly as possible, waiting for the frame to be shown is not acceptable.
      *
-     * Therefore, we set eglSwapInterval(dpy, 1), so that eglSwapBuffers does not block until the frame is displayed.
-     * Even then, we do not want to waste GPU resources rendering more than one full-screen quad per vsync,
-     * because that would spend GPU time on a frame that will never be shown.
-     * To handle this, we use a waitForNextFrame flag, which we set after a successful render and clear from the AChoreographer’s frame callback.
+     * Start at most one redraw per refresh. Claim the shared byte before drawing so a tick
+     * during GPU work remains available when the renderer returns. Keep the byte layout and
+     * polarity compatible with X servers and apps built against shared-state version 1.
      */
     volatile uint8_t waitForNextFrame;
 

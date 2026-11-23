@@ -649,7 +649,7 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
     pvfb->current_msc++;
     loriePerformVblanks();
 
-    pvfb->state->waitForNextFrame = false;
+    lorieGrantFrame(&pvfb->state->waitForNextFrame);
 
     // tod: prova sul server senza app (:5): la copia nella vetrina a ogni fotogramma come sul desktop vero
     if (todGlamorAttivo() && getenv("TOD_PUBBLICA_SEMPRE")) {
