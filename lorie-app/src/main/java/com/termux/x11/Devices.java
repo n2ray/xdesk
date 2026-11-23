@@ -45,7 +45,7 @@ final class Devices {
         PREF_PHONE_BOARD_TAB = "phone_board_tab",
         PREF_LINUX = "linux", PREF_ENVS = "envs", PREF_LINUX_PHONE_IME = "linux_phone_ime",
         PREF_PHONE_IME_ON = "linux_phone_ime_on", PREF_PHONE_IME_OFF = "linux_phone_ime_off", PREF_TERMUX = "termux",
-        PREF_TERMUX_AT = "termux_installed_at";
+        PREF_TERMUX_AT = "termux_installed_at", PREF_SHOWN = "shown", PREF_SHOWN_FAVOURITES = "shown_favourites";
     /** An X started for a Linux device that has not shown up by then is no longer "starting". */
     private static final long LINUX_START_MS = 45_000;
 
@@ -140,6 +140,8 @@ final class Devices {
     private final SharedPreferences prefs;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LinkedHashSet<String> hidden = new LinkedHashSet<>(), off = new LinkedHashSet<>();
+    /** Hidden by default (hiddenByDefault), shown by the user. */
+    private final LinkedHashSet<String> shown = new LinkedHashSet<>();
     /** The Linux environments added as devices, by name. Termux itself is always one and is not in here. */
     private final LinkedHashSet<String> addedLinux = new LinkedHashSet<>();
     /** The environments as xdesk envs last reported them; empty with an xdesk that has no such command. */
@@ -169,6 +171,7 @@ final class Devices {
         context = c;
         prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         hidden.addAll(lines(prefs.getString(PREF_HIDDEN, "")));
+        shown.addAll(lines(prefs.getString(PREF_SHOWN, "")));
         off.addAll(lines(prefs.getString(PREF_OFF, "")));
         addedLinux.addAll(lines(prefs.getString(PREF_LINUX, "")));
         loadPhoneIme();
@@ -594,10 +597,10 @@ final class Devices {
         defaultSession = runningSession = stoppingSession = termuxHint = termuxVersionHint = null;
         xRunning = false;
         linuxStarting = null;
-        boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX));
+        boolean anyHidden = hidden.removeIf(k -> deviceOf(k).startsWith(LINUX)) | shown.removeIf(k -> deviceOf(k).startsWith(LINUX));
         SharedPreferences.Editor ed = prefs.edit().remove(PREF_LINUX).remove(PREF_ENVS)
             .remove(PREF_LINUX_PHONE_IME).remove(PREF_PHONE_IME_ON).remove(PREF_PHONE_IME_OFF).putString(PREF_TERMUX, "off");
-        if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden));
+        if (anyHidden) ed.putString(PREF_HIDDEN, String.join("\n", hidden)).putString(PREF_SHOWN, String.join("\n", shown));
         String tab = boardTab(), phoneTab = phoneBoardTab();
         if (tab != null && tab.startsWith(LINUX)) ed.remove(PREF_BOARD_TAB).remove(PREF_OLD_TAB);
         if (phoneTab != null && phoneTab.startsWith(LINUX)) ed.remove(PREF_PHONE_BOARD_TAB);
@@ -757,16 +760,64 @@ final class Devices {
 
     // --- hidden entries and the tab ---
 
+    /**
+     * Linux programs nobody opens on their own (DEVICES.md §1): settings dialogs, the desktop's about, log out, run and
+     * app finder, the "preferred application" stand-ins for the real file manager, terminal and browser, and library
+     * demos. By the .desktop id (the part of "l:a:SCOPE/ID" after the slash), the same in every environment. They
+     * start out hidden; one the user shows stays shown ({@code shown}).
+     */
+    private static final String[] DEFAULT_HIDDEN_SUFFIXES = {
+        "-settings", "-preferences", "-config", "configtool", "settings-manager", "settings-editor",
+    };
+    private static final java.util.Set<String> DEFAULT_HIDDEN_IDS = new java.util.HashSet<>(Arrays.asList(
+        "xfce4-about", "xfce4-session-logout", "xfce4-run", "xfce4-appfinder",
+        "xfce4-file-manager", "xfce4-terminal-emulator", "xfce4-web-browser", "xfce4-mail-reader",
+        "panel-preferences", "org.xfce.panelprofiles",
+        "org.gnome.vte.app.gtk3", "org.gnome.vte.app.gtk4", "yad-icon-browser",
+        "thunar-bulk-rename", "gigolo"));
+
+    static boolean hiddenByDefault(String key) {
+        if (key == null || !key.startsWith(LinuxSource.APP)) return false;
+        String id = key.substring(key.indexOf('/') + 1).toLowerCase(java.util.Locale.ROOT);
+        if (id.endsWith(".desktop")) id = id.substring(0, id.length() - ".desktop".length());
+        if (DEFAULT_HIDDEN_IDS.contains(id)) return true;
+        for (String s : DEFAULT_HIDDEN_SUFFIXES) if (id.endsWith(s)) return true;
+        return false;
+    }
+
     boolean isHidden(String key) {
-        return hidden.contains(key);
+        return hidden.contains(key) || hiddenByDefault(key) && !shown.contains(key);
     }
 
     void setHidden(String key, boolean hide) {
-        if (hide ? !hidden.add(key) : !hidden.remove(key)) return;
-        prefs.edit().putString(PREF_HIDDEN, String.join("\n", hidden)).apply();
+        if (hide == isHidden(key)) return;
+        if (hide) {
+            shown.remove(key);
+            if (!hiddenByDefault(key)) hidden.add(key);
+        } else {
+            hidden.remove(key);
+            if (hiddenByDefault(key)) shown.add(key);
+        }
+        saveHidden();
         changed();
     }
 
+    /**
+     * Once, on the first start with the default hidden programs: the favourites from before stay where they were (a
+     * hidden program can't be a favourite, ItemCard), so those of them hidden by default are shown.
+     */
+    void keepFavouritesShown(List<String> favourites) {
+        if (prefs.getBoolean(PREF_SHOWN_FAVOURITES, false)) return;
+        for (String k : favourites) if (hiddenByDefault(k) && !hidden.contains(k)) shown.add(k);
+        prefs.edit().putBoolean(PREF_SHOWN_FAVOURITES, true).apply();
+        saveHidden();
+    }
+
+    private void saveHidden() {
+        prefs.edit().putString(PREF_HIDDEN, String.join("\n", hidden)).putString(PREF_SHOWN, String.join("\n", shown)).apply();
+    }
+
+    /** The hidden entries the user chose (those hidden by default are not in it). */
     List<String> hiddenKeys() {
         return Collections.unmodifiableList(new ArrayList<>(hidden));
     }

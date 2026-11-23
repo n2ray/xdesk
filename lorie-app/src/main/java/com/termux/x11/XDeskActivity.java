@@ -1662,6 +1662,8 @@ public class XDeskActivity extends Activity {
         // Read before the 0.7.0 migrations and first writes: these were here before this version
         oldPrefsAtStart = hasPrefsFromBefore070();
         migrateDimPref();
+        // Programs hidden by default (DEVICES.md §1): the favourites from before stay favourites
+        Devices.get(this).keepFavouritesShown(savedLines(PREF_DOCK));
         // The Launchpad mode's home is the grid, also when a session is already running at start
         launchpadPage = launchpadMode();
         session = DesktopSession.get(this);

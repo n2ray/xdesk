@@ -5,6 +5,7 @@
 用户 2026-11-14 测了第一期后的要求：
 - 所有设备的应用放在一个列表里不好用。顶层按设备分标签，每个设备有自己的搜索和列表。
 - 可以隐藏应用（移到列表末尾、默认收起的一折里）；加星就进「我的收藏」。
+- **Linux 里没人单独打开的程序默认隐藏**（用户 2026-11-23 定，`Devices.hiddenByDefault`，按 .desktop id，所有环境一样）：id 以 `-settings`、`-preferences`、`-config`、`configtool`、`settings-manager`、`settings-editor` 结尾的设置类，加上关于、注销、运行程序、应用程序查找器，转去打开首选应用的四个入口（`xfce4-file-manager` / `-terminal-emulator` / `-web-browser` / `-mail-reader`），面板和面板配置文件，VTE、YAD 图标浏览器这类演示，批量重命名和 Gigolo。用户取消隐藏的记在 `shown`，不会再被藏回去；第一次升级上来时收藏里已有的这类程序算作取消隐藏（`keepFavouritesShown`）。
 - 应用列表右边有 A–Z 快速滚动条。
 - 内部设备只有一个：手机自己的 Android 应用。其他（Termux、XFCE、proot、chroot、Mac、Windows、别的 Android 设备）都是**外部设备**：能连接，也能断开，用同一套逻辑。
 - 设置里只有一个「连接设备」入口：先选连什么，再进那一类自己的连接流程。
@@ -228,7 +229,9 @@ XDesk                 [触摸板] [键鼠在外屏] [声音] [设置]
 
 | key | 内容 |
 |---|---|
-| `hidden` | 隐藏的条目 key，一行一个 |
+| `hidden` | 用户隐藏的条目 key，一行一个（默认隐藏的不在里面） |
+| `shown` | 默认隐藏、被用户取消隐藏的 Linux 程序 key，一行一个 |
+| `shown_favourites` | 收藏里默认隐藏的程序已经改成取消隐藏（只做一次） |
 | `off` | 用户断开的 Mac 的设备 id，一行一个（启动器、切换器打开时不自动连） |
 | `linux` | 添加成设备的 Linux 环境名，一行一个（Termux 不在里面，它总是设备） |
 | `linux_phone_ime` | 实体键盘用手机输入法打字的 Linux 环境名，一行一个（Termux 也可以在里面）。输入法是共用的那个 X 服务器上的，开关是每个设备自己的：按屏上的东西属于哪个设备来看 |
