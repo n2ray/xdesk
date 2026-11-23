@@ -58,6 +58,8 @@ final class BuiltinLinux {
     private static final String PREF_SSH = "ssh", PREF_SSH_LAN = "ssh_lan", PREF_SSH_KEYS = "ssh_keys";
     static final int SSH_PORT = 8222;
     private static final int X_WAIT_MS = 20000;
+    /** xdesk-update: how long a start waits for the system's XDesk package (it starts the desktop either way) */
+    private static final long UPDATE_WAIT_MS = 5 * 60 * 1000;
 
     enum State { NOT_INSTALLED, INSTALLING, STOPPED, STARTING, RUNNING, STOPPING }
 
@@ -401,6 +403,7 @@ final class BuiltinLinux {
         // The last session's launch pipe: xdesk-launch waits for this session's own (xdesk-session)
         new File(tmp, "xdesk-launch/req").delete();
         writeResolvConf();
+        updateSystem();
         // Android's /dev has no shm: Chromium (and glibc's shm_open) need one, emptied at each start
         File shm = shm();
         rm(shm);
@@ -441,9 +444,8 @@ final class BuiltinLinux {
         startVideoHelper(tmp);
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
         writeAsset("xdesk-session");
-        // The desktop runs as xdesk; sudo goes back to root (both say how)
+        // The desktop runs as xdesk (xdesk-asuser says how; sudo comes with xdesk-core)
         writeAsset("xdesk-asuser");
-        writeAsset("sudo");
         ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session", "XDESK_APPS_ONLY=" + (appsOnly ? 1 : 0)));
         s.environment().remove("LD_PRELOAD");
         s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
@@ -555,6 +557,37 @@ final class BuiltinLinux {
                 Log.w(TAG, "run", e);
             }
         }, "builtin-linux-run").start();
+    }
+
+    /**
+     * XDesk's side of the system (the package xdesk-core) at the version this app needs: xdesk-update checks, and
+     * installs from XDesk's repository when it is older. Quick when nothing is to do; while it installs, the status
+     * says so. Whatever happens the desktop starts (a system without the package runs as before).
+     */
+    private void updateSystem() throws IOException, InterruptedException {
+        writeAsset("xdesk-update");
+        File marker = new File(rootfs, "tmp/xdesk-updating");
+        marker.delete();
+        ProcessBuilder u = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-update"));
+        u.environment().remove("LD_PRELOAD");
+        u.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "update.log")));
+        Process p = u.start();
+        long deadline = System.currentTimeMillis() + UPDATE_WAIT_MS;
+        boolean shown = false;
+        while (!p.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            if (!shown && marker.exists()) {
+                shown = true;
+                set(State.STARTING, c.getString(R.string.xd_bl_updating));
+            }
+            if (System.currentTimeMillis() > deadline) {
+                appendLog("xdesk-update: still running after " + UPDATE_WAIT_MS / 1000 + " s, starting without it");
+                p.destroy();
+                break;
+            }
+        }
+        marker.delete();
+        if (shown) set(State.STARTING, c.getString(R.string.xd_bl_starting_x));
+        if (!p.isAlive() && p.exitValue() != 0) appendLog("xdesk-update: exit " + p.exitValue());
     }
 
     /** Scripts come with the app (assets/linux), so changing them needs no new image. */

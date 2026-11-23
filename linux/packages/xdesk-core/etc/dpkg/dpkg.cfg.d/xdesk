@@ -1,0 +1,5 @@
+# XDesk's built-in Ubuntu (xdesk-core): no systemd, no real devices; these autostart entries only print errors
+path-exclude=/etc/xdg/autostart/xfce4-power-manager.desktop
+path-exclude=/etc/xdg/autostart/light-locker.desktop
+path-exclude=/etc/xdg/autostart/xscreensaver.desktop
+path-exclude=/etc/xdg/autostart/blueman.desktop

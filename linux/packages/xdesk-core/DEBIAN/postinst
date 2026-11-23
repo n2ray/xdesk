@@ -1,0 +1,69 @@
+#!/bin/sh
+# xdesk-core: what XDesk's built-in Ubuntu needs to run inside the app. Each step can run again (a reinstall, an
+# upgrade from any older version, a system from before this package): it looks before it changes anything.
+set -e
+
+# xfwm4's compositor syncs to the vblank with GLX by default ("auto"): through Zink on XDesk's X that leaves the
+# whole screen black but for the cursor. Again after each xfwm4 update (the trigger)
+vblank() {
+    [ -f /usr/share/xfwm4/defaults ] && sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults || true
+}
+if [ "$1" = triggered ]; then vblank; exit 0; fi
+[ "$1" = configure ] || exit 0
+OLD=$2
+vblank
+
+# The desktop's user: xdesk (1000), in the groups sudo, audio, video. The Ubuntu image's own "ubuntu" (1000) becomes
+# it. XDesk binds the home it keeps at /home/xdesk; a new one (the image) starts from /etc/skel
+if ! getent passwd xdesk >/dev/null; then
+    if [ "$(getent passwd 1000 | cut -d: -f1)" = ubuntu ]; then
+        usermod -l xdesk -d /home/xdesk -c XDesk ubuntu
+        getent group ubuntu >/dev/null && groupmod -n xdesk ubuntu
+        [ -d /home/ubuntu ] && [ ! -e /home/xdesk ] && mv /home/ubuntu /home/xdesk
+    else
+        useradd -u 1000 -U -d /home/xdesk -s /bin/bash -c XDesk xdesk
+    fi
+fi
+if [ ! -d /home/xdesk ]; then
+    mkdir -p /home/xdesk
+    cp -a /etc/skel/. /home/xdesk/ 2>/dev/null || true
+    chown -R xdesk:xdesk /home/xdesk 2>/dev/null || true
+fi
+for g in sudo audio video; do
+    getent group $g >/dev/null && usermod -aG $g xdesk
+done
+
+# sudo: XDesk's (the packaged ones need setuid, which Android's "no new privileges" takes away), above sudo-rs and sudo
+update-alternatives --install /usr/bin/sudo sudo /usr/lib/xdesk/sudo 1000 >/dev/null 2>&1 || true
+
+# Every file shows as root's to the user (Burrow keeps root as the saved id): git would take each repository for
+# another's ("dubious ownership")
+if ! grep -qs 'directory = \*' /etc/gitconfig; then
+    if command -v git >/dev/null; then git config --system --add safe.directory '*'
+    else printf '[safe]\n\tdirectory = *\n' >> /etc/gitconfig; fi
+fi
+
+# Firefox and Chrome from their makers (Ubuntu's are snaps): the repositories, if the system has none for them yet
+# (Chrome's package keeps its own list once installed). The keys come with this package, checked when it was built
+K=/usr/share/xdesk/keyrings
+mkdir -p /etc/apt/keyrings
+if ! grep -qrs packages.mozilla.org /etc/apt/sources.list.d/; then
+    cp $K/packages.mozilla.org.gpg /etc/apt/keyrings/
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.gpg] https://packages.mozilla.org/apt mozilla main" \
+        > /etc/apt/sources.list.d/mozilla.list
+fi
+if ! grep -qrs dl.google.com/linux/chrome /etc/apt/sources.list.d/; then
+    cp $K/google-chrome.gpg /etc/apt/keyrings/
+    echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list
+fi
+
+# The autostart entries dpkg.cfg.d/xdesk keeps out of new packages: out of the system as it is, too
+for f in xfce4-power-manager light-locker xscreensaver blueman; do rm -f /etc/xdg/autostart/$f.desktop; done
+
+# From the image before this package (r1, r2's first builds): what xdesk-core now owns under another name
+rm -f /etc/apt/preferences.d/xdesk-no-snap
+if [ -L /usr/local/bin/sudo ] || grep -qs "XDesk's built-in Linux: sudo" /usr/local/bin/sudo; then rm -f /usr/local/bin/sudo; fi
+
+# Steps for one version only go below, each under: if [ -n "$OLD" ] && dpkg --compare-versions "$OLD" lt N; then ...
+exit 0

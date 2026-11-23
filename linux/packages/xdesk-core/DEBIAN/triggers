@@ -1,0 +1,2 @@
+# xfwm4's defaults come back with each xfwm4 update: vblank off again (postinst "triggered")
+interest-noawait /usr/share/xfwm4/defaults

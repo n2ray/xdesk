@@ -50,6 +50,7 @@
     <string name="xd_bl_install_failed">没能安装</string>
     <string name="xd_bl_remove_failed">没能全部删掉</string>
     <string name="xd_bl_start_failed">没能启动</string>
+    <string name="xd_bl_updating">正在更新系统里的 XDesk 组件…</string>
     <string name="xd_bl_starting_x">正在启动 X 服务器…</string>
     <string name="xd_bl_starting_desktop">正在启动桌面…</string>
     <string name="xd_bl_x_failed">X 服务器退出了（%1$d），请看日志</string>

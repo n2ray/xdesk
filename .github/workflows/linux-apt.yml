@@ -1,0 +1,45 @@
+name: Built-in Linux packages
+
+# XDesk's own packages for its built-in Ubuntu (linux/packages: xdesk-core), tested in a fresh ubuntu:26.04 (new and
+# from an old image), and XDesk's apt repository made from them with the latest xdesk-mesa (linux-mesa.yml), as an
+# artifact. Not published yet: the repository goes to GitHub Pages once it has its signing key.
+on:
+  workflow_dispatch:
+  push:
+    branches: [builtin-linux]
+    paths: ['linux/packages/**', 'linux/build-debs.sh', 'linux/make-repo.sh', 'linux/test-xdesk-core.sh', '.github/workflows/linux-apt.yml']
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04-arm
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 1
+    - name: Build
+      run: |
+        docker run --rm --platform linux/arm64 -v "$PWD:/src" ubuntu:26.04 sh -c '
+          apt-get update -q && apt-get install -y -q --no-install-recommends ca-certificates curl gnupg >/dev/null &&
+          sh /src/linux/build-debs.sh /src/debs'
+        ls -la debs
+    - name: Test, new system
+      run: docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/test-xdesk-core.sh /src/debs
+    - name: Test, system from an old image
+      run: docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/test-xdesk-core.sh /src/debs old
+    - name: Repository
+      env:
+        XDESK_APT_KEY: ${{ secrets.XDESK_APT_KEY }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # The latest xdesk-mesa build, if there is one
+        id=$(gh run list -R "$GITHUB_REPOSITORY" -w linux-mesa.yml -s success -L 1 --json databaseId -q '.[0].databaseId' || true)
+        [ -n "$id" ] && gh run download "$id" -R "$GITHUB_REPOSITORY" -n xdesk-mesa -D debs || echo "no xdesk-mesa yet"
+        docker run --rm --platform linux/arm64 -e XDESK_APT_KEY -v "$PWD:/src" ubuntu:26.04 sh -c '
+          apt-get update -q && apt-get install -y -q --no-install-recommends apt-utils gnupg >/dev/null &&
+          sh /src/linux/make-repo.sh /src/debs /src/repo'
+        find repo -type f | sort
+    - uses: actions/upload-artifact@v7
+      with:
+        name: xdesk-apt
+        path: repo
+        retention-days: 14

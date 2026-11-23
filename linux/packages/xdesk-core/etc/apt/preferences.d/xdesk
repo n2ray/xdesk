@@ -1,0 +1,17 @@
+# XDesk's built-in Ubuntu (xdesk-core)
+
+# No snaps (they cannot run in an app's container): the transitional firefox/chromium packages would install a stub
+Package: snapd
+Pin: release a=*
+Pin-Priority: -10
+
+# Firefox from Mozilla's repository, not the snap stub
+Package: firefox* thunderbird*
+Pin: origin packages.mozilla.org
+Pin-Priority: 1000
+
+# What XDesk's repository has (its Mesa: Ubuntu's own, rebuilt with Adreno's KGSL) is kept, or taken back to,
+# even when Ubuntu has a newer version that XDesk has not rebuilt yet (only its own versions: o=XDesk)
+Package: *
+Pin: release o=XDesk
+Pin-Priority: 1001

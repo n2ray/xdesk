@@ -1,0 +1,34 @@
+#!/bin/sh
+# XDesk's built-in Linux: keeps xdesk-core (linux/packages/xdesk-core: XDesk's side of the system) at the version this
+# app needs. The app writes this file and runs it as root before each start of the desktop; it waits up to a few
+# minutes and starts the desktop whatever happens (no network: the next start tries again).
+# Only xdesk-core, from XDesk's repository alone, so a check costs a dpkg query and an update a small download; the
+# rest of the system (Ubuntu, Mesa) is the user's apt upgrade. A newer app may need a newer xdesk-core, never the
+# other way: xdesk-core does not know the app's version.
+NEED=1    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
+SRC=/etc/apt/sources.list.d/xdesk.sources
+KEY=/usr/share/keyrings/xdesk-archive.asc
+REPO_URL=https://n2ray.github.io/xdesk-apt
+export DEBIAN_FRONTEND=noninteractive
+
+have=$(dpkg-query -W -f='${Version}' xdesk-core 2>/dev/null)
+[ -n "$have" ] && dpkg --compare-versions "$have" ge "$NEED" && exit 0
+echo "xdesk-update: xdesk-core ${have:-not installed}, this app needs $NEED"
+
+# A system from before xdesk-core has no XDesk repository yet: the app brings its key (below, once there is one)
+if [ ! -f "$SRC" ]; then
+    if ! grep -q '^-----BEGIN PGP PUBLIC KEY BLOCK-----$' "$0"; then echo "xdesk-update: no repository key in this app"; exit 3; fi
+    sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/,/^-----END PGP PUBLIC KEY BLOCK-----$/p' "$0" > "$KEY"
+    printf 'Types: deb\nURIs: %s\nSuites: resolute\nComponents: main\nSigned-By: %s\n' "$REPO_URL" "$KEY" > "$SRC"
+fi
+
+: > /tmp/xdesk-updating    # the app shows "updating the system" while this is there
+trap 'rm -f /tmp/xdesk-updating' EXIT
+opts="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
+# XDesk's repository alone first; a new xdesk-core that needs newer Ubuntu packages takes the full update
+apt-get update -o Dir::Etc::SourceList="$SRC" -o Dir::Etc::SourceParts=- -o APT::Get::List-Cleanup=0 &&
+    apt-get install -y $opts xdesk-core && exit 0
+apt-get update && apt-get install -y $opts xdesk-core
+exit $?
+
+# XDesk's repository key (linux/apt/xdesk-archive.asc) goes below this line when there is one

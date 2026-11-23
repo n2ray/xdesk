@@ -1,0 +1,11 @@
+#!/bin/sh
+# XDesk (xdesk-core): Google Chrome with the flags for this container (/etc/xdesk/chrome.sh, written by xdesk-session
+# at each start for this phone's GPU). Chrome's own launcher reads none, so this takes the command's place; Chrome's
+# package puts its link aside (dpkg-divert), and its updates keep that.
+CHROME_FLAGS=
+[ -r /etc/xdesk/chrome.sh ] && . /etc/xdesk/chrome.sh
+if [ ! -x /opt/google/chrome/google-chrome ]; then
+    echo "Google Chrome is not installed: sudo apt install google-chrome-stable" >&2
+    exit 127
+fi
+exec /opt/google/chrome/google-chrome $CHROME_FLAGS "$@"

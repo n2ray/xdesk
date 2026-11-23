@@ -1,6 +1,6 @@
 #!/usr/bin/perl
-# XDesk's built-in Linux: sudo for the user xdesk (the app writes this file into the system at every start, and the
-# image makes it the "sudo" alternative). The real one cannot run here: Android starts apps with "no new privileges",
+# XDesk's built-in Linux: sudo for the user xdesk (package xdesk-core, the "sudo" alternative). The real one cannot
+# run here: Android starts apps with "no new privileges",
 # so no setuid program gains anything. This one goes back to root through the saved id xdesk-asuser leaves (Burrow
 # keeps the ids), asks no password (the system has one user, on the user's own phone, and every file is theirs to the
 # kernel anyway), and takes the usual options: -u USER, -i, -s, -E, -H, -n, -k, -v, -l, -b, --.

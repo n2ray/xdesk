@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+# Chrome's command is this package's wrapper; Chrome's own link goes aside. The image before xdesk-core made the same
+# diversion as a local one, with a wrapper no package owned: both become this package's
+if [ "$1" = install ] || [ "$1" = upgrade ]; then
+    B=/usr/bin/google-chrome-stable
+    if [ "$(dpkg-divert --listpackage $B)" = LOCAL ]; then
+        rm -f $B
+        dpkg-divert --local --rename --remove $B >/dev/null
+    fi
+    dpkg-divert --package xdesk-core --rename --divert $B.real --add $B >/dev/null
+fi

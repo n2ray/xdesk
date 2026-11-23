@@ -1,0 +1,12 @@
+Package: xdesk-core
+Version: 1
+Architecture: all
+Maintainer: n2ray <n2ray@users.noreply.github.com>
+Section: misc
+Priority: optional
+Depends: perl-base, passwd, dpkg (>= 1.19)
+Description: XDesk's built-in Ubuntu: what it needs to run inside the XDesk app
+ The user xdesk (the desktop's, with a sudo that works without setuid), apt
+ under the app's fake root, no snaps (Firefox and Chrome from their makers'
+ repositories), Chrome's flags for the phone's GPU, xfwm4 without GLX vblank,
+ and XDesk's own repository. Nothing about the look: XFCE stays as it comes.

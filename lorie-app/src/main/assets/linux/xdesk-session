@@ -7,22 +7,10 @@ if [ -r /etc/default/locale ]; then
     . /etc/default/locale
     export LANG LANGUAGE LC_ALL LC_MESSAGES 2>/dev/null
 fi
-# The desktop's user (owner, 23 November): xdesk, with sudo, not root. A system from before has the image's own
-# "ubuntu" (1000) instead: it becomes xdesk; XDesk keeps the home itself (bound at /home/xdesk)
-if [ "$1" != --user ]; then
-    if ! getent passwd xdesk >/dev/null 2>&1; then
-        if [ "$(getent passwd 1000 | cut -d: -f1)" = ubuntu ]; then
-            usermod -l xdesk -d /home/xdesk -c XDesk ubuntu 2>/dev/null && groupmod -n xdesk ubuntu 2>/dev/null
-        else
-            useradd -u 1000 -U -d /home/xdesk -s /bin/bash -c XDesk xdesk 2>/dev/null
-        fi
-    fi
-    for g in sudo audio video; do getent group $g >/dev/null 2>&1 && usermod -aG $g xdesk 2>/dev/null; done
-    # Files show as root's to the user (xdesk-asuser says why): git would call every repository "dubious"
-    # Sound for every shell too (a terminal has it from the desktop, an SSH login does not): xdesk-session says why
-    echo 'export PULSE_SERVER=unix:/tmp/xdesk-pulse' > /etc/profile.d/xdesk-pulse.sh 2>/dev/null
-    git config --system --get safe.directory >/dev/null 2>&1 || git config --system safe.directory '*' 2>/dev/null
-fi
+# The desktop runs as the user xdesk (with sudo), not root (owner, 23 November): xdesk-core makes the user and
+# owns the system side (linux/packages/xdesk-core), xdesk-update keeps it current. A system without the user yet
+# (xdesk-core not installed, no network for xdesk-update) stays as root, as before, in the home XDesk keeps.
+getent passwd xdesk >/dev/null 2>&1 || export HOME=/home/xdesk
 export XDG_RUNTIME_DIR=/tmp/runtime-xdesk
 export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
 export NO_AT_BRIDGE=1
@@ -33,12 +21,6 @@ if [ "$1" != --user ]; then
 mkdir -p /var/lib/dbus && [ -s /var/lib/dbus/machine-id ] || cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null
 fi
 
-
-# xfwm4's compositor syncs to the vblank with GLX by default ("auto"): through Zink on XDesk's X that leaves the
-# whole screen black but for the cursor. Off, as on the Termux desktop. xfwm4 writes all its settings into the
-# user's xfconf file on its first start, so "auto" there is the old default, not a choice: it goes too (another
-# value the user picked stays).
-[ "$1" = --user ] || sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults 2>/dev/null
 if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
     # Adreno: OpenGL through Zink on Turnip (faster than freedreno on X11 in our tests)
     export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy vblank_mode=0
@@ -131,6 +113,8 @@ if command -v pulseaudio >/dev/null 2>&1; then
     pactl set-default-sink xdesk >/dev/null 2>&1
 fi
 
+# xfwm4 without GLX vblank (xdesk-core says why): xfwm4 writes all its settings into the user's xfconf file on its
+# first start, so "auto" there is the old default, not a choice: it goes too (another value the user picked stays)
 sed -i 's|<property name="vblank_mode" type="string" value="auto"/>|<property name="vblank_mode" type="string" value="off"/>|' \
     "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" 2>/dev/null
 
