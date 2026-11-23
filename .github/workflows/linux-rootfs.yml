@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [builtin-linux]
-    paths: ['linux/**', 'lorie-app/src/main/assets/linux/**', '.github/workflows/linux-rootfs.yml']
+    paths: ['linux/**', '!linux/mesa/**', 'lorie-app/src/main/assets/linux/**', '.github/workflows/linux-rootfs.yml']
 
 jobs:
   rootfs:

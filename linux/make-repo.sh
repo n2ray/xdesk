@@ -1,6 +1,6 @@
 #!/bin/sh
 # XDesk's apt repository from a directory of packages: make-repo.sh DEBS REPO
-# (xdesk-core from build-debs.sh, xdesk-mesa's from linux-mesa.yml). Signed when XDESK_APT_KEY holds the secret key
+# (xdesk-core from build-debs.sh, xdesk-mesa's from n2ray/xdesk-apt's mesa.yml). Signed when XDESK_APT_KEY holds the secret key
 # (armored); the public half is linux/apt/xdesk-archive.asc. Needs apt-utils (apt-ftparchive) and gpg.
 set -eu
 DEBS=$1 REPO=$2

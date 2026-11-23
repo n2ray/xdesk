@@ -4,7 +4,8 @@
 # Ubuntu builds msm only (debian/rules sets no freedreno-kmds). Everything else, the packages' names, files and
 # dependencies, stays Ubuntu's: the version is Ubuntu's plus "+xdeskN", and XDesk's repository is pinned above Ubuntu
 # (xdesk-core's preferences.d/xdesk) so an Ubuntu update does not take KGSL away before this is rebuilt.
-# Run by .github/workflows/linux-mesa.yml in ubuntu:26.04 (arm64): build-mesa.sh OUT [REV]
+# Run by n2ray/xdesk-apt's mesa.yml (daily: when Ubuntu's Mesa changes) in ubuntu:26.04 (arm64): build-mesa.sh OUT [REV]
+# OUT gets the packages and UBUNTU_VERSION (the Ubuntu version they were rebuilt from).
 set -eu
 OUT=$1
 REV=${2:-1}
@@ -25,6 +26,7 @@ grep -q 'freedreno-kmds' debian/rules && { echo "debian/rules sets freedreno-kmd
 sed -i 's/^confflags += \\$/confflags += \\\n\t-Dfreedreno-kmds=msm,kgsl \\/' debian/rules
 grep -q -- '-Dfreedreno-kmds=msm,kgsl' debian/rules || { echo "could not add freedreno-kmds" >&2; exit 1; }
 v=$(dpkg-parsechangelog -S Version)
+echo "$v" > "$OUT/UBUNTU_VERSION"
 dch --newversion "$v+xdesk$REV" --distribution "$(dpkg-parsechangelog -S Distribution)" --force-distribution \
     "Rebuilt for XDesk: -Dfreedreno-kmds=msm,kgsl (Adreno's KGSL, for Android)."
 
