@@ -23,8 +23,14 @@ apt-get install -y --allow-remove-essential coreutils-from-gnu coreutils-from-uu
 ls --version | head -1
 
 # XDesk's own package, built from this tree (the repository has the same)
+# Keep native build dependencies out of the exported desktop.
+installed() { dpkg-query -W -f='${db:Status-Status} ${binary:Package}\n' | sed -n 's/^installed //p' | LC_ALL=C sort; }
+installed > /tmp/pre-build-packages
 sh /src/linux/build-debs.sh /tmp/debs
-apt-get install -y /tmp/debs/xdesk-core_*_all.deb
+installed > /tmp/post-build-packages
+LC_ALL=C comm -13 /tmp/pre-build-packages /tmp/post-build-packages | xargs -r apt-get purge -y
+rm -f /tmp/pre-build-packages /tmp/post-build-packages
+apt-get install -y /tmp/debs/xdesk-core_*_arm64.deb
 rm -rf /tmp/debs
 
 apt-get update

@@ -4,6 +4,7 @@
 # package puts its link aside (dpkg-divert), and its updates keep that.
 CHROME_FLAGS=
 [ -r /etc/xdesk/chrome.sh ] && . /etc/xdesk/chrome.sh
+. /usr/lib/xdesk/chrome-zink.sh
 if [ ! -x /opt/google/chrome/google-chrome ]; then
     echo "Google Chrome is not installed: sudo apt install google-chrome-stable" >&2
     exit 127

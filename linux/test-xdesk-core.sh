@@ -4,7 +4,7 @@
 # diversion of Chrome's command with its unowned wrapper, the old preferences file, the session's profile.d file.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
-DEB=$(ls "$1"/xdesk-core_*_all.deb)
+DEB=$(ls "$1"/xdesk-core_*_arm64.deb)
 ok() { echo "ok: $*"; }
 no() { echo "FAIL: $*" >&2; exit 1; }
 apt-get update -q
@@ -29,6 +29,13 @@ asx() { setpriv --reuid=xdesk --regid=xdesk --init-groups env USER=xdesk HOME=/h
 [ "$(asx sudo -u xdesk id -u):$(asx sudo -i pwd)" = 1000:/root ] && ok "sudo -u, -i" || no "sudo -u/-i"
 [ "$(dpkg-divert --listpackage /usr/bin/google-chrome-stable)" = xdesk-core ] && ok "chrome diversion" || no "chrome diversion"
 grep -q 'CHROME_FLAGS' /usr/bin/google-chrome-stable && ok "chrome wrapper" || no "chrome wrapper"
+# Exercise the fallback in the same unprivileged shell as the desktop.
+asx sh -ec 'CHROME_FLAGS=original; XDESK_CHROME_ZINK=0; . /usr/lib/xdesk/chrome-zink.sh
+    test "$CHROME_FLAGS" = original' && ok "Chrome opt-out"
+z=/usr/lib/xdesk/chrome-zink
+for lib in "$z/libxdesk-dri3.so" "$z/gl/libGL.so.1" "$z/va/termuxva_drv_video.so"; do
+    [ -r "$lib" ] || no "missing $lib"
+done
 [ ! -e /etc/apt/preferences.d/xdesk-no-snap ] && ok "old preferences gone" || no "old preferences"
 grep -q packages.mozilla.org /etc/apt/sources.list.d/mozilla.list && grep -q dl.google.com /etc/apt/sources.list.d/google-chrome.list && ok "browser sources" || no "browser sources"
 grep -qs 'directory = \*' /etc/gitconfig && ok "git safe.directory" || no "gitconfig"
