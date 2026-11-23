@@ -646,8 +646,11 @@ final class BuiltinLinux {
         if (!begin()) return;
         set(State.STOPPING, null);
         new Thread(() -> {
-            stopNow();
-            c.stopService(new Intent(c, LinuxService.class));
+            // With SSH access on, stopping the desktop leaves SSH running: the way in without a screen (owner,
+            // 23 November). Its own switch stops it; reset and remove stop everything
+            boolean keepSsh = sshEnabled() && sshRunning();
+            stopNow(keepSsh);
+            if (!keepSsh) c.stopService(new Intent(c, LinuxService.class));
             end(installed() ? State.STOPPED : State.NOT_INSTALLED);
         }, "builtin-linux-stop").start();
     }
