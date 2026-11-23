@@ -687,7 +687,7 @@ final class Devices {
             case STOPPING:
                 return new Device(id, Type.LINUX, name, State.CONNECTED, context.getString(R.string.xd_chooser_stopping), true);
             default:
-                return new Device(id, Type.LINUX, name, State.DISCONNECTED, null, false);
+                return new Device(id, Type.LINUX, name, State.DISCONNECTED, context.getString(R.string.xd_bl_row_note), false);
         }
     }
 

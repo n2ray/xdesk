@@ -59,6 +59,18 @@ final class DeviceSettings {
         new DeviceSettings(c).device(id);
     }
 
+    /**
+     * The built-in Linux's page (BuiltinLinuxPage) has the keyboard's switch of a Linux device page: whether a keyboard
+     * on the phone types through the phone's input method or as keys. The X layout and input method rows are Termux's
+     * X server's, not the built-in Linux's own.
+     */
+    static void phoneImeSection(Context c, LinearLayout content, String id) {
+        DeviceSettings d = new DeviceSettings(c);
+        LinearLayout keys = d.s.section(content, c.getString(R.string.xd_linux_keyboard));
+        d.followGlobalRow(keys, c.getString(R.string.xd_linux_phone_ime), null,
+                d.devices.linuxPhoneImeChoice(id), which -> d.devices.setLinuxPhoneIme(id, d.choice(which)));
+    }
+
     /** A device type's own set-up flow (Add device › type, or the launcher's "Set up this device"). */
     static void setUp(Context c, Devices.Type type) {
         DeviceSettings d = new DeviceSettings(c);
@@ -106,9 +118,6 @@ final class DeviceSettings {
                     "", () -> device(d.id));
             // A first start has none: say so rather than show an empty card
             if (devices.external().isEmpty()) s.infoRow(known, c.getString(R.string.xd_dev_none), c.getString(R.string.xd_dev_none_note), null);
-            // The built-in Linux is not one of the devices xdesk lists: its own row while it is installed
-            if (BuiltinLinux.get(c).installed())
-                s.linkRow(known, c.getString(R.string.xd_bl_title), c.getString(R.string.xd_bl_row_note), "", () -> BuiltinLinuxPage.manage(c));
             s.accentRow(known, c.getString(R.string.xd_dev_add), null, this::pickType);
             return true;
         });
@@ -197,6 +206,12 @@ final class DeviceSettings {
         }
         if (first.type == Devices.Type.SCREEN) {
             ScreenShareSettings.edit(c, id.substring(Devices.SCREEN.length()));
+            return;
+        }
+        // The built-in Linux has its own page (install, reset, remove the system, SSH): the Linux device page's
+        // "remove" only takes a Termux environment's tab and would leave it as it is
+        if (id.equals(Devices.LINUX + Devices.BUILTIN)) {
+            BuiltinLinuxPage.manage(c);
             return;
         }
         live(first.name, content -> fillLinuxDevice(content, id));

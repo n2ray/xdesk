@@ -133,6 +133,8 @@ final class BuiltinLinuxPage {
                 android.widget.Toast.makeText(c, R.string.xd_bl_gpu_restart, android.widget.Toast.LENGTH_LONG).show();
         });
 
+        DeviceSettings.phoneImeSection(c, content, Devices.LINUX + Devices.BUILTIN);
+
         fillSsh();
 
         LinearLayout keep = s.section(content, c.getString(R.string.xd_bl_upkeep));
