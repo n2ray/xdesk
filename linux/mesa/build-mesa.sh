@@ -1,7 +1,9 @@
 #!/bin/sh
-# xdesk-mesa: Ubuntu's own Mesa, rebuilt with one change, Freedreno's KGSL kernel interface besides msm
-# (-Dfreedreno-kmds=msm,kgsl), so Turnip and Freedreno run on an Adreno under Android, where there is no DRM device.
-# Ubuntu builds msm only (debian/rules sets no freedreno-kmds). Everything else, the packages' names, files and
+# xdesk-mesa: Ubuntu's own Mesa, rebuilt with one change, Freedreno's KGSL kernel interface instead of msm
+# (-Dfreedreno-kmds=kgsl), so Turnip and Freedreno run on an Adreno under Android, where there is no DRM device.
+# Ubuntu builds msm only (debian/rules sets no freedreno-kmds). kgsl alone, as lfdevs' builds: with msm too Turnip
+# offers VK_KHR_display, which Zink and vulkaninfo then enable, and its KGSL backend refuses any instance that has it
+# ("I can't KHR_display": no GPU at all, tested 2026-11-23). msm needs /dev/dri, which an app never has. Everything else, the packages' names, files and
 # dependencies, stays Ubuntu's: the version is Ubuntu's plus "+xdeskN", and XDesk's repository is pinned above Ubuntu
 # (xdesk-core's preferences.d/xdesk) so an Ubuntu update does not take KGSL away before this is rebuilt.
 # Run by n2ray/xdesk-apt's mesa.yml (daily: when Ubuntu's Mesa changes) in ubuntu:26.04 (arm64): build-mesa.sh OUT [REV]
@@ -23,12 +25,12 @@ apt-get build-dep -y ./
 
 # The one change
 grep -q 'freedreno-kmds' debian/rules && { echo "debian/rules sets freedreno-kmds already: look again" >&2; exit 1; }
-sed -i 's/^confflags += \\$/confflags += \\\n\t-Dfreedreno-kmds=msm,kgsl \\/' debian/rules
-grep -q -- '-Dfreedreno-kmds=msm,kgsl' debian/rules || { echo "could not add freedreno-kmds" >&2; exit 1; }
+sed -i 's/^confflags += \\$/confflags += \\\n\t-Dfreedreno-kmds=kgsl \\/' debian/rules
+grep -q -- '-Dfreedreno-kmds=kgsl' debian/rules || { echo "could not add freedreno-kmds" >&2; exit 1; }
 v=$(dpkg-parsechangelog -S Version)
 echo "$v" > "$OUT/UBUNTU_VERSION"
 dch --newversion "$v+xdesk$REV" --distribution "$(dpkg-parsechangelog -S Distribution)" --force-distribution \
-    "Rebuilt for XDesk: -Dfreedreno-kmds=msm,kgsl (Adreno's KGSL, for Android)."
+    "Rebuilt for XDesk: -Dfreedreno-kmds=kgsl (Adreno's KGSL, for Android)."
 
 DEB_BUILD_OPTIONS="nocheck parallel=$(nproc)" dpkg-buildpackage -b -uc -us
 cd ..
