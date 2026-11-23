@@ -21,6 +21,12 @@ getent passwd xdesk | grep -q ':1000:' && ok "user xdesk is 1000" || no "user xd
 for g in sudo audio video; do id -nG xdesk | tr ' ' '\n' | grep -qx $g || no "xdesk not in $g"; done; ok "groups"
 [ -d /home/xdesk ] && ok "home" || no "home"
 [ "$(readlink -f /usr/bin/sudo)" = /usr/lib/xdesk/sudo ] && ok "sudo alternative" || no "sudo is $(readlink -f /usr/bin/sudo)"
+# sudo from the user with all ids the user's (as xdesk-asuser leaves them), through the set-user-ID setpriv copy
+[ "$(stat -c %a:%U /usr/lib/xdesk/setpriv-root)" = 4755:root ] && ok "setpriv-root" || no "setpriv-root: $(stat -c %a:%U /usr/lib/xdesk/setpriv-root)"
+asx() { setpriv --reuid=xdesk --regid=xdesk --init-groups env USER=xdesk HOME=/home/xdesk PATH=/usr/bin:/bin "$@"; }
+[ "$(asx sudo id -u)" = 0 ] && [ "$(asx sudo id -G)" = 0 ] && ok "sudo: root" || no "sudo: $(asx sudo id 2>&1)"
+[ "$(asx sudo sh -c 'echo $SUDO_USER:$SUDO_UID:$HOME')" = xdesk:1000:/root ] && ok "sudo: SUDO_USER, HOME" || no "sudo env: $(asx sudo env 2>&1)"
+[ "$(asx sudo -u xdesk id -u):$(asx sudo -i pwd)" = 1000:/root ] && ok "sudo -u, -i" || no "sudo -u/-i"
 [ "$(dpkg-divert --listpackage /usr/bin/google-chrome-stable)" = xdesk-core ] && ok "chrome diversion" || no "chrome diversion"
 grep -q 'CHROME_FLAGS' /usr/bin/google-chrome-stable && ok "chrome wrapper" || no "chrome wrapper"
 [ ! -e /etc/apt/preferences.d/xdesk-no-snap ] && ok "old preferences gone" || no "old preferences"
@@ -35,6 +41,8 @@ apt-get install -y -q --no-install-recommends xfwm4 sudo-rs sudo
 grep -qx 'vblank_mode=off' /usr/share/xfwm4/defaults && ok "xfwm4 vblank off (trigger)" || no "vblank: $(grep vblank /usr/share/xfwm4/defaults)"
 [ "$(readlink -f /usr/bin/sudo)" = /usr/lib/xdesk/sudo ] && ok "sudo still ours" || no "sudo is $(readlink -f /usr/bin/sudo)"
 for f in xfce4-power-manager light-locker xscreensaver blueman; do [ ! -e /etc/xdg/autostart/$f.desktop ] || no "autostart $f"; done
+apt-get install -y -q --reinstall util-linux
+[ "$(stat -c %a /usr/lib/xdesk/setpriv-root)" = 4755 ] && cmp -s /usr/bin/setpriv /usr/lib/xdesk/setpriv-root && [ "$(asx sudo id -u)" = 0 ] && ok "setpriv-root after util-linux (trigger)" || no "setpriv-root after util-linux"
 
 # The GPU: lfdevs' Mesa over Ubuntu's as soon as Ubuntu's comes, pinned, and back after a reinstall of Ubuntu's
 apt-get install -y -q --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers
@@ -50,4 +58,5 @@ apt-get install -y -q --reinstall "$DEB" && ok "reinstall"
 apt-get remove -y -q xdesk-core
 [ "$(dpkg-divert --listpackage /usr/bin/google-chrome-stable)" = "" ] && ok "diversion removed" || no "diversion left"
 [ "$(readlink -f /usr/bin/sudo)" != /usr/lib/xdesk/sudo ] && ok "sudo given back" || no "sudo still ours"
+[ ! -e /usr/lib/xdesk/setpriv-root ] && ok "setpriv-root removed" || no "setpriv-root left"
 echo "all ok"

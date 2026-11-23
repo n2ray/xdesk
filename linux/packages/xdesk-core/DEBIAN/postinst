@@ -8,7 +8,12 @@ set -e
 vblank() {
     [ -f /usr/share/xfwm4/defaults ] && sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults || true
 }
-if [ "$1" = triggered ]; then vblank; /usr/lib/xdesk/xdesk-gpu; exit 0; fi
+# sudo's way back to root (/usr/lib/xdesk/sudo says why): a set-user-ID copy of setpriv, Burrow giving a set-user-ID
+# program its owner's ids as Linux does. Copied again after each util-linux update (the trigger)
+rootway() {
+    install -m 4755 /usr/bin/setpriv /usr/lib/xdesk/setpriv-root.new && mv -f /usr/lib/xdesk/setpriv-root.new /usr/lib/xdesk/setpriv-root
+}
+if [ "$1" = triggered ]; then vblank; rootway; /usr/lib/xdesk/xdesk-gpu; exit 0; fi
 [ "$1" = configure ] || exit 0
 OLD=$2
 vblank
@@ -33,11 +38,12 @@ for g in sudo audio video; do
     getent group $g >/dev/null && usermod -aG $g xdesk
 done
 
-# sudo: XDesk's (the packaged ones need setuid, which Android's "no new privileges" takes away), above sudo-rs and sudo
+# sudo: XDesk's, above sudo-rs and sudo (theirs ask for a password the user does not have, through PAM)
+rootway
 update-alternatives --install /usr/bin/sudo sudo /usr/lib/xdesk/sudo 1000 >/dev/null 2>&1 || true
 
-# Every file shows as root's to the user (Burrow keeps root as the saved id): git would take each repository for
-# another's ("dubious ownership")
+# Every file is the app's, shown as the user's to the user and as root's to root (Burrow): git as one would take a
+# repository the other made for another's ("dubious ownership")
 if ! grep -qs 'directory = \*' /etc/gitconfig; then
     if command -v git >/dev/null; then git config --system --add safe.directory '*'
     else printf '[safe]\n\tdirectory = *\n' >> /etc/gitconfig; fi

@@ -4,3 +4,5 @@ interest-noawait /usr/share/xfwm4/defaults
 interest-noawait /usr/lib/aarch64-linux-gnu/dri
 interest-noawait /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so
 interest-noawait /usr/lib/aarch64-linux-gnu/libGLX_mesa.so.0
+# util-linux putting a new setpriv in: sudo's set-user-ID copy of it again (postinst "rootway")
+interest-noawait /usr/bin/setpriv

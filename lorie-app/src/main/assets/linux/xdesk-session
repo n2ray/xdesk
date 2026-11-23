@@ -92,8 +92,8 @@ fi
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 cd "$HOME" 2>/dev/null
 
-# Its socket at a fixed place, for every client through PULSE_SERVER: the runtime directory shows as root's (as every
-# file, xdesk-asuser), and PulseAudio refuses a runtime directory that is not its user's
+# Its socket at a fixed place, for every client through PULSE_SERVER: one place for the desktop's programs and for those
+# run as root (sudo), whose runtime directories differ
 export PULSE_SERVER=unix:/tmp/xdesk-pulse
 if command -v pulseaudio >/dev/null 2>&1; then
     # One still going away makes the new one fail ("Daemon startup failed", no sound at all); --kill and --check go

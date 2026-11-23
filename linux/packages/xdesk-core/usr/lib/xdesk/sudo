@@ -1,10 +1,11 @@
 #!/usr/bin/perl
-# XDesk's built-in Linux: sudo for the user xdesk (package xdesk-core, the "sudo" alternative). The real one cannot
-# run here: Android starts apps with "no new privileges",
-# so no setuid program gains anything. This one goes back to root through the saved id xdesk-asuser leaves (Burrow
-# keeps the ids), asks no password (the system has one user, on the user's own phone, and every file is theirs to the
-# kernel anyway), and takes the usual options: -u USER, -i, -s, -E, -H, -n, -k, -v, -l, -b, --.
+# XDesk's built-in Linux: sudo for the user xdesk (package xdesk-core, the "sudo" alternative). It goes back to root
+# through /usr/lib/xdesk/setpriv-root, a set-user-ID copy of setpriv (Burrow, not the kernel, keeps the ids and gives
+# a set-user-ID program its owner's, as Linux does; a set-user-ID script it does not, and perl refuses one anyway),
+# then runs itself again as root. It asks no password (the system has one user, on the user's own phone, and every
+# file is theirs to the kernel anyway), and takes the usual options: -u USER, -i, -s, -E, -H, -n, -k, -v, -l, -b, --.
 use strict;
+my @args = @ARGV;
 my ($user, $login, $shell, $keepenv, $background) = ("root", 0, 0, 0, 0);
 while (@ARGV && $ARGV[0] =~ /^-/) {
     my $o = shift @ARGV;
@@ -24,8 +25,14 @@ while (@ARGV && $ARGV[0] =~ /^-/) {
         # -n, -H, -S, -A, -P: nothing to ask, HOME is set anyway
     }
 }
-my @me = ($ENV{USER} // "", $<, $( + 0);
-# Back to root first (the saved ids), groups too
+# Back to root first, and this again from the start (the options are read once more, as root)
+if ($< != 0) {
+    $ENV{XDESK_SUDO_FROM} = join(":", scalar(getpwuid($<)) // $ENV{USER} // "", $<, $( + 0);
+    exec { "/usr/lib/xdesk/setpriv-root" } "setpriv", "--reuid=0", "--regid=0", "--clear-groups", "--", $^X, $0, @args;
+    # No copy (xdesk-core before 4): through the saved root id XDesk before 0.8.0 left
+    delete $ENV{XDESK_SUDO_FROM};
+}
+my @me = split /:/, delete($ENV{XDESK_SUDO_FROM}) // join(":", $ENV{USER} // "", $<, $( + 0);
 syscall(147, 0, 0, 0) == 0 or die "sudo: cannot become root here: $!\n";
 syscall(149, 0, 0, 0) == 0 or die "sudo: setresgid: $!\n";
 my $root_groups = pack("L", 0);
