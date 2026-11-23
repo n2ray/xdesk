@@ -3597,10 +3597,15 @@ public class XDeskActivity extends Activity {
             LinearLayout ends = s.card(c);
             ((LinearLayout.LayoutParams) ends.getLayoutParams()).topMargin = dp(12);
             if (session.isActive()) {
-                // Orange: it stops the desktop, it does not remove anything
-                s.stopRowIn(ends, getString(R.string.xd_end_desktop_row), getString(R.string.xd_end_desktop_row_note), () -> {
+                // Orange: it stops the desktop, it does not remove anything. The one on the screen: the built-in
+                // Linux's is stopped by the app, not through Termux (it asked for Termux's permission and stopped
+                // Termux's desktop, 23 November)
+                boolean builtin = XServers.isBuiltin(XServers.shown());
+                s.stopRowIn(ends, getString(builtin ? R.string.xd_bl_stop_row : R.string.xd_end_desktop_row),
+                    getString(builtin ? R.string.xd_bl_stop_note : R.string.xd_end_desktop_row_note), () -> {
                     closeSettings();
-                    confirmStop();
+                    if (builtin) deviceActions.stopBuiltin();
+                    else confirmStop();
                 });
             }
             if (DesktopService.isRunning()) {

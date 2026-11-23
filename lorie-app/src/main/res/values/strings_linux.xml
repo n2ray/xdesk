@@ -14,12 +14,13 @@
     <string name="xd_bl_open">Show on the external screen</string>
     <string name="xd_bl_open_note">The desktop is running</string>
     <string name="xd_bl_stop_note">Ends the desktop and every program in it</string>
+    <string name="xd_bl_stop_row">Stop the built-in Linux</string>
     <string name="xd_bl_stop_confirm_title">Stop the built-in Linux?</string>
     <string name="xd_bl_about">What this is</string>
     <string name="xd_bl_about_what">A Linux of its own</string>
     <string name="xd_bl_about_what_note">Ubuntu 26.04 LTS with the XFCE desktop and a terminal, run by XDesk itself. Install anything with apt (browsers: apt install google-chrome-stable or firefox, from their makers); break it and reset it in a minute.</string>
     <string name="xd_bl_about_termux">Termux stays as it is</string>
-    <string name="xd_bl_about_termux_note">The Termux desktops are separate and keep working. Run one desktop at a time.</string>
+    <string name="xd_bl_about_termux_note">The Termux desktops are separate and keep working. Both can run at once; the external screen shows one, switch in the Launchpad.</string>
     <string name="xd_bl_graphics">Graphics</string>
     <string name="xd_bl_gpu">GPU acceleration (Snapdragon)</string>
     <string name="xd_bl_gpu_note">OpenGL through Zink on Turnip. Off: software rendering</string>

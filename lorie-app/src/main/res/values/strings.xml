@@ -185,7 +185,7 @@
     <string name="xd_linux_old_x">The X server is from an older XDesk. End the desktop and start it again</string>
     <string name="xd_linux_not_found">This program is no longer installed</string>
     <string name="xd_linux_window_gone">This window was closed</string>
-    <string name="xd_linux_no_window">%1$s did not open a window within 15 seconds. See $PREFIX/tmp/xdesk.log</string>
+    <string name="xd_linux_no_window">%1$s did not open a window within 15 seconds. Logs: Termux in $PREFIX/tmp/xdesk.log, the built-in Linux under Logs on its device page</string>
     <string name="xd_linux_launch_failed">%1$s did not start: %2$s</string>
     <!-- Why a launched program did not come up (CLI.md §5.4): %1$s is the program, %2$s the detail -->
     <string name="xd_linux_launch_not_found">%1$s is not installed properly: %2$s was not found</string>
@@ -291,8 +291,8 @@
     <!-- Sound output -->
     <string name="xd_output_car">On the car, sound plays in the car through Android Auto. There is no output to choose</string>
     <string name="xd_output_system">System default (none chosen)</string>
-    <string name="xd_output_note_shared">Shared by all modes: during a session, sound from the Termux desktop, Android apps and other media goes here, also when you switch. After End XDesk the phone is back to normal, and this choice applies again next time.</string>
-    <string name="xd_output_note_desktop_only">The input service is not running: XDesk can only try to send Termux desktop sound here, which may not work while HDMI is connected. Sound from Android apps is not affected.</string>
+    <string name="xd_output_note_shared">Shared by all modes: during a session, sound from the Linux desktop, Android apps and other media goes here, also when you switch. After End XDesk the phone is back to normal, and this choice applies again next time.</string>
+    <string name="xd_output_note_desktop_only">The input service is not running: XDesk can only try to send the Linux desktop\'s sound here, which may not work while HDMI is connected. Sound from Android apps is not affected.</string>
     <string name="xd_output_note_unverified">This only points the output at the device. Sound quality and the Bluetooth codec can\'t be checked.</string>
     <string name="xd_output_title">Play sound on</string>
     <string name="xd_output_missing">This output is not connected. Using the system default for now</string>
@@ -315,8 +315,8 @@
     <string name="xd_language_system">System</string>
     <string name="xd_language_en" translatable="false">English</string>
     <string name="xd_language_zh" translatable="false">中文</string>
-    <string name="xd_density_desktop">Not changed while a Termux desktop is shown: it has its own DPI setting, and the display uses its default</string>
-    <string name="xd_density_desktop_range">While a Termux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting, and X, Mac and XDesk\'s own screens follow the screen\'s Size. Default %3$d</string>
+    <string name="xd_density_desktop">Not changed while a Linux desktop is shown: it has its own DPI setting, and the display uses its default</string>
+    <string name="xd_density_desktop_range">While a Linux desktop is shown, %1$d to %2$d dpi. Sets the size of the input method\'s candidates; the desktop has its own DPI setting, and X, Mac and XDesk\'s own screens follow the screen\'s Size. Default %3$d</string>
     <string name="xd_density_car">Doesn\'t apply to the car screen</string>
     <string name="xd_clipboard_sync">Share the clipboard</string>
     <string name="xd_clipboard_sync_note">Not encrypted over Wi-Fi</string>
@@ -326,8 +326,8 @@
     <string name="xd_split_readout">L %1$d · R %2$d fps</string>
     <string name="xd_split_no_injector">No injector: the split screen prototype cannot open</string>
     <string name="xd_split_start_failed">%1$s did not start: %2$s</string>
-    <string name="xd_x11_settings">Termux:X11 settings</string>
-    <string name="xd_x11_settings_note">Only for the Linux desktop. A wrong input option can stop typing Chinese working</string>
+    <string name="xd_x11_settings">X11 settings</string>
+    <string name="xd_x11_settings_note">For the Termux and built-in Linux desktops (from Termux:X11). A wrong input option can stop typing Chinese working</string>
     <string name="xd_file_saved">Saved to Downloads: %1$s</string>
     <string name="xd_x11_clipboard">Share the clipboard with Android</string>
     <string name="xd_x11_filtering">Desktop scaling</string>
@@ -338,7 +338,7 @@
     <string name="xd_x11_scancodes_note">Turn on for a keyboard with another layout</string>
     <string name="xd_x11_meta">Win/Cmd key goes to the desktop</string>
     <string name="xd_x11_meta_note">Off: the phone handles it</string>
-    <string name="xd_x11_all">All Termux:X11 settings</string>
+    <string name="xd_x11_all">All X11 settings</string>
     <string name="xd_x11_all_note">In English</string>
     <string name="xd_share_label">Send to computer or tablet</string>
     <string name="xd_share_no_computer">No computer or tablet connected. Connect one in XDesk first</string>
@@ -374,7 +374,7 @@
     <string name="xd_wireless_pair">Pair</string>
     <string name="xd_wireless_code_note">Enter the 4 digits shown on %1$s</string>
     <string name="xd_wireless_code_wrong">Wrong code. Enter the 4 digits shown on %1$s</string>
-    <string name="xd_wireless_need_injector">Connecting to a receiver needs the input service: the built-in one or Shizuku</string>
+    <string name="xd_wireless_need_injector">Connecting to a receiver needs the input service: XDesk\'s own or Shizuku</string>
     <string name="xd_wireless_injector_lost">The input service stopped several times, so the receiver connection ended</string>
     <string name="xd_wireless_lost">Lost the connection to %1$s</string>
     <string name="xd_wireless_busy">%1$s is showing another phone</string>
@@ -388,7 +388,7 @@
     <string name="xd_output_system_receiver">System default: the receiver (%1$s)</string>
     <string name="xd_output_note_follow">One setting for a cable, wireless and web display. System default follows the display: usually the monitor on a cable, the receiver or browser otherwise. An output of the phone, e.g. headphones, keeps the sound here.</string>
     <string name="xd_status_desktop_taken">Keyboard on the display: %1$s</string>
-    <string name="xd_take_over_needs_injector">Taking over needs the input service: Shizuku or the built-in one</string>
+    <string name="xd_take_over_needs_injector">Taking over needs the input service: Shizuku or XDesk\'s own</string>
     <string name="xd_density_need_injector">Needs the input service</string>
     <string name="xd_density_need_app">Only while an Android app is on the display</string>
     <string name="xd_density_range">%1$d to %2$d dpi, smaller fits more. Only Android apps follow it: X, Mac and XDesk\'s own screens follow the screen\'s Size. Display default: %3$s</string>
@@ -401,7 +401,7 @@
     <string name="xd_mouse">Mouse</string>
     <string name="xd_display_this_screen">This screen: %1$s</string>
     <string name="xd_display_this_screen_none">This screen</string>
-    <string name="xd_x11_settings_row_note">Only the Linux desktop</string>
+    <string name="xd_x11_settings_row_note">Termux and built-in Linux desktops</string>
     <!-- Settings › General › Phone interface: the console mode or the Launchpad mode -->
     <string name="xd_phone_ui">Phone interface</string>
     <string name="xd_phone_ui_console">Console</string>
@@ -453,16 +453,16 @@
     <string name="xd_cover_note_no_overlay">When you leave XDesk or lock the phone, only a clock shows. Without the overlay permission it cannot cover now</string>
     <string name="xd_diag_setting">Show diagnostics</string>
     <string name="xd_diag_setting_note">Focus and event counts</string>
-    <string name="xd_builtin">Built-in input service</string>
+    <string name="xd_builtin">XDesk\'s input service</string>
     <string name="xd_builtin_note">Mouse &amp; keyboard for Android apps when there is no Shizuku</string>
-    <string name="xd_builtin_stop">Stop built-in service</string>
+    <string name="xd_builtin_stop">Stop the input service</string>
     <string name="xd_builtin_stop_note">XDesk starts it again the next time you run an Android app</string>
-    <string name="xd_builtin_stop_title">Stop built-in service?</string>
+    <string name="xd_builtin_stop_title">Stop the input service?</string>
     <string name="xd_builtin_stop_message">Android apps running through it go back to the phone (not closed), and mouse, keyboard and sound are back to normal.</string>
     <string name="xd_pair_again">Pair again</string>
     <string name="xd_pair_again_note">If you revoked the authorisation in Developer options, or it keeps failing to connect</string>
     <string name="xd_pair_again_title">Pair again?</string>
-    <string name="xd_pair_again_message">XDesk stops the built-in service and forgets the pairing, then takes you through pairing in wireless debugging again.</string>
+    <string name="xd_pair_again_message">XDesk stops its input service and forgets the pairing, then takes you through pairing in wireless debugging again.</string>
     <string name="xd_end_desktop_row">Stop Linux desktop</string>
     <string name="xd_end_desktop_row_note">Ends the desktop of Termux, proot or chroot. XDesk stays open</string>
     <string name="xd_end_xdesk_note">Apps go back to the phone, and the display mirrors the phone again</string>
@@ -515,7 +515,7 @@
     <string name="xd_returning_to">Going back to %1$s</string>
     <string name="xd_returning_to_message">The desktop window closed; this app is still on the display.</string>
     <string name="xd_end_xdesk_title">End XDesk?</string>
-    <string name="xd_end_xdesk_message">Apps on the display go back to the phone (not closed), the display mirrors the phone again, and mouse, keyboard and sound are back to normal. The Termux desktop keeps running, just without a window.</string>
+    <string name="xd_end_xdesk_message">Apps on the display go back to the phone (not closed), the display mirrors the phone again, and mouse, keyboard and sound are back to normal. The Linux desktops (Termux\'s and the built-in one) keep running, just without a window; stop the built-in Linux on its device page.</string>
     <string name="xd_starting">Starting</string>
     <string name="xd_starting_app">Starting %1$s</string>
     <string name="xd_connecting_injector">Connecting to the input service.</string>
@@ -532,7 +532,7 @@
     <string name="xd_injector_not_running">The input service is not running.</string>
     <string name="xd_no_developer_options">Can\'t open Developer options. Look for them in the system settings.</string>
     <string name="xd_shizuku_missing_title">Shizuku needed</string>
-    <string name="xd_shizuku_missing">Forwarding mouse and keyboard to Android apps needs Shizuku (no root).\nThe Termux desktop doesn\'t need it.\n\nInstall and start Shizuku, then come back.</string>
+    <string name="xd_shizuku_missing">Forwarding mouse and keyboard to Android apps needs Shizuku (no root).\nThe Linux desktops don\'t need it.\n\nInstall and start Shizuku, then come back.</string>
     <string name="xd_shizuku_stopped_title">Shizuku is not running</string>
     <string name="xd_shizuku_stopped">Open Shizuku and start it with wireless debugging as it explains,\nthen come back. XDesk continues by itself.</string>
     <string name="xd_shizuku_old_title">Shizuku is too old</string>
@@ -548,7 +548,7 @@
     <string name="xd_waiting">Run in Termux:\n\nxdesk start\n\nor any program: xdesk run command</string>
     <string name="xd_waiting_action">Start the default environment</string>
     <string name="xd_no_termux_title">Missing component</string>
-    <string name="xd_no_termux">A Termux desktop needs Termux. Install it from F-Droid or Termux\'s GitHub page,\nthen come back and choose again.\n\nAndroid apps on the display don\'t need Termux.</string>
+    <string name="xd_no_termux">A Termux desktop needs Termux. Install it from F-Droid or Termux\'s GitHub page,\nthen come back and choose again.\n\nAndroid apps on the display and the built-in Linux don\'t need Termux.</string>
     <string name="xd_no_termux_action">Open Termux on F-Droid</string>
     <string name="xd_starting_desktop_title">Starting the desktop</string>
     <string name="xd_starting_desktop">The first start can take a little longer.</string>

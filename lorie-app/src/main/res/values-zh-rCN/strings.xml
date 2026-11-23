@@ -177,7 +177,7 @@
     <string name="xd_linux_old_x">X 服务器是旧版 XDesk 起的，请结束桌面再启动</string>
     <string name="xd_linux_not_found">这个程序已经不在了</string>
     <string name="xd_linux_window_gone">这个窗口已经关了</string>
-    <string name="xd_linux_no_window">%1$s 15 秒内没有打开窗口，日志见 $PREFIX/tmp/xdesk.log</string>
+    <string name="xd_linux_no_window">%1$s 15 秒内没有打开窗口。日志：Termux 在 $PREFIX/tmp/xdesk.log，内置 Linux 在它设备页的「日志」</string>
     <string name="xd_linux_launch_failed">%1$s 没能启动：%2$s</string>
     <!-- 启动后没起来的原因（CLI.md §5.4）：%1$s 是程序，%2$s 是说明 -->
     <string name="xd_linux_launch_not_found">%1$s 没装好：找不到 %2$s</string>
@@ -274,8 +274,8 @@
 
     <string name="xd_output_car">车机上声音经 Android Auto 从车里播放，不用选输出</string>
     <string name="xd_output_system">系统默认（不指定）</string>
-    <string name="xd_output_note_shared">所有模式共用：会话进行时 Termux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。结束 XDesk 后手机恢复正常，下次再按这里的选择。</string>
-    <string name="xd_output_note_desktop_only">注入服务没有运行：只能尽力指定 Termux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。</string>
+    <string name="xd_output_note_shared">所有模式共用：会话进行时 Linux 桌面、安卓应用和其他媒体声音都走这里，切换也不变。结束 XDesk 后手机恢复正常，下次再按这里的选择。</string>
+    <string name="xd_output_note_desktop_only">注入服务没有运行：只能尽力指定 Linux 桌面的声音，接着 HDMI 时可能不起作用，安卓应用的声音也不受影响。</string>
     <string name="xd_output_note_unverified">只是把输出指向这个设备，音质和蓝牙编码没法确认。</string>
     <string name="xd_output_title">声音从哪里播放</string>
     <string name="xd_output_missing">现在没有这个输出设备，暂时走系统默认</string>
@@ -293,8 +293,8 @@
     <string name="xd_density">安卓应用界面大小</string>
     <string name="xd_language">语言</string>
     <string name="xd_language_system">跟随系统</string>
-    <string name="xd_density_desktop">Termux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值</string>
-    <string name="xd_density_desktop_range">Termux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小；桌面本身用它自己的 DPI 设置，X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。默认 %3$d</string>
+    <string name="xd_density_desktop">Linux 桌面显示时不改，它有自己的 DPI 设置，这时外接屏用默认值</string>
+    <string name="xd_density_desktop_range">Linux 桌面显示时 %1$d 到 %2$d dpi，决定输入法选词框的大小；桌面本身用它自己的 DPI 设置，X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。默认 %3$d</string>
     <string name="xd_density_car">不适用于车机</string>
     <string name="xd_clipboard_sync">剪贴板同步</string>
     <string name="xd_clipboard_sync_note">Wi-Fi 下不加密</string>
@@ -304,9 +304,9 @@
     <string name="xd_split_readout">L %1$d · R %2$d fps</string>
     <string name="xd_split_no_injector">没有注入服务，分屏原型开不了</string>
     <string name="xd_split_start_failed">%1$s 没启动：%2$s</string>
-    <string name="xd_x11_settings">Termux:X11 设置</string>
-    <string name="xd_x11_settings_note">只影响 Linux 桌面。输入类选项改错可能打不了中文。</string>
-    <string name="xd_x11_settings_row_note">只影响 Linux 桌面</string>
+    <string name="xd_x11_settings">X11 设置</string>
+    <string name="xd_x11_settings_note">Termux 和内置 Linux 的桌面都用（来自 Termux:X11）。输入类选项改错可能打不了中文。</string>
+    <string name="xd_x11_settings_row_note">Termux 和内置 Linux 的桌面</string>
     <string name="xd_file_saved">已保存到下载：%1$s</string>
     <string name="xd_x11_clipboard">桌面和安卓互通剪贴板</string>
     <string name="xd_x11_filtering">桌面缩放</string>
@@ -317,7 +317,7 @@
     <string name="xd_x11_scancodes_note">换键盘布局时打开</string>
     <string name="xd_x11_meta">Win/Cmd 键交给桌面</string>
     <string name="xd_x11_meta_note">关了交给手机</string>
-    <string name="xd_x11_all">全部 Termux:X11 设置</string>
+    <string name="xd_x11_all">全部 X11 设置</string>
     <string name="xd_x11_all_note">英文</string>
     <string name="xd_share_label">发送到电脑或平板</string>
     <string name="xd_share_no_computer">没有连接电脑或平板，先在 XDesk 里连上</string>
@@ -353,7 +353,7 @@
     <string name="xd_wireless_pair">配对</string>
     <string name="xd_wireless_code_note">请输入 %1$s 上显示的 4 位数字</string>
     <string name="xd_wireless_code_wrong">配对码不对。请输入 %1$s 上显示的 4 位数字</string>
-    <string name="xd_wireless_need_injector">连接接收器需要注入服务：内置服务或 Shizuku</string>
+    <string name="xd_wireless_need_injector">连接接收器需要注入服务：XDesk 自带的或 Shizuku</string>
     <string name="xd_wireless_injector_lost">注入服务多次断开，接收器连接已停止</string>
     <string name="xd_wireless_lost">和 %1$s 的连接断了</string>
     <string name="xd_wireless_busy">%1$s 正在显示另一台手机</string>
@@ -368,7 +368,7 @@
     <string name="xd_output_note_follow">有线外接屏、无线显示和网页显示共用这一个设置。系统默认就是跟着屏幕：有线时一般是显示器，无线和网页时是接收端。选手机上的输出（比如耳机）声音就留在手机上。</string>
     <string name="xd_output_foot_note">系统默认跟着屏幕走。结束 XDesk 后恢复。</string>
     <string name="xd_status_desktop_taken">键盘在外接屏：%1$s</string>
-    <string name="xd_take_over_needs_injector">接管要用注入服务：Shizuku 或内置服务</string>
+    <string name="xd_take_over_needs_injector">接管要用注入服务：Shizuku 或 XDesk 自带的</string>
     <string name="xd_density_need_injector">需要注入服务</string>
     <string name="xd_density_need_app">外接屏上有安卓应用时才能改</string>
     <string name="xd_density_range">%1$d 到 %2$d dpi，越小内容越多。只对安卓应用生效；X、Mac 和 XDesk 自己的屏按屏幕的「大小」设置走。显示器默认 %3$s</string>
@@ -432,16 +432,16 @@
     <string name="xd_cover_note_no_overlay">离开 XDesk 或锁屏时只显示时钟；没有悬浮窗权限，现在遮不住</string>
     <string name="xd_diag_setting">显示诊断信息</string>
     <string name="xd_diag_setting_note">焦点和事件计数</string>
-    <string name="xd_builtin">内置注入服务</string>
+    <string name="xd_builtin">自带注入服务</string>
     <string name="xd_builtin_note">没有 Shizuku 时，安卓应用的键鼠靠它</string>
-    <string name="xd_builtin_stop">停止内置服务</string>
+    <string name="xd_builtin_stop">停止注入服务</string>
     <string name="xd_builtin_stop_note">下次运行安卓应用时再启动</string>
-    <string name="xd_builtin_stop_title">停止内置服务？</string>
+    <string name="xd_builtin_stop_title">停止注入服务？</string>
     <string name="xd_builtin_stop_message">用它运行的安卓应用回到手机（不关闭），键鼠和声音恢复正常。</string>
     <string name="xd_pair_again">重新配对</string>
     <string name="xd_pair_again_note">在开发者选项里撤销过授权，或一直连不上时用</string>
     <string name="xd_pair_again_title">重新配对？</string>
-    <string name="xd_pair_again_message">XDesk 会停止内置服务并忘掉配对，然后带你在无线调试里重新配对。</string>
+    <string name="xd_pair_again_message">XDesk 会停止自带的注入服务并忘掉配对，然后带你在无线调试里重新配对。</string>
     <string name="xd_end_desktop_row">停止 Linux 桌面</string>
     <string name="xd_end_desktop_row_note">结束 Termux、proot 或 chroot 的桌面。XDesk 不退出</string>
     <string name="xd_end_xdesk_note">应用回到手机，外接屏恢复镜像</string>
@@ -492,7 +492,7 @@
     <string name="xd_returning_to">正在回到 %1$s</string>
     <string name="xd_returning_to_message">桌面窗口关了，外接屏上还有这个应用。</string>
     <string name="xd_end_xdesk_title">结束 XDesk？</string>
-    <string name="xd_end_xdesk_message">外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Termux 桌面继续运行，只是没有窗口。</string>
+    <string name="xd_end_xdesk_message">外接屏上的应用回到手机（不关闭），外接屏恢复镜像，键鼠和声音恢复正常。Linux 桌面（Termux 的和内置的）继续运行，只是没有窗口；要停内置 Linux，在它的设备页里停。</string>
     <string name="xd_starting">正在启动</string>
     <string name="xd_starting_app">正在启动 %1$s</string>
     <string name="xd_connecting_injector">正在连接注入服务。</string>
@@ -508,7 +508,7 @@
     <string name="xd_injector_not_running">注入服务没有运行。</string>
     <string name="xd_no_developer_options">打不开开发者选项，到系统设置里找一下。</string>
     <string name="xd_shizuku_missing_title">需要 Shizuku</string>
-    <string name="xd_shizuku_missing">安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nTermux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。</string>
+    <string name="xd_shizuku_missing">安卓应用的键鼠转发要靠 Shizuku（不用 root）。\nLinux 桌面不需要它。\n\n装好并启动 Shizuku 后回到这里。</string>
     <string name="xd_shizuku_stopped_title">Shizuku 没有运行</string>
     <string name="xd_shizuku_stopped">打开 Shizuku，按里面的说明用无线调试启动它，\n然后回到这里，会自动继续。</string>
     <string name="xd_shizuku_old_title">Shizuku 版本太旧</string>
@@ -524,7 +524,7 @@
     <string name="xd_waiting">在 Termux 里运行：\n\nxdesk start\n\n也可以运行任意程序：xdesk run 命令</string>
     <string name="xd_waiting_action">一键启动默认环境</string>
     <string name="xd_no_termux_title">缺少组件</string>
-    <string name="xd_no_termux">Termux 桌面要用 Termux，从 F-Droid 或 Termux 的 GitHub 页面安装。\n装好后回到这里再选一次。\n\n外接屏上运行安卓应用不需要 Termux。</string>
+    <string name="xd_no_termux">Termux 桌面要用 Termux，从 F-Droid 或 Termux 的 GitHub 页面安装。\n装好后回到这里再选一次。\n\n外接屏上运行安卓应用、内置 Linux 都不需要 Termux。</string>
     <string name="xd_no_termux_action">打开 F-Droid 上的 Termux</string>
     <string name="xd_starting_desktop_title">正在启动桌面</string>
     <string name="xd_starting_desktop">第一次启动可能要多等一会。</string>
