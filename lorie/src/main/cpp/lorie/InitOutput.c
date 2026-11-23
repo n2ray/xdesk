@@ -113,6 +113,7 @@ typedef struct {
     uint64_t rootGpuCopyPending;
 
     Bool requestLockHeld;
+    Bool awaitRootDamage;
 } lorieScreenInfo;
 
 ScreenPtr pScreenPtr;
@@ -636,8 +637,33 @@ void ddxRequestDone(void) {
     lorieRequestLockRelease();
 }
 
+static void loriePublishRoot(void) {
+    lorie_mutex_lock(&pvfb->state->lock, &pvfb->state->lockingPid, conn_fd);
+    todGlamorPubblica(pScreenPtr->devPrivate, DamageRegion(pvfb->damage));
+    lorie_mutex_unlock(&pvfb->state->lock, &pvfb->state->lockingPid);
+    DamageEmpty(pvfb->damage);
+    pvfb->state->drawRequested = TRUE;
+}
+
 static void lorieBlockHandler(__unused void *data, __unused void *timeout) {
     ddxRequestDone();
+
+    // A redirected window's Present can run during vblank, with composition
+    // reaching the root later in the same refresh. Publish after dispatch,
+    // once the root actually has damage, while this refresh is still usable.
+    if (!pvfb->awaitRootDamage || !RegionNotEmpty(DamageRegion(pvfb->damage)))
+        return;
+    pvfb->awaitRootDamage = FALSE;
+    if (!lorieConnectionAlive(conn_fd) || !pvfb->state->surfaceAvailable ||
+        !lorieFrameAvailable(&pvfb->state->waitForNextFrame))
+        return;
+
+    LorieBuffer *rootBuffer = todGlamorRadice();
+    if (rootBuffer) {
+        loriePublishRoot();
+        pvfb->state->rootWindowTextureID = LorieBuffer_description(rootBuffer)->id;
+        pthread_cond_signal(rendererCond);
+    }
 }
 
 static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
@@ -645,6 +671,7 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
     LoriePixmapPriv* priv;
     PixmapPtr root = pScreenPtr && pScreenPtr->root ? pScreenPtr->GetWindowPixmap(pScreenPtr->root) : NULL;
 
+    pvfb->awaitRootDamage = FALSE;
     lorieRequestLockRelease();
     pvfb->current_msc++;
     loriePerformVblanks();
@@ -670,14 +697,10 @@ static Bool lorieRedraw(__unused ClientPtr pClient, __unused void *closure) {
         LorieBuffer *rootBuffer = todGlamorRadice();
         if (!rootBuffer)
             return TRUE;
-        if (nonEmpty) {
-            // con il lucchetto dell'app: mentre copiamo nella vetrina l'app non la legge
-            lorie_mutex_lock(&pvfb->state->lock, &pvfb->state->lockingPid, conn_fd);
-            todGlamorPubblica(pScreenPtr->devPrivate, DamageRegion(pvfb->damage));
-            lorie_mutex_unlock(&pvfb->state->lock, &pvfb->state->lockingPid);
-            DamageEmpty(pvfb->damage);
-            pvfb->state->drawRequested = TRUE;
-        }
+        if (nonEmpty)
+            loriePublishRoot();
+        else
+            pvfb->awaitRootDamage = TRUE;
         if (pvfb->state->drawRequested || pvfb->state->cursor.moved || pvfb->state->cursor.updated) {
             pvfb->state->rootWindowTextureID = LorieBuffer_description(rootBuffer)->id;
             pthread_cond_signal(rendererCond);
@@ -892,6 +915,7 @@ static Bool lorieCreateScreenResources(ScreenPtr pScreen) {
 static Bool lorieCloseScreen(ScreenPtr pScreen) {
     struct vblank *vblank, *tmp;
 
+    pvfb->awaitRootDamage = FALSE;
     pScreenPtr = NULL;
     // The pending vblanks belong to this generation: without clearing them the count that keeps
     // the vsync chain alive would never come back to zero.
@@ -956,6 +980,7 @@ static Bool lorieRRScreenSetSize(ScreenPtr pScreen, CARD16 width, CARD16 height,
     PixmapPtr oldPixmap, newPixmap;
     BoxRec box = { 0, 0, width, height };
 
+    pvfb->awaitRootDamage = FALSE;
     // Drain all pending vblanks.
     loriePerformVblanks();
 
