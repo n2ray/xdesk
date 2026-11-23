@@ -5545,6 +5545,8 @@ public class XDeskActivity extends Activity {
     /** What had the input when the Mac password card took it (MacLogin), and whether the soft keyboard was opened for it. */
     private InputSink beforeLogin;
     private boolean loginOpenedKeys;
+    /** The card moved the keys and mouse from the phone to XDesk (loginTaken): they go back when it closes. */
+    private boolean loginTookKeys;
 
     private final MacLogin.Host loginHost = new MacLogin.Host() {
         @Override public void loginTaken() {
@@ -5553,6 +5555,13 @@ public class XDeskActivity extends Activity {
             if (c != MacLogin.INPUT) beforeLogin = c;
             releaseLatches();
             client = MacLogin.INPUT;
+            // Keys and mouse on the phone over an Android app (键鼠在本机) reach that app, never XDesk: the card could not
+            // be typed into (owner, 23 November). They come to XDesk while the card is up, and go back after
+            loginTookKeys = !ownership.forwarded();
+            if (loginTookKeys) {
+                ownership.set(true);
+                applyKeysButton();
+            }
             // The phone's connection is a password field now (rawKeys): nothing is learnt or suggested
             syncKeyMode();
             // No keyboard on the phone: its soft keyboard comes up by itself, a password one
@@ -5570,6 +5579,12 @@ public class XDeskActivity extends Activity {
         @Override public void loginReleased() {
             if (client == MacLogin.INPUT) client = beforeLogin;
             beforeLogin = null;
+            // Back on the phone only over the Android app it was taken from: a Mac that connected wants them
+            if (loginTookKeys && apps.isActive() && contentKey == null) {
+                ownership.set(false);
+                applyKeysButton();
+            }
+            loginTookKeys = false;
             // Leaving the password field forgets what the connection held
             syncKeyMode();
             if (loginOpenedKeys && keyView != null) {
