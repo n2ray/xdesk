@@ -1,9 +1,0 @@
-run,seconds,page_fps,present_count,present_fps,video_total,video_dropped,chrome_cpu_pct,x_cpu_pct,bridge_cpu_pct
-default-vp9,15.15,9.53,147,9.61,903,758,140.49,12.01,16.17
-first-upload-only-stale-vp9,15.03,45.99,727,49.18,902,256,150.4,38.27,12.11
-texture-refresh-vp9,15.1,40.55,679,44.56,902,336,150.77,33.06,11.59
-texture-refresh-h264,15.03,39.78,655,42.94,898,321,153.39,33.41,11.85
-texture-refresh-local-loader-vp9-90s,90.17,39.72,3863,42.9,5378,1949,150.0,32.24,11.77
-texture-refresh-release-loader-vp9-90s,90.05,45.42,1,,5377,1411,181.79,1.68,13.5
-scope-local,15.06,41.19,661,44.2,899,322,156.28,32.74,11.69
-scope-global,15.09,46.52,0,,902,234,186.17,1.66,13.12
