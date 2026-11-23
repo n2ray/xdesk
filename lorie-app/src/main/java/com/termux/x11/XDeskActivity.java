@@ -4872,7 +4872,16 @@ public class XDeskActivity extends Activity {
 
     /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
     private void syncKeyMode() {
-        if (keyView != null) keyView.bridge().setRaw(rawKeys());
+        if (keyView == null) return;
+        boolean was = keyView.bridge().raw(), raw = rawKeys();
+        keyView.bridge().setRaw(raw);
+        // Raw keys ending (a Linux desktop stopped, a Mac went) restarts the connection, and fcitx5 then brought its
+        // soft keyboard up on the phone with nobody asking (owner, 23 November): not asked for, it goes again
+        if (was && !raw && !softKeysAsked && !keyboardOpen) {
+            ui.postDelayed(() -> {
+                if (!softKeysAsked && keyView != null) ime.hideSoftInputFromWindow(keyView.getWindowToken(), 0);
+            }, 150);
+        }
     }
 
     /** Devices changed: the X side's input method came or went, or a Linux device's keyboard switch was flipped. */
