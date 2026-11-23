@@ -11,9 +11,9 @@ out=$(cd "$out" && pwd)
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/lib/arm64-v8a"
-cc=("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/aarch64-linux-android36-clang)
+cc=("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/clang)
 bt="$ANDROID_HOME/build-tools/${BUILD_TOOLS_VERSION:-35.0.0}"
-"${cc[0]}" -O2 -std=c11 -shared -fPIC "$src/display.c" -Wl,-z,max-page-size=16384 -landroid -llog -ldl -o "$stage/lib/arm64-v8a/libcubeprobe.so"
+"${cc[0]}" --target=aarch64-linux-android31 -O2 -std=c11 -shared -fPIC "$src/display.c" -Wl,-z,max-page-size=16384 -landroid -llog -ldl -o "$stage/lib/arm64-v8a/libcubeprobe.so"
 "$bt/aapt2" link --manifest "$src/AndroidManifest.xml" --version-code "$version" --replace-version -I "$ANDROID_HOME/platforms/android-35/android.jar" -o "$stage/unsigned.apk"
 (cd "$stage" && zip -0q unsigned.apk lib/arm64-v8a/libcubeprobe.so)
 "$bt/zipalign" -f -P 16 4 "$stage/unsigned.apk" "$out/xdesk-glx-unsigned.apk"
