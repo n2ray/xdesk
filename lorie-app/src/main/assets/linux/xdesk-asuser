@@ -1,0 +1,27 @@
+#!/usr/bin/perl
+# XDesk's built-in Linux: xdesk-asuser USER COMMAND... runs COMMAND as USER (the app writes this file into the system at
+# every start). The desktop runs as the user xdesk, not root (owner, 23 November: root got warnings everywhere).
+#
+# Burrow, not the kernel, keeps the ids: real and effective become the user's, the saved ones stay root's. So files
+# still show as root's (Burrow shows the real owner's files as the saved id's), and sudo comes back to root through
+# the saved id (/usr/local/bin/sudo). A real setuid sudo cannot work: Android starts apps with "no new privileges".
+# The raw syscalls (aarch64: setgroups 159, setresgid 149, setresuid 147) because setpriv sets the saved ids too.
+use strict;
+my $name = shift @ARGV or die "usage: xdesk-asuser USER COMMAND...\n";
+@ARGV or die "usage: xdesk-asuser USER COMMAND...\n";
+my @pw = getpwnam($name) or die "xdesk-asuser: no user $name\n";
+my ($uid, $gid, $home, $shell) = ($pw[2] + 0, $pw[3] + 0, $pw[7], $pw[8]);
+my @groups = ($gid);
+setgrent();
+while (my @g = getgrent()) {
+    push @groups, $g[2] + 0 if $g[2] != $gid && grep { $_ eq $name } split / /, $g[3];
+}
+endgrent();
+my $list = pack("L*", @groups);
+syscall(159, scalar(@groups), $list) == 0 or die "xdesk-asuser: setgroups: $!\n";
+syscall(149, $gid, $gid, 0) == 0 or die "xdesk-asuser: setresgid: $!\n";
+syscall(147, $uid, $uid, 0) == 0 or die "xdesk-asuser: setresuid: $!\n";
+$ENV{HOME} = $home;
+$ENV{USER} = $ENV{LOGNAME} = $name;
+$ENV{SHELL} = $shell if $shell;
+exec { $ARGV[0] } @ARGV or die "xdesk-asuser: $ARGV[0]: $!\n";

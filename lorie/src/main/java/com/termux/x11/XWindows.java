@@ -40,7 +40,7 @@ final class XWindows {
      */
     private static final String BUILTIN_ROOT = System.getenv("XDESK_BUILTIN_ROOT");
     private static final BuiltinApps builtin = BUILTIN_ROOT != null && !BUILTIN_ROOT.isEmpty()
-        ? new BuiltinApps(new File(BUILTIN_ROOT), new File(env("XDESK_BUILTIN_HOME", BUILTIN_ROOT + "/root"))) : null;
+        ? new BuiltinApps(new File(BUILTIN_ROOT), new File(env("XDESK_BUILTIN_HOME", BUILTIN_ROOT + "/home/xdesk"))) : null;
 
     private static IXWindowListener listener;
     private static IBinder.DeathRecipient death;

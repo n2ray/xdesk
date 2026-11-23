@@ -41,7 +41,7 @@ import java.util.zip.GZIPInputStream;
  * container runtime) in the app's own files, without Termux. The app starts its own X server (CmdEntryPoint through
  * app_process, as the xdesk command does in Termux) with its socket in the container's /tmp, then the session.
  *
- * Layout under files/linux: rootfs (the system, replaced by a reset), home (the container's /root, kept by a reset
+ * Layout under files/linux: rootfs (the system, replaced by a reset), home (the user xdesk's /home/xdesk, kept by a reset
  * unless everything is removed), cache (the downloaded image, so a reset needs no network), *.log.
  */
 final class BuiltinLinux {
@@ -214,8 +214,9 @@ final class BuiltinLinux {
         if (!tmp.renameTo(rootfs)) throw new IOException("rename " + tmp);
         if (!home.isDirectory()) {
             home.mkdirs();
-            // The container's own /root (.bashrc, .profile) is where a new home starts from
-            run(null, "/system/bin/cp", "-a", new File(rootfs, "root").getPath() + "/.", home.getPath());
+            // The system's /etc/skel (.bashrc, .profile) is where the user xdesk's new home starts from
+            File skel = new File(rootfs, "etc/skel");
+            run(null, "/system/bin/cp", "-a", (skel.isDirectory() ? skel : new File(rootfs, "root")).getPath() + "/.", home.getPath());
         }
         new FileOutputStream(new File(rootfs, ".xdesk-ok")).close();
         return true;
@@ -440,6 +441,9 @@ final class BuiltinLinux {
         startVideoHelper(tmp);
         set(State.STARTING, c.getString(R.string.xd_bl_starting_desktop));
         writeAsset("xdesk-session");
+        // The desktop runs as xdesk; sudo goes back to root (both say how)
+        writeAsset("xdesk-asuser");
+        writeAsset("sudo");
         ProcessBuilder s = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-session", "XDESK_APPS_ONLY=" + (appsOnly ? 1 : 0)));
         s.environment().remove("LD_PRELOAD");
         s.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "session.log")));
@@ -484,7 +488,9 @@ final class BuiltinLinux {
         cmd.add("-b"); cmd.add(shm().getPath() + ":/dev/shm");
         cmd.add("-b"); cmd.add("/proc");
         cmd.add("-b"); cmd.add("/sys");
-        cmd.add("-b"); cmd.add(home.getPath() + ":/root");
+        // The home XDesk keeps (a reset leaves it) is the user xdesk's; root's own /root is the system's
+        new File(rootfs, "home/xdesk").mkdirs();  // the binding's place, in a system from before too
+        cmd.add("-b"); cmd.add(home.getPath() + ":/home/xdesk");
         cmd.add("-w"); cmd.add("/root");
         cmd.add("--");
         cmd.add("/usr/bin/env"); cmd.add("-i");

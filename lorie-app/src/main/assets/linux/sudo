@@ -1,0 +1,56 @@
+#!/usr/bin/perl
+# XDesk's built-in Linux: sudo for the user xdesk (the app writes this file into the system at every start, and the
+# image makes it the "sudo" alternative). The real one cannot run here: Android starts apps with "no new privileges",
+# so no setuid program gains anything. This one goes back to root through the saved id xdesk-asuser leaves (Burrow
+# keeps the ids), asks no password (the system has one user, on the user's own phone, and every file is theirs to the
+# kernel anyway), and takes the usual options: -u USER, -i, -s, -E, -H, -n, -k, -v, -l, -b, --.
+use strict;
+my ($user, $login, $shell, $keepenv, $background) = ("root", 0, 0, 0, 0);
+while (@ARGV && $ARGV[0] =~ /^-/) {
+    my $o = shift @ARGV;
+    last if $o eq "--";
+    if ($o eq "-u" || $o eq "--user") { $user = shift @ARGV // die "sudo: -u needs a user\n"; next; }
+    if ($o =~ /^--user=(.+)/) { $user = $1; next; }
+    if ($o =~ /^-u(.+)/) { $user = $1; next; }
+    if ($o eq "-g" || $o eq "-p" || $o eq "-C" || $o eq "-r" || $o eq "-t") { shift @ARGV; next; }
+    if ($o eq "-V" || $o eq "--version") { print "sudo (XDesk's, for the built-in Linux)\n"; exit 0; }
+    if ($o eq "-l" || $o eq "--list") { print "User $ENV{USER} may run the following commands:\n    (ALL : ALL) NOPASSWD: ALL\n"; exit 0; }
+    for my $f (split //, substr($o, 1)) {
+        if ($f eq "i") { $login = 1 }
+        elsif ($f eq "s") { $shell = 1 }
+        elsif ($f eq "E") { $keepenv = 1 }
+        elsif ($f eq "b") { $background = 1 }
+        elsif ($f eq "v" || $f eq "k" || $f eq "K") { exit 0 unless @ARGV || length($o) > 2 }
+        # -n, -H, -S, -A, -P: nothing to ask, HOME is set anyway
+    }
+}
+my @me = ($ENV{USER} // "", $<, $( + 0);
+# Back to root first (the saved ids), groups too
+syscall(147, 0, 0, 0) == 0 or die "sudo: cannot become root here: $!\n";
+syscall(149, 0, 0, 0) == 0 or die "sudo: setresgid: $!\n";
+my $root_groups = pack("L", 0);
+syscall(159, 1, $root_groups) == 0 or die "sudo: setgroups: $!\n";
+my @pw = getpwnam($user) or die "sudo: unknown user $user\n";
+unless ($keepenv) {
+    my %keep = map { $_ => $ENV{$_} } grep { exists $ENV{$_} }
+        qw(DISPLAY XAUTHORITY TERM COLORTERM LANG LANGUAGE LC_ALL LC_MESSAGES PATH XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS);
+    %ENV = %keep;
+}
+$ENV{PATH} //= "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+$ENV{HOME} = $pw[7];
+$ENV{USER} = $ENV{LOGNAME} = $user;
+$ENV{SHELL} = $pw[8] if $pw[8];
+@ENV{qw(SUDO_USER SUDO_UID SUDO_GID)} = @me;
+my @cmd = @ARGV;
+my $sh = $pw[8] || "/bin/sh";
+if (!@cmd) {
+    die "usage: sudo [-u user] [-i | -s] [command]\n" unless $login || $shell;
+    @cmd = $login ? ($sh, "-l") : ($sh);
+    chdir $pw[7] if $login;
+} elsif ($login || $shell) {
+    chdir $pw[7] if $login;
+    @cmd = ($sh, ($login ? "-l" : ()), "-c", join(" ", map { my $a = $_; $a =~ s/'/'\\''/g; "'$a'" } @cmd));
+}
+if ($background) { exit 0 if fork(); }
+unshift @cmd, "/usr/local/bin/xdesk-asuser", $user if $pw[2] != 0;
+exec { $cmd[0] } @cmd or die "sudo: $cmd[0]: $!\n";

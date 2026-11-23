@@ -35,7 +35,7 @@ case "$1" in
         [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
     fi
     if [ -n "$sid" ]; then export DESKTOP_STARTUP_ID="$sid"; else unset DESKTOP_STARTUP_ID; fi
-    cd "${dir:-/root}" 2>/dev/null || cd /root
+    cd "${dir:-$HOME}" 2>/dev/null || cd "$HOME"
     if [ "$term" = 1 ]; then
         set -- xfce4-terminal -x sh -c "exec $cmd"
     else

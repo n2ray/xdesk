@@ -51,7 +51,7 @@ echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.
 apt-get update
 apt-get install -y --no-install-recommends \
     xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar \
-    tango-icon-theme adwaita-icon-theme librsvg2-common dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
+    tango-icon-theme adwaita-icon-theme papirus-icon-theme librsvg2-common dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
     pulseaudio pulseaudio-utils pavucontrol \
     locales fonts-noto-cjk fonts-dejavu-core \
     mesa-utils mesa-vulkan-drivers libgl1-mesa-dri vulkan-tools \
@@ -112,6 +112,22 @@ rm -f /etc/xdg/autostart/xfce4-power-manager.desktop /etc/xdg/autostart/light-lo
       /etc/xdg/autostart/xscreensaver.desktop /etc/xdg/autostart/blueman.desktop 2>/dev/null || true
 
 install -m 755 /src/lorie-app/src/main/assets/linux/xdesk-session /usr/local/bin/xdesk-session
+
+# The desktop's user: xdesk (1000, the image's own "ubuntu" renamed), with sudo; the desktop runs as it, not root
+# (xdesk-asuser). The real sudo cannot run under Android's "no new privileges": XDesk's own is the "sudo"
+# alternative (so /usr/bin/sudo is it too), and the packaged one stays installed beside it.
+if getent passwd ubuntu >/dev/null; then
+    usermod -l xdesk -d /home/xdesk -m -c XDesk ubuntu
+    groupmod -n xdesk ubuntu
+else
+    useradd -u 1000 -U -m -d /home/xdesk -s /bin/bash -c XDesk xdesk
+fi
+usermod -aG sudo,audio,video xdesk
+install -m 755 /src/lorie-app/src/main/assets/linux/xdesk-asuser /usr/local/bin/xdesk-asuser
+install -m 755 /src/lorie-app/src/main/assets/linux/sudo /usr/local/bin/sudo
+update-alternatives --install /usr/bin/sudo sudo /usr/local/bin/sudo 1000 || true
+# Files show as root's to the user (Burrow keeps root as the saved id): git would take every repository for another's
+git config --system safe.directory '*' 2>/dev/null || printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig
 mkdir -p /etc/xdesk
 echo "ubuntu-26.04-r2 $(date -u +%Y-%m-%d)" > /etc/xdesk/image
 

@@ -2,6 +2,10 @@
 # XDesk's built-in Linux: the whole desktop over the "apps only" session (the app writes this file into the system
 # when it is needed). Only xfwm4 and xfsettingsd run there; the panel and the desktop come in beside them, on the same
 # D-Bus session, so the programs already open stay.
+# The app starts this as root: the panel and the desktop are the user xdesk's, as the rest of the session
+if [ "$(id -u)" = 0 ] && getent passwd xdesk >/dev/null 2>&1; then
+    exec /usr/local/bin/xdesk-asuser xdesk /bin/sh "$0" "$@"
+fi
 [ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
 p=$(pgrep -o -x xfwm4 2>/dev/null)
 if [ -n "$p" ]; then

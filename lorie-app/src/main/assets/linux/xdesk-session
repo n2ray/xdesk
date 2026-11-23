@@ -7,38 +7,38 @@ if [ -r /etc/default/locale ]; then
     . /etc/default/locale
     export LANG LANGUAGE LC_ALL LC_MESSAGES 2>/dev/null
 fi
-export XDG_RUNTIME_DIR=/tmp/runtime-root
-mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+# The desktop's user (owner, 23 November): xdesk, with sudo, not root. A system from before has the image's own
+# "ubuntu" (1000) instead: it becomes xdesk; XDesk keeps the home itself (bound at /home/xdesk)
+if [ "$1" != --user ]; then
+    if ! getent passwd xdesk >/dev/null 2>&1; then
+        if [ "$(getent passwd 1000 | cut -d: -f1)" = ubuntu ]; then
+            usermod -l xdesk -d /home/xdesk -c XDesk ubuntu 2>/dev/null && groupmod -n xdesk ubuntu 2>/dev/null
+        else
+            useradd -u 1000 -U -d /home/xdesk -s /bin/bash -c XDesk xdesk 2>/dev/null
+        fi
+    fi
+    for g in sudo audio video; do getent group $g >/dev/null 2>&1 && usermod -aG $g xdesk 2>/dev/null; done
+    # Files show as root's to the user (xdesk-asuser says why): git would call every repository "dubious"
+    # Sound for every shell too (a terminal has it from the desktop, an SSH login does not): xdesk-session says why
+    echo 'export PULSE_SERVER=unix:/tmp/xdesk-pulse' > /etc/profile.d/xdesk-pulse.sh 2>/dev/null
+    git config --system --get safe.directory >/dev/null 2>&1 || git config --system safe.directory '*' 2>/dev/null
+fi
+export XDG_RUNTIME_DIR=/tmp/runtime-xdesk
 export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
 export NO_AT_BRIDGE=1
 # D-Bus needs a machine id; the image has none of its own
+# The system files below are written once, as root; the --user pass has their environment already (exec keeps it)
+if [ "$1" != --user ]; then
 [ -s /etc/machine-id ] || dbus-uuidgen > /etc/machine-id 2>/dev/null
 mkdir -p /var/lib/dbus && [ -s /var/lib/dbus/machine-id ] || cp /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null
-
-if command -v pulseaudio >/dev/null 2>&1; then
-    # --kill only asks: a daemon still going away makes the new one fail ("Daemon startup failed", no sound at all)
-    pulseaudio --kill >/dev/null 2>&1
-    i=0
-    while [ $i -lt 30 ] && pulseaudio --check 2>/dev/null; do sleep 0.1; i=$((i+1)); done
-    rm -f /tmp/xdesk-audio
-    for try in 1 2 3; do
-        pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
-            -L module-native-protocol-unix \
-            -L "module-null-sink sink_name=xdesk rate=48000 channels=2" \
-            -L "module-simple-protocol-unix socket=/tmp/xdesk-audio source=xdesk.monitor record=true playback=false format=s16le rate=48000 channels=2" \
-            -L module-always-sink >/tmp/pulseaudio.log 2>&1 && break
-        sleep 1
-    done
-    pactl set-default-sink xdesk >/dev/null 2>&1
 fi
+
 
 # xfwm4's compositor syncs to the vblank with GLX by default ("auto"): through Zink on XDesk's X that leaves the
 # whole screen black but for the cursor. Off, as on the Termux desktop. xfwm4 writes all its settings into the
 # user's xfconf file on its first start, so "auto" there is the old default, not a choice: it goes too (another
 # value the user picked stays).
-sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults 2>/dev/null
-sed -i 's|<property name="vblank_mode" type="string" value="auto"/>|<property name="vblank_mode" type="string" value="off"/>|' \
-    "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" 2>/dev/null
+[ "$1" = --user ] || sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults 2>/dev/null
 if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
     # Adreno: OpenGL through Zink on Turnip (faster than freedreno on X11 in our tests)
     export MESA_LOADER_DRIVER_OVERRIDE=zink ZINK_DESCRIPTORS=lazy vblank_mode=0
@@ -51,6 +51,7 @@ export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_S
 # Chromium (apt install chromium), read by Debian's launcher: no sandbox (no namespaces either). On the GPU, ANGLE
 # on GL (Zink): with Vulkan compositing WebGL and the compositor share no memory and every frame stalls on
 # ReadPixels; sysmem keeps Turnip's tiles from flickering when SurfaceFlinger composes the screen on the GPU.
+if [ "$1" != --user ]; then
 mkdir -p /etc/chromium.d
 if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
     cat >/etc/chromium.d/xdesk <<'EOF'
@@ -99,6 +100,39 @@ EOF
 else
     sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
 fi
+fi
+
+# From here on as xdesk: the sound server, the launcher's server, the desktop. The environment so far goes with it
+if [ "$1" != --user ] && getent passwd xdesk >/dev/null 2>&1; then
+    mkdir -p "$XDG_RUNTIME_DIR" && chown xdesk:xdesk "$XDG_RUNTIME_DIR" 2>/dev/null; chmod 700 "$XDG_RUNTIME_DIR"
+    exec /usr/local/bin/xdesk-asuser xdesk /bin/sh "$0" --user
+fi
+mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+cd "$HOME" 2>/dev/null
+
+# Its socket at a fixed place, for every client through PULSE_SERVER: the runtime directory shows as root's (as every
+# file, xdesk-asuser), and PulseAudio refuses a runtime directory that is not its user's
+export PULSE_SERVER=unix:/tmp/xdesk-pulse
+if command -v pulseaudio >/dev/null 2>&1; then
+    # One still going away makes the new one fail ("Daemon startup failed", no sound at all); --kill and --check go
+    # through that runtime directory too, so by name
+    pkill -x pulseaudio 2>/dev/null
+    i=0
+    while [ $i -lt 30 ] && pgrep -x pulseaudio >/dev/null 2>&1; do sleep 0.1; i=$((i+1)); done
+    rm -f /tmp/xdesk-audio /tmp/xdesk-pulse
+    for try in 1 2 3; do
+        pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
+            -L "module-native-protocol-unix socket=/tmp/xdesk-pulse auth-anonymous=1" \
+            -L "module-null-sink sink_name=xdesk rate=48000 channels=2" \
+            -L "module-simple-protocol-unix socket=/tmp/xdesk-audio source=xdesk.monitor record=true playback=false format=s16le rate=48000 channels=2" \
+            -L module-always-sink >/tmp/pulseaudio.log 2>&1 && break
+        sleep 1
+    done
+    pactl set-default-sink xdesk >/dev/null 2>&1
+fi
+
+sed -i 's|<property name="vblank_mode" type="string" value="auto"/>|<property name="vblank_mode" type="string" value="off"/>|' \
+    "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" 2>/dev/null
 
 # What XDesk's launcher gives the programs it opens (xdesk-launch): the same environment as the desktop's
 # (before the wait for the screen below: a program may be asked for as soon as X is there)
