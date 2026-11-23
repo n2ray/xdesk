@@ -11,16 +11,23 @@ KEY=/usr/share/keyrings/xdesk-archive.asc
 REPO_URL=https://n2ray.github.io/xdesk-apt
 export DEBIAN_FRONTEND=noninteractive
 
+# The repository and its key as this app has them, at every start: a system from before xdesk-core has neither, and
+# the key the app carries is the one to trust (a new key, should the old one be lost or leak, comes with a new app;
+# xdesk-core's next version carries it too). Only what differs is written.
+if ! grep -q '^-----BEGIN PGP PUBLIC KEY BLOCK-----$' "$0"; then echo "xdesk-update: no repository key in this app"; exit 3; fi
+sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/,/^-----END PGP PUBLIC KEY BLOCK-----$/p' "$0" > /tmp/xdesk-archive.asc
+if ! cmp -s /tmp/xdesk-archive.asc "$KEY"; then
+    echo "xdesk-update: repository key ${KEY} replaced by the app's"
+    mkdir -p "$(dirname "$KEY")" && cp /tmp/xdesk-archive.asc "$KEY" && chmod 644 "$KEY"
+fi
+rm -f /tmp/xdesk-archive.asc
+printf 'Types: deb\nURIs: %s\nSuites: resolute\nComponents: main\nSigned-By: %s\n' "$REPO_URL" "$KEY" > /tmp/xdesk.sources
+cmp -s /tmp/xdesk.sources "$SRC" || cp /tmp/xdesk.sources "$SRC"
+rm -f /tmp/xdesk.sources
+
 have=$(dpkg-query -W -f='${Version}' xdesk-core 2>/dev/null)
 [ -n "$have" ] && dpkg --compare-versions "$have" ge "$NEED" && exit 0
 echo "xdesk-update: xdesk-core ${have:-not installed}, this app needs $NEED"
-
-# A system from before xdesk-core has no XDesk repository yet: the app brings its key (below, once there is one)
-if [ ! -f "$SRC" ]; then
-    if ! grep -q '^-----BEGIN PGP PUBLIC KEY BLOCK-----$' "$0"; then echo "xdesk-update: no repository key in this app"; exit 3; fi
-    sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/,/^-----END PGP PUBLIC KEY BLOCK-----$/p' "$0" > "$KEY"
-    printf 'Types: deb\nURIs: %s\nSuites: resolute\nComponents: main\nSigned-By: %s\n' "$REPO_URL" "$KEY" > "$SRC"
-fi
 
 : > /tmp/xdesk-updating    # the app shows "updating the system" while this is there
 trap 'rm -f /tmp/xdesk-updating' EXIT
