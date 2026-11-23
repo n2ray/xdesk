@@ -574,6 +574,11 @@ final class BuiltinLinux {
      * says so. Whatever happens the desktop starts (a system without the package runs as before).
      */
     private void updateSystem() throws IOException, InterruptedException {
+        updateSystem(true);
+    }
+
+    /** @param shows whether the state says it is updating (a desktop's start); SSH alone changes no state */
+    private void updateSystem(boolean shows) throws IOException, InterruptedException {
         writeAsset("xdesk-update");
         File marker = new File(rootfs, "tmp/xdesk-updating");
         marker.delete();
@@ -584,7 +589,7 @@ final class BuiltinLinux {
         long deadline = System.currentTimeMillis() + UPDATE_WAIT_MS;
         boolean shown = false;
         while (!p.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            if (!shown && marker.exists()) {
+            if (shows && !shown && marker.exists()) {
                 shown = true;
                 set(State.STARTING, c.getString(R.string.xd_bl_updating));
             }
@@ -754,6 +759,13 @@ final class BuiltinLinux {
                     Log.w(TAG, "no foreground service", e);
                 }
                 writeResolvConf();
+                // Without a desktop (no screen, SSH alone) the system is kept current all the same: xdesk-core at the
+                // version this app needs (quick when it is; after a desktop start it already is)
+                try {
+                    updateSystem(false);
+                } catch (IOException | InterruptedException e) {
+                    Log.w(TAG, "update before SSH", e);
+                }
                 writeSshKeys();
                 writeAsset("xdesk-sshd");
                 ProcessBuilder b = new ProcessBuilder(containerCmd("/usr/local/bin/xdesk-sshd",
