@@ -5,7 +5,7 @@
 # Only xdesk-core, from XDesk's repository alone, so a check costs a dpkg query and an update a small download; the
 # rest of the system (Ubuntu, Mesa) is the user's apt upgrade. A newer app may need a newer xdesk-core, never the
 # other way: xdesk-core does not know the app's version.
-NEED=1    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
+NEED=2    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
 SRC=/etc/apt/sources.list.d/xdesk.sources
 KEY=/usr/share/keyrings/xdesk-archive.asc
 REPO_URL=https://n2ray.github.io/xdesk-apt
@@ -32,3 +32,13 @@ apt-get update && apt-get install -y $opts xdesk-core
 exit $?
 
 # XDesk's repository key (linux/apt/xdesk-archive.asc) goes below this line when there is one
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEawPtgxYJKwYBBAHaRw8BAQdAtQQjq6gmbWT7Pyvo/YDL8+JXNB0pQWO2IwtL
+yVV153K0NVhEZXNrIGFwdCByZXBvc2l0b3J5IDxuMnJheUB1c2Vycy5ub3JlcGx5
+LmdpdGh1Yi5jb20+iK8EExYKAFcWIQTJfEMDVR5RSZyyjuZT+YViAQvmSgUCawPt
+gxsUgAAAAAAEAA5tYW51MiwyLjUrMS4xMiwzLDICGwMFCwkIBwICIgIGFQoJCAsC
+BBYCAwECHgcCF4AACgkQU/mFYgEL5kpo+QEAth2/BcNeRUCLJ9LRWFlPRkitSsbO
+pFe8ZKzTpz8yIHgBALKw0HL2487RH0IpVZ44M6+7fuiFJcazHkhMDD+2X0MN
+=1O/2
+-----END PGP PUBLIC KEY BLOCK-----
