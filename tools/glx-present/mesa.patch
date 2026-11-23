@@ -1,0 +1,176 @@
+diff --git a/src/gallium/frontends/dri/kopper.c b/src/gallium/frontends/dri/kopper.c
+index ca8fd152..f6f99407 100644
+--- a/src/gallium/frontends/dri/kopper.c
++++ b/src/gallium/frontends/dri/kopper.c
+@@ -164,6 +164,8 @@ kopper_get_pixmap_buffer(struct dri_drawable *drawable,
+ }
+ #endif //VK_USE_PLATFORM_XCB_KHR
+
++#include "xdesk_probe.inc"
++
+ void
+ kopper_allocate_textures(struct dri_context *ctx,
+                          struct dri_drawable *drawable,
+@@ -186,6 +188,8 @@ kopper_allocate_textures(struct dri_context *ctx,
+     */
+    _mesa_glthread_finish(ctx->st->ctx);
+
++   if (probe_enabled(drawable)) { probe_allocate(drawable, statts, statts_count); return; }
++
+    /* First get the buffers from the loader */
+    if (image) {
+       if (!dri_image_drawable_get_buffers(drawable, &images,
+@@ -378,6 +382,7 @@ kopper_update_drawable_info(struct dri_drawable *drawable)
+                                 drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
+                                 drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
+
++   if (probe_enabled(drawable)) { if (probe.owner==drawable) {drawable->w=probe.width;drawable->h=probe.height;} else get_drawable_info(drawable,&drawable->w,&drawable->h); return; }
+    bool do_kopper_update = is_window && ptex && screen->fd == -1;
+ #ifdef VK_USE_PLATFORM_XCB_KHR
+    if (do_kopper_update && drawable->configure_event) {
+@@ -536,6 +541,7 @@ kopperSwapBuffers(struct dri_drawable *drawable, uint32_t flush_flags, int nrect
+    ptex = drawable->textures[ST_ATTACHMENT_BACK_LEFT];
+    if (!ptex)
+       return 0;
++   if (probe_enabled(drawable)) {probe_swap(ctx,drawable);return 0;}
+
+ #ifdef VK_USE_PLATFORM_XCB_KHR
+    /* Keep one server-ordered geometry observation per presented frame.
+@@ -591,6 +597,7 @@ kopperSetSwapInterval(struct dri_drawable *drawable, int interval)
+                                 drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
+                                 drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
+
++   if(probe_enabled(drawable))return;
+    drawable->info.initial_swap_interval = interval;
+    /* can't set swap interval on non-windows */
+    if (!drawable->window_valid)
+diff --git a/src/gallium/frontends/dri/xdesk_probe.inc b/src/gallium/frontends/dri/xdesk_probe.inc
+new file mode 100644
+index 00000000..229504ac
+--- /dev/null
++++ b/src/gallium/frontends/dri/xdesk_probe.inc
+@@ -0,0 +1,124 @@
++/* Diagnostic for a single GLX window in a disposable process. No production
++ * configuration enables this path. The test parent passes a connected fd. */
++#include <sys/socket.h>
++#include <unistd.h>
++#include "frontend/winsys_handle.h"
++#include "state_tracker/st_manager.h"
++#include "pipe/p_screen.h"
++
++static struct {
++   struct dri_drawable *owner;
++   struct pipe_resource *slots[3];
++   int fd, width, height, slot, copy, swaps;
++} probe;
++
++#define PROBE_REQUIRE(c) do { if (!(c)) { fprintf(stderr,"KOPPER_FAIL %d: %s\n",__LINE__,#c); _exit(86); } } while(0)
++
++static bool probe_enabled(struct dri_drawable *d) {
++   return d->is_window && d->info.bos.sType == VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR &&
++          getenv("XDESK_DIAG_PRESENT_FD");
++}
++static int probe_fd_msg(void *data, size_t len, int fd, bool input) {
++   struct iovec io = {data,len};
++   union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
++   struct msghdr msg = {.msg_iov=&io,.msg_iovlen=1};
++   if (input || fd>=0) {msg.msg_control=control.bytes;msg.msg_controllen=sizeof(control.bytes);}
++   if (!input) {
++      if (fd>=0) {struct cmsghdr *c=CMSG_FIRSTHDR(&msg);c->cmsg_level=SOL_SOCKET;c->cmsg_type=SCM_RIGHTS;c->cmsg_len=CMSG_LEN(sizeof(fd));memcpy(CMSG_DATA(c),&fd,sizeof(fd));}
++      PROBE_REQUIRE(sendmsg(probe.fd,&msg,MSG_NOSIGNAL)==(ssize_t)len);return -1;
++   }
++   PROBE_REQUIRE(recvmsg(probe.fd,&msg,MSG_CMSG_CLOEXEC)==(ssize_t)len && !(msg.msg_flags&(MSG_TRUNC|MSG_CTRUNC)));
++   struct cmsghdr *c=CMSG_FIRSTHDR(&msg);
++   PROBE_REQUIRE(c && c->cmsg_level==SOL_SOCKET && c->cmsg_type==SCM_RIGHTS && c->cmsg_len==CMSG_LEN(sizeof(fd)));
++   memcpy(&fd,CMSG_DATA(c),sizeof(fd));return fd;
++}
++static void probe_next(struct dri_drawable *d) {
++   int request[2];
++   PROBE_REQUIRE(recv(probe.fd,request,sizeof(request),0)==sizeof(request));
++   if(request[0]<0) {
++      fprintf(stderr,"KOPPER_DONE swaps=%d acknowledged=%d mode=%s\n",probe.swaps,request[1],probe.copy?"copy":"shared");
++      _exit(request[1]==probe.swaps ? 0 : 85);
++   }
++   PROBE_REQUIRE(request[0]<3 && request[1]==probe.swaps);
++   probe.slot=request[0];pipe_resource_reference(&d->textures[ST_ATTACHMENT_BACK_LEFT],probe.slots[probe.slot]);
++}
++static void probe_allocate(struct dri_drawable *d,const enum st_attachment_type *statts,unsigned count) {
++   struct pipe_screen *s=d->screen->base.screen;
++   if(!probe.owner) {
++      probe.owner=d;probe.fd=atoi(getenv("XDESK_DIAG_PRESENT_FD"));probe.copy=atoi(getenv("XDESK_DIAG_COPY"));
++      VkXcbSurfaceCreateInfoKHR *x=(void*)&d->info.bos;
++      xcb_get_geometry_reply_t *geom=xcb_get_geometry_reply(x->connection,xcb_get_geometry(x->connection,x->window),NULL);
++      PROBE_REQUIRE(geom);unsigned actualw=geom->width,actualh=geom->height;free(geom);
++      for(int i=0;i<3;i++) {
++         uint32_t m[7];int fd=probe_fd_msg(m,sizeof(m),-1,true);
++         fprintf(stderr,"KOPPER_SLOT slot=%d xid=%x window=%ux%u buffer=%ux%u pitch=%u mode=%s\n",i,x->window,actualw,actualh,m[0],m[1],m[3],probe.copy?"copy":"shared");
++         PROBE_REQUIRE(m[0]==actualw && m[1]==actualh && m[2]==DRM_FORMAT_ABGR8888 && !m[5] && !m[6]);
++         probe.width=m[0];probe.height=m[1];
++         struct pipe_resource templ={.target=PIPE_TEXTURE_2D,.format=PIPE_FORMAT_R8G8B8A8_UNORM,.width0=m[0],.height0=m[1],.depth0=1,.array_size=1,.bind=PIPE_BIND_RENDER_TARGET|PIPE_BIND_SAMPLER_VIEW};
++         if (probe.copy) probe.slots[i]=s->resource_create(s,&templ);
++         else {
++            struct winsys_handle wh={.type=WINSYS_HANDLE_TYPE_FD,.handle=fd,.stride=m[3],.offset=m[4],.modifier=DRM_FORMAT_MOD_LINEAR,.format=templ.format};
++            templ.bind|=PIPE_BIND_SHARED;
++            probe.slots[i]=s->resource_from_handle(s,&templ,&wh,PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE|PIPE_HANDLE_USAGE_EXPLICIT_FLUSH);
++         }
++         close(fd);PROBE_REQUIRE(probe.slots[i]);
++      }
++      PROBE_REQUIRE(d->stvis.samples<=1);
++      d->w=d->old_w=probe.width;d->h=d->old_h=probe.height;
++      probe_next(d);
++   }
++   PROBE_REQUIRE(probe.owner==d);
++   for(unsigned i=0;i<count;i++) {
++      enum st_attachment_type a=statts[i];if(d->textures[a])continue;
++      enum pipe_format fmt;unsigned bind;dri_drawable_get_format(d,a,&fmt,&bind);
++      if(fmt==PIPE_FORMAT_NONE)continue;
++      struct pipe_resource t={.target=PIPE_TEXTURE_2D,.format=fmt,.width0=probe.width,.height0=probe.height,.depth0=1,.array_size=1,.bind=bind};
++      d->textures[a]=s->resource_create(s,&t);PROBE_REQUIRE(d->textures[a]);
++   }
++}
++struct probe_flush_args { struct pipe_context *pipe;struct pipe_resource *tex; };
++static void probe_before_flush(void *v) {
++   struct probe_flush_args *a=v;a->pipe->flush_resource(a->pipe,a->tex);
++}
++static void probe_swap(struct dri_context *ctx,struct dri_drawable *d) {
++   _mesa_glthread_finish(ctx->st->ctx);
++   struct pipe_context *p=ctx->st->pipe;struct pipe_screen *s=p->screen;
++   struct pipe_resource *tex=d->textures[ST_ATTACHMENT_BACK_LEFT];
++   PROBE_REQUIRE(tex==probe.slots[probe.slot]);
++   struct pipe_fence_handle *f=NULL;
++   struct probe_flush_args args={p,tex};
++   st_context_flush(ctx->st,ST_FLUSH_END_OF_FRAME|(probe.copy?0:ST_FLUSH_FENCE_FD),&f,probe.copy?NULL:probe_before_flush,&args);
++   if(probe.swaps>=3 && probe.swaps<9) {
++      struct pipe_transfer *sample=NULL;
++      unsigned w=probe.width,h=probe.height;
++      uint8_t *bytes=pipe_texture_map_3d(p,tex,0,PIPE_MAP_READ,0,0,0,w,h,1,&sample);
++      PROBE_REQUIRE(bytes);
++      unsigned colors[3]={0};
++      for(unsigned y=0;y<h;y+=8)for(unsigned x=0;x<w;x+=8) {
++         const uint8_t *v=bytes+y*sample->stride+x*4;
++         for(int i=0;i<3;i++)if(v[i]>64 && v[i]>v[(i+1)%3]+30 && v[i]>v[(i+2)%3]+30)colors[i]++;
++      }
++      pipe_texture_unmap(p,sample);
++      fprintf(stderr,"KOPPER_PIXELS seq=%d slot=%d rgb=%u,%u,%u\n",probe.swaps,probe.slot,colors[0],colors[1],colors[2]);
++      PROBE_REQUIRE(colors[0] && colors[1] && colors[2]);
++   }
++   if(probe.copy) {
++      struct pipe_transfer *tr=NULL;unsigned w=probe.width,h=probe.height;
++      uint8_t *pixels=pipe_texture_map_3d(p,tex,0,PIPE_MAP_READ,0,0,0,w,h,1,&tr);
++      PROBE_REQUIRE(pixels);char c='C';probe_fd_msg(&c,1,-1,false);
++      uint8_t block[65536];size_t total=(size_t)w*h*4;
++      for(size_t off=0;off<total;) {
++         size_t len=MIN2(sizeof(block),total-off);
++         for(size_t pos=0;pos<len;) {size_t row=(off+pos)/(w*4),col=(off+pos)%(w*4),n=MIN2(len-pos,w*4-col);memcpy(block+pos,pixels+row*tr->stride+col,n);pos+=n;}
++         PROBE_REQUIRE(send(probe.fd,block,len,MSG_NOSIGNAL)==(ssize_t)len);off+=len;
++      }
++      pipe_texture_unmap(p,tr);
++   } else {
++      PROBE_REQUIRE(f);int fence=s->fence_get_fd(s,f);PROBE_REQUIRE(fence>=0);char c='F';probe_fd_msg(&c,1,fence,false);close(fence);
++   }
++   if(f)s->fence_reference(s,&f,NULL);
++   probe.swaps++;probe_next(d);
++   dri_invalidate_drawable(d);
++   st_manager_validate_framebuffers(ctx->st);
++   st_context_invalidate_state(ctx->st,ST_INVALIDATE_FB_STATE);
++}
