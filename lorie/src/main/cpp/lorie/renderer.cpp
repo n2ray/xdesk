@@ -21,6 +21,7 @@
 #include <GLES2/gl2ext.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
+#include <android/trace.h>
 #include <media/NdkImageReader.h>
 #include <dlfcn.h>
 #include <cmath>
@@ -1172,6 +1173,11 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
         return;
     }
 
+    // A missing or mismatched buffer can be retried in this refresh. From here on
+    // we will actually draw. Never write the permit at fence completion.
+    if (!lorieClaimFrame(&state->waitForNextFrame))
+        return;
+
     int surfaceH = ANativeWindow_getHeight(win);
     int surfaceW = ANativeWindow_getWidth(win);
     int renderViewportX = viewportX, renderViewportY = viewportY, renderViewportW = viewportW, renderViewportH = viewportH;
@@ -1299,7 +1305,12 @@ void Renderer::redrawLocked(bool* waitingForBuffers) {
         __atomic_store_n(&state->gpuCopyQueue.completedSerial, gpuCopyAck, __ATOMIC_RELEASE);
         notifyGpuCopyDone();
     }
-    state->waitForNextFrame = true;
+    // A trace marker at the old completion-time store identifies draws that
+    // would have consumed the next refresh permit.
+    if (ATrace_isEnabled() && lorieFrameAvailable(&state->waitForNextFrame)) {
+        ATrace_beginSection("XDesk refresh during redraw");
+        ATrace_endSection();
+    }
     lorie_mutex_unlock(&state->lock, &state->lockingPid);
 
     if (eglSwapBuffers(egl_display, sfc) != EGL_TRUE)
@@ -1339,7 +1350,7 @@ bool Renderer::shouldWait(bool *waitingForBuffers) {
         lastRequestedBufferId = state->rootWindowTextureID;
     }
 
-    if (!state || !state->surfaceAvailable || state->waitForNextFrame || *waitingForBuffers)
+    if (!state || !state->surfaceAvailable || !lorieFrameAvailable(&state->waitForNextFrame) || *waitingForBuffers)
         // Even in the case if there are pending changes, we can not draw it without rendering surface
         return true;
 
@@ -1418,7 +1429,7 @@ void Renderer::threadLoop() {
         // Prefer a full redraw over the standalone apply below so a pending GPU copy shares one
         // lock+fence with the root/cursor draw, instead of two GPU round trips per frame.
         bool gpuCopyPending = state && state->gpuCopyQueue.readIndex != state->gpuCopyQueue.writeIndex;
-        if (state && state->surfaceAvailable && !state->waitForNextFrame &&
+        if (state && state->surfaceAvailable && lorieFrameAvailable(&state->waitForNextFrame) &&
             (state->drawRequested || state->cursor.moved || state->cursor.updated || gpuCopyPending))
             redrawLocked(&waitingForBuffers);
         else if (gpuCopyPending)
