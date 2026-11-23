@@ -38,12 +38,12 @@
         <item quantity="other">%1$d connected</item>
     </plurals>
     <string name="xd_dev_connect_devices">Devices</string>
-    <string name="xd_dev_connect_devices_note">Linux in Termux, proot or chroot, and Macs</string>
+    <string name="xd_dev_connect_devices_note">The built-in Linux, Termux (with proot and chroot), and Macs</string>
     <string name="xd_dev_external">External devices</string>
     <string name="xd_dev_none">None yet</string>
     <string name="xd_dev_none_note">This phone\'s own apps are always here. Add a Mac or Linux below</string>
     <string name="xd_dev_linux_none">No Termux on this phone</string>
-    <string name="xd_dev_linux_none_note">Linux runs in Termux: install it, then come back here to add it</string>
+    <string name="xd_dev_linux_none_note">Termux\'s environments need Termux. The built-in Linux does not: choose it under Add device › Linux</string>
     <string name="xd_dev_add_note">New device</string>
     <string name="xd_dev_add">Add device</string>
     <string name="xd_dev_add_pick">What to connect</string>

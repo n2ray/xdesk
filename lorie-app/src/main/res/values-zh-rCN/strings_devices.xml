@@ -35,12 +35,12 @@
         <item quantity="other">%1$d 台已连接</item>
     </plurals>
     <string name="xd_dev_connect_devices">设备</string>
-    <string name="xd_dev_connect_devices_note">Termux、proot、chroot 里的 Linux，还有 Mac</string>
+    <string name="xd_dev_connect_devices_note">内置 Linux，Termux（含 proot、chroot），还有 Mac</string>
     <string name="xd_dev_external">外部设备</string>
     <string name="xd_dev_none">还没有</string>
     <string name="xd_dev_none_note">这台手机自己的应用一直都在。可以在下面添加 Mac 或 Linux</string>
     <string name="xd_dev_linux_none">这台手机没有 Termux</string>
-    <string name="xd_dev_linux_none_note">Linux 在 Termux 里运行：先安装 Termux，再回到这里添加</string>
+    <string name="xd_dev_linux_none_note">Termux 里的环境要先装 Termux。内置 Linux 不需要它：在「添加设备 › Linux」里选内置 Linux</string>
     <string name="xd_dev_add_note">新设备</string>
     <string name="xd_dev_add">添加设备</string>
     <string name="xd_dev_add_pick">要连接什么</string>

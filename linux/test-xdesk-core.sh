@@ -51,6 +51,9 @@ for f in xfce4-power-manager light-locker xscreensaver blueman; do [ ! -e /etc/x
 apt-get install -y -q --reinstall util-linux
 [ "$(stat -c %a /usr/lib/xdesk/setpriv-root)" = 4755 ] && cmp -s /usr/bin/setpriv /usr/lib/xdesk/setpriv-root && [ "$(asx sudo id -u)" = 0 ] && ok "setpriv-root after util-linux (trigger)" || no "setpriv-root after util-linux"
 
+test -s /usr/lib/xdesk/chrome-zink/gl/libgallium-27.0.0-devel.so &&
+    ok "private Kopper driver packaged" || no "private Kopper driver missing"
+
 # The GPU: lfdevs' Mesa over Ubuntu's as soon as Ubuntu's comes, pinned, and back after a reinstall of Ubuntu's
 apt-get install -y -q --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers
 kgsl() { grep -aq /dev/kgsl-3d0 /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so; }

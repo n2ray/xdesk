@@ -14,12 +14,13 @@
     <string name="xd_bl_open">在外接屏上显示</string>
     <string name="xd_bl_open_note">桌面正在运行</string>
     <string name="xd_bl_stop_note">结束桌面和里面所有程序</string>
+    <string name="xd_bl_stop_row">停止内置 Linux</string>
     <string name="xd_bl_stop_confirm_title">停止内置 Linux？</string>
     <string name="xd_bl_about">这是什么</string>
     <string name="xd_bl_about_what">一个自己的 Linux</string>
     <string name="xd_bl_about_what_note">Ubuntu 26.04 LTS，带 XFCE 桌面和终端，由 XDesk 自己运行。想装什么用 apt 装（浏览器：apt install google-chrome-stable 或 firefox，已配好官方源）；折腾坏了，一分钟重置。</string>
     <string name="xd_bl_about_termux">Termux 不受影响</string>
-    <string name="xd_bl_about_termux_note">Termux 里的桌面是分开的，照常能用。同一时间只开一个桌面。</string>
+    <string name="xd_bl_about_termux_note">Termux 里的桌面和它分开，照常能用。两边可以同时运行，外接屏一次显示一个，在启动台里切换。</string>
     <string name="xd_bl_graphics">图形</string>
     <string name="xd_bl_gpu">显卡加速（骁龙）</string>
     <string name="xd_bl_gpu_note">OpenGL 经 Zink 走 Turnip。关掉：软件渲染</string>
