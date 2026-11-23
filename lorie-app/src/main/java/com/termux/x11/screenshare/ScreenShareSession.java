@@ -118,6 +118,8 @@ public final class ScreenShareSession {
     private Surface surface;
     private PictureListener shown;
     private Runnable firstFrameTimer;
+    /** testCodec when this connection started: a test set later is the next connection's, not this one's. */
+    private String test;
 
     /** "hevc" or "avc": the codec of the connection now. */
     public String codecName() {
@@ -144,6 +146,7 @@ public final class ScreenShareSession {
         ScreenShareSession s = new ScreenShareSession(c, h, z, l);
         // Chosen before the connection and any attach: the decoder made for a screen is of this codec
         String test = testCodec;
+        s.test = test;
         String hevcDecoder = "avc".equals(test) ? null : hardware("video/hevc", s.width, s.height);
         s.hevc = hevcDecoder != null;
         if (s.hevc) s.retryPassword = password.clone();
@@ -196,7 +199,7 @@ public final class ScreenShareSession {
             if (name == null && !h) name = decoder();
             if (name == null) throw new IllegalStateException("no hardware " + mime + " decoder");
             c = MediaCodec.createByCodecName(name);
-            if (h && "hevc-config-fail".equals(testCodec)) throw new IllegalStateException("test: HEVC configure failure");
+            if (h && "hevc-config-fail".equals(test)) throw new IllegalStateException("test: HEVC configure failure");
             MediaFormat fmt = MediaFormat.createVideoFormat(mime, width, height);
             fmt.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
             fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 4 * 1024 * 1024);
@@ -345,7 +348,7 @@ public final class ScreenShareSession {
             java.util.concurrent.locks.LockSupport.parkNanos(Math.min(wait, 10000000L));
         }
         if (closed || pictureHidden) return;
-        if (hevc && "hevc-no-output".equals(testCodec)) return;  // test: the decoder gets nothing, so shows nothing
+        if (hevc && "hevc-no-output".equals(test)) return;  // test: the decoder gets nothing, so shows nothing
         try {
             int idx = c.dequeueInputBuffer(20000);
             if (idx < 0) return;
