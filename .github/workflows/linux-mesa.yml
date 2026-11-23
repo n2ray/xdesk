@@ -2,7 +2,11 @@ name: xdesk-mesa
 
 # Ubuntu's Mesa rebuilt with Adreno's KGSL (linux/mesa/build-mesa.sh), for XDesk's apt repository (linux-apt.yml
 # takes the latest successful run's artifact). By hand: when Ubuntu updates Mesa, or REV for a rebuild of the same one.
+# (A workflow only on this branch cannot be started by hand: the push below starts it, with REV 1.)
 on:
+  push:
+    branches: [builtin-linux]
+    paths: ['linux/mesa/**', '.github/workflows/linux-mesa.yml']
   workflow_dispatch:
     inputs:
       rev:
@@ -18,7 +22,7 @@ jobs:
       with:
         fetch-depth: 1
     - name: Build in ubuntu:26.04
-      run: docker run --rm --platform linux/arm64 -v "$PWD:/src" ubuntu:26.04 sh /src/linux/mesa/build-mesa.sh /src/out "${{ inputs.rev }}"
+      run: docker run --rm --platform linux/arm64 -v "$PWD:/src" ubuntu:26.04 sh /src/linux/mesa/build-mesa.sh /src/out "${{ inputs.rev || '1' }}"
     - uses: actions/upload-artifact@v7
       with:
         name: xdesk-mesa
