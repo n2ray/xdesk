@@ -1,4 +1,3 @@
-    chmod 644 "$3"
 #!/bin/sh
 # XDesk's own packages for its built-in Ubuntu (linux/packages/*), built into OUT: build-debs.sh OUT
 # Run in Ubuntu (dpkg-deb, curl, gpg): by build-rootfs.sh for the image and by linux-apt.yml for XDesk's repository.
@@ -15,6 +14,9 @@ SUITE=resolute
 MOZILLA_KEY=35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
 GOOGLE_KEY=EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796
 
+# Also used by xdesk-apt's publisher in a minimal Ubuntu build container.
+[ "$(dpkg --print-architecture)" = arm64 ] || { echo "build in an arm64 Ubuntu container" >&2; exit 1; }
+apt-get install -y --no-install-recommends g++ libva-dev libglx-dev libgl-dev libxcb1-dev
 mkdir -p "$OUT"
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
@@ -33,6 +35,7 @@ for p in "$SRC"/packages/*/; do
     t=$W/$name
     cp -a "$p" "$t"
     if [ "$name" = xdesk-core ]; then
+        sh "$SRC/chrome-zink/build.sh" "$t/usr/lib/xdesk/chrome-zink"
         mkdir -p "$t/usr/share/xdesk/keyrings"
         fetch_key https://packages.mozilla.org/apt/repo-signing-key.gpg "$MOZILLA_KEY" "$t/usr/share/xdesk/keyrings/packages.mozilla.org.gpg"
         fetch_key https://dl.google.com/linux/linux_signing_key.pub "$GOOGLE_KEY" "$t/usr/share/xdesk/keyrings/google-chrome.gpg"
@@ -48,6 +51,7 @@ for p in "$SRC"/packages/*/; do
     [ -s "$t/DEBIAN/conffiles" ] || rm -f "$t/DEBIAN/conffiles"
     find "$t" -type d -exec chmod 755 {} +
     v=$(sed -n 's/^Version: //p' "$t/DEBIAN/control")
-    dpkg-deb --root-owner-group -Zxz -b "$t" "$OUT/${name}_${v}_all.deb" >/dev/null
-    echo "$OUT/${name}_${v}_all.deb"
+    arch=$(sed -n 's/^Architecture: //p' "$t/DEBIAN/control")
+    dpkg-deb --root-owner-group -Zxz -b "$t" "$OUT/${name}_${v}_${arch}.deb" >/dev/null
+    echo "$OUT/${name}_${v}_${arch}.deb"
 done

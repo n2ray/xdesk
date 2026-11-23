@@ -1,10 +1,10 @@
 Package: xdesk-core
-Version: 4
-Architecture: all
+Version: 5
+Architecture: arm64
 Maintainer: n2ray <n2ray@users.noreply.github.com>
 Section: misc
 Priority: optional
-Depends: perl-base, passwd, util-linux, dpkg (>= 1.19), ca-certificates, curl
+Depends: perl-base, passwd, util-linux, dpkg (>= 1.19), ca-certificates, curl, libstdc++6, libxcb1
 Description: XDesk's built-in Ubuntu: what it needs to run inside the XDesk app
  The user xdesk (the desktop's, with a sudo that works without setuid), apt
  under the app's fake root, no snaps (Firefox and Chrome from their makers'

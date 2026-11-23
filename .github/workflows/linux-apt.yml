@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [builtin-linux]
-    paths: ['linux/packages/**', 'linux/build-debs.sh', 'linux/make-repo.sh', 'linux/test-xdesk-core.sh', '.github/workflows/linux-apt.yml']
+    paths: ['linux/packages/**', 'linux/chrome-zink/**', 'linux/build-debs.sh', 'linux/make-repo.sh', 'linux/test-xdesk-core.sh', '.github/workflows/linux-apt.yml']
 
 jobs:
   packages:

@@ -4,7 +4,7 @@
 # diversion of Chrome's command with its unowned wrapper, the old preferences file, the session's profile.d file.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
-DEB=$(ls "$1"/xdesk-core_*_all.deb)
+DEB=$(ls "$1"/xdesk-core_*_arm64.deb)
 ok() { echo "ok: $*"; }
 no() { echo "FAIL: $*" >&2; exit 1; }
 apt-get update -q
