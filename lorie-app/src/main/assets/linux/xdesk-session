@@ -34,6 +34,12 @@ export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_S
 # on GL (Zink): with Vulkan compositing WebGL and the compositor share no memory and every frame stalls on
 # ReadPixels; sysmem keeps Turnip's tiles from flickering when SurfaceFlinger composes the screen on the GPU.
 if [ "$1" != --user ]; then
+# The app starts the video service (termux-va) just before this: its socket may come a moment later, and without it
+# Chrome gets the software-decoding flags until the next start (0.8.0-beta.1, a fresh system: 23 November)
+if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
+    i=0
+    while [ $i -lt 30 ] && [ ! -S /tmp/termux-va/termux-va.sock ]; do sleep 0.1; i=$((i+1)); done
+fi
 mkdir -p /etc/chromium.d
 if [ "${XDESK_GPU:-0}" = 1 ] && [ -e /dev/kgsl-3d0 ]; then
     cat >/etc/chromium.d/xdesk <<'EOF'
