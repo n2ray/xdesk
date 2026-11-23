@@ -16,7 +16,7 @@ GOOGLE_KEY=EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796
 
 # Also used by xdesk-apt's publisher in a minimal Ubuntu build container.
 [ "$(dpkg --print-architecture)" = arm64 ] || { echo "build in an arm64 Ubuntu container" >&2; exit 1; }
-apt-get install -y --no-install-recommends g++ libva-dev libglx-dev libgl-dev libxcb1-dev
+apt-get install -y --no-install-recommends g++ libva-dev libglx-dev libgl-dev libxcb1-dev libxrandr-dev
 mkdir -p "$OUT"
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT

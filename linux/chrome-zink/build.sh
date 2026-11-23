@@ -12,5 +12,5 @@ compile "$src/va.cc" -L"$out" -lxdesk-dri3 -ldl -Wl,-rpath,'$ORIGIN/..' -o "$out
 stub=$(mktemp -d)
 trap 'rm -rf "$stub"' EXIT
 compile -x c++ /dev/null -Wl,-soname,/usr/lib/aarch64-linux-gnu/libGL.so.1 -o "$stub/libforward.so"
-compile "$src/glx.cc" -L"$stub" -Wl,--no-as-needed -lforward -L"$out" -lxdesk-dri3 \
+compile "$src/glx.cc" -L"$stub" -Wl,--no-as-needed -lforward -lXrandr -lX11 -L"$out" -lxdesk-dri3 \
     -ldl -pthread -Wl,-Bsymbolic-functions -Wl,-rpath,'$ORIGIN/..' -o "$out/gl/libGL.so.1"
