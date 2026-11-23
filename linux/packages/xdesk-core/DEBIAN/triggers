@@ -1,2 +1,6 @@
 # xfwm4's defaults come back with each xfwm4 update: vblank off again (postinst "triggered")
 interest-noawait /usr/share/xfwm4/defaults
+# Ubuntu's Mesa putting its own drivers back (a reinstall, a new package): lfdevs' again (xdesk-gpu)
+interest-noawait /usr/lib/aarch64-linux-gnu/dri
+interest-noawait /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so
+interest-noawait /usr/lib/aarch64-linux-gnu/libGLX_mesa.so.0

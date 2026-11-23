@@ -1,0 +1,76 @@
+#!/bin/sh
+# XDesk's built-in Ubuntu (xdesk-core): the GPU drivers for an Adreno under Android, over Ubuntu's own.
+#   Mesa: lfdevs' build (Turnip and Freedreno on KGSL, Zink; https://github.com/lfdevs/mesa-for-android-container),
+#         unpacked over Ubuntu's Mesa packages, which are pinned to the version installed so an upgrade does not
+#         take it back (a pin, not apt-mark hold: this runs under dpkg, whose lock apt-mark would need). Ubuntu's Mesa
+#         cannot drive an Adreno here (no KGSL; tested 2026-11-23), and packaging lfdevs' tree ourselves costs more
+#         than this (owner, 23 November).
+#   termuxva: the VA-API driver Chrome's hardware video goes through (XDesk's build of lfdevs/termux-va).
+# What is installed is recorded in /var/lib/xdesk/gpu; a run does something only when that differs from the
+# versions below or when a package put its own files back (dpkg triggers this: xdesk-core's "triggers").
+# A new version: change it here, raise xdesk-core's version and the app's NEED (xdesk-update).
+# Run by xdesk-core's postinst and trigger, and at each start by xdesk-update; no network leaves things as they are.
+set -u
+MESA_ID=lfdevs-27.0.0-devel-20261025-r2
+MESA_URL=https://github.com/lfdevs/mesa-for-android-container/releases/download/mesa-27.0.0-devel-20261025-r2/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_resolute_arm64.tar.gz
+MESA_SHA=4798c8e3b6063142b6d484b85cb91e30b97eff8833efde32655f9a6e0e8a929c
+VA_ID=b67039566476
+VA_URL=https://github.com/n2ray/mesa-for-android-container/releases/download/xdesk-2026-11-22-b67039566476/termuxva_drv_video.so
+VA_SHA=9299ac1978dd2b0c6f36ed4748a19109552375882eef460db3a0ef5c7de2c14b
+VA_DIR=/usr/local/lib/xdesk-hwvideo    # where xdesk-session looks for it (Chrome's environment)
+
+L=/usr/lib/aarch64-linux-gnu
+STATE=/var/lib/xdesk/gpu
+CACHE=/var/cache/xdesk
+HELD="libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers mesa-libgallium"
+PIN=/etc/apt/preferences.d/xdesk-mesa
+mkdir -p "$(dirname "$STATE")" "$CACHE"
+
+# Ubuntu's Mesa packages stay at the version installed (their files are lfdevs'): written when it changes
+pins=$(for p in $HELD; do
+    v=$(dpkg-query -W -f='${Status} ${Version}' "$p" 2>/dev/null | sed -n 's/^[a-z]* ok installed //p')
+    [ -n "$v" ] && printf 'Package: %s\nPin: version %s\nPin-Priority: 1001\n\n' "$p" "$v"
+done)
+if [ -n "$pins" ]; then
+    new="# XDesk (xdesk-gpu): Ubuntu's Mesa packages kept as they are; lfdevs' Mesa is over them
+$pins"
+    [ "$(cat "$PIN" 2>/dev/null)" = "$new" ] || printf '%s\n' "$new" > "$PIN"
+fi
+
+# What the system has now: each driver file's size and time (a package that puts its own back changes them)
+stamp() {
+    for f in $L/libvulkan_freedreno.so $L/dri/kgsl_dri.so $L/libGLX_mesa.so.0 $VA_DIR/termuxva_drv_video.so; do
+        stat -L -c '%n %s %Y' "$f" 2>/dev/null || echo "$f missing"
+    done
+}
+want="mesa $MESA_ID
+va $VA_ID"
+if [ -f "$STATE" ] && [ "$(sed -n '1,2p' "$STATE")" = "$want" ] && [ "$(sed '1,2d' "$STATE")" = "$(stamp)" ]; then
+    exit 0
+fi
+
+get() {  # url sha256 file: the cached copy if it is the right one, else downloaded
+    [ -f "$3" ] && echo "$2  $3" | sha256sum -c --status && return 0
+    curl -fsSL --retry 3 -o "$3.part" "$1" && echo "$2  $3.part" | sha256sum -c --status && mv "$3.part" "$3" && return 0
+    rm -f "$3.part"
+    echo "xdesk-gpu: could not get $1" >&2
+    return 1
+}
+
+ok=1
+if get "$MESA_URL" "$MESA_SHA" "$CACHE/mesa-$MESA_ID.tar.gz"; then
+    tar -xzf "$CACHE/mesa-$MESA_ID.tar.gz" -C / && ldconfig || ok=0
+    # Only the one wanted: an older download goes
+    for f in "$CACHE"/mesa-*.tar.gz; do [ "$f" = "$CACHE/mesa-$MESA_ID.tar.gz" ] || rm -f "$f"; done
+else ok=0; fi
+if get "$VA_URL" "$VA_SHA" "$CACHE/termuxva-$VA_ID.so"; then
+    install -D -m 755 "$CACHE/termuxva-$VA_ID.so" "$VA_DIR/termuxva_drv_video.so" && echo "$VA_ID" > "$VA_DIR/revision" || ok=0
+    for f in "$CACHE"/termuxva-*.so; do [ "$f" = "$CACHE/termuxva-$VA_ID.so" ] || rm -f "$f"; done
+else ok=0; fi
+if [ $ok = 1 ]; then
+    printf '%s\n%s\n' "$want" "$(stamp)" > "$STATE"
+    echo "xdesk-gpu: $MESA_ID, termuxva $VA_ID"
+else
+    rm -f "$STATE"    # the next run tries again
+fi
+exit 0

@@ -36,6 +36,16 @@ grep -qx 'vblank_mode=off' /usr/share/xfwm4/defaults && ok "xfwm4 vblank off (tr
 [ "$(readlink -f /usr/bin/sudo)" = /usr/lib/xdesk/sudo ] && ok "sudo still ours" || no "sudo is $(readlink -f /usr/bin/sudo)"
 for f in xfce4-power-manager light-locker xscreensaver blueman; do [ ! -e /etc/xdg/autostart/$f.desktop ] || no "autostart $f"; done
 
+# The GPU: lfdevs' Mesa over Ubuntu's as soon as Ubuntu's comes, pinned, and back after a reinstall of Ubuntu's
+apt-get install -y -q --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers
+kgsl() { grep -aq /dev/kgsl-3d0 /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so; }
+kgsl && ok "lfdevs Turnip (KGSL) over Ubuntu's" || no "Turnip is Ubuntu's"
+[ -e /usr/lib/aarch64-linux-gnu/dri/kgsl_dri.so ] && [ -e /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so ] && ok "kgsl_dri, termuxva" || no "kgsl_dri or termuxva missing"
+apt-cache policy mesa-vulkan-drivers | grep -q '1001' && ok "Ubuntu's Mesa pinned" || no "not pinned: $(apt-cache policy mesa-vulkan-drivers)"
+apt-get install -y -q --reinstall mesa-vulkan-drivers libglx-mesa0
+kgsl && ok "back over a reinstall (trigger)" || no "reinstall left Ubuntu's Turnip"
+/usr/lib/xdesk/xdesk-gpu | grep -q . && no "a run with nothing to do did something" || ok "nothing to do: quiet"
+
 apt-get install -y -q --reinstall "$DEB" && ok "reinstall"
 apt-get remove -y -q xdesk-core
 [ "$(dpkg-divert --listpackage /usr/bin/google-chrome-stable)" = "" ] && ok "diversion removed" || no "diversion left"

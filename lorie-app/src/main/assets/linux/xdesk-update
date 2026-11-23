@@ -5,7 +5,7 @@
 # Only xdesk-core, from XDesk's repository alone, so a check costs a dpkg query and an update a small download; the
 # rest of the system (Ubuntu, Mesa) is the user's apt upgrade. A newer app may need a newer xdesk-core, never the
 # other way: xdesk-core does not know the app's version.
-NEED=2    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
+NEED=3    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
 SRC=/etc/apt/sources.list.d/xdesk.sources
 KEY=/usr/share/keyrings/xdesk-archive.asc
 REPO_URL=https://n2ray.github.io/xdesk-apt
@@ -24,6 +24,9 @@ rm -f /tmp/xdesk-archive.asc
 printf 'Types: deb\nURIs: %s\nSuites: resolute\nComponents: main\nSigned-By: %s\n' "$REPO_URL" "$KEY" > /tmp/xdesk.sources
 cmp -s /tmp/xdesk.sources "$SRC" || cp /tmp/xdesk.sources "$SRC"
 rm -f /tmp/xdesk.sources
+
+# The GPU drivers as xdesk-core wants them (quick when they are: a few stats; a download failed before tries again)
+[ -x /usr/lib/xdesk/xdesk-gpu ] && /usr/lib/xdesk/xdesk-gpu
 
 have=$(dpkg-query -W -f='${Version}' xdesk-core 2>/dev/null)
 [ -n "$have" ] && dpkg --compare-versions "$have" ge "$NEED" && exit 0

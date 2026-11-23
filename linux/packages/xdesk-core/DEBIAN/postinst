@@ -8,7 +8,7 @@ set -e
 vblank() {
     [ -f /usr/share/xfwm4/defaults ] && sed -i 's/^vblank_mode=.*/vblank_mode=off/' /usr/share/xfwm4/defaults || true
 }
-if [ "$1" = triggered ]; then vblank; exit 0; fi
+if [ "$1" = triggered ]; then vblank; /usr/lib/xdesk/xdesk-gpu; exit 0; fi
 [ "$1" = configure ] || exit 0
 OLD=$2
 vblank
@@ -64,6 +64,9 @@ for f in xfce4-power-manager light-locker xscreensaver blueman; do rm -f /etc/xd
 # From the image before this package (r1, r2's first builds): what xdesk-core now owns under another name
 rm -f /etc/apt/preferences.d/xdesk-no-snap
 if [ -L /usr/local/bin/sudo ] || grep -qs "XDesk's built-in Linux: sudo" /usr/local/bin/sudo; then rm -f /usr/local/bin/sudo; fi
+
+# The GPU drivers (xdesk-gpu says which and why); without network now, the app's next start tries again
+/usr/lib/xdesk/xdesk-gpu || true
 
 # Steps for one version only go below, each under: if [ -n "$OLD" ] && dpkg --compare-versions "$OLD" lt N; then ...
 exit 0

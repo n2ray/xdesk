@@ -9,7 +9,6 @@
 # Ubuntu's own Firefox and Chromium are snaps, which cannot run in an app's container).
 set -eu
 export DEBIAN_FRONTEND=noninteractive
-MESA_URL=https://github.com/lfdevs/mesa-for-android-container/releases/download/mesa-27.0.0-devel-20261025-r2/mesa-for-android-container_27.0.0-devel-20261025-r2_ubuntu_resolute_arm64.tar.gz
 
 # Ubuntu's container image leaves out translations: the desktop would be in English only
 sed -i '/\/usr\/share\/locale/d' /etc/dpkg/dpkg.cfg.d/excludes 2>/dev/null || true
@@ -42,23 +41,10 @@ apt-get install -y --no-install-recommends \
 # English by default; other languages are the user's to add (language-pack-*, update-locale): translations are kept
 locale-gen en_US.UTF-8
 
-# Mesa with Turnip on KGSL (Adreno) and Zink, over Ubuntu's own; held so an upgrade does not take it back.
-# To be replaced by xdesk-mesa (Ubuntu's Mesa rebuilt with KGSL, linux/mesa) from XDesk's repository.
-curl -fsSL -o /tmp/mesa.tgz "$MESA_URL"
-tar -xzf /tmp/mesa.tgz -C /
-rm /tmp/mesa.tgz
-apt-mark hold libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers mesa-libgallium 2>/dev/null || true
-ldconfig
-# Keep Chrome's VA frontend separate from the image's GL and Vulkan drivers.
-driver_url=https://github.com/n2ray/mesa-for-android-container/releases/download/xdesk-2026-11-22-b67039566476
-(
-    cd /tmp
-    curl -fSL --retry 3 -O "$driver_url/termuxva_drv_video.so"
-    echo "9299ac1978dd2b0c6f36ed4748a19109552375882eef460db3a0ef5c7de2c14b  termuxva_drv_video.so" | sha256sum -c -
-    install -D -m 755 termuxva_drv_video.so /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so
-    echo b67039566476 > /usr/local/lib/xdesk-hwvideo/revision
-    rm termuxva_drv_video.so
-)
+# The Adreno drivers (lfdevs' Mesa over Ubuntu's, termuxva) come with xdesk-core: its trigger put them over the
+# Mesa packages just installed (linux/packages/xdesk-core/usr/lib/xdesk/xdesk-gpu)
+grep -aq /dev/kgsl-3d0 /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so || { echo "no KGSL Turnip: xdesk-gpu failed" >&2; exit 1; }
+cat /var/lib/xdesk/gpu
 
 # SSH (XDesk starts it when the user turns on SSH access): no host keys in the image, or every installation would share
 # them; xdesk-sshd makes them on first start. Nothing starts it here (no systemd).
