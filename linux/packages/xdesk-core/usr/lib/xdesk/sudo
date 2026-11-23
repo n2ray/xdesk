@@ -59,5 +59,18 @@ if (!@cmd) {
     @cmd = ($sh, ($login ? "-l" : ()), "-c", join(" ", map { my $a = $_; $a =~ s/'/'\\''/g; "'$a'" } @cmd));
 }
 if ($background) { exit 0 if fork(); }
-unshift @cmd, "/usr/local/bin/xdesk-asuser", $user if $pw[2] != 0;
+# Another user: all their ids, groups first (as xdesk-asuser; setpriv sets the uid first, and Burrow then refuses
+# the rest, having no capabilities to keep)
+if ($pw[2] != 0) {
+    my @groups = ($pw[3] + 0);
+    setgrent();
+    while (my @g = getgrent()) {
+        push @groups, $g[2] + 0 if $g[2] != $pw[3] && grep { $_ eq $user } split / /, $g[3];
+    }
+    endgrent();
+    my $list = pack("L*", @groups);
+    syscall(159, scalar(@groups), $list) == 0 or die "sudo: setgroups: $!\n";
+    syscall(149, $pw[3], $pw[3], $pw[3]) == 0 or die "sudo: setresgid: $!\n";
+    syscall(147, $pw[2], $pw[2], $pw[2]) == 0 or die "sudo: setresuid: $!\n";
+}
 exec { $cmd[0] } @cmd or die "sudo: $cmd[0]: $!\n";
