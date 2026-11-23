@@ -266,7 +266,11 @@ void lorieSetChoreographer(AChoreographer* choreographer) {
 
 void lorieActivityConnected(void) {
     pvfb->state->drawRequested = pvfb->state->cursor.updated = true;
-    pvfb->state->rendererRelock = pvfb->rendererRelock;
+    // Glamor publishes this buffer with a GPU blit and waits on its fence.
+    // Only EXA's CPU-written root needs the renderer's CPU cache flush.
+    pvfb->state->rendererRelock = pvfb->rendererRelock && !todGlamorAttivo();
+    logBoth(INFO, "connected root: %s, renderer CPU relock %s",
+            todGlamorAttivo() ? "glamor" : "EXA", pvfb->state->rendererRelock ? "on" : "off");
     lorieSendSharedServerState(pvfb->stateFd);
     lorieRegisterBuffer(LORIE_ROOT_BUFFER(pScreenPtr->devPrivate));
     lorieScheduleFrame(); // the chain may have stopped while there was no connection
