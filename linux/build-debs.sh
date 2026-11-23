@@ -36,6 +36,7 @@ for p in "$SRC"/packages/*/; do
     cp -a "$p" "$t"
     if [ "$name" = xdesk-core ]; then
         sh "$SRC/chrome-zink/build.sh" "$t/usr/lib/xdesk/chrome-zink"
+        sh "$SRC/chrome-zink/build-kopper.sh" "$t/usr/lib/xdesk/chrome-zink/gl"
         mkdir -p "$t/usr/share/xdesk/keyrings"
         fetch_key https://packages.mozilla.org/apt/repo-signing-key.gpg "$MOZILLA_KEY" "$t/usr/share/xdesk/keyrings/packages.mozilla.org.gpg"
         fetch_key https://dl.google.com/linux/linux_signing_key.pub "$GOOGLE_KEY" "$t/usr/share/xdesk/keyrings/google-chrome.gpg"
