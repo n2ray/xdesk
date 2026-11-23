@@ -27,6 +27,9 @@ final class DirectSession implements Closeable {
     ControlWriter records;
     /** The frame buffer (= the video) in pixels, and the desktop in points: equal at 1x, half for HiDPI. */
     final int width,height,pointsW,pointsH;
+    /** The codec this connection asks for (ScreenShareSession); configuringMedia: past the login, the media is next. */
+    boolean hevc;
+    volatile boolean configuringMedia;
     Cipher pointerCipher;
     KeyframeFeedback feedback;
     private final ScheduledExecutorService probes = Executors.newSingleThreadScheduledExecutor();
@@ -114,6 +117,7 @@ final class DirectSession implements Closeable {
         byte[] wrap = new AppleLogin(this).authenticate(username, password);
         Log.i("XDeskScreenShare", "SRP verified, direct TCP "+control.getLocalAddress()+" -> "+server);
         stage.accept(ScreenShareSession.STAGE_MEDIA);
+        configuringMedia = true;
         beginDesktop();
         enableRecords(wrap);
         Arrays.fill(wrap, (byte)0);
@@ -207,6 +211,7 @@ final class DirectSession implements Closeable {
     // Single-display form of Rootshell TransportSession's MIT media configuration.
     private void sendMediaConfiguration(byte[] receiveKey) throws Exception {
         MediaOffer profile = new MediaOffer(asset("media-profile.json"));
+        profile.hevc = hevc;
         byte[] sound = profile.create(false, Integer.toUnsignedLong(rng.nextInt()), width, height);
         int viewerSsrc = rng.nextInt();
         byte[] sendKey = random(46);
