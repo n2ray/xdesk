@@ -47,8 +47,11 @@ import java.util.zip.GZIPInputStream;
 final class BuiltinLinux {
     private static final String TAG = "BuiltinLinux";
     static final String IMAGE = "xdesk-ubuntu2604-arm64.tar.gz";
-    /** Where the image comes from when it is not on the phone yet. Not published yet: the test image is copied in. */
-    static final String IMAGE_URL = "https://github.com/n2ray/xdesk/releases/download/linux-ubuntu2604-r2/" + IMAGE;
+    /**
+     * Where the image comes from when it is not on the phone yet: n2ray/xdesk-apt's releases (Actions → Image there).
+     * A new installation starts from it; from then on the system follows xdesk-core (xdesk-update), not new images.
+     */
+    static final String IMAGE_URL = "https://github.com/n2ray/xdesk-apt/releases/download/ubuntu2604-r2/" + IMAGE;
     private static final String X_NAME = "xdesk-builtin-x";
     private static final String DISPLAY = ":1";
     /** termux-va's MediaCodec service, packaged as a "library" so it is installed executable. */
