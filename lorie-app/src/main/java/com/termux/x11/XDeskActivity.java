@@ -3095,8 +3095,11 @@ public class XDeskActivity extends Activity {
             setStatus(Style.OK, "");
             return;
         }
-        if (session.isConnected() && desktopTaken) setStatus(Style.OK, getString(R.string.xd_status_desktop_taken, desktopName != null ? desktopName : ""));
-        else if (session.isConnected()) setStatus(Style.OK, desktopName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, desktopName) : getString(R.string.xd_status_desktop_connected));
+        // The X shown may be the built-in Linux's while Termux's desktop runs on behind it: desktopName is Termux's
+        // (its xdesk reports it), so the built-in one is named by what is shown (owner, 23 November)
+        String shownName = XServers.isBuiltin(XServers.shown()) ? getString(R.string.xd_bl_title) : desktopName;
+        if (session.isConnected() && desktopTaken) setStatus(Style.OK, getString(R.string.xd_status_desktop_taken, shownName != null ? shownName : ""));
+        else if (session.isConnected()) setStatus(Style.OK, shownName != null ? getString(onCar() ? R.string.xd_status_desktop_car : R.string.xd_status_desktop_display, shownName) : getString(R.string.xd_status_desktop_connected));
         else setStatus(Style.WARN, getString(R.string.xd_status_desktop_not_connected));
     }
 
