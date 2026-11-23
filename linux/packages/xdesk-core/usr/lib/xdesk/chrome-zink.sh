@@ -10,6 +10,9 @@ xdesk_chrome_zink() {
         *) return 0 ;;
     esac
     local_dir=/usr/lib/xdesk/chrome-zink
+    [ -r "$local_dir/libxdesk-dri3.so" ] && [ -r "$local_dir/gl/libGL.so.1" ] &&
+        [ -r "$local_dir/va/termuxva_drv_video.so" ] &&
+        [ -r /usr/lib/aarch64-linux-gnu/libGL.so.1 ] || { unset local_dir; return 0; }
     export LD_PRELOAD="$local_dir/libxdesk-dri3.so${LD_PRELOAD:+:$LD_PRELOAD}"
     export LD_LIBRARY_PATH="$local_dir/gl${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export LIBVA_DRIVERS_PATH="$local_dir/va"

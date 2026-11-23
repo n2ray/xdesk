@@ -1,4 +1,5 @@
 #include "frames.h"
+#include <algorithm>
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -104,8 +105,17 @@ void xdesk_va_frame(void *driver, unsigned surface, int fd, uint32_t w, uint32_t
     if (fstat(fd, &st)) return;
     std::lock_guard<std::mutex> guard(lock);
     auto &layout = surfaces[{driver, surface}];
-    if (!layout.generation || layout.dev != st.st_dev || layout.ino != st.st_ino)
-        layout = {st.st_dev, st.st_ino, w, h, stride, std::make_shared<std::atomic<uint64_t>>(0)};
+    Generation generation;
+    for (const auto &entry : surfaces) {
+        const auto &other = entry.second;
+        if (other.dev == st.st_dev && other.ino == st.st_ino && other.generation) {
+            generation = other.generation;
+            break;
+        }
+    }
+    if (!generation) generation = std::make_shared<std::atomic<uint64_t>>(0);
+    if (layout.generation && layout.generation != generation) layout.generation->store(0);
+    layout = {st.st_dev, st.st_ino, w, h, stride, generation};
 }
 
 void xdesk_va_written(void *driver, unsigned surface) {
@@ -116,11 +126,14 @@ void xdesk_va_written(void *driver, unsigned surface) {
 
 void xdesk_va_destroy(void *driver, const unsigned *ids, unsigned count) {
     std::lock_guard<std::mutex> guard(lock);
-    if (ids) {
-        for (unsigned i = 0; i < count; ++i) surfaces.erase({driver, ids[i]});
-    } else {
-        for (auto it = surfaces.begin(); it != surfaces.end();)
-            if (it->first.first == driver) it = surfaces.erase(it); else ++it;
+    // A GLX texture can outlive the VA surface (seeks and decoder resets).
+    // Invalidate its last generation so a later import cannot look current.
+    for (auto it = surfaces.begin(); it != surfaces.end();) {
+        if (it->first.first == driver &&
+            (!ids || std::find(ids, ids + count, it->first.second) != ids + count)) {
+            it->second.generation->store(0);
+            it = surfaces.erase(it);
+        } else ++it;
     }
 }
 
