@@ -26,7 +26,8 @@ grep -q 'CHROME_FLAGS' /usr/bin/google-chrome-stable && ok "chrome wrapper" || n
 [ ! -e /etc/apt/preferences.d/xdesk-no-snap ] && ok "old preferences gone" || no "old preferences"
 grep -q packages.mozilla.org /etc/apt/sources.list.d/mozilla.list && grep -q dl.google.com /etc/apt/sources.list.d/google-chrome.list && ok "browser sources" || no "browser sources"
 grep -qs 'directory = \*' /etc/gitconfig && ok "git safe.directory" || no "gitconfig"
-apt-get update -q 2>&1 | tee /tmp/upd; ! grep -q '^[EW]:' /tmp/upd && ok "apt update clean" || no "apt update warns"
+# (XDesk's own repository aside: this tests a build that may not be published yet)
+apt-get update -q 2>&1 | tee /tmp/upd; ! grep '^[EW]:' /tmp/upd | grep -qv n2ray.github.io && ok "apt update clean" || no "apt update warns"
 apt-cache policy snapd | grep -q 'Candidate: (none)' && ok "no snapd" || no "snapd installable"
 
 # The trigger: xfwm4's defaults get vblank off however xfwm4 comes; then the packaged sudos stay below ours
