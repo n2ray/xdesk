@@ -81,6 +81,7 @@ final class DockPointer {
         if (surface == SURFACE_DOCK) {
             ExternalDock dock = host.dock();
             if (dock != null && dock.driven() && host.target() == over) return true;
+            if (dock != null && dock.driven()) android.util.Log.i("XDesk", "dock: the target changed under it, it closes");
             over = null;
             surface = 0;
             if (dock != null) dock.closeDriven();

@@ -291,6 +291,7 @@ final class ExternalDock implements AppSession.EdgeListener {
         }
         arrow.moveArrow(Math.round(px), Math.round(py));
         arrow.raise();  // the panel was added after an arrow kept from an earlier opening: the arrow over it
+        Log.i(TAG, "dock opens driven, arrow at " + Math.round(px) + "," + Math.round(py) + " of " + width + "x" + height);
         return true;
     }
 
@@ -410,7 +411,8 @@ final class ExternalDock implements AppSession.EdgeListener {
             boolean own = from == null || from.isVirtual();
             if (action == MotionEvent.ACTION_HOVER_EXIT) {
                 ui.removeCallbacks(open);
-                if (panel != null) later(close, LEAVE_MS);
+                // Driven, the dock's own arrow has the pointer: Android's leaving the strip says nothing
+                if (panel != null && !driven()) later(close, LEAVE_MS);
             } else if (panel == null) {
                 if (!own && !ui.hasCallbacks(open)) ui.postDelayed(open, DWELL_MS);
             } else {
@@ -540,6 +542,9 @@ final class ExternalDock implements AppSession.EdgeListener {
     private void close() {
         final Panel p = panel;
         if (p == null || closing) return;
+        // Which way it went (a dock that closed by itself over X, 23 November): the caller, in the log
+        StackTraceElement[] at = new Throwable().getStackTrace();
+        Log.i(TAG, "dock closes" + (driven ? " (driven)" : "") + " from " + (at.length > 1 ? at[1] : "?") + (at.length > 2 ? " < " + at[2] : ""));
         closing = true;
         endDriven();
         p.slideOut(() -> {
@@ -839,6 +844,7 @@ final class ExternalDock implements AppSession.EdgeListener {
 
         /** The pointer's place when no hover events tell it. */
         void placed(int x, int y) {
+            if (driven()) return;  // the dock's own arrow is the pointer then (moveBy), not the apps' one
             if (!holds(this, x, y)) {
                 setOver(null);
                 if (!atEdge && !ui.hasCallbacks(close)) later(close, lift > 0 && !visited ? LONG_WAY_MS : LEAVE_MS);
@@ -888,7 +894,7 @@ final class ExternalDock implements AppSession.EdgeListener {
             int action = e.getActionMasked();
             if (action == MotionEvent.ACTION_HOVER_EXIT) {
                 setOver(null);  // left the dock: nothing is hovered any more, whatever the strip's listener decides
-                later(close, LEAVE_MS);
+                if (!driven()) later(close, LEAVE_MS);
                 return super.dispatchHoverEvent(e);
             }
             ui.removeCallbacks(close);
