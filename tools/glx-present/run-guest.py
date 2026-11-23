@@ -18,6 +18,7 @@ CASES = [(640, 480, 1), (640, 480, 0), (2560, 1600, 1), (2560, 1600, 0)]
 
 def run_case(connection, index, driver_dir):
     expected = (index + 1, *CASES[index])
+    connection.settimeout(30)
     actual = struct.unpack("=4i", connection.recv(16))
     if actual != expected:
         raise RuntimeError(f"Unexpected phase header {actual}, expected {expected}")
@@ -37,6 +38,9 @@ def run_case(connection, index, driver_dir):
         env["LD_PRELOAD"] = str(driver_dir / "geometry-only.so")
     # The injected driver deliberately exits this disposable client when the
     # host acknowledges its last buffer. Never attach it to a user session.
+    # Python's socket timeout enables O_NONBLOCK on the underlying file
+    # description, including the fd inherited by Mesa's blocking recvmsg.
+    connection.setblocking(True)
     child = subprocess.run(
         ["stdbuf", "-oL", "/usr/bin/glxgears", "-info", "-geometry", f"{width}x{height}+0+0"],
         env=env, pass_fds=(connection.fileno(),), timeout=30,
@@ -65,7 +69,6 @@ def main():
             print("Ready for the Android diagnostic activity", flush=True)
             client, _ = server.accept()
             with client:
-                client.settimeout(30)
                 client.sendall(HELLO)
                 for phase in range(len(CASES)):
                     run_case(client, phase, directory)
