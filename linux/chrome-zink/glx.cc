@@ -2,6 +2,9 @@
 #include <GL/gl.h>
 #include <GL/glx.h>
 #include <cstring>
+#include <chrono>
+#include <numeric>
+#include <X11/extensions/Xrandr.h>
 #include <dlfcn.h>
 #include <linux/dma-buf.h>
 #include <map>
@@ -148,8 +151,85 @@ extern "C" void glXDestroyContext(Display *d, GLXContext c) {
     }
     next(d,c);
 }
+namespace {
+struct RefreshRate {
+    int32_t numerator = 0;
+    int32_t denominator = 0;
+};
+
+// The built-in server exposes its external desktop as one RandR CRTC. Other
+// layouts and servers with VidMode keep Mesa's drawable-specific behavior.
+RefreshRate desktop_rate(Display *dpy) {
+    if (ScreenCount(dpy) != 1) return {};
+    int major, event, error;
+    if (XQueryExtension(dpy, "XFree86-VidModeExtension", &major, &event, &error) ||
+        !XQueryExtension(dpy, "RANDR", &major, &event, &error)) return {};
+    int randr_major = 0, randr_minor = 0;
+    if (!XRRQueryVersion(dpy, &randr_major, &randr_minor) ||
+        randr_major < 1 || (randr_major == 1 && randr_minor < 3)) return {};
+    auto *resources = XRRGetScreenResourcesCurrent(dpy, DefaultRootWindow(dpy));
+    if (!resources) return {};
+    RefreshRate rate;
+    if (resources->ncrtc == 1) {
+        auto *crtc = XRRGetCrtcInfo(dpy, resources, resources->crtcs[0]);
+        if (crtc && crtc->mode != None && crtc->noutput > 0) {
+            for (int i = 0; i < resources->nmode; ++i) {
+                const auto &mode = resources->modes[i];
+                if (mode.id != crtc->mode || !mode.dotClock || !mode.hTotal || !mode.vTotal) continue;
+                uint64_t n = mode.dotClock;
+                uint64_t d = uint64_t(mode.hTotal) * mode.vTotal;
+                if (mode.modeFlags & RR_Interlace) n *= 2;
+                if (mode.modeFlags & RR_DoubleScan) d *= 2;
+                auto divisor = std::gcd(n, d);
+                n /= divisor;
+                d /= divisor;
+                if (n <= INT32_MAX && d <= INT32_MAX)
+                    rate = {static_cast<int32_t>(n), static_cast<int32_t>(d)};
+                break;
+            }
+        }
+        if (crtc) XRRFreeCrtcInfo(crtc);
+    }
+    XRRFreeScreenResources(resources);
+    return rate;
+}
+}
+
+extern "C" Bool glXGetMscRateOML(Display *dpy, GLXDrawable drawable, int32_t *n, int32_t *d) {
+    using Clock = std::chrono::steady_clock;
+    if (!dpy || !drawable || !n || !d) return False;
+    static std::mutex rate_lock;
+    static Display *display = nullptr;
+    static Clock::time_point expiry;
+    static RefreshRate rate;
+    RefreshRate current;
+    bool cached;
+    auto now = Clock::now();
+    {
+        std::lock_guard<std::mutex> guard(rate_lock);
+        cached = display == dpy && now < expiry;
+        if (cached) current = rate;
+    }
+    if (!cached) {
+        // Xlib can acquire the display lock here. Keep it outside our cache lock.
+        current = desktop_rate(dpy);
+        std::lock_guard<std::mutex> guard(rate_lock);
+        display = dpy;
+        rate = current;
+        expiry = now + std::chrono::seconds(1);
+    }
+    if (current.numerator) {
+        *n = current.numerator;
+        *d = current.denominator;
+        return True;
+    }
+    static auto original = proc<decltype(&glXGetMscRateOML)>("glXGetMscRateOML");
+    return original ? original(dpy, drawable, n, d) : False;
+}
+
 extern "C" __GLXextFuncPtr glXGetProcAddressARB(const GLubyte *name) {
 #define WRAPPED(fn) if (!strcmp(reinterpret_cast<const char *>(name), #fn)) return reinterpret_cast<__GLXextFuncPtr>(&fn)
+    WRAPPED(glXGetMscRateOML);
     WRAPPED(glXCreatePixmap); WRAPPED(glXDestroyPixmap); WRAPPED(glXBindTexImageEXT);
     WRAPPED(glXReleaseTexImageEXT); WRAPPED(glBindTexture); WRAPPED(glDeleteTextures);
     WRAPPED(glXDestroyContext);
