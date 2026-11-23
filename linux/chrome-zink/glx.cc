@@ -26,7 +26,7 @@ GLXContext context() {
 
 using Drawable = std::pair<Display *, GLXDrawable>;
 using Texture = std::pair<GLXContext, GLuint>;
-struct Binding { Drawable drawable; FramePtr frame; };
+struct Binding { Drawable drawable; FramePtr frame; uint64_t uploaded; };
 std::mutex lock;
 std::map<Drawable, FramePtr> drawables;
 std::map<Texture, Binding> textures;
@@ -36,12 +36,13 @@ void release(Drawable key) {
         if (it->second.drawable == key) it = textures.erase(it); else ++it;
 }
 
-void upload(const Frame &f, bool allocate) {
+bool upload(const Frame &f, bool allocate) {
     size_t size = size_t(f.stride) * f.height;
     void *ptr = mmap(nullptr, size, PROT_READ, MAP_SHARED, f.fd, 0);
-    if (ptr == MAP_FAILED) return;
+    if (ptr == MAP_FAILED) return false;
     dma_buf_sync sync{DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ};
-    if (ioctl(f.fd, DMA_BUF_IOCTL_SYNC, &sync) == 0) {
+    bool ready = ioctl(f.fd, DMA_BUF_IOCTL_SYNC, &sync) == 0;
+    if (ready) {
         static auto get = proc<decltype(&glGetIntegerv)>("glGetIntegerv");
         static auto store = proc<decltype(&glPixelStorei)>("glPixelStorei");
         static auto buffer = proc<PFNGLBINDBUFFERPROC>("glBindBuffer");
@@ -65,6 +66,7 @@ void upload(const Frame &f, bool allocate) {
         ioctl(f.fd, DMA_BUF_IOCTL_SYNC, &sync);
     }
     munmap(ptr, size);
+    return ready;
 }
 }
 
@@ -98,7 +100,7 @@ extern "C" void glXBindTexImageEXT(Display *d, GLXDrawable p, int b, const int *
         get(GL_TEXTURE_BINDING_2D, &id);
         if (!id) return;
         f = it->second;
-        textures[{context(), GLuint(id)}] = {{d,p}, f};
+        textures[{context(), GLuint(id)}] = {{d,p}, f, 0};
     }
     upload(*f, true);
 }
@@ -112,13 +114,21 @@ extern "C" void glBindTexture(GLenum target, GLuint t) {
     next(target,t);
     if (!t || target != GL_TEXTURE_2D) return;
     FramePtr f;
+    uint64_t generation;
+    Texture key{context(), t};
     {
         std::lock_guard<std::mutex> guard(lock);
-        auto it = textures.find({context(), t});
+        auto it = textures.find(key);
         if (it == textures.end()) return;
         f = it->second.frame;
+        generation = f->generation->load();
+        if (generation && it->second.uploaded == generation) return;
     }
-    upload(*f, false);
+    if (upload(*f, false) && generation) {
+        std::lock_guard<std::mutex> guard(lock);
+        auto it = textures.find(key);
+        if (it != textures.end() && it->second.frame == f) it->second.uploaded = generation;
+    }
 }
 extern "C" void glDeleteTextures(GLsizei n, const GLuint *ids) {
     static auto next = proc<decltype(&glDeleteTextures)>("glDeleteTextures");

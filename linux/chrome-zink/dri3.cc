@@ -17,17 +17,17 @@ struct Pixmap { xcb_connection_t *owner; FramePtr frame; };
 std::mutex lock;
 std::unordered_map<uint32_t, Pixmap> pixmaps;
 
-struct Layout { dev_t dev; ino_t ino; uint32_t w, h, stride; };
+struct Layout { dev_t dev; ino_t ino; uint32_t w, h, stride; Generation generation; };
 std::map<std::pair<void *, unsigned>, Layout> surfaces;
 
-bool known(const struct stat &st, unsigned w, unsigned h, unsigned stride) {
+Generation generation_for(const struct stat &st, unsigned w, unsigned h, unsigned stride) {
     std::lock_guard<std::mutex> guard(lock);
     for (const auto &entry : surfaces) {
         auto &layout = entry.second;
         if (layout.dev == st.st_dev && layout.ino == st.st_ino &&
-            layout.w == w && layout.h == h && layout.stride == stride) return true;
+            layout.w == w && layout.h == h && layout.stride == stride) return layout.generation;
     }
-    return false;
+    return {};
 }
 
 struct Descriptor {
@@ -72,10 +72,12 @@ struct Request {
         uint32_t stride = field<uint16_t>(p+20);
         struct stat st;
         if (!w || !h || stride < w*4u || stride%4 || fstat(fd, &st) ||
-            st.st_size < int64_t(stride)*h || !known(st, w, h, stride)) return;
+            st.st_size < int64_t(stride)*h) return;
+        auto generation = generation_for(st, w, h, stride);
+        if (!generation) return;
         int owned = fcntl(fd, F_DUPFD_CLOEXEC, 0);
         if (owned < 0) return;
-        FramePtr frame(new Frame{owned, w, h, stride});
+        FramePtr frame(new Frame{owned, w, h, stride, generation});
         {
             std::lock_guard<std::mutex> guard(lock);
             pixmaps[id] = {c, frame};
@@ -101,7 +103,15 @@ void xdesk_va_frame(void *driver, unsigned surface, int fd, uint32_t w, uint32_t
     struct stat st;
     if (fstat(fd, &st)) return;
     std::lock_guard<std::mutex> guard(lock);
-    surfaces[{driver, surface}] = {st.st_dev, st.st_ino, w, h, stride};
+    auto &layout = surfaces[{driver, surface}];
+    if (!layout.generation || layout.dev != st.st_dev || layout.ino != st.st_ino)
+        layout = {st.st_dev, st.st_ino, w, h, stride, std::make_shared<std::atomic<uint64_t>>(0)};
+}
+
+void xdesk_va_written(void *driver, unsigned surface) {
+    std::lock_guard<std::mutex> guard(lock);
+    auto it = surfaces.find({driver, surface});
+    if (it != surfaces.end()) ++*it->second.generation;
 }
 
 void xdesk_va_destroy(void *driver, const unsigned *ids, unsigned count) {

@@ -3,9 +3,15 @@
 #include <va/va_drmcommon.h>
 #include <dlfcn.h>
 #include <new>
+#include <map>
+#include <mutex>
 
 namespace {
-struct Driver { VADriverVTable table; VADriverVTable *original; };
+struct Pictures {
+    std::mutex lock;
+    std::map<VAContextID, VASurfaceID> targets;
+};
+struct Driver { VADriverVTable table; VADriverVTable *original; Pictures *pictures; };
 Driver *driver(VADriverContextP c) { return reinterpret_cast<Driver *>(c->vtable); }
 
 void remember(VADriverContextP c, VASurfaceID id, const VADRMPRIMESurfaceDescriptor &d) {
@@ -37,6 +43,35 @@ VAStatus export_fd(VADriverContextP c, VASurfaceID id, uint32_t type, uint32_t f
         remember(c, id, *static_cast<VADRMPRIMESurfaceDescriptor *>(out));
     return status;
 }
+VAStatus begin(VADriverContextP c, VAContextID context, VASurfaceID surface) {
+    auto d = driver(c);
+    auto status = d->original->vaBeginPicture(c, context, surface);
+    if (status == VA_STATUS_SUCCESS) {
+        std::lock_guard<std::mutex> guard(d->pictures->lock);
+        d->pictures->targets[context] = surface;
+    }
+    return status;
+}
+VAStatus end(VADriverContextP c, VAContextID context) {
+    auto d = driver(c);
+    auto status = d->original->vaEndPicture(c, context);
+    std::lock_guard<std::mutex> guard(d->pictures->lock);
+    auto it = d->pictures->targets.find(context);
+    if (it != d->pictures->targets.end()) {
+        if (status == VA_STATUS_SUCCESS) xdesk_va_written(c, it->second);
+        d->pictures->targets.erase(it);
+    }
+    return status;
+}
+VAStatus destroy_context(VADriverContextP c, VAContextID context) {
+    auto d = driver(c);
+    auto status = d->original->vaDestroyContext(c, context);
+    if (status == VA_STATUS_SUCCESS) {
+        std::lock_guard<std::mutex> guard(d->pictures->lock);
+        d->pictures->targets.erase(context);
+    }
+    return status;
+}
 VAStatus destroy(VADriverContextP c, VASurfaceID *ids, int n) {
     auto status = driver(c)->original->vaDestroySurfaces(c, ids, n);
     if (status == VA_STATUS_SUCCESS && n > 0) xdesk_va_destroy(c, ids, n);
@@ -45,6 +80,7 @@ VAStatus destroy(VADriverContextP c, VASurfaceID *ids, int n) {
 VAStatus terminate(VADriverContextP c) {
     auto d = driver(c);
     c->vtable = d->original;
+    delete d->pictures;
     delete d;
     xdesk_va_destroy(c, nullptr, 0);
     return c->vtable->vaTerminate(c);
@@ -61,11 +97,16 @@ extern "C" VAStatus __vaDriverInit_1_23(VADriverContextP c) {
     if (!init) return VA_STATUS_ERROR_OPERATION_FAILED;
     auto d = new(std::nothrow) Driver;
     if (!d) return VA_STATUS_ERROR_ALLOCATION_FAILED;
+    d->pictures = new(std::nothrow) Pictures;
+    if (!d->pictures) { delete d; return VA_STATUS_ERROR_ALLOCATION_FAILED; }
     auto status = init(c);
-    if (status != VA_STATUS_SUCCESS) { delete d; return status; }
+    if (status != VA_STATUS_SUCCESS) { delete d->pictures; delete d; return status; }
     d->original = c->vtable;
     d->table = *c->vtable;
     d->table.vaTerminate = terminate;
+    d->table.vaBeginPicture = begin;
+    d->table.vaEndPicture = end;
+    d->table.vaDestroyContext = destroy_context;
     d->table.vaCreateSurfaces2 = create;
     d->table.vaExportSurfaceHandle = export_fd;
     d->table.vaDestroySurfaces = destroy;
