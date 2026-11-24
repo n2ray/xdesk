@@ -13,6 +13,12 @@ xdesk_chrome_zink() {
     [ -r "$local_dir/libxdesk-dri3.so" ] && [ -r "$local_dir/gl/libGL.so.1" ] &&
         [ -r "$local_dir/va/termuxva_drv_video.so" ] &&
         [ -r /usr/lib/aarch64-linux-gnu/libGL.so.1 ] || { unset local_dir; return 0; }
+    if [ -z "${VK_DRIVER_FILES+x}${VK_ICD_FILENAMES+x}${VK_ADD_DRIVER_FILES+x}" ] &&
+        [ -r "$local_dir/vk/freedreno_icd.aarch64.json" ] && [ -r "$local_dir/vk/libvulkan_freedreno.so" ]; then
+        # The private driver waits upstream only after a real X11 pixmap flip.
+        export XDESK_WSI_WAIT_FLIP="${XDESK_WSI_WAIT_FLIP:-true}"
+        export VK_DRIVER_FILES="$local_dir/vk/freedreno_icd.aarch64.json"
+    fi
     export LD_PRELOAD="$local_dir/libxdesk-dri3.so${LD_PRELOAD:+:$LD_PRELOAD}"
     export LD_LIBRARY_PATH="$local_dir/gl${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export LIBVA_DRIVERS_PATH="$local_dir/va"

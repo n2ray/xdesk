@@ -54,6 +54,11 @@ apt-get install -y -q --reinstall util-linux
 test -s /usr/lib/xdesk/chrome-zink/gl/libgallium-27.0.0-devel.so &&
     ok "private Kopper driver packaged" || no "private Kopper driver missing"
 
+private_vk=/usr/lib/xdesk/chrome-zink/vk
+test -s "$private_vk/libvulkan_freedreno.so" &&
+    grep -Fq "$private_vk/libvulkan_freedreno.so" "$private_vk/freedreno_icd.aarch64.json" &&
+    ok "private Turnip and manifest packaged" || no "private Turnip missing or incorrect manifest"
+
 # The GPU: lfdevs' Mesa over Ubuntu's as soon as Ubuntu's comes, pinned, and back after a reinstall of Ubuntu's
 apt-get install -y -q --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 mesa-vulkan-drivers
 kgsl() { grep -aq /dev/kgsl-3d0 /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.so; }
