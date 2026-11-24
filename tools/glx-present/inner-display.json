@@ -1,0 +1,66 @@
+[
+  {
+    "phase": 1,
+    "res": "640x480",
+    "route": "copy",
+    "submit": 579,
+    "present": 579,
+    "steady_fps": 60.0,
+    "p95_ms": 16.65,
+    "over25_pct": 0.0,
+    "rgb_counts": [
+      163283,
+      42454,
+      34183
+    ],
+    "changed_pixels": 87256
+  },
+  {
+    "phase": 2,
+    "res": "640x480",
+    "route": "direct",
+    "submit": 594,
+    "present": 593,
+    "steady_fps": 60.01,
+    "p95_ms": 16.65,
+    "over25_pct": 0.0,
+    "rgb_counts": [
+      163875,
+      42739,
+      33667
+    ],
+    "changed_pixels": 81731
+  },
+  {
+    "phase": 3,
+    "res": "2560x1600",
+    "route": "copy",
+    "submit": 591,
+    "present": 591,
+    "steady_fps": 59.78,
+    "p95_ms": 24.97,
+    "over25_pct": 0.39,
+    "rgb_counts": [
+      147586,
+      40815,
+      26139
+    ],
+    "changed_pixels": 15948
+  },
+  {
+    "phase": 4,
+    "res": "2560x1600",
+    "route": "direct",
+    "submit": 596,
+    "present": 596,
+    "steady_fps": 60.01,
+    "p95_ms": 16.65,
+    "over25_pct": 0.0,
+    "rgb_counts": [
+      147252,
+      40177,
+      26065
+    ],
+    "changed_pixels": 79753
+  }
+]

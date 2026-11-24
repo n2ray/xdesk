@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.n2ray.xdesk.x11" split="xdesk_glx_diag" android:isFeatureSplit="true" android:versionCode="800" android:versionName="0.8.0-beta.1">
+ <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="34"/>
+ <application android:hasCode="false">
+  <activity android:name="android.app.NativeActivity" android:process=":glxprobe" android:exported="true" android:permission="android.permission.DUMP" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+   <meta-data android:name="android.app.lib_name" android:value="cubeprobe"/>
+  </activity>
+ </application>
+</manifest>
