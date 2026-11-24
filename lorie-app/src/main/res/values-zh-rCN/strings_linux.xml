@@ -58,6 +58,9 @@
     <string name="xd_bl_x_timeout">X 服务器 20 秒内没起来，请看日志</string>
     <string name="xd_bl_session_failed">桌面一启动就退出了（%1$d），请看日志</string>
     <string name="xd_bl_running_notification">内置 Linux 正在运行</string>
+    <string name="xd_bl_wake_hold">保持唤醒</string>
+    <string name="xd_bl_wake_release">释放唤醒</string>
+    <string name="xd_bl_wake_held">保持唤醒中：熄屏后桌面和 SSH 照常运行</string>
     <string name="xd_bl_added">已添加</string>
     <string name="xd_bl_added_note">已经在你的设备里：在设备列表里点它，可以启动、停止、重置或删除</string>
     <string name="xd_bl_manage">打开它的设备页</string>

@@ -58,6 +58,9 @@
     <string name="xd_bl_x_timeout">The X server did not start in 20 seconds, see the logs</string>
     <string name="xd_bl_session_failed">The desktop ended at once (%1$d), see the logs</string>
     <string name="xd_bl_running_notification">Built-in Linux is running</string>
+    <string name="xd_bl_wake_hold">Keep awake</string>
+    <string name="xd_bl_wake_release">Release</string>
+    <string name="xd_bl_wake_held">Kept awake: the desktop and SSH keep running with the screen off</string>
     <string name="xd_bl_added">Added</string>
     <string name="xd_bl_added_note">It is in your devices: tap it there to start, stop, reset or remove it</string>
     <string name="xd_bl_manage">Open its device page</string>

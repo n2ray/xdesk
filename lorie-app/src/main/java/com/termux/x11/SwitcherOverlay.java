@@ -291,7 +291,9 @@ final class SwitcherOverlay {
             float wDp = width / density, hDp = height / density;
             // ExtHome.dc.html: 72 dp icons in 8 columns. ExtLaunchpad.dc.html: 96 dp in 4. Both follow the screen's own
             // factor below, capped on small and large screens. Labels 13/15, the small line 12.
-            this.iconDp = clamp(Math.min(wDp, hDp) * (home ? 0.10f : 0.135f), 56, home ? 84 : 104);
+            // The same size whether it is the home or the Launchpad over a desktop or a Mac (owner, 24 November: over a
+            // Mac the Launchpad's 104 dp icons came out huge beside the home's)
+            this.iconDp = clamp(Math.min(wDp, hDp) * 0.10f, 56, 84);
             float labelDp = clamp(iconDp * 0.16f, 12, 16);
             icon = dp(iconDp);
             label = dp(labelDp);
