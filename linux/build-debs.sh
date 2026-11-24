@@ -56,3 +56,5 @@ for p in "$SRC"/packages/*/; do
     dpkg-deb --root-owner-group -Zxz -b "$t" "$OUT/${name}_${v}_${arch}.deb" >/dev/null
     echo "$OUT/${name}_${v}_${arch}.deb"
 done
+
+sh "$SRC/xfwm4/build.sh" "$OUT"
