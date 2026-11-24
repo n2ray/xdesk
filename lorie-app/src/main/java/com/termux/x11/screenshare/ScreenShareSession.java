@@ -53,6 +53,7 @@ public final class ScreenShareSession {
     public interface PictureListener {
         /** The first picture since attach(), this long after it (or after the connect, for the first). */
         void firstFrame(long ms);
+        default void cursorChanged(CursorUpdates.Shape shape) {}
     }
 
     private static ScreenShareSession current;
@@ -117,6 +118,7 @@ public final class ScreenShareSession {
     /** The Surface and listener of the screen showing the picture: the decoder is made again for them on fallback. */
     private Surface surface;
     private PictureListener shown;
+    private CursorUpdates.Shape cursorShape;
     private Runnable firstFrameTimer;
     /** testCodec when this connection started: a test set later is the next connection's, not this one's. */
     private String test;
@@ -188,6 +190,7 @@ public final class ScreenShareSession {
         if (closed) return;
         this.surface = surface;
         shown = l;
+        l.cursorChanged(cursorShape);
         picture = l;
         attachNs = System.nanoTime();
         pictureSeen = false;
@@ -509,6 +512,12 @@ public final class ScreenShareSession {
         mediaFailed = false;
         try (DirectSession d = new DirectSession(context, host.host, width, height, sizing.desktopW, sizing.desktopH)) {
             if (closed) return;
+            d.cursorChanged = shape -> ui.post(() -> {
+                if (closed || my != attempt) return;
+                cursorShape = shape;
+                if (shown != null) shown.cursorChanged(shape);
+            });
+            d.cursorChanged.accept(null);
             d.hevc = hevc;
             if (host.measure && my == 1) calibrate(d.host);
             try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video, d.host)) {
