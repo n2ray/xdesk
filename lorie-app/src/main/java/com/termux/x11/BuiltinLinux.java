@@ -122,6 +122,12 @@ final class BuiltinLinux {
                 else if ("gpu-off".equals(cmd)) bl.setGpu(false);
                 else if ("bench".equals(cmd)) bl.bench();
                 else if ("run".equals(cmd)) bl.runDebugScript(i.getBooleanExtra("stats", false));
+                // Screen Sharing's codec test (HEVC fallback): avc, hevc-config-fail, hevc-no-output; none for normal
+                else if ("ss-codec".equals(cmd)) {
+                    String m = i.getStringExtra("mode");
+                    com.termux.x11.screenshare.ScreenShareSession.testCodec = m == null || m.equals("none") ? null : m;
+                    Log.i(TAG, "screen sharing codec test: " + com.termux.x11.screenshare.ScreenShareSession.testCodec);
+                }
                 Log.i(TAG, "debug " + cmd + ": " + bl.state() + " " + bl.progress() + " " + bl.error());
             }
         };
