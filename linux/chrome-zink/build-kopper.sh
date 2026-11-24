@@ -2,7 +2,7 @@
 # Build the Chrome-private Gallium library against the same Ubuntu arm64 ABI as the image.
 set -eu
 revision=2118596185954c118db2eb42598972e2b56af672
-wsi_revision=5bc820780d20fa26f198b1c136cca6f032f4fb60
+turnip_revision=87e393bb0366ed4b15548aeb43c4ed2270fc4836
 out=$1
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -21,10 +21,12 @@ git init -q "$work/mesa"
 git -C "$work/mesa" fetch --quiet --depth=1 https://github.com/n2ray/mesa-for-android-container.git "$revision"
 git -C "$work/mesa" checkout --quiet --detach FETCH_HEAD
 test "$(git -C "$work/mesa" rev-parse HEAD)" = "$revision"
-# The WSI fix and the existing Gallium pin were reviewed independently.
-git -C "$work/mesa" fetch --quiet --depth=1 https://github.com/n2ray/mesa-for-android-container.git "$wsi_revision"
-git -C "$work/mesa" diff "$revision" "$wsi_revision" -- src/vulkan/wsi/wsi_common_x11.c > "$work/wsi.patch"
-git -C "$work/mesa" apply "$work/wsi.patch"
+# Keep the private Gallium pin and apply the reviewed X11 Present and KGSL clock changes.
+git -C "$work/mesa" fetch --quiet --depth=1 https://github.com/n2ray/mesa-for-android-container.git "$turnip_revision"
+git -C "$work/mesa" diff "$revision" "$turnip_revision" -- \
+    src/vulkan/wsi/wsi_common_x11.c src/freedreno/vulkan/tu_device.cc \
+    src/freedreno/vulkan/tu_device.h src/freedreno/vulkan/tu_knl_kgsl.cc > "$work/turnip.patch"
+git -C "$work/mesa" apply "$work/turnip.patch"
 meson setup "$work/build" "$work/mesa" -Dplatforms=x11,wayland \
     -Dgallium-drivers=zink,freedreno -Dfreedreno-kmds=kgsl -Dvulkan-drivers=freedreno \
     -Dgallium-va=disabled -Dllvm=disabled -Degl=enabled -Dglx=dri -Dglvnd=enabled -Dbuildtype=release
