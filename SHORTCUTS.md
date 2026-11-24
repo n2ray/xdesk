@@ -41,6 +41,8 @@ XDesk 只占 **Ctrl+Alt+字母** 这一组，其余按键原样交给外屏上�
 
 macOS 原生屏幕共享：键鼠归外屏、手机窗口有焦点且注入服务可用时，外接键盘由 Mac 接管。Alt+Tab 和 ⌘Tab 均发送 ⌘Tab。Ctrl+空格和 ⌘+空格随「修饰键翻译」设置发送，由 Mac 的输入源和 Spotlight 设置决定动作。Ctrl+Alt+M 交还手机后，Android 恢复处理实体键盘。
 
+Linux 整个桌面接管外接键盘时，Alt+Tab 和 Alt+Shift+Tab 交给 XFCE 切换窗口。Ctrl+Alt+M 把键鼠交还手机。单个 Linux 窗口继续使用原来的切换逻辑。
+
 ## 4. 鼠标
 
 | 动作 | 作用 | 状态 |
