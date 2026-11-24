@@ -1,0 +1,17 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Direct hardware buffer test</title>
+<style>
+body { margin:20px; background:#143047; color:white; font:24px sans-serif }
+#chip { width:64px; height:42px; background:#ffab00 }
+</style>
+<div>Android Chrome · XDesk glamor</div>
+<p>Direct AHardwareBuffer</p><p id="clock"></p><div id="chip"></div>
+<script>
+function tick(t) {
+  document.querySelector('#clock').textContent = (t/1000).toFixed(2) + ' s';
+  document.querySelector('#chip').style.transform = 'translateX('+((t/4)%360)+'px)';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
