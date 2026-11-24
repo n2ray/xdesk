@@ -1,0 +1,18 @@
+name: Compile private GLX for device test
+on:
+  push:
+    branches: [diag/ubuntu-video-cadence]
+permissions:
+  contents: read
+jobs:
+  shim:
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get -qq update && apt-get install -y g++ libgl-dev libxrandr-dev libva-dev libxcb-dri3-dev libdrm-dev
+      - run: bash linux/chrome-zink/build.sh out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: private-gl
+          path: out/gl/libGL.so.1
