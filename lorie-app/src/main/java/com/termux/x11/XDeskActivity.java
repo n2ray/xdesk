@@ -4879,7 +4879,7 @@ public class XDeskActivity extends Activity {
 
     /** The target composes what a physical keyboard types: a Mac or the X side with its own input method. */
     private boolean rawKeys() {
-        return client == MacLogin.INPUT || (capturedMac != null && !keyboardOpen && !softKeysAsked) || macRawKeys() || xRawKeys();
+        return client == MacLogin.INPUT || macRawKeys() || xRawKeys();
     }
 
     /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
@@ -4898,11 +4898,13 @@ public class XDeskActivity extends Activity {
         capturedMac = next;
         capturedKeys = next == null ? null : new IMacKeyboard.Stub() {
             private final java.util.HashSet<Integer> modifiers = new java.util.HashSet<>();
+            private final java.util.HashSet<Integer> shortcutKeys = new java.util.HashSet<>();
             @Override public void reset() { ui.post(() -> {
                 if (capturedKeys != this) return;
                 keysIn.cancel();
                 next.releaseAll();
                 modifiers.clear();
+                shortcutKeys.clear();
                 heldModifiers.clear();
             }); }
             @Override public void key(String device, int scan, int value) { ui.post(() -> {
@@ -4919,14 +4921,24 @@ public class XDeskActivity extends Activity {
                 int meta = 0;
                 for (int held : modifiers) meta |= InputInjector.metaOf(held);
                 int code = InputInjector.KEYS.getOrDefault(scan, KeyEvent.KEYCODE_UNKNOWN);
-                if (android.os.Build.VERSION.SDK_INT >= 33 && code != KeyEvent.KEYCODE_UNKNOWN) {
+                if (android.os.Build.VERSION.SDK_INT >= 33 && scan != 43 && code != KeyEvent.KEYCODE_UNKNOWN) {
                     int mapped = keyboard.getKeyCodeForKeyLocation(code);
                     if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
                 }
                 long now = android.os.SystemClock.uptimeMillis();
                 KeyEvent event = new KeyEvent(now, now, value == 0 ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN,
                         code, value == 2 ? 1 : 0, meta, keyboard.getId(), scan, 0, InputDevice.SOURCE_KEYBOARD);
-                physicalKey(event, false);
+                // Send ordinary typing through the focused window and its input method, as before capture.
+                // Keep command chords out of the IME, including their releases if the modifier lifted first.
+                if (value == 1 && (event.isCtrlPressed() || event.isMetaPressed()
+                        || (meta & KeyEvent.META_ALT_LEFT_ON) != 0
+                        || scan == 15 && event.isAltPressed()
+                        || scan == 29 || scan == 97 || scan == 125 || scan == 126 || scan == 56)) {
+                    shortcutKeys.add(scan);
+                }
+                boolean shortcut = value == 0 ? shortcutKeys.remove(scan) : shortcutKeys.contains(scan);
+                if (shortcut) physicalKey(event, false);
+                else getWindow().injectInputEvent(event);
             }); }
         };
         apps.macKeyboard(capturedKeys);
