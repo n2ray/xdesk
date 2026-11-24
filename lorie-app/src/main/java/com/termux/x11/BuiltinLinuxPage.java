@@ -158,14 +158,24 @@ final class BuiltinLinuxPage {
      */
     private void fillSsh() {
         LinearLayout ssh = s.section(content, c.getString(R.string.xd_bl_ssh_section));
-        s.switchRow(ssh, c.getString(R.string.xd_bl_ssh), c.getString(R.string.xd_bl_ssh_note), bl.sshEnabled(), bl::setSsh);
+        int phase = bl.sshPhase();
+        if (phase != BuiltinLinux.SSH_IDLE) {
+            // Between states the switch waits (owner, 24 November): it turns once SSH has really stopped or started
+            s.infoRow(ssh, c.getString(R.string.xd_bl_ssh), c.getString(R.string.xd_bl_ssh_note),
+                c.getString(phase == BuiltinLinux.SSH_STOPPING ? R.string.xd_bl_ssh_stopping : R.string.xd_bl_ssh_starting));
+        } else {
+            s.switchRow(ssh, c.getString(R.string.xd_bl_ssh), c.getString(R.string.xd_bl_ssh_note), bl.sshEnabled(), bl::setSsh);
+        }
         if (!bl.sshEnabled()) return;
         boolean up = bl.sshRunning();
         s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_where), addresses(),
             c.getString(up ? R.string.xd_dev_state_running : R.string.xd_dev_state_not_running));
         // The system stopped: SSH alone, without starting the desktop
-        if (!up && bl.state() == BuiltinLinux.State.STOPPED)
+        if (phase == BuiltinLinux.SSH_IDLE && !up && bl.state() == BuiltinLinux.State.STOPPED)
             s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_start), c.getString(R.string.xd_bl_ssh_start_note), "", bl::startSsh);
+        // Running: again with the keys and settings of now, the open sessions ended
+        if (phase == BuiltinLinux.SSH_IDLE && up)
+            s.linkRow(ssh, c.getString(R.string.xd_bl_ssh_restart), c.getString(R.string.xd_bl_ssh_restart_note), "", bl::restartSsh);
         s.switchRow(ssh, c.getString(R.string.xd_bl_ssh_lan), c.getString(R.string.xd_bl_ssh_lan_note), bl.sshLan(), bl::setSshLan);
         java.util.List<String> keys = bl.sshKeys();
         if (keys.isEmpty()) s.infoRow(ssh, c.getString(R.string.xd_bl_ssh_no_keys), c.getString(R.string.xd_bl_ssh_no_keys_note), null);

@@ -66,7 +66,11 @@
     <string name="xd_bl_ssh_note">工具和 AI 管理这个系统的入口。端口 8222，只认密钥，不用密码</string>
     <string name="xd_bl_ssh_where">地址</string>
     <string name="xd_bl_ssh_start">只启动 SSH</string>
-    <string name="xd_bl_ssh_start_note">不开桌面；上面的「停止」会一起停掉</string>
+    <string name="xd_bl_ssh_start_note">不开桌面，没接屏幕也行；要停 SSH 用上面的开关</string>
+    <string name="xd_bl_ssh_restart">重新启动 SSH</string>
+    <string name="xd_bl_ssh_restart_note">断开现有的连接，按现在的公钥和设置重新开始</string>
+    <string name="xd_bl_ssh_starting">正在启动…</string>
+    <string name="xd_bl_ssh_stopping">正在停止…</string>
     <string name="xd_bl_ssh_lan">也允许局域网和 Tailscale 连接</string>
     <string name="xd_bl_ssh_lan_note">关：只有这台手机（127.0.0.1）能连。开：其他设备有已授权的密钥也能登录</string>
     <string name="xd_bl_ssh_no_keys">还没有公钥</string>

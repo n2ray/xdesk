@@ -702,9 +702,30 @@ final class BuiltinLinux {
 
     /** On: the server starts now (alone, or next to the desktop). Off: it stops, with its sessions. */
     void setSsh(boolean on) {
-        c.getSharedPreferences(PREFS, 0).edit().putBoolean(PREF_SSH, on).apply();
-        if (on) startSsh();
-        else stopSsh();
+        if (on) {
+            c.getSharedPreferences(PREFS, 0).edit().putBoolean(PREF_SSH, true).apply();
+            startSsh();
+        } else {
+            // Off once its processes are gone, not before (owner, 24 November): the page says it is stopping meanwhile
+            stopSsh(() -> c.getSharedPreferences(PREFS, 0).edit().putBoolean(PREF_SSH, false).apply());
+        }
+    }
+
+    /** SSH between states: starting (until sshd runs) or stopping (until its processes are gone); else IDLE. */
+    static final int SSH_IDLE = 0, SSH_STARTING = 1, SSH_STOPPING = 2;
+    private volatile int sshPhase = SSH_IDLE;
+
+    int sshPhase() { return sshPhase; }
+
+    private void setSshPhase(int p) {
+        sshPhase = p;
+        changed();
+    }
+
+    /** sshd itself is up (not only Burrow's process that starts it). */
+    private boolean sshdUp() {
+        for (int p : ours()) if (cmdline(p).startsWith("sshd")) return true;
+        return false;
     }
 
     /** Also from the local network and Tailscale (else 127.0.0.1 only): a running server restarts with it. */
@@ -767,7 +788,8 @@ final class BuiltinLinux {
 
     /** Starts the SSH server if it is on and not running: with the desktop, or alone (the system in the background). */
     void startSsh() {
-        if (!installed() || !sshEnabled() || sshRunning()) return;
+        if (!installed() || !sshEnabled() || sshRunning() || sshPhase != SSH_IDLE) return;
+        setSshPhase(SSH_STARTING);
         new Thread(() -> {
             try {
                 try {
@@ -789,37 +811,67 @@ final class BuiltinLinux {
                     "XDESK_SSH_PORT=" + SSH_PORT, "XDESK_SSH_LAN=" + (sshLan() ? "1" : "0")));
                 b.environment().remove("LD_PRELOAD");
                 b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "ssh.log")));
-                b.start();
-                appendLog("SSH started (port " + SSH_PORT + (sshLan() ? ", network" : ", this phone only") + ")");
-                // sshd takes a moment; the page then shows it running
-                main.postDelayed(this::changed, 1500);
-            } catch (IOException e) {
+                Process sshd = b.start();
+                // Starting until sshd itself runs (or its script gave up: no openssh-server, a bad configuration)
+                for (int i = 0; i < 100 && !sshdUp() && sshd.isAlive(); i++) Thread.sleep(100);
+                appendLog(sshdUp() ? "SSH started (port " + SSH_PORT + (sshLan() ? ", network" : ", this phone only") + ")"
+                    : "SSH did not start (ssh.log says why)");
+            } catch (IOException | InterruptedException e) {
                 fail(c.getString(R.string.xd_bl_ssh_failed), e);
-                changed();
+            } finally {
+                setSshPhase(SSH_IDLE);
             }
         }, "builtin-linux-ssh").start();
     }
 
     /** Stops the SSH server and its sessions; the desktop stays. Without a desktop the app stops keeping it alive. */
     void stopSsh() {
+        stopSsh(null);
+    }
+
+    /**
+     * Stopping until every SSH process is gone: TERM, up to 5 s, then KILL and up to 2 s more. @param then runs once
+     * they are (on this thread), before the page is told.
+     */
+    private void stopSsh(final Runnable then) {
+        if (sshPhase == SSH_STOPPING) return;
+        setSshPhase(SSH_STOPPING);
         new Thread(() -> {
-            List<Integer> pids = new ArrayList<>();
-            for (int p : ours()) if (isSsh(p)) pids.add(p);
-            for (int p : pids) kill(p, OsConstants.SIGTERM);
-            try { Thread.sleep(500); } catch (InterruptedException ignored) { }
-            for (int p : ours()) if (isSsh(p)) kill(p, OsConstants.SIGKILL);
-            if (!pids.isEmpty()) appendLog("SSH stopped");
-            if (!running()) c.stopService(new Intent(c, LinuxService.class));
-            changed();
+            try {
+                boolean any = endSsh();
+                if (any) appendLog("SSH stopped");
+                if (!running()) c.stopService(new Intent(c, LinuxService.class));
+                if (then != null) then.run();
+            } finally {
+                setSshPhase(SSH_IDLE);
+            }
         }, "builtin-linux-ssh-stop").start();
     }
 
-    private void restartSsh() {
+    /** Ends the SSH server and its sessions, waiting for them; true when there were any. */
+    private boolean endSsh() {
+        List<Integer> pids = new ArrayList<>();
+        for (int p : ours()) if (isSsh(p)) pids.add(p);
+        if (pids.isEmpty()) return false;
+        for (int p : pids) kill(p, OsConstants.SIGTERM);
+        for (int i = 0; i < 50 && sshRunning(); i++) {
+            try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+        }
+        for (int p : ours()) if (isSsh(p)) kill(p, OsConstants.SIGKILL);
+        for (int i = 0; i < 20 && sshRunning(); i++) {
+            try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+        }
+        return true;
+    }
+
+    /** Running SSH again with the keys and settings of now (the page's Restart, the network switch). */
+    void restartSsh() {
+        if (sshPhase != SSH_IDLE) return;
+        setSshPhase(SSH_STOPPING);
         new Thread(() -> {
-            for (int p : ours()) if (isSsh(p)) kill(p, OsConstants.SIGTERM);
-            for (int i = 0; i < 20 && sshRunning(); i++) {
-                try { Thread.sleep(100); } catch (InterruptedException e) { break; }
-            }
+            endSsh();
+            appendLog("SSH restarting");
+            sshPhase = SSH_IDLE;
             startSsh();
         }, "builtin-linux-ssh-restart").start();
     }
