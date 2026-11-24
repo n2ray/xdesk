@@ -446,7 +446,8 @@ final class ItemCard {
             s.groupLabel(into, d.name);
             LinearLayout rows = s.card(into);
             String macId = devices.deviceOf(key).substring(Devices.MAC.length());
-            macMode = MacModeRow.add(c, s, macId, rows, refill);
+            // The picture's quality is the whole Mac's: on its device page only, not on one of its apps' cards
+            // (owner, 24 November)
             s.valueRow(rows, str(R.string.xd_mac_stream), str(R.string.xd_mac_stream_note), "", () -> MacStreamSettings.open(c, macId));
             // The Mac's menus as a list on the phone (MACMENU.md §5), while the Mac is connected
             if (d.state == Devices.State.CONNECTED)

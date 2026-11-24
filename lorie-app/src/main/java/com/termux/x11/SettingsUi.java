@@ -102,6 +102,21 @@ final class SettingsUi {
         d.getWindow().setStatusBarColor(Style.BACKGROUND);
         d.getWindow().setNavigationBarColor(Style.BACKGROUND);
         d.getWindow().setWindowAnimations(android.R.style.Animation_Activity);
+        // Edge to edge, the camera's cutout too: in landscape the page left the cutout's strip to what was behind it
+        // (owner, 24 November). Its own background goes everywhere; the content keeps clear of the bars, the cutout
+        // and the keyboard (ADJUST_RESIZE does nothing once the window draws under the bars)
+        WindowManager.LayoutParams attrs = d.getWindow().getAttributes();
+        attrs.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        d.getWindow().setAttributes(attrs);
+        d.getWindow().setDecorFitsSystemWindows(false);
+        d.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Style.BACKGROUND));
+        root.setOnApplyWindowInsetsListener((v, in) -> {
+            android.graphics.Insets bars = in.getInsets(android.view.WindowInsets.Type.systemBars()
+                | android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets keys = in.getInsets(android.view.WindowInsets.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, keys.bottom));
+            return android.view.WindowInsets.CONSUMED;
+        });
         // 设置里的页都在这里登记，XDesk 关设置时一起关，不管是谁打开的
         openPages.add(d);
         d.show();

@@ -297,14 +297,16 @@ final class SwitcherOverlay {
             label = dp(labelDp);
             small = dp(12);
             gap = dp(8);
-            cellW = dp(iconDp * (home ? 1.8f : 2.29f));
             // The 8 dp ring round the icon, 8 above the name, the name and the note, and the cell's own padding
             cellH = icon + Math.round(label * 1.4f + small * 1.4f) + dp(34);
+            // Square cells: the same distance between columns as between rows, the tiles filling each page from its
+            // top left (owner, 24 November: wide cells spread a row across the screen like justified text)
+            cellW = cellH;
             // Room above the grid: margin, search, tabs, the device line; below it the home's clock or the hints
             int top = dp(home ? 28 + 42 + 14 + 32 + 8 + 30 + 16 : 40 + 42 + 14 + 32 + 8 + 30 + 16 + 30 + 10);
             int below = dp(home ? 96 : 44);
-            int want = home ? 8 : 4;
-            float frac = home ? 0.82f : 0.69f;
+            int want = MAX_COLUMNS;
+            float frac = 0.82f;
             columns = Math.max(3, Math.min(want, Math.round(width * frac / cellW)));
             rows = Math.max(1, Math.min(MAX_ROWS, (height - top - below) / cellH));
 
