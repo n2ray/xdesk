@@ -26,6 +26,8 @@ jobs:
       run: docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/test-xdesk-core.sh /src/debs
     - name: Test, system from an old image
       run: docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/test-xdesk-core.sh /src/debs old
+    - name: Ubuntu's xfwm4 against XDesk's
+      run: docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh -c 'apt-get update -q >/dev/null && sh /src/linux/xfwm4/check-ubuntu.sh /src/debs'
     - name: Repository
       run: |
         docker run --rm --platform linux/arm64 -v "$PWD:/src" ubuntu:26.04 sh -c '
