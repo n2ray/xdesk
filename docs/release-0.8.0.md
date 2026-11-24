@@ -1,0 +1,73 @@
+# XDesk 0.8.0
+
+[中文说明见下方](#xdesk-080-1)
+
+One app, three things on the big screen: your **Android apps**, a **built-in Ubuntu** desktop, and your **Mac**. XDesk is the display, keyboard and mouse for each, and the phone is the touchpad. Linux no longer needs Termux: XDesk now runs its own Ubuntu, tuned for the phone's GPU. It installs over 0.7.0.
+
+**Requirements stay**: Android 11 or newer, no root. The built-in Linux needs about 470 MB to download once. Termux keeps working as before, for those who already use it or want another distribution.
+
+## Built-in Linux: Ubuntu 26.04 inside XDesk
+- **Devices › Add › Linux › Built-in Linux**: Ubuntu 26.04 LTS with XFCE and a terminal, run by XDesk itself (no Termux, no root). Install anything with apt; Firefox and Google Chrome come from their makers' repositories (Ubuntu's are snaps).
+- **The phone's GPU**: OpenGL through Zink on Turnip on Snapdragon (Adreno). Google Chrome gets its own tuned path on the Adreno 830 (Snapdragon 8 Elite): WebGL and the desktop around 57 fps at 2560×1600.
+- **Hardware video in Chrome** through the phone's own decoders: VP9, H.264 (B-frames too), HEVC and AV1, up to 4K60. Check it on any video: `chrome://media-internals` shows `VaapiVideoDecoder`.
+- **Sound**, the phone's keyboard and input method, the Launchpad and Dock, and Linux programs as apps (open one program without the whole desktop).
+- **Runs beside Termux**: both desktops can run at once, the big screen shows one, switch in the Launchpad.
+- **SSH access** (off by default): keys only, this phone only unless you allow the network. With SSH on, the system runs without a screen, and stopping the desktop keeps SSH.
+- **Stays current by itself**: XDesk's part of the system comes from XDesk's own signed apt repository and is updated when XDesk needs it; the rest is yours to `sudo apt upgrade`. Broke it? **Reset** gives a fresh system in a minute and keeps your home (`/home/xdesk`).
+- The desktop runs as the user `xdesk`, with a `sudo` that asks no password.
+
+## Your Mac, without installing anything on it
+- **Devices › Add › Mac › Screen Sharing**: macOS's own Screen Sharing in its high-performance mode (Apple silicon, macOS 14 or newer, Screen Sharing on). One virtual display at the size of your screen, with **sound**, the Mac's pointer, native right-click and scrolling.
+- **HEVC** when the phone can decode it in hardware, else H.264; if HEVC fails it falls back to H.264 by itself, without asking for the password again.
+- **Desktop scaling**: native, 1.33× or 2× HiDPI, remembered per Mac, for any screen shape.
+- The password is asked in XDesk's own card, on the big screen when you open the Mac there; it can be kept behind your fingerprint.
+- [Sill](https://github.com/Saffsanity/sill) stays the other way in, window by window.
+
+## Everything else
+- **Faster X**: a refresh arriving during a draw is no longer lost, late window updates are shown in the same refresh, and glamor skips a CPU cache flush it did not need (the app's CPU at 500 fish: about 38% → 8% of a core).
+- **Devices**: one entry per Linux, each with the right page; Stop ends the Linux that is on the big screen.
+- **Mac password card over an Android app**: the keyboard and mouse now reach it.
+- **The phone's keyboard** no longer pops up when you stop a Linux desktop.
+- **Texts**: the built-in Linux and Termux are told apart everywhere; XDesk's own input service is called that, not "built-in".
+
+## Known limits
+- Google Chrome only runs with `--no-sandbox` in the built-in Linux (Android takes away what its sandbox needs). XDesk's launcher sets it.
+- The tuned Chrome path is for the Adreno 830; other Snapdragons use the general GPU path, other GPUs software rendering.
+- Chrome with video and a heavy WebGL page at once still drops frames.
+
+---
+
+# XDesk 0.8.0
+
+一个 App，大屏上三样东西：**安卓应用**、**内置 Ubuntu** 桌面、你的 **Mac**。XDesk 给它们当显示器和键鼠，手机当触摸板。用 Linux 不再需要 Termux：XDesk 自己带了一个 Ubuntu，按手机的 GPU 调过。可直接覆盖安装 0.7.0。
+
+**要求不变**：Android 11 以上，不要 root。内置 Linux 第一次要下载约 470 MB。Termux 照常能用，给已经在用、或者想用别的发行版的人。
+
+## 内置 Linux：XDesk 里的 Ubuntu 26.04
+- **设备 › 添加 › Linux › 内置 Linux**：Ubuntu 26.04 LTS，带 XFCE 桌面和终端，由 XDesk 自己运行（不要 Termux，不要 root）。想装什么用 apt 装；Firefox 和 Google Chrome 已配好官方源（Ubuntu 自带的是 snap）。
+- **手机的 GPU**：OpenGL 经 Zink 走 Turnip，骁龙（Adreno）可用。Google Chrome 在 Adreno 830（骁龙 8 Elite）上有专门调过的路径：2560×1600 下 WebGL 和桌面约 57 帧。
+- **Chrome 视频硬解**，用手机自己的解码器：VP9、H.264（含 B 帧）、HEVC、AV1，最高 4K60。随便放个视频，`chrome://media-internals` 里显示 `VaapiVideoDecoder` 就是硬解。
+- **声音**、手机键盘和输入法、启动台和 Dock，Linux 程序可以单独当应用打开（不开整个桌面）。
+- **和 Termux 并存**：两边桌面可以同时运行，外接屏一次显示一个，在启动台切换。
+- **SSH 访问**（默认关）：只认密钥，默认只听本机，允许后才听局域网。开着 SSH 时不接屏幕也能运行，停止桌面也会保留 SSH。
+- **自己保持更新**：系统里属于 XDesk 的部分来自 XDesk 自己签名的 apt 源，XDesk 需要时自动升级；其余由你 `sudo apt upgrade`。折腾坏了？**重置**一分钟回到新系统，主目录 `/home/xdesk` 保留。
+- 桌面以用户 `xdesk` 运行，`sudo` 不问密码。
+
+## 你的 Mac，不用在上面装任何东西
+- **设备 › 添加 › Mac › 屏幕共享**：用 macOS 自带的「屏幕共享」高性能模式（Apple 芯片、macOS 14 以上、打开屏幕共享）。一块和你屏幕一样大的虚拟显示器，带**声音**、Mac 的光标、原生右键和滚动。
+- 手机能硬解时用 **HEVC**，否则 H.264；HEVC 出问题会自己换成 H.264，不用再输密码。
+- **桌面缩放**：原生、1.33×、2× HiDPI，每台 Mac 记住，任何比例的屏幕都行。
+- 密码在 XDesk 自己的卡片里输，在大屏上打开 Mac 时卡片就在大屏上；可以用指纹保存。
+- [Sill](https://github.com/Saffsanity/sill) 仍是另一种方式，按窗口来。
+
+## 其他
+- **X 更快**：画的过程中到来的刷新不再丢，迟到的窗口变化在同一次刷新里补上，glamor 省掉一次不必要的 CPU 缓存刷新（500 条鱼时 App 进程 CPU 约 38% → 8%）。
+- **设备**：每个 Linux 只列一次，点进去是它自己的页面；「停止」停的是大屏上正在显示的那个。
+- **安卓应用上弹出的 Mac 密码卡**：键鼠现在能用了。
+- 停止 Linux 桌面时，手机上不再自己弹出键盘。
+- **文字**：处处分清内置 Linux 和 Termux；注入服务改叫「自带注入服务」，不再也叫「内置」。
+
+## 已知限制
+- 内置 Linux 里的 Google Chrome 只能用 `--no-sandbox` 运行（它的沙盒需要的东西被安卓拿掉了），XDesk 的启动方式已经带上。
+- 调过的 Chrome 路径只针对 Adreno 830；其他骁龙走通用 GPU 路径，其他 GPU 用软件渲染。
+- Chrome 同时放视频和跑很重的 WebGL 页面时，仍会掉帧。
