@@ -4,6 +4,8 @@
 #include <cstring>
 #include <chrono>
 #include <numeric>
+#include <set>
+#include <string>
 #include <X11/extensions/Xrandr.h>
 #include <dlfcn.h>
 #include <linux/dma-buf.h>
@@ -227,9 +229,35 @@ extern "C" Bool glXGetMscRateOML(Display *dpy, GLXDrawable drawable, int32_t *n,
     return original ? original(dpy, drawable, n, d) : False;
 }
 
+// The built-in X server answers NotifyMSC with the time of the query. ANGLE
+// would treat that as the physical vblank timestamp and continually move
+// Chrome's video selection deadline. Use its timer on the tested 60 Hz mode.
+extern "C" const char *glXQueryExtensionsString(Display *dpy, int screen) {
+    static auto original = symbol<decltype(&glXQueryExtensionsString)>("glXQueryExtensionsString");
+    const char *extensions = original(dpy, screen);
+    if (!extensions || screen != DefaultScreen(dpy)) return extensions;
+
+    const std::string token = "GLX_OML_sync_control";
+    std::string list = " " + std::string(extensions) + " ";
+    auto pos = list.find(" " + token + " ");
+    if (pos == std::string::npos) return extensions;
+    RefreshRate rate = desktop_rate(dpy);
+    if (!rate.denominator) return extensions;
+    double hz = static_cast<double>(rate.numerator) / rate.denominator;
+    if (hz < 59.8 || hz > 60.2) return extensions;
+
+    list.erase(pos + 1, token.size() + 1);
+    // GLX owns the returned string. Keep its storage valid across threads
+    // and later queries, including queries for a different display.
+    static std::mutex strings_lock;
+    static std::set<std::string> strings;
+    std::lock_guard<std::mutex> guard(strings_lock);
+    return strings.insert(list.substr(1, list.size() - 2)).first->c_str();
+}
+
 extern "C" __GLXextFuncPtr glXGetProcAddressARB(const GLubyte *name) {
 #define WRAPPED(fn) if (!strcmp(reinterpret_cast<const char *>(name), #fn)) return reinterpret_cast<__GLXextFuncPtr>(&fn)
-    WRAPPED(glXGetMscRateOML);
+    WRAPPED(glXQueryExtensionsString); WRAPPED(glXGetMscRateOML);
     WRAPPED(glXCreatePixmap); WRAPPED(glXDestroyPixmap); WRAPPED(glXBindTexImageEXT);
     WRAPPED(glXReleaseTexImageEXT); WRAPPED(glBindTexture); WRAPPED(glDeleteTextures);
     WRAPPED(glXDestroyContext);
