@@ -5,7 +5,7 @@
 # Only xdesk-core, from XDesk's repository alone, so a check costs a dpkg query and an update a small download; the
 # rest of the system (Ubuntu, Mesa) is the user's apt upgrade. A newer app may need a newer xdesk-core, never the
 # other way: xdesk-core does not know the app's version.
-NEED=7    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
+NEED=9    # = Version in linux/packages/xdesk-core/DEBIAN/control when this app needs it
 SRC=/etc/apt/sources.list.d/xdesk.sources
 KEY=/usr/share/keyrings/xdesk-archive.asc
 REPO_URL=https://n2ray.github.io/xdesk-apt
