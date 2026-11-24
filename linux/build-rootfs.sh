@@ -31,18 +31,19 @@ installed > /tmp/post-build-packages
 LC_ALL=C comm -13 /tmp/pre-build-packages /tmp/post-build-packages | xargs -r apt-get purge -y
 rm -f /tmp/pre-build-packages /tmp/post-build-packages
 apt-get install -y /tmp/debs/xdesk-core_*_arm64.deb
-rm -rf /tmp/debs
 
 apt-get update
 # Greybird and elementary-xfce: the theme and icons XFCE's own settings name (without them it falls back to bare GTK)
 apt-get install -y --no-install-recommends \
-    xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar \
+    /tmp/debs/xfwm4_*_arm64.deb xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar \
     greybird-gtk-theme elementary-xfce-icon-theme tango-icon-theme adwaita-icon-theme librsvg2-common \
     dbus-x11 at-spi2-core xkb-data x11-xserver-utils x11-utils xdg-utils \
     pulseaudio pulseaudio-utils pavucontrol \
     locales fonts-noto-cjk fonts-dejavu-core \
     mesa-utils mesa-vulkan-drivers libgl1-mesa-dri vulkan-tools \
     nano less procps psmisc file unzip xz-utils wget openssh-server
+
+rm -rf /tmp/debs
 
 # English by default; other languages are the user's to add (language-pack-*, update-locale): translations are kept
 locale-gen en_US.UTF-8

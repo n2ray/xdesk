@@ -44,7 +44,11 @@ apt-get update -q 2>&1 | tee /tmp/upd; ! grep '^[EW]:' /tmp/upd | grep -qv n2ray
 apt-cache policy snapd | grep -q 'Candidate: (none)' && ok "no snapd" || no "snapd installable"
 
 # The trigger: xfwm4's defaults get vblank off however xfwm4 comes; then the packaged sudos stay below ours
-apt-get install -y -q --no-install-recommends xfwm4 sudo-rs sudo
+if [ "${2:-}" = old ]; then
+    apt-get install -y -q --no-install-recommends xfwm4
+fi
+apt-get install -y -q --no-install-recommends "$1"/xfwm4_*_arm64.deb sudo-rs sudo
+[ "$(dpkg-query -W -f='${Version}' xfwm4)" = "$(dpkg-deb -f "$1"/xfwm4_*_arm64.deb Version)" ] || no "xfwm4 version"
 grep -qx 'vblank_mode=off' /usr/share/xfwm4/defaults && ok "xfwm4 vblank off (trigger)" || no "vblank: $(grep vblank /usr/share/xfwm4/defaults)"
 [ "$(readlink -f /usr/bin/sudo)" = /usr/lib/xdesk/sudo ] && ok "sudo still ours" || no "sudo is $(readlink -f /usr/bin/sudo)"
 for f in xfce4-power-manager light-locker xscreensaver blueman; do [ ! -e /etc/xdg/autostart/$f.desktop ] || no "autostart $f"; done
