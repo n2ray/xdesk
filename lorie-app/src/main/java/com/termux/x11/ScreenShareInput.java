@@ -148,15 +148,25 @@ final class ScreenShareInput implements InputSink {
     }
 
     @Override public void key(int scan, boolean isDown) {
-        if (isDown) log("key " + scan + " sym 0x" + Integer.toHexString(keysym(scan)) + (session() == null ? " (no session)" : ""));
+        if (isDown && scan == 15) {
+            // Keep Command down across repeated Tab presses until the physical switcher modifier lifts.
+            for (int modifier : new int[]{56, 100, 125, 126}) {
+                Integer original = down.get(modifier);
+                if (original == null || original == 0xffeb || original == 0xffec) continue;
+                int command = modifier == 100 || modifier == 126 ? 0xffec : 0xffeb;
+                down.put(modifier, command);
+                if (!down.containsValue(original)) keysym(false, original);
+                if (java.util.Collections.frequency(down.values(), command) == 1) keysym(true, command);
+            }
+        }
         if (isDown) {
             int sym = keysym(scan);
             if (sym == 0 || down.containsKey(scan)) return;
             down.put(scan, sym);
-            keysym(true, sym);
+            if (java.util.Collections.frequency(down.values(), sym) == 1) keysym(true, sym);
         } else {
             Integer sym = down.remove(scan);
-            if (sym != null) keysym(false, sym);
+            if (sym != null && !down.containsValue(sym)) keysym(false, sym);
         }
     }
 

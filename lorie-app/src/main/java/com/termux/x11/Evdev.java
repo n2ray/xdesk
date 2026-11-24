@@ -30,6 +30,7 @@ final class Evdev {
     static native int capabilities(int fd);
     static native String name(int fd);
     /** Exclusive access. Ends by itself when the process exits, so a crash cannot leave the user without a keyboard. */
+    static native boolean grabIdleKeyboard(int fd);
     static native int grab(int fd, boolean on);
     /** Waits for events and returns how many were put in out, or a negative errno. */
     static native int poll(int[] fds, int count, int[] out, int timeoutMs);

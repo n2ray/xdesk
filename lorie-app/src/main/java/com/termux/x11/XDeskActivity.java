@@ -1805,6 +1805,7 @@ public class XDeskActivity extends Activity {
     @Override protected void onStop() {
         super.onStop();
         activityStarted = false;
+        syncMacKeyboard();
         if (discoveryHeld) {
             discoveryHeld = false;
             MacDiscovery.release();
@@ -1832,6 +1833,7 @@ public class XDeskActivity extends Activity {
         super.onStart();
         removeCover();
         activityStarted = true;
+        syncMacKeyboard();
         // Only a saved Mac with a recognition key can be found at home: no such Mac, no mDNS
         if (!discoveryHeld && MacStore.anyFindableAtHome(this)) {
             discoveryHeld = true;
@@ -1927,6 +1929,7 @@ public class XDeskActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
+        syncMacKeyboard();
         if (focus) {
             if (padFullscreen || gamepadShown) applyImmersive();
             // 选择界面开着时焦点归搜索框
@@ -4756,6 +4759,7 @@ public class XDeskActivity extends Activity {
     private void updateCapture() {
         if (keyView == null) return;
         boolean home = updateHome();
+        syncMacKeyboard();
         // Everything that changes what is on the external screen ends up here: the Dock follows it
         updateExternalDock();
         applyCapture(home);
@@ -4879,7 +4883,69 @@ public class XDeskActivity extends Activity {
     }
 
     /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
+    private ScreenShareInput capturedMac;
+    private IMacKeyboard capturedKeys;
+
+    private void syncMacKeyboard() {
+        ScreenShareInput next = activityStarted && hasWindowFocus() && client instanceof ScreenShareInput
+                && !apps.isActive() && ownership.forwarded() && !phoneTyping() ? (ScreenShareInput) client : null;
+        if (capturedMac == next) return;
+        if (capturedMac != null) {
+            keysIn.cancel();
+            capturedMac.releaseAll();
+            heldModifiers.clear();
+        }
+        capturedMac = next;
+        capturedKeys = next == null ? null : new IMacKeyboard.Stub() {
+            private final java.util.HashSet<Integer> modifiers = new java.util.HashSet<>();
+            private final java.util.HashSet<Integer> shortcutKeys = new java.util.HashSet<>();
+            @Override public void reset() { ui.post(() -> {
+                if (capturedKeys != this) return;
+                keysIn.cancel();
+                next.releaseAll();
+                modifiers.clear();
+                shortcutKeys.clear();
+                heldModifiers.clear();
+            }); }
+            @Override public void key(String device, int scan, int value) { ui.post(() -> {
+                if (capturedKeys != this) return;
+                InputDevice keyboard = null;
+                for (int id : InputDevice.getDeviceIds()) {
+                    InputDevice d = InputDevice.getDevice(id);
+                    if (d != null && d.isExternal() && device.equals(d.getName())) { keyboard = d; break; }
+                }
+                if (keyboard == null) return;
+                if (InputInjector.metaOf(scan) != 0) {
+                    if (value == 0) modifiers.remove(scan); else modifiers.add(scan);
+                }
+                int meta = 0;
+                for (int held : modifiers) meta |= InputInjector.metaOf(held);
+                int code = InputInjector.KEYS.getOrDefault(scan, KeyEvent.KEYCODE_UNKNOWN);
+                if (android.os.Build.VERSION.SDK_INT >= 33 && scan != 43 && code != KeyEvent.KEYCODE_UNKNOWN) {
+                    int mapped = keyboard.getKeyCodeForKeyLocation(code);
+                    if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
+                }
+                long now = android.os.SystemClock.uptimeMillis();
+                KeyEvent event = new KeyEvent(now, now, value == 0 ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN,
+                        code, value == 2 ? 1 : 0, meta, keyboard.getId(), scan, 0, InputDevice.SOURCE_KEYBOARD);
+                // Send ordinary typing through the focused window and its input method, as before capture.
+                // Keep command chords out of the IME, including their releases if the modifier lifted first.
+                if (value == 1 && (event.isCtrlPressed() || event.isMetaPressed()
+                        || (meta & KeyEvent.META_ALT_LEFT_ON) != 0
+                        || scan == 15 && event.isAltPressed()
+                        || scan == 29 || scan == 97 || scan == 125 || scan == 126 || scan == 56)) {
+                    shortcutKeys.add(scan);
+                }
+                boolean shortcut = value == 0 ? shortcutKeys.remove(scan) : shortcutKeys.contains(scan);
+                if (shortcut) physicalKey(event, false);
+                else getWindow().injectInputEvent(event);
+            }); }
+        };
+        apps.macKeyboard(capturedKeys);
+    }
+
     private void syncKeyMode() {
+        syncMacKeyboard();
         if (keyView == null) return;
         boolean was = keyView.bridge().raw(), raw = rawKeys();
         keyView.bridge().setRaw(raw);
@@ -5699,6 +5765,7 @@ public class XDeskActivity extends Activity {
     private void setTarget(InputSink s) {
         if (client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown()) beforeSwitcher = s;
         else client = s;
+        syncMacKeyboard();
     }
 
     /** With a content that draws itself (a Mac) on top: the Android app was in front of the X desktop under it, not behind. */

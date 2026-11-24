@@ -7,6 +7,7 @@ import com.termux.x11.IInjectorListener;
 
 /** The privileged input session. Runs as the shell user, through Shizuku or ShellServer, see InjectorService. */
 interface IInjector {
+    void macKeyboard(com.termux.x11.IMacKeyboard target) = 53;
     /** Called by Shizuku when the service is removed. The id is fixed by Shizuku's API. */
     void destroy() = 16777114;
 
