@@ -122,24 +122,27 @@ final class ScreenShareInput implements InputSink {
         button(button, false);
     }
 
-    /**
-     * Screen Sharing scrolls about a line per wheel event, and a mouse notch (or a touchpad's step) is one: three
-     * each, as a Mac's own wheel goes (owner, 22 November: it scrolled, very slowly).
-     */
-    private static final int EVENTS_PER_STEP = 3;
+    // A wheel button pulse arrives in AppKit as one precise scrolling point.
+    private static final int POINTS_PER_NOTCH = 36;
+    private final io.github.n2ray.xdesk.input.WheelSteps wheelPoints = new io.github.n2ray.xdesk.input.WheelSteps();
 
-    @Override public void scroll(int dy, int dx) {
-        step(dy > 0 ? 16 : 8, Math.abs(dy) * EVENTS_PER_STEP);
-        step(dx > 0 ? 64 : 32, Math.abs(dx) * EVENTS_PER_STEP);
+    @Override public boolean scrollFine(float dy, float dx, int phase) {
+        if (phase != io.github.n2ray.xdesk.input.Input.WHEEL) return false;
+        if (wheelPoints.add(dx * POINTS_PER_NOTCH, dy * POINTS_PER_NOTCH))
+            scrollPoints(wheelPoints.y(), wheelPoints.x());
+        return true;
     }
 
-    private void step(int wheel, int n) {
-        for (int i = 0; i < Math.min(48, n); i++) {
-            ScreenShareSession s = session();
-            if (s == null) return;
-            s.pointer(buttons | wheel, x, y);
-            s.pointer(buttons, x, y);
-        }
+    // Touchpad gestures still use the router's whole-step fallback.
+    @Override public void scroll(int dy, int dx) {
+        scrollPoints(dy * 3, dx * 3);
+    }
+
+    private void scrollPoints(int dy, int dx) {
+        ScreenShareSession s = session();
+        if (s == null) return;
+        if (dy != 0) s.wheel(buttons, dy > 0 ? 16 : 8, x, y, Math.abs(dy));
+        if (dx != 0) s.wheel(buttons, dx > 0 ? 64 : 32, x, y, Math.abs(dx));
     }
 
     /** Says what arrives (lengths and codes, never the text): the phone's keyboard reaching a Mac or not. */
@@ -195,6 +198,7 @@ final class ScreenShareInput implements InputSink {
 
     /** Lets go of every key and button held (the input leaves, the screen goes). */
     void releaseAll() {
+        wheelPoints.clear();
         for (int sym : down.values()) keysym(false, sym);
         down.clear();
         if (buttons != 0) {

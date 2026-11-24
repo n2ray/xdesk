@@ -35,9 +35,15 @@ final class DirectSession implements Closeable {
     Cipher pointerCipher;
     KeyframeFeedback feedback;
     private final ScheduledExecutorService probes = Executors.newSingleThreadScheduledExecutor();
-    void pointer(int mask,int x,int y)throws Exception {
+    private byte[] pointerEvent(int mask,int x,int y)throws Exception {
         byte[] event=((ByteBuffer)ByteBuffer.allocate(16).position(10)).put((byte)255).put((byte)mask).putShort((short)x).putShort((short)y).array();
-        encrypted(cat(b(16,0),pointerCipher.doFinal(event)));
+        return cat(b(16,0),pointerCipher.doFinal(event));
+    }
+    void pointer(int mask,int x,int y)throws Exception {
+        encrypted(pointerEvent(mask,x,y));
+    }
+    void wheel(int buttons,int wheel,int x,int y,int points)throws Exception {
+        records.sendPairs(pointerEvent(buttons | wheel,x,y), pointerEvent(buttons,x,y), points);
     }
     void key(boolean down,int sym)throws Exception {
         byte[] event=ByteBuffer.allocate(16).put((byte)255).put((byte)(down?1:0)).putInt(sym).array();

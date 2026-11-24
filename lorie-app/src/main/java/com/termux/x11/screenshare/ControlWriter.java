@@ -1,5 +1,6 @@
 package com.termux.x11.screenshare;
 
+import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -18,12 +19,26 @@ final class ControlWriter {
     private int serial;
 
     ControlWriter(OutputStream sink, byte[] material) throws GeneralSecurityException {
-        this.sink = new DataOutputStream(sink);
+        this.sink = new DataOutputStream(new BufferedOutputStream(sink));
         cbc.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(material, 0, 16, "AES"),
                  new IvParameterSpec(material, 16, 16));
     }
 
     synchronized void send(byte[] payload) throws IOException {
+        writeRecord(payload);
+        sink.flush();
+    }
+
+    // Each transition retains its record serial and CBC state. Flush the wheel report as a batch.
+    synchronized void sendPairs(byte[] down, byte[] up, int count) throws IOException {
+        for (int i = 0; i < count; i++) {
+            writeRecord(down);
+            writeRecord(up);
+        }
+        sink.flush();
+    }
+
+    private void writeRecord(byte[] payload) throws IOException {
         int blocks = (2 + payload.length + 20 + 15) / 16;
         if (blocks > 4095) throw new IOException("control message exceeds record limit");
         ByteBuffer clear = ByteBuffer.allocate(blocks * 16);
