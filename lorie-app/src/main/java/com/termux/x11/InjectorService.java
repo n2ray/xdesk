@@ -1078,10 +1078,24 @@ public class InjectorService extends IInjector.Stub {
         sessionWatcher.start();
     }
 
+    private MacKeyboard macKeys;
+
+    @Override public synchronized void macKeyboard(IMacKeyboard target) {
+        if (macKeys != null) {
+            macKeys.finish();
+            macKeys = null;
+        }
+        if (target != null && !sessionOver && linked) {
+            macKeys = new MacKeyboard(target);
+            macKeys.start();
+        }
+    }
+
     @Override public void shutdown() {
         synchronized (appDisplays) {
             sessionOver = true;
         }
+        macKeyboard(null);
         releaseDisplays();
         EvdevReader r;
         synchronized (this) {

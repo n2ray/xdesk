@@ -86,7 +86,7 @@ final class InputInjector {
             83, KeyEvent.KEYCODE_NUMPAD_DOT, 96, KeyEvent.KEYCODE_NUMPAD_ENTER, 98, KeyEvent.KEYCODE_NUMPAD_DIVIDE, 55, KeyEvent.KEYCODE_NUMPAD_MULTIPLY);
     }
 
-    private static int metaOf(int code) {
+    static int metaOf(int code) {
         switch (code) {
             case 42: return KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON;
             case 54: return KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_RIGHT_ON;

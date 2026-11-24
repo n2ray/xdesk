@@ -306,7 +306,10 @@ final class AppSession {
                         i.attach(fromInjector, context.getPackageName());
                         i.setEnabled(false);
                         ui.post(() -> {
-                            if (injector == i) audioRoute.attachInjector(i);
+                            if (injector == i) {
+                                audioRoute.attachInjector(i);
+                                if (macKeyboard != null) macKeyboard(macKeyboard);
+                            }
                         });
                         clearLeftDensities(i, Display.INVALID_DISPLAY);
                         applyDesktopDensity(i);
@@ -1031,6 +1034,16 @@ final class AppSession {
     }
 
     /** Shizuku 或内置服务就绪就连上，声音输出才选得准。没有就算了：Termux 桌面不需要它们，也不弹授权。 */
+    private IMacKeyboard macKeyboard;
+    void macKeyboard(IMacKeyboard target) {
+        macKeyboard = target;
+        IInjector i = injector;
+        if (i != null) {
+            try { i.macKeyboard(target); }
+            catch (RemoteException e) { Log.w(TAG, "Mac keyboard capture", e); }
+        } else if (target != null) connectForAudio();
+    }
+
     void connectForAudio() {
         if (injector != null || audioBinding || active || stopping || !injectorReady()) return;
         audioBinding = true;

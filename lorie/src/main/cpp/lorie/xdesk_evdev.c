@@ -77,6 +77,20 @@ JNIEXPORT jstring JNICALL Java_com_termux_x11_Evdev_name(JNIEnv *env, jclass cls
     return (*env)->NewStringUTF(env, name);
 }
 
+// When Ctrl+Alt+M gives the keyboard back to the Mac, Android still needs the
+// releases of the keys it received. Only keep the grab if the device is idle.
+JNIEXPORT jboolean JNICALL Java_com_termux_x11_Evdev_grabIdleKeyboard(JNIEnv *env, jclass cls, jint fd) {
+    unsigned long keys[BIT_WORDS(KEY_MAX)] = {0};
+    if (ioctl(fd, EVIOCGRAB, 1) < 0) return JNI_FALSE;
+    if (ioctl(fd, EVIOCGKEY(sizeof keys), keys) >= 0) {
+        size_t i = 0;
+        while (i < sizeof keys / sizeof keys[0] && !keys[i]) ++i;
+        if (i == sizeof keys / sizeof keys[0]) return JNI_TRUE;
+    }
+    ioctl(fd, EVIOCGRAB, 0);
+    return JNI_FALSE;
+}
+
 JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_grab(JNIEnv *env, jclass cls, jint fd, jboolean on) {
     return ioctl(fd, EVIOCGRAB, on ? 1 : 0) < 0 ? -errno : 0;
 }
