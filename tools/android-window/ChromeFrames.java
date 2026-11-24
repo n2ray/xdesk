@@ -6,7 +6,10 @@ import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
 import android.media.ImageReader;
-import android.net.Uri;
+import android.content.AttributionSource;
+import android.os.Binder;
+import android.os.IBinder;
+import java.lang.reflect.Method;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -15,18 +18,29 @@ import java.time.Duration;
 /** Shell-side test producer. stdout reports the virtual display ID for am start --display. */
 public final class ChromeFrames {
     public static void main(String[] args) throws Exception {
-        try { run(); } catch (Throwable e) { e.printStackTrace(System.out); System.exit(1); }
+        try { run(args.length == 1 && "--keep-open".equals(args[0])); } catch (Throwable e) { e.printStackTrace(System.out); System.exit(1); }
         System.exit(0);
     }
 
-    private static void run() throws Exception {
+    private static void run(boolean keepOpen) throws Exception {
         Looper.prepareMainLooper();
         Class<?> thread = Class.forName("android.app.ActivityThread");
         Object instance = thread.getMethod("systemMain").invoke(null);
         Context system = (Context)thread.getMethod("getSystemContext").invoke(instance);
         Context shell = system.createPackageContext("com.android.shell", 0);
         DisplayManager manager = DisplayManager.class.getDeclaredConstructor(Context.class).newInstance(shell);
-        final Uri target = Uri.parse("content://io.github.n2ray.xdesk.x11.androidframe");
+        // app_process runs as shell; use the same provider API as "adb shell content".
+        String authority = "io.github.n2ray.xdesk.x11.androidframe";
+        Object am = Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
+        Class<?> iam = Class.forName("android.app.IActivityManager");
+        IBinder token = new Binder();
+        Object holder = iam.getMethod("getContentProviderExternal", String.class, int.class, IBinder.class, String.class)
+                .invoke(am, authority, 0, token, "ChromeFrames");
+        Object provider = holder.getClass().getField("provider").get(holder);
+        Method call = Class.forName("android.content.IContentProvider").getMethod("call", AttributionSource.class,
+                String.class, String.class, String.class, Bundle.class);
+        AttributionSource attribution = new AttributionSource.Builder(android.os.Process.myUid())
+                .setPackageName("com.android.shell").build();
         final int width = 720, height = 480;
         try (ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3,
                 HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)) {
@@ -39,7 +53,7 @@ public final class ChromeFrames {
                 System.out.flush();
                 long start = SystemClock.elapsedRealtime();
                 int count = 0;
-                while (SystemClock.elapsedRealtime() - start < 18000) {
+                while (keepOpen || SystemClock.elapsedRealtime() - start < 18000) {
                     try (Image image = reader.acquireLatestImage()) {
                         if (image == null) { Thread.sleep(4); continue; }
                         try (SyncFence fence = image.getFence(); HardwareBuffer buffer = image.getHardwareBuffer()) {
@@ -47,7 +61,7 @@ public final class ChromeFrames {
                                 throw new IllegalStateException("frame acquire fence timeout");
                             Bundle args = new Bundle();
                             args.putParcelable("buffer", buffer);
-                            if (shell.getContentResolver().call(target, "frame", null, args) == null)
+                            if (call.invoke(provider, attribution, authority, "frame", null, args) == null)
                                 throw new IllegalStateException("no consumer reply");
                             count++;
                         }
@@ -55,6 +69,8 @@ public final class ChromeFrames {
                 }
                 System.out.println("ACKNOWLEDGED " + count);
             } finally { display.release(); }
+        } finally {
+            iam.getMethod("removeContentProviderExternal", String.class, IBinder.class).invoke(am, authority, token);
         }
     }
 }

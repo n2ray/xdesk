@@ -6,6 +6,7 @@ import os
 import select
 import socket
 import struct
+import sys
 import time
 import zlib
 
@@ -70,6 +71,7 @@ def main():
     check = function(cb, "xcb_request_check", P, P, N)
     copy = function(x, "XCopyArea", I, P, U, U, P, I, I, N, N, I, I)
     free = function(x, "XFreePixmap", I, P, U)
+    keep_open = "--keep-open" in sys.argv
     count, distinct, last = 0, set(), None
     start = None
     with socket.socket(socket.AF_UNIX) as listener:
@@ -81,6 +83,9 @@ def main():
             try:
                 client, _ = listener.accept()
             except TimeoutError:
+                if keep_open and count:
+                    sync(display, 0)
+                    continue
                 break
             with client:
                 if not select.select([client], [], [], 2)[0]:
@@ -99,7 +104,7 @@ def main():
                 sync(display, 0)  # Imported pixmap destruction completes GPU reads before ACK.
                 client.sendall(b"\x01")
                 count += 1
-                if count % 10 == 1:
+                if not keep_open and count % 10 == 1:
                     last = snapshot(x, display, win)
                     distinct.add(hashlib.sha256(last).digest())
                 end = time.monotonic()
@@ -107,7 +112,8 @@ def main():
     if not count:
         raise RuntimeError("no imported frames")
     print("FRAMES", count, "SECONDS", round(end-start, 3), "DISTINCT_SAMPLES", len(distinct), flush=True)
-    print("PNG=" + base64.b64encode(png(last)).decode())
+    if last is not None:
+        print("PNG=" + base64.b64encode(png(last)).decode())
 
 
 if __name__ == "__main__":
