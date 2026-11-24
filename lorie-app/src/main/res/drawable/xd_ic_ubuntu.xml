@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The built-in Linux's whole desktop (Switchboard): Ubuntu's circle of friends, white on its orange, as a tile -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#E95420"
+        android:pathData="M10,0h28a10,10 0 0 1 10,10v28a10,10 0 0 1 -10,10h-28a10,10 0 0 1 -10,-10v-28a10,10 0 0 1 10,-10z"/>
+    <!-- the ring: three arcs of radius 10.5 around (24,24), each stopping short of a head -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="4.2" android:fillColor="#00000000"
+        android:pathData="M24.37,13.51 A10.5,10.5 0 0 0 14.73,19.07 M14.73,28.93 A10.5,10.5 0 0 0 24.37,34.49 M32.9,29.56 A10.5,10.5 0 0 0 32.9,18.44"/>
+    <!-- the three heads, at 180, 60 and 300 degrees, 15.2 from the centre -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M5,24a3.8,3.8 0 1 0 7.6,0a3.8,3.8 0 1 0 -7.6,0z M27.8,10.84a3.8,3.8 0 1 0 7.6,0a3.8,3.8 0 1 0 -7.6,0z M27.8,37.16a3.8,3.8 0 1 0 7.6,0a3.8,3.8 0 1 0 -7.6,0z"/>
+</vector>

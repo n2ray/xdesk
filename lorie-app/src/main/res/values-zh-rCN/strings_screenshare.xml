@@ -30,9 +30,9 @@
     <string name="xd_ss_stage_media">正在准备画面和声音</string>
     <string name="xd_ss_stage_picture">正在等第一帧画面</string>
     <string name="xd_ss_scale">桌面缩放</string>
-    <string name="xd_ss_scale_native">原生大小</string>
-    <string name="xd_ss_scale_moderate">适度放大（约 1.33×）</string>
-    <string name="xd_ss_scale_large">大字（2×）</string>
+    <string name="xd_ss_scale_native">原生</string>
+    <string name="xd_ss_scale_moderate">1.33×</string>
+    <string name="xd_ss_scale_large">2×</string>
     <string name="xd_ss_scale_result">桌面 %1$s · 视频 %2$s</string>
     <string name="xd_ss_scale_hidpi">HiDPI</string>
     <string name="xd_ss_scale_upscaled">降低分辨率后放大显示</string>
@@ -46,5 +46,20 @@
     <string name="xd_ss_password_invalidated">保存的密码已无法解锁（指纹或锁屏有变动），请重新输入</string>
     <string name="xd_ss_forget">忘记已保存的密码</string>
     <string name="xd_ss_ended">%1$s 已断开：%2$s</string>
+    <string name="xd_ss_section_connection">连接</string>
+    <string name="xd_ss_host_short">地址</string>
+    <string name="xd_ss_account_short">账户</string>
+    <string name="xd_ss_name_short">名称</string>
+    <string name="xd_ss_not_set">未填</string>
+    <string name="xd_ss_section_password">密码</string>
+    <string name="xd_ss_password_none">没有保存：连接时输入</string>
+    <string name="xd_ss_password_saved">已保存：加密存放，用指纹或锁屏密码解锁</string>
+    <string name="xd_ss_section_test">测试</string>
+    <string name="xd_ss_remove_row">删除这台 Mac</string>
+    <string name="xd_ss_remove_title">删除 %1$s？</string>
+    <string name="xd_ss_remove_message">从 XDesk 删除它的设置和保存的密码，正在连着的会断开。Mac 本身不受影响。</string>
+    <string name="xd_ss_next">下一步</string>
+    <string name="xd_ss_add">添加</string>
+    <string name="xd_ss_save">保存</string>
     <string name="xd_about_licenses">开源许可</string>
 </resources>

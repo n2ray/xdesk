@@ -698,8 +698,8 @@ public class XDeskActivity extends Activity {
             Devices.get(XDeskActivity.this).setLinuxRunning(null);
             Devices.get(XDeskActivity.this).setXIme(false);
             desktopGone();
-            String stopped = getString(byUser ? R.string.xd_desktop_ended : R.string.xd_desktop_crashed);
-            Toast.makeText(XDeskActivity.this, stopped, Toast.LENGTH_LONG).show();
+            // One card says it (it was a toast and a fixed line, the same thing twice)
+            setLauncherNotice(null);  // every stop says so, also the same words as last time
             setLauncherNotice(getString(byUser ? R.string.xd_desktop_ended_notice : R.string.xd_desktop_crashed_notice));
         }
         @Override public void onDesktopStopFinished() {
@@ -1971,13 +1971,19 @@ public class XDeskActivity extends Activity {
 
     /** The same, with what a tap does (the no-display line opens the receiver picker on both launchers). */
     private void setLauncherNotice(String text, Runnable action) {
+        boolean changed = text != null ? !text.equals(launcherNotice) : launcherNotice != null;
         launcherNotice = text;
         launcherNoticeAction = text != null ? action : null;
-        // The console already says "no external screen" in its banner (which opens the receiver picker too): the same
-        // line under it was said twice. The Launchpad has no banner and keeps the line.
-        if (chooser != null) chooser.setNotice(getString(NO_DISPLAY).equals(text) ? null : text);
-        if (launchpad != null) launchpad.setNotice(text, launcherNoticeAction);
+        // A card that drops in and goes by itself (PhoneNotice), not a line fixed on the launchers (owner, 24 November).
+        // Only a new text shows it: the launchers being built again (a turn, a new mode) call this with the same one
+        if (chooser != null) chooser.setNotice(null);
+        if (launchpad != null) launchpad.setNotice(null, null);
+        if (phoneNotice == null) phoneNotice = new PhoneNotice(this);
+        if (text == null) phoneNotice.hide();
+        else if (changed) phoneNotice.show(text, launcherNoticeAction);
     }
+
+    private PhoneNotice phoneNotice;
 
     /**
      * Settings › General › Phone interface was changed: the running screen (its Launchpad pill) is built again at
@@ -2654,7 +2660,7 @@ public class XDeskActivity extends Activity {
         screens.removeView(launchpad);
         launchpad = new LaunchpadView(this, launchpadHost);
         launchpad.setVisibility(shown ? View.VISIBLE : View.GONE);
-        launchpad.setNotice(launcherNotice, launcherNoticeAction);
+        launchpad.setNotice(null, null);  // notices are cards (PhoneNotice), not a line
         screens.addView(launchpad, at, new FrameLayout.LayoutParams(-1, -1));
         updateChooserTop();
         updateAudioChip();

@@ -666,6 +666,21 @@ final class Switchboard {
     }
 
     /** The whole desktop of a Linux environment: the only thing that starts its XFCE session (DEVICES.md §2). */
+    private static Bitmap ubuntu;
+
+    /** The built-in Linux's whole-desktop icon (res/drawable/xd_ic_ubuntu.xml), drawn once. */
+    private static Bitmap ubuntuIcon(Context c) {
+        if (ubuntu == null) {
+            android.graphics.drawable.Drawable d = c.getDrawable(com.termux.x11.app.R.drawable.xd_ic_ubuntu);
+            int px = 144;
+            Bitmap b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, px, px);
+            d.draw(new android.graphics.Canvas(b));
+            ubuntu = b;
+        }
+        return ubuntu;
+    }
+
     private Item sessionItem(String name) {
         Item i = item(ChooserView.recentKey(name), str(R.string.xd_dev_whole_desktop));
         i.desktop = i.session = true;
@@ -674,6 +689,8 @@ final class Switchboard {
             i.running = st == BuiltinLinux.State.RUNNING && BuiltinLinux.get(c).wholeDesktop();
             i.where = str(R.string.xd_bl_title);
             i.title = i.label + " · " + i.where;
+            // Its own icon, Ubuntu's, instead of the generic desktop tile (owner, 24 November)
+            i.bitmap = ubuntuIcon(c);
             if (st == BuiltinLinux.State.STOPPING) i.state = str(R.string.xd_chooser_stopping_short);
             else if (st == BuiltinLinux.State.STARTING) i.state = str(R.string.xd_dev_state_starting);
             else if (!i.current && i.running) i.state = str(R.string.xd_content_running);

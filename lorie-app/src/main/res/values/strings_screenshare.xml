@@ -31,8 +31,8 @@
     <string name="xd_ss_stage_picture">Waiting for the first picture</string>
     <string name="xd_ss_scale">Desktop scaling</string>
     <string name="xd_ss_scale_native">Native</string>
-    <string name="xd_ss_scale_moderate">Larger (1.33×)</string>
-    <string name="xd_ss_scale_large">Large text (2×)</string>
+    <string name="xd_ss_scale_moderate">1.33×</string>
+    <string name="xd_ss_scale_large">2×</string>
     <string name="xd_ss_scale_result">Desktop %1$s · video %2$s</string>
     <string name="xd_ss_scale_hidpi">HiDPI</string>
     <string name="xd_ss_scale_upscaled">lower resolution, enlarged on the screen</string>
@@ -46,5 +46,20 @@
     <string name="xd_ss_password_invalidated">The kept password can no longer be unlocked (fingerprints or screen lock changed): type it again</string>
     <string name="xd_ss_forget">Forget the kept password</string>
     <string name="xd_ss_ended">%1$s disconnected: %2$s</string>
+    <string name="xd_ss_section_connection">Connection</string>
+    <string name="xd_ss_host_short">Address</string>
+    <string name="xd_ss_account_short">Account</string>
+    <string name="xd_ss_name_short">Name</string>
+    <string name="xd_ss_not_set">Not set</string>
+    <string name="xd_ss_section_password">Password</string>
+    <string name="xd_ss_password_none">Not kept: typed at each connection</string>
+    <string name="xd_ss_password_saved">Kept, encrypted, unlocked with your fingerprint or screen lock</string>
+    <string name="xd_ss_section_test">Testing</string>
+    <string name="xd_ss_remove_row">Remove this Mac</string>
+    <string name="xd_ss_remove_title">Remove %1$s?</string>
+    <string name="xd_ss_remove_message">Its settings and kept password are removed from XDesk, and a connection to it ends. The Mac itself is not touched.</string>
+    <string name="xd_ss_next">Next</string>
+    <string name="xd_ss_add">Add</string>
+    <string name="xd_ss_save">Save</string>
     <string name="xd_about_licenses">Licences</string>
 </resources>

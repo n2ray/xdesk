@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.termux.x11;
 
-import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
-import android.text.InputType;
-import android.widget.CheckBox;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.view.View;
-import android.view.Display;
 import android.hardware.display.DisplayManager;
+import android.text.InputType;
+import android.view.Display;
+import android.widget.LinearLayout;
 
 import com.termux.x11.app.R;
 import com.termux.x11.screenshare.ScreenSharePasswords;
@@ -18,89 +14,140 @@ import com.termux.x11.screenshare.ScreenShareStore;
 import com.termux.x11.screenshare.ScreenShareSizing;
 
 /**
- * Add device › Mac (Screen Sharing): the Mac's address (local network or Tailscale), the account and how big a
- * screen to ask for. The password is asked at each connection (and kept, encrypted, only if the user chooses so at
- * the login, ScreenSharePasswords); here it can be forgotten. The same dialog edits or removes one.
+ * A Mac over its own Screen Sharing: added with its address and account (XDesk's input sheets, one after the other),
+ * then its device page in XDesk's own look, as a Sill Mac's (owner, 24 November: it was a plain Android dialog).
+ * Connection (address, account, name), Desktop scaling (native, 1.33×, 2×, and what that gives on the screen attached
+ * now), the kept password, testing, removal. Each change is saved at once. The password is asked at each connection
+ * (and kept, encrypted, only if the user chooses so at the login, ScreenSharePasswords); here it can be forgotten.
  */
 final class ScreenShareSettings {
     private ScreenShareSettings() { }
 
-    static void add(Context c) {
-        edit(c, null);
+    private static final int URI = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI;
+    private static final int PERSON = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PERSON_NAME;
+
+    /** Add device › Mac › Screen Sharing: the address, then the account; then the new Mac's page. */
+    static void add(final Context c) {
+        final SettingsUi s = new SettingsUi(c);
+        s.input(c.getString(R.string.xd_ss_add_title), c.getString(R.string.xd_ss_add_note), "192.168.1.10", "", URI,
+            c.getString(R.string.xd_ss_next), host -> {
+                if (host.isEmpty()) return false;
+                s.input(c.getString(R.string.xd_ss_account), null, "", "", PERSON, c.getString(R.string.xd_ss_add), account -> {
+                    if (account.isEmpty()) return false;
+                    String id = ScreenShareStore.save(c, null, "", host, account, false, false, ScreenShareSizing.NATIVE);
+                    changed(c);
+                    edit(c, id);
+                    return true;
+                }, null);
+                return true;
+            }, null);
     }
 
+    /** The Mac's page; it goes when the Mac is removed. */
     static void edit(final Context c, final String id) {
-        final ScreenShareStore.Host old = id != null ? ScreenShareStore.find(c, id) : null;
-        int pad = Style.dp(c, 20);
-        LinearLayout box = new LinearLayout(c);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView note = new TextView(c);
-        note.setText(R.string.xd_ss_add_note);
-        box.addView(note);
-        final EditText host = field(c, box, R.string.xd_ss_host, old != null ? old.host : "", InputType.TYPE_TEXT_VARIATION_URI);
-        final EditText account = field(c, box, R.string.xd_ss_account, old != null ? old.account : "", InputType.TYPE_TEXT_VARIATION_PERSON_NAME);
-        final EditText name = field(c, box, R.string.xd_ss_name, old != null ? old.name : "", 0);
-        // 桌面缩放: three tiers, and what each gives on the screen attached now, before connecting
-        TextView scaleTitle = new TextView(c);
-        scaleTitle.setText(R.string.xd_ss_scale);
-        scaleTitle.setPadding(0, pad / 2, 0, 0);
-        box.addView(scaleTitle);
-        final android.widget.RadioGroup scale = new android.widget.RadioGroup(c);
-        scale.setOrientation(android.widget.RadioGroup.HORIZONTAL);
-        int[] tierNames = {R.string.xd_ss_scale_native, R.string.xd_ss_scale_moderate, R.string.xd_ss_scale_large};
-        for (int t = 0; t < 3; t++) {
-            android.widget.RadioButton rb = new android.widget.RadioButton(c);
-            rb.setId(View.generateViewId());
-            rb.setTag(t);
-            rb.setText(tierNames[t]);
-            scale.addView(rb, new android.widget.RadioGroup.LayoutParams(0, -2, 1));
-            if (t == (old != null ? old.scale : ScreenShareSizing.NATIVE)) rb.setChecked(true);
+        if (id == null) {
+            add(c);
+            return;
         }
-        box.addView(scale);
-        final TextView scaleResult = new TextView(c);
-        scaleResult.setTextColor(Style.TEXT_DIM);
-        box.addView(scaleResult);
-        final CheckBox fixed = new CheckBox(c);
-        fixed.setText(R.string.xd_ss_fixed1080);
-        fixed.setChecked(old != null && old.fixed1080);
-        box.addView(fixed);
-        final Runnable showScale = () -> scaleResult.setText(scaleLine(c, old, tierOf(scale), fixed.isChecked()));
-        scale.setOnCheckedChangeListener((g, idd) -> showScale.run());
-        fixed.setOnCheckedChangeListener((v, on) -> showScale.run());
-        showScale.run();
-        final CheckBox forget = new CheckBox(c);
-        forget.setText(R.string.xd_ss_forget);
-        if (old != null && ScreenSharePasswords.has(c, old.id)) box.addView(forget);
-        final CheckBox measure = new CheckBox(c);
-        measure.setText(R.string.xd_ss_measure);
-        measure.setChecked(old != null && old.measure);
-        box.addView(measure);
-        AlertDialog.Builder b = new AlertDialog.Builder(c)
-            .setTitle(old != null ? old.label() : c.getString(R.string.xd_ss_add_title))
-            .setView(box)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(android.R.string.ok, (d, w) -> {
-                String h = host.getText().toString().trim(), a = account.getText().toString().trim();
-                if (h.isEmpty() || a.isEmpty()) return;
-                if (old != null && (forget.isChecked() || !a.equals(old.account) || !h.equals(old.host)))
-                    ScreenSharePasswords.forget(c, old.id);
-                ScreenShareStore.save(c, id, name.getText().toString().trim(), h, a, fixed.isChecked(), measure.isChecked(), tierOf(scale));
-                changed(c);
-            });
-        if (old != null) b.setNeutralButton(R.string.xd_ss_remove, (d, w) -> {
-            ScreenShareSource src = ScreenShareSource.get();
-            if (src != null) src.disconnect(id);
-            ScreenSharePasswords.forget(c, id);
-            ScreenShareStore.remove(c, id);
-            changed(c);
-        });
-        b.show();
+        final ScreenShareStore.Host first = ScreenShareStore.find(c, id);
+        if (first == null) return;
+        final SettingsUi s = new SettingsUi(c);
+        final LinearLayout content = new LinearLayout(c);
+        content.setOrientation(LinearLayout.VERTICAL);
+        final Dialog[] page = new Dialog[1];
+        final Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            content.removeAllViews();
+            ScreenShareStore.Host h = ScreenShareStore.find(c, id);
+            if (h == null) {
+                if (page[0] != null) page[0].dismiss();
+                return;
+            }
+            fillPage(c, s, content, h, fill[0], () -> { if (page[0] != null) page[0].dismiss(); });
+        };
+        fill[0].run();
+        page[0] = s.page(first.label(), content);
     }
 
-    private static int tierOf(android.widget.RadioGroup g) {
-        View v = g.findViewById(g.getCheckedRadioButtonId());
-        return v != null && v.getTag() instanceof Integer ? (Integer) v.getTag() : ScreenShareSizing.NATIVE;
+    private static void fillPage(final Context c, final SettingsUi s, LinearLayout content, final ScreenShareStore.Host h,
+                                 final Runnable refill, final Runnable close) {
+        String unset = c.getString(R.string.xd_ss_not_set);
+
+        // Connection: each value opens XDesk's input sheet. A new address or account forgets a kept password
+        LinearLayout conn = s.section(content, c.getString(R.string.xd_ss_section_connection));
+        s.valueRow(conn, c.getString(R.string.xd_ss_host_short), null, h.host, () ->
+            s.input(c.getString(R.string.xd_ss_host), null, "192.168.1.10", h.host, URI, c.getString(R.string.xd_ss_save), v -> {
+                if (v.isEmpty()) return false;
+                if (!v.equals(h.host)) ScreenSharePasswords.forget(c, h.id);
+                save(c, h, v, h.account, h.name, h.fixed1080, h.measure, h.scale);
+                refill.run();
+                return true;
+            }, null));
+        s.valueRow(conn, c.getString(R.string.xd_ss_account_short), null, h.account, () ->
+            s.input(c.getString(R.string.xd_ss_account), null, "", h.account, PERSON, c.getString(R.string.xd_ss_save), v -> {
+                if (v.isEmpty()) return false;
+                if (!v.equals(h.account)) ScreenSharePasswords.forget(c, h.id);
+                save(c, h, h.host, v, h.name, h.fixed1080, h.measure, h.scale);
+                refill.run();
+                return true;
+            }, null));
+        s.valueRow(conn, c.getString(R.string.xd_ss_name_short), null, h.name != null && !h.name.isEmpty() ? h.name : unset, () ->
+            s.input(c.getString(R.string.xd_ss_name), null, h.host, h.name != null ? h.name : "", InputType.TYPE_CLASS_TEXT,
+                c.getString(R.string.xd_ss_save), v -> {
+                    save(c, h, h.host, h.account, v, h.fixed1080, h.measure, h.scale);
+                    refill.run();
+                    return true;
+                }, null));
+
+        // Desktop scaling: three short choices, and what the chosen one gives on the screen attached now
+        LinearLayout scale = s.section(content, c.getString(R.string.xd_ss_scale));
+        String[] tiers = {c.getString(R.string.xd_ss_scale_native), c.getString(R.string.xd_ss_scale_moderate),
+            c.getString(R.string.xd_ss_scale_large)};
+        s.segmentedRow(scale, c.getString(R.string.xd_ss_scale), scaleLine(c, h, h.scale, h.fixed1080), tiers, h.scale, which -> {
+            save(c, h, h.host, h.account, h.name, h.fixed1080, h.measure, which);
+            refill.run();
+        });
+        s.switchRow(scale, c.getString(R.string.xd_ss_fixed1080), null, h.fixed1080, on -> {
+            save(c, h, h.host, h.account, h.name, on, h.measure, h.scale);
+            refill.run();
+        });
+
+        // The password: kept or not; a kept one can be forgotten here
+        LinearLayout pass = s.section(content, c.getString(R.string.xd_ss_section_password));
+        if (ScreenSharePasswords.has(c, h.id)) {
+            s.infoRow(pass, c.getString(R.string.xd_ss_password_saved), null, null);
+            s.linkRow(pass, c.getString(R.string.xd_ss_forget), null, "", () -> {
+                ScreenSharePasswords.forget(c, h.id);
+                refill.run();
+            });
+        } else {
+            s.infoRow(pass, c.getString(R.string.xd_ss_password_none), null, null);
+        }
+
+        LinearLayout test = s.section(content, c.getString(R.string.xd_ss_section_test));
+        s.switchRow(test, c.getString(R.string.xd_ss_measure), null, h.measure, on -> {
+            save(c, h, h.host, h.account, h.name, h.fixed1080, on, h.scale);
+            refill.run();
+        });
+
+        LinearLayout remove = s.card(content);
+        ((LinearLayout.LayoutParams) remove.getLayoutParams()).topMargin = Style.dp(c, 12);
+        s.dangerRowIn(remove, c.getString(R.string.xd_ss_remove_row), null, () ->
+            s.confirm(c.getString(R.string.xd_ss_remove_title, h.label()), c.getString(R.string.xd_ss_remove_message),
+                c.getString(R.string.xd_ss_remove), SettingsUi.LEVEL_DANGER, () -> {
+                    ScreenShareSource src = ScreenShareSource.get();
+                    if (src != null) src.disconnect(h.id);
+                    ScreenSharePasswords.forget(c, h.id);
+                    ScreenShareStore.remove(c, h.id);
+                    changed(c);
+                    close.run();
+                }));
+    }
+
+    private static void save(Context c, ScreenShareStore.Host h, String host, String account, String name,
+                             boolean fixed, boolean measure, int scale) {
+        ScreenShareStore.save(c, h.id, name != null ? name.trim() : "", host, account, fixed, measure, scale);
+        changed(c);
     }
 
     /**
@@ -125,16 +172,6 @@ final class ScreenShareSettings {
         if (r != null && (r[6] != r[3] || r[7] != r[4]))
             s.append("\n").append(c.getString(R.string.xd_ss_scale_got, r[3] + "×" + r[4], r[6] + "×" + r[7]));
         return s.toString();
-    }
-
-    private static EditText field(Context c, LinearLayout box, int hint, String value, int variation) {
-        EditText e = new EditText(c);
-        e.setHint(hint);
-        e.setSingleLine();
-        e.setInputType(InputType.TYPE_CLASS_TEXT | variation);
-        e.setText(value);
-        box.addView(e);
-        return e;
     }
 
     private static void changed(Context c) {
