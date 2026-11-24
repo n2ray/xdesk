@@ -12,6 +12,9 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.MotionEvent;
 
 import java.io.*;
 import java.lang.reflect.Method;
@@ -23,6 +26,34 @@ import java.time.Duration;
 /** One shell producer, two independently sized displays. Only one handle transfer is outstanding. */
 public final class TwoDisplays {
     static final String AUTHORITY = "io.github.n2ray.xdesk.x11.androidframe";
+
+    static final class TapInput {
+        final Object manager;
+        final Method inject, setDisplay;
+
+        TapInput() throws Exception {
+            Class<?> type = Class.forName("android.hardware.input.InputManagerGlobal");
+            manager = type.getMethod("getInstance").invoke(null);
+            inject = type.getMethod("injectInputEvent", InputEvent.class, int.class);
+            setDisplay = InputEvent.class.getMethod("setDisplayId", int.class);
+        }
+
+        void tap(int display, int x, int y) throws Exception {
+            long downTime = SystemClock.uptimeMillis();
+            for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+                MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);
+                try {
+                    event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                    setDisplay.invoke(event, display);
+                    if (!Boolean.TRUE.equals(inject.invoke(manager, event, 1))) {
+                        System.out.println("Touch delivery refused for display " + display);
+                        return;
+                    }
+                } finally { event.recycle(); }
+            }
+            System.out.println("TAP display=" + display + " x=" + x + " y=" + y);
+        }
+    }
 
     static final class Slot implements AutoCloseable {
         final String name;
@@ -58,12 +89,12 @@ public final class TwoDisplays {
     }
 
     public static void main(String[] args) {
-        try { run(Integer.parseInt(args[0]),args[1]); }
+        try { run(Integer.parseInt(args[0]),args[1],args.length==3 && "--rednote".equals(args[2])); }
         catch (Throwable e) { e.printStackTrace(System.out); System.exit(1); }
         System.exit(0);
     }
 
-    static void run(int port, String token) throws Exception {
+    static void run(int port, String token, boolean rednote) throws Exception {
         Looper.prepareMainLooper();
         Class<?> at = Class.forName("android.app.ActivityThread");
         Context base = (Context)at.getMethod("getSystemContext").invoke(at.getMethod("systemMain").invoke(null));
@@ -78,19 +109,29 @@ public final class TwoDisplays {
                 String.class,String.class,String.class,Bundle.class);
         AttributionSource attribution = new AttributionSource.Builder(android.os.Process.myUid()).setPackageName("com.android.shell").build();
         try (Socket ctrl = new Socket(InetAddress.getByName("127.0.0.1"),port);
-             Slot chrome = new Slot("Chrome"); Slot youtube = new Slot("YouTube")) {
+             Slot chrome = new Slot("Chrome"); Slot youtube = new Slot("YouTube"); Slot xhs = new Slot("Xiaohongshu")) {
             Object provider = holder.getClass().getField("provider").get(holder);
             ctrl.setTcpNoDelay(true); ctrl.setSoTimeout(7000);
             DataOutputStream out = new DataOutputStream(ctrl.getOutputStream());
             DataInputStream in = new DataInputStream(new BufferedInputStream(ctrl.getInputStream()));
             out.write(token.getBytes(StandardCharsets.US_ASCII));
-            Slot[] slots = {chrome,youtube};
+            Slot[] slots = rednote ? new Slot[]{chrome,youtube,xhs} : new Slot[]{chrome,youtube};
+            TapInput input = new TapInput();
             long nextCheck = 0;
             while (true) {
                 if (SystemClock.uptimeMillis() >= nextCheck) {
                     out.writeByte(0);
                     for (Slot s : slots) s.configure(manager,in.readInt(),in.readInt());
-                    if (chrome.reader == null && youtube.reader == null) break;
+                    int taps = in.readInt();
+                    for (int n=0; n<taps; n++) {
+                        int slot=in.readInt(), x=in.readInt(), y=in.readInt(), w=in.readInt(), h=in.readInt();
+                        if (slot < 0 || slot >= slots.length) continue;
+                        Slot target=slots[slot];
+                        if (target.reader != null && w==target.reader.getWidth() && h==target.reader.getHeight()
+                                && x>=0 && x<w && y>=0 && y<h)
+                            input.tap(target.display.getDisplay().getDisplayId(),x,y);
+                    }
+                    if (chrome.reader == null && youtube.reader == null && xhs.reader == null) break;
                     nextCheck = SystemClock.uptimeMillis()+80;
                 }
                 boolean drew = false;

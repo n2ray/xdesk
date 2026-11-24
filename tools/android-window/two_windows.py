@@ -5,11 +5,19 @@ import secrets
 import socket
 import struct
 import time
+import sys
 from window import function, P, U, N, I, U8, U16, MODIFIER
 
 
+class XButtonEvent(C.Structure):
+    _fields_ = [("type", I), ("serial", U), ("send_event", I), ("display", P),
+                ("window", U), ("root", U), ("subwindow", U), ("time", U),
+                ("x", I), ("y", I), ("x_root", I), ("y_root", I),
+                ("state", N), ("button", N), ("same_screen", I)]
+
+
 class XWindows:
-    def __init__(self):
+    def __init__(self, rednote):
         self.x = x = C.CDLL("libX11.so.6")
         self.d = d = function(x,"XOpenDisplay",P,C.c_char_p)(None)
         if not d:
@@ -19,17 +27,23 @@ class XWindows:
         self.delete = self.atom(d,b"WM_DELETE_WINDOW",0)
         self.protocols = self.atom(d,b"WM_PROTOCOLS",0)
         self.sizes = [(880,600),(840,580)]
-        self.pending_sizes = [None,None]
+        titles = [b"Android Chrome", b"Android YouTube"]
+        if rednote:
+            titles.append(b"Xiaohongshu")
+            self.sizes.append((600,820))
+        positions = [(60,80),(1010,80),(1820,200)]
+        self.pending_sizes = [None]*len(titles)
         self.wins = []
-        self.backings = [None,None]
-        self.last_frame_sizes = [None,None]
-        for i,title in enumerate([b"Android Chrome",b"Android YouTube"]):
+        self.backings = [None]*len(titles)
+        self.last_frame_sizes = [None]*len(titles)
+        self.press = None
+        for i,title in enumerate(titles):
             w,h=self.sizes[i]
-            win=function(x,"XCreateSimpleWindow",U,P,U,I,I,N,N,N,U,U)(d,self.root,60+930*i,80,w,h,0,0,0)
+            win=function(x,"XCreateSimpleWindow",U,P,U,I,I,N,N,N,U,U)(d,self.root,*positions[i],w,h,0,0,0)
             self.wins.append(win)
             function(x,"XStoreName",I,P,U,C.c_char_p)(d,win,title)
             function(x,"XSetWMProtocols",I,P,U,C.POINTER(U),I)(d,win,C.byref(U(self.delete)),1)
-            function(x,"XSelectInput",I,P,U,C.c_long)(d,win,1<<17)
+            function(x,"XSelectInput",I,P,U,C.c_long)(d,win,(1<<17)|(1<<2)|(1<<3))
             function(x,"XMapWindow",I,P,U)(d,win)
         self.gc=function(x,"XCreateGC",P,P,U,U,P)(d,self.wins[0],0,None)
         self.sync=function(x,"XSync",I,P,I)
@@ -52,9 +66,26 @@ class XWindows:
     def changes(self):
         # XClientMessageEvent has five native-word header fields before message_type.
         ev=(C.c_long*24)()
+        taps = []
         while self.pending(self.d):
             self.next(self.d,C.byref(ev))
-            if ev[0]&0xffffffff==33 and ev[5]==self.protocols and ev[7]==self.delete and ev[4] in self.wins:
+            event_type = ev[0] & 0xffffffff
+            if event_type in (4,5):
+                event = XButtonEvent.from_buffer(ev)
+                if event.button != 1 or event.window not in self.wins:
+                    continue
+                i = self.wins.index(event.window)
+                if event_type == 4:
+                    self.press = (i,event.x,event.y,event.time)
+                else:
+                    start,self.press = self.press,None
+                    w,h = self.sizes[i]
+                    if (start and i == start[0] and abs(event.x-start[1]) <= 8 and
+                            abs(event.y-start[2]) <= 8 and ((event.time-start[3]) & 0xffffffff) <= 1000 and
+                            0 <= event.x < w and 0 <= event.y < h and self.last_frame_sizes[i] == (w,h)):
+                        taps.append((i,event.x,event.y,w,h))
+                continue
+            if event_type==33 and ev[5]==self.protocols and ev[7]==self.delete and ev[4] in self.wins:
                 i=self.wins.index(ev[4])
                 function(self.x,"XDestroyWindow",I,P,U)(self.d,self.wins[i])
                 self.wins[i]=0
@@ -74,7 +105,8 @@ class XWindows:
             elif time.monotonic()-self.pending_sizes[i][1]>=.10:
                 self.sizes[i]=size
                 self.pending_sizes[i]=None
-        return struct.pack(">4I",*self.sizes[0],*self.sizes[1])
+        sizes = b"".join(struct.pack(">II",*size) for size in self.sizes)
+        return sizes + struct.pack(">I",len(taps)) + b"".join(struct.pack(">IIIII",*tap) for tap in taps)
 
     def frame(self,i,w,h,client):
         if not self.wins[i]:
@@ -100,7 +132,7 @@ class XWindows:
 
 
 def serve():
-    windows=XWindows()
+    windows=XWindows("--rednote" in sys.argv)
     with socket.socket(socket.AF_UNIX) as frames, socket.socket() as control:
         frames.bind("\0xdesk-android-frame-probe"); frames.listen(1); frames.settimeout(6)
         control.bind(("127.0.0.1",0)); control.listen(1); control.settimeout(90)
@@ -122,7 +154,7 @@ def serve():
                         if cmd==b"\0":
                             conn.sendall(windows.changes())
                             if not any(windows.wins): return
-                        elif cmd in (b"\1",b"\2"):
+                        elif 1 <= cmd[0] <= len(windows.wins):
                             w,h=struct.unpack(">II",stream.read(8))
                             peer,_=frames.accept()
                             with peer:

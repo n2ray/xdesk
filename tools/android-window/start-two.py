@@ -18,7 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("jar", type=Path)
     parser.add_argument("--serial", required=True)
+    parser.add_argument("--rednote", action="store_true", help="also open Xiaohongshu")
     args = parser.parse_args()
+    flag = " --rednote" if args.rednote else ""
     adb = ["adb", "-s", args.serial]
 
     def run(*words):
@@ -40,7 +42,7 @@ def main():
     script += [
         "chown -R xdesk:xdesk " + guest,
         "export DISPLAY=:1",
-        "/usr/local/bin/xdesk-asuser xdesk python3 -u "+guest+"/two_windows.py > windows.log 2>&1 &",
+        "/usr/local/bin/xdesk-asuser xdesk python3 -u "+guest+"/two_windows.py"+flag+" > windows.log 2>&1 &",
         "child=$!", "trap 'kill $child 2>/dev/null || true' EXIT",
         "for t in $(seq 1 50); do grep -q '^READY ' windows.log && break; kill -0 $child || break; sleep .1; done",
         "echo SESSION "+instance, "cat windows.log", "wait $child", ")"
@@ -55,20 +57,20 @@ def main():
             shell("am broadcast -a io.github.n2ray.xdesk.BUILTIN_LINUX -p "+PACKAGE+" --es cmd run")
             for _ in range(60):
                 log = run("exec-out","cat",FILES+"logs/run.log").decode()
-                ready = re.search(r"^READY (\d+) ([0-9a-f]{32}) (0x\w+) (0x\w+)$",log,re.M)
+                ready = re.search(r"^READY (\d+) ([0-9a-f]{32}) ((?:0x[0-9a-f]+ ?)+)$",log,re.M)
                 if ready and "SESSION "+instance in log: break
                 time.sleep(.2)
             else: raise RuntimeError("Guest did not start: "+log[-800:])
         finally:
             run("push",str(prior),FILES+"debug.sh")
-    port,token,chrome_win,youtube_win = ready.groups()
+    port,token,windows = ready.groups()
     shell("mkdir -m 700 "+device)
     run("push",str(args.jar),device+"/two.jar")
-    shell(f"CLASSPATH={device}/two.jar app_process / TwoDisplays {port} {token} < /dev/null > {device}/events.log 2>&1 &")
+    shell(f"CLASSPATH={device}/two.jar app_process / TwoDisplays {port} {token}{flag} < /dev/null > {device}/events.log 2>&1 &")
     for _ in range(50):
         events = shell("cat "+device+"/events.log")
-        ids = dict(re.findall(r"^(Chrome|YouTube) display=(\d+)",events,re.M))
-        if len(ids)==2: break
+        ids = dict(re.findall(r"^(Chrome|YouTube|Xiaohongshu) display=(\d+)",events,re.M))
+        if len(ids)==(3 if args.rednote else 2): break
         time.sleep(.2)
     else: raise RuntimeError("Virtual displays did not start: "+events)
     chrome = "https://webglsamples.org/aquarium/aquarium.html?numFish=10000"
@@ -76,7 +78,11 @@ def main():
     component = shell("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.google.android.youtube").splitlines()[-1]
     if not component.startswith("com.google.android.youtube/"): raise RuntimeError(component)
     shell(f"am start --display {ids['YouTube']} -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {shlex.quote(component)}")
-    print("Chrome",ids["Chrome"],chrome_win,"YouTube",ids["YouTube"],youtube_win)
+    if args.rednote:
+        component = shell("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.xingin.xhs").splitlines()[-1]
+        if not component.startswith("com.xingin.xhs/"): raise RuntimeError(component)
+        shell(f"am start --display {ids['Xiaohongshu']} -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {shlex.quote(component)}")
+    print("Android displays",ids,"X windows",windows)
     print("Producer",device+"/events.log","Guest",guest+"/windows.log")
 
 
