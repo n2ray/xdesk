@@ -599,52 +599,13 @@ final class LaunchpadView extends LinearLayout {
         });
     }
 
-    /**
-     * LaunchpadDevice.dc.html: a Mac tab's bar carries the quick quality row (AutoQuality's Sharp / Balanced /
-     * Smooth), the same setting the external sidebar's tile and Ctrl+Alt+Q change. Read-only while the Mac has not
-     * answered a pending change or has not reported its settings yet.
-     */
+    /** The quick quality row under a Mac's bar (LaunchpadDevice.dc.html): no longer shown, see below. */
     private void showQuality() {
-        Context c = getContext();
-        // The search page shows no bar, and the quality row lives under the bar
-        String tab = board.searching(Switchboard.PHONE) ? "" : board.tab(Switchboard.PHONE);
-        Devices.Device device = Devices.get(c).find(tab);
-        String macId = device != null && device.type == Devices.Type.MAC ? device.id.substring(Devices.MAC.length()) : null;
-        MacClient client = macId != null ? MacClients.get(c, macId) : null;
-        HostSettings live = client != null ? client.settings() : null;
-        HostSettings h = live != null ? live : client != null ? HostSettings.saved(MacStore.stream(c, macId).host) : null;
-        if (!attached() || getVisibility() != VISIBLE || h == null
-                || h.bitrate == null || h.captureScale == null || h.prioritizeSpeed == null) {
-            followQuality(null);
-            qualityRow.removeAllViews();
-            qualityRow.setVisibility(GONE);
-            return;
-        }
-        followQuality(client);
-        boolean enabled = live != null && client.pendingSetting() == null;
-        int at = AutoQuality.modeOf(h.bitrate, h.captureScale, h.prioritizeSpeed);
-        String[] names = c.getResources().getStringArray(R.array.xd_mac_mode_names);
+        // Sharp / Balanced / Smooth is the whole Mac's: on its device page, not above the list of its apps (owner,
+        // 24 November). The row stays hidden; the external sidebar's tile and Ctrl+Alt+Q still change it
+        followQuality(null);
         qualityRow.removeAllViews();
-        LinearLayout track = new LinearLayout(c);
-        track.setBackground(Style.rounded(c, Style.BACKGROUND, 10));
-        track.setPadding(dp(2), dp(2), dp(2), dp(2));
-        for (int i = 0; i < 3; i++) {
-            final int which = i;
-            TextView seg = Style.button(c, names[i], Style.SURFACE, 12, 8);
-            seg.setTextColor(i == at ? Style.TEXT : Style.TEXT_DIM);
-            seg.setBackground(Style.ripple(c, i == at ? Style.ACCENT : Color.TRANSPARENT, 8));
-            seg.setEnabled(enabled);
-            seg.setAlpha(enabled ? 1f : 0.5f);
-            if (enabled) seg.setOnClickListener(v -> {
-                Style.tick(v);
-                if (which != at && !MacModeRow.apply(c, client, which))
-                    Toast.makeText(c, c.getString(R.string.xd_mac_set_failed), Toast.LENGTH_LONG).show();
-                showQuality();
-            });
-            track.addView(seg, new LayoutParams(0, dp(30), 1));
-        }
-        qualityRow.addView(track, new LayoutParams(-1, -2));
-        qualityRow.setVisibility(VISIBLE);
+        qualityRow.setVisibility(GONE);
     }
 
     /** The tab changed (or the grid went): follow that Mac's settings while its quality row shows. */
@@ -709,6 +670,9 @@ final class LaunchpadView extends LinearLayout {
         for (int i = from; i < to; i++) {
             if ((i - from) % columns == 0) {
                 row = new LinearLayout(getContext());
+                // Every row has its columns' cells, so a short row starts at the left: a lone tile filled the row and
+                // sat in the middle (owner, 24 November)
+                row.setWeightSum(columns);
                 grid.addView(row, new LayoutParams(-1, cellH));
             }
             row.addView(tile(items.get(i)), new LayoutParams(0, cellH, 1));
