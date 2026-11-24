@@ -45,7 +45,8 @@ apt-cache policy snapd | grep -q 'Candidate: (none)' && ok "no snapd" || no "sna
 
 # The trigger: xfwm4's defaults get vblank off however xfwm4 comes; then the packaged sudos stay below ours
 if [ "${2:-}" = old ]; then
-    apt-get install -y -q --no-install-recommends xfwm4
+    # Ubuntu's own, as an old image has it (XDesk's published one now wins a plain install: same priority, higher version)
+    apt-get install -y -q --no-install-recommends "xfwm4=$(apt-cache madison xfwm4 | awk -F'|' '$3 ~ /ubuntu/ {gsub(/ /, "", $2); print $2; exit}')"
 fi
 apt-get install -y -q --no-install-recommends "$1"/xfwm4_*_arm64.deb sudo-rs sudo
 [ "$(dpkg-query -W -f='${Version}' xfwm4)" = "$(dpkg-deb -f "$1"/xfwm4_*_arm64.deb Version)" ] || no "xfwm4 version"
