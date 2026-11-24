@@ -25,6 +25,8 @@ final class DirectSession implements Closeable {
     DataInputStream in;
     OutputStream out;
     ControlWriter records;
+    private ControlReader incoming;
+    java.util.function.Consumer<CursorUpdates.Shape> cursorChanged;
     /** The frame buffer (= the video) in pixels, and the desktop in points: equal at 1x, half for HiDPI. */
     final int width,height,pointsW,pointsH;
     /** The codec this connection asks for (ScreenShareSession); configuringMedia: past the login, the media is next. */
@@ -181,13 +183,18 @@ final class DirectSession implements Closeable {
             if (kind != 1103) throw new IOException("unexpected initial encoding "+kind);
             read(in, 4);
             byte[] material = aes("ECB", Cipher.DECRYPT_MODE, wrap, null).doFinal(read(in, 32));
+            incoming = new ControlReader(in, material);
             records = new ControlWriter(out, material);
             pointerCipher = aes("ECB", Cipher.ENCRYPT_MODE, Arrays.copyOf(material,16), null);
             Arrays.fill(material, (byte)0);
             ByteBuffer toggle = ByteBuffer.allocate(8);
             toggle.putShort((short)0x1200).putShort((short)2).putInt(0x00010000);
             out.write(toggle.array());
-            records.send(asset("encodings"));
+            byte[] encodings = asset("encodings");
+            ByteBuffer advertised = ByteBuffer.allocate(encodings.length + 4);
+            advertised.put(encodings).putInt(1104);
+            advertised.putShort(2, (short)(advertised.getShort(2) + 1));
+            records.send(advertised.array());
             return;
         }
         throw new IOException("server did not advertise a record key");
@@ -238,11 +245,11 @@ final class DirectSession implements Closeable {
     }
 
     private void monitorControl() {
-        byte[] buffer = new byte[8192];
+        CursorUpdates updates = new CursorUpdates();
         try {
-            while (in.read(buffer) >= 0) { /* No negotiated clipboard or cursor consumer. */ }
+            while (!control.isClosed()) updates.read(incoming, cursorChanged);
         } catch (IOException closed) {
-            // Closing the session also releases a blocked reader.
+            if (!control.isClosed()) Log.i("XDeskScreenShare", "Control reader ended", closed);
         } finally {
             close();
         }

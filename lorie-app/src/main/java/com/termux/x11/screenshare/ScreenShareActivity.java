@@ -70,6 +70,13 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         Log.i(ScreenShareSession.TAG, "pointer " + what);
     }
 
+    @Override public void cursorChanged(CursorUpdates.Shape shape) {
+        if (arrow == null) return;
+        arrow.shape = shape;
+        arrow.invalidate();
+        placeArrow();
+    }
+
     private void placeArrow() {
         if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) {
             logArrow("not drawn: arrow " + (arrow != null) + " view " + view.getWidth() + " at " + pointerX);
@@ -80,9 +87,16 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         // Placed by layout, not translation: the window's transparent region (the SurfaceView's hole, which also
         // made the system leave the whole window out of the composition) is gathered again only after a layout
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) arrow.getLayoutParams();
-        int left = Math.round(view.getLeft() + (float) pointerX * view.getWidth() / session.width - arrow.tip);
-        int top = Math.round(view.getTop() + (float) pointerY * view.getHeight() / session.height - arrow.tip);
-        if (lp.leftMargin != left || lp.topMargin != top) {
+        CursorUpdates.Shape shape = arrow.shape;
+        float sx = (float) view.getWidth() / session.width;
+        float sy = (float) view.getHeight() / session.height;
+        int w = shape == null ? arrow.w() : Math.max(1, Math.round(shape.bitmap.getWidth() * sx));
+        int h = shape == null ? arrow.h() : Math.max(1, Math.round(shape.bitmap.getHeight() * sy));
+        int left = Math.round(view.getLeft() + (float) pointerX * view.getWidth() / session.width - (shape == null ? arrow.tip : shape.hotX * sx));
+        int top = Math.round(view.getTop() + (float) pointerY * view.getHeight() / session.height - (shape == null ? arrow.tip : shape.hotY * sy));
+        if (lp.leftMargin != left || lp.topMargin != top || lp.width != w || lp.height != h) {
+            lp.width = w;
+            lp.height = h;
             lp.leftMargin = left;
             lp.topMargin = top;
             arrow.setLayoutParams(lp);
@@ -95,6 +109,8 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
      */
     private static final class ArrowView extends View {
         final int tip;
+        CursorUpdates.Shape shape;
+        private final android.graphics.Rect bounds = new android.graphics.Rect();
         private final android.graphics.Path path = new android.graphics.Path();
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final float u;
@@ -132,6 +148,11 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         }
 
         @Override protected void onDraw(android.graphics.Canvas c) {
+            if (shape != null) {
+                bounds.set(0, 0, getWidth(), getHeight());
+                c.drawBitmap(shape.bitmap, null, bounds, null);
+                return;
+            }
             paint.setStyle(android.graphics.Paint.Style.STROKE);
             paint.setColor(Color.WHITE);
             c.drawPath(path, paint);
