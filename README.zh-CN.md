@@ -2,13 +2,21 @@
 
 <p align="center"><img src="docs/img/hero.svg" width="760" alt="大屏上是 XDesk 的启动台，旁边的手机当触摸板，前面是键盘鼠标"></p>
 
-**又一个手机接任何屏幕的软件。** 显示器加键鼠、你的 Mac、投影、平板，还有车机。手机里的应用在那边全屏运行，手机拿来当触摸板、键盘、手柄或启动台。不用 root。
+**把手机变成任何屏幕上的电脑。** 一个 App，在显示器、投影、平板或车机上跑三样东西：**安卓应用**、**内置 Ubuntu** 桌面、你的 **Mac**。XDesk 给它们当显示器和键鼠，手机当触摸板、键盘、手柄或启动台。不用 root，也不用另装别的。
 
 **[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [下载](https://github.com/n2ray/xdesk/releases/latest) · [English](README.md) · [使用手册](MANUAL.zh-CN.md) · GPL-3.0
 
 ## 能干什么
 
-不是每台手机都有 DeX 或桌面模式，也不是每块屏都插得上线。XDesk 补上这一块：
+不是每台手机都有 DeX 或桌面模式，也不是每块屏都插得上线。XDesk 补上这一块，大屏上能跑三样东西：
+
+| 大屏上跑什么 | 需要什么 | |
+|---|---|---|
+| **安卓应用**，全屏 | 不用另装：XDesk 自带注入服务，无线调试里配对一次（或用 Shizuku） | 手机里的应用、游戏、云游戏 |
+| **内置 Linux**：Ubuntu 26.04 加 XFCE | 不用另装：XDesk 自己运行，第一次下载约 470 MB | apt 随便装，骁龙 GPU 加速，Chrome 视频硬解 |
+| **你的 Mac** | macOS 自带的「屏幕共享」（Apple 芯片、macOS 14 以上），或在 Mac 上装 [Sill](https://github.com/Saffsanity/sill) | Mac 桌面带声音，HEVC 或 H.264，按你的屏幕大小 |
+
+能接的屏幕也很多：
 
 | 用法 | 接法 | 手机当什么 |
 |---|---|---|
@@ -26,7 +34,7 @@
 | **手机当手柄** | 大屏开着安卓应用时点「手柄」，手机横过来就是手柄，布局可以改 | 游戏认成有线 Xbox 360 手柄，GeForce NOW 里也能用 |
 | **远程桌面**：RustDesk | 在大屏上开 RustDesk，用键鼠或手机触摸板操作远端电脑 | 拖动、侧键、光标都专门处理过 |
 | **Mac 窗口上大屏** | Mac 上装原版 [Sill](https://github.com/Saffsanity/sill)（不用装 XDesk），手机上 添加设备 › Mac，输 Sill 显示的配对码或扫码。之后 Mac 的桌面、窗口、应用都能放到手机接的大屏上，锁着的 Mac 也能解锁 | 用 Mac 自己的输入法打字，画质一键切换 |
-| **Linux 应用和桌面** | 在 Termux 里装 Linux，程序一个个当应用开，或开整个 XFCE 桌面 | 骁龙上有 GPU 加速（Turnip、zink） |
+| **Termux 里的 Linux** | 已经在用 Termux、或想用别的发行版：proot、chroot 的桌面和程序，和内置 Linux 并存 | 骁龙 GPU 加速（Turnip、zink） |
 | **浏览器当显示器** | 设置 › 网页显示，iPad、电脑、智能电视打开它给的地址 | 什么都不用装；USB 共享网络比 Wi-Fi 延迟更低 |
 | **声音想去哪就去哪** | 手机喇叭、HDMI、蓝牙、USB、有线耳机，一个设置管所有模式 | 无线接收器和网页显示时，声音在那边放，手机静音 |
 
@@ -48,7 +56,7 @@
 | 浏览器 | 手机上 设置 › 网页显示，在浏览器里打开它列出的地址 |
 | 车机 | 在 Android Auto 里打开 XDesk，停车时用 |
 
-**4. 可选：Linux 桌面。** 装好 [Termux](https://github.com/termux/termux-app)，运行下面这行，再在 XDesk 的「设备 › 添加 › Linux」里加上 Termux（运行前建议先[看看脚本](xdesk/install.sh)）：
+**4. 可选：Linux。** 手机上 设备 › 添加 › Linux › **内置 Linux**，点安装：Ubuntu 加 XFCE，不要 Termux。已经在用 Termux？装好 [Termux](https://github.com/termux/termux-app)，运行下面这行，再在 XDesk 的「设备 › 添加 › Linux」里加上 Termux（运行前建议先[看看脚本](xdesk/install.sh)）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash

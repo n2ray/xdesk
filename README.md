@@ -2,13 +2,21 @@
 
 <p align="center"><img src="docs/img/hero.svg" width="760" alt="A monitor showing XDesk's Launchpad, the phone beside it as a touchpad, a keyboard and mouse in front"></p>
 
-**Yet another phone-on-any-screen app.** A monitor with keyboard and mouse, your Mac, a projector, a tablet or the car. Your Android apps run full screen there, and the phone becomes the touchpad, keyboard, gamepad or launcher. No root.
+**Your phone as a computer on any screen.** One app puts three things on a monitor, projector, tablet or car screen: your **Android apps**, a **built-in Ubuntu** desktop, and your **Mac**. XDesk is their display, keyboard and mouse; the phone becomes the touchpad, keyboard, gamepad or launcher. No root, and nothing else to install.
 
 **[Website](https://n2ray.github.io/xdesk/)** · [Download](https://github.com/n2ray/xdesk/releases/latest) · [中文](README.zh-CN.md) · [Manual](MANUAL.md) · GPL-3.0
 
 ## What it does
 
-Not every phone has DeX or a desktop mode, and not every screen can take a cable. XDesk fills that gap:
+Not every phone has DeX or a desktop mode, and not every screen can take a cable. XDesk fills that gap, with three kinds of things to run there:
+
+| On the big screen | Needs | |
+|---|---|---|
+| **Android apps**, full screen | Nothing else: XDesk's own input service, paired once in wireless debugging (or Shizuku) | Your phone's apps, games and cloud gaming |
+| **Built-in Linux**: Ubuntu 26.04 with XFCE | Nothing else: XDesk runs it, a one-time download of about 470 MB | apt, GPU acceleration on Snapdragon, Chrome with hardware video |
+| **Your Mac** | macOS's own Screen Sharing (Apple silicon, macOS 14+), or [Sill](https://github.com/Saffsanity/sill) on the Mac | The Mac's desktop with sound, HEVC or H.264, at your screen's size |
+
+And as many screens:
 
 | Use | Connection | The phone is |
 |---|---|---|
@@ -26,7 +34,7 @@ More ways to use it:
 | **The phone as a gamepad** | With an Android app on the big screen, tap **Gamepad**: the phone turns sideways into a gamepad, with a layout you can edit | Games see a wired Xbox 360 controller, GeForce NOW included |
 | **Remote desktop**: RustDesk | Open RustDesk on the big screen and drive the remote computer with keyboard and mouse or the phone's touchpad | Drags, side buttons and the cursor are handled specially |
 | **Mac windows on the big screen** | Install the original [Sill](https://github.com/Saffsanity/sill) on the Mac (no XDesk needed there); on the phone, Add device › Mac and enter the code Sill shows, or scan it. The Mac's desktop, windows and apps can then go on the phone's display, and a locked Mac can be unlocked | Types with the Mac's own input method; picture quality in one tap |
-| **Linux apps and desktops** | Install Linux in Termux; open programs one by one as apps, or a whole XFCE desktop | GPU accelerated on Snapdragon (Turnip, zink) |
+| **Linux in Termux** | For those who already use Termux, or want another distribution: proot or chroot desktops and programs, beside the built-in Linux | GPU accelerated on Snapdragon (Turnip, zink) |
 | **Any browser as the display** | Settings › Web display, then open the address it shows on an iPad, laptop or smart TV | Nothing to install; USB tethering has lower delay than Wi-Fi |
 | **Sound where you want it** | Phone speaker, HDMI, Bluetooth, USB or wired headphones, one setting for every mode | On a wireless receiver or web display the sound plays there and the phone is silent |
 
@@ -48,7 +56,7 @@ The big screen gets a Launchpad, a dock at the bottom and your notifications. On
 | Browser | On the phone, Settings › Web display; open the address it shows |
 | Car | Open XDesk in Android Auto, parked |
 
-**4. Optional: a Linux desktop.** Install [Termux](https://github.com/termux/termux-app), run this (please [read the script](xdesk/install.sh) first), then add Termux in XDesk under Devices › Add › Linux:
+**4. Optional: Linux.** On the phone, Devices › Add › Linux › **Built-in Linux**, then Install: Ubuntu with XFCE, no Termux needed. Already on Termux? Install [Termux](https://github.com/termux/termux-app), run this (please [read the script](xdesk/install.sh) first), then add Termux in XDesk under Devices › Add › Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/n2ray/xdesk/xdesk/xdesk/install.sh | bash
