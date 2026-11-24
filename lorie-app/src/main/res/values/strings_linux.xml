@@ -7,7 +7,7 @@
     <string name="xd_bl_state_installing">Working…</string>
     <string name="xd_bl_state_stopping">Stopping…</string>
     <string name="xd_bl_install">Install Ubuntu 26.04 with XFCE</string>
-    <string name="xd_bl_install_note">Downloads about 600 MB once and needs about 2.5 GB. Stays in XDesk: uninstalling XDesk or clearing its data removes it</string>
+    <string name="xd_bl_install_note">Downloads about 470 MB once. Stays in XDesk: uninstalling XDesk or clearing its data removes it</string>
     <string name="xd_bl_install_local_note">The image is already on the phone: no download</string>
     <string name="xd_bl_start">Start the desktop</string>
     <string name="xd_bl_start_note">Starts XFCE and opens it on the external screen</string>
