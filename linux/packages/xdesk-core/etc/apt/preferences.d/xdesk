@@ -10,8 +10,8 @@ Package: firefox* thunderbird*
 Pin: origin packages.mozilla.org
 Pin-Priority: 1000
 
-# What XDesk's repository has (its Mesa: Ubuntu's own, rebuilt with Adreno's KGSL) is kept, or taken back to,
-# even when Ubuntu has a newer version that XDesk has not rebuilt yet (only its own versions: o=XDesk)
-Package: *
-Pin: release o=XDesk
-Pin-Priority: 1001
+# XDesk's repository has the default priority, as Ubuntu's (500): the higher version wins. Its xfwm4 (Ubuntu's,
+# with XDesk's patch, "+xdeskN") is taken while it is Ubuntu's version rebuilt, and Ubuntu's own newer one is
+# taken as soon as there is one, security fixes included, until XDesk rebuilds on it. xdesk-core is in no other
+# repository; the Mesa XDesk installs is kept by xdesk-gpu's own file (xdesk-mesa). Until 12 this gave XDesk's
+# repository 1001, which would have kept its xfwm4 over every newer Ubuntu one (24 November).

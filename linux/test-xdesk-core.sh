@@ -69,6 +69,8 @@ kgsl() { grep -aq /dev/kgsl-3d0 /usr/lib/aarch64-linux-gnu/libvulkan_freedreno.s
 kgsl && ok "lfdevs Turnip (KGSL) over Ubuntu's" || no "Turnip is Ubuntu's"
 [ -e /usr/lib/aarch64-linux-gnu/dri/kgsl_dri.so ] && [ -e /usr/local/lib/xdesk-hwvideo/termuxva_drv_video.so ] && ok "kgsl_dri, termuxva" || no "kgsl_dri or termuxva missing"
 apt-cache policy mesa-vulkan-drivers | grep -q '1001' && ok "Ubuntu's Mesa pinned" || no "not pinned: $(apt-cache policy mesa-vulkan-drivers)"
+# XDesk's repository at Ubuntu's priority (12): only xdesk-gpu's Mesa file pins above it
+grep -qs "o=XDesk" /etc/apt/preferences.d/xdesk && no "XDesk's repository still pinned" || ok "XDesk's repository at Ubuntu's priority"
 apt-get install -y -q --reinstall mesa-vulkan-drivers libglx-mesa0
 kgsl && ok "back over a reinstall (trigger)" || no "reinstall left Ubuntu's Turnip"
 /usr/lib/xdesk/xdesk-gpu | grep -q . && no "a run with nothing to do did something" || ok "nothing to do: quiet"
