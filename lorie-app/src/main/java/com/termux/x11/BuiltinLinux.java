@@ -838,11 +838,17 @@ final class BuiltinLinux {
         return false;
     }
 
+    /**
+     * The whole command line. Burrow's own process carries its binds first and the guest's program last: SSH's was
+     * 603 bytes with "xdesk-sshd" at 592, so the first 512 never named it, and every desktop start or stop took the
+     * SSH server down with "SSH kept" in the log (owner, 24 November).
+     */
     private static String cmdline(int pid) {
         try (FileInputStream in = new FileInputStream("/proc/" + pid + "/cmdline")) {
-            byte[] b = new byte[512];
-            int n = in.read(b);
-            return n > 0 ? new String(b, 0, n, StandardCharsets.UTF_8).replace('\0', ' ').trim() : "";
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(1024);
+            byte[] b = new byte[4096];
+            for (int n; (n = in.read(b)) > 0 && out.size() < 65536; ) out.write(b, 0, n);
+            return new String(out.toByteArray(), StandardCharsets.UTF_8).replace('\0', ' ').trim();
         } catch (IOException e) {
             return "";
         }
