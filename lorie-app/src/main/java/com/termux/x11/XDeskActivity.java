@@ -689,6 +689,8 @@ public class XDeskActivity extends Activity {
             updateStatus();
         }
         @Override public void onDesktopStopped(boolean byUser) {
+            // The built-in Linux stopped by the user (its page, the device list, settings) is no crash either
+            if (!byUser && BuiltinLinux.get(XDeskActivity.this).stoppedByUserRecently()) byUser = true;
             // 不自动重启：启动和结束桌面都由用户决定
             runningSession = null;
             desktopName = null;

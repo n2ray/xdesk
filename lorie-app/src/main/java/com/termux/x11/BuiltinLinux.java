@@ -317,6 +317,7 @@ final class BuiltinLinux {
 
     /** Resets the system to the image (no download when the image is kept); the home stays unless {@code keepHome} is false. */
     void reset(final boolean keepHome) {
+        userStopAt = android.os.SystemClock.elapsedRealtime();
         if (!begin()) return;
         set(State.INSTALLING, c.getString(R.string.xd_bl_resetting));
         new Thread(() -> {
@@ -335,6 +336,7 @@ final class BuiltinLinux {
 
     /** Removes everything: system, home, the kept image. */
     void removeAll() {
+        userStopAt = android.os.SystemClock.elapsedRealtime();
         if (!begin()) return;
         set(State.STOPPING, c.getString(R.string.xd_bl_removing));
         new Thread(() -> {
@@ -642,7 +644,19 @@ final class BuiltinLinux {
         }
     }
 
+    /**
+     * When the user last stopped, reset or removed the system: its X then ends on purpose. XDesk heard only Termux's
+     * "xdesk stop" (DesktopSession), so every stop of the built-in Linux read as a crash (24 November).
+     */
+    private volatile long userStopAt;
+
+    /** The built-in Linux's X ending now is the user's doing: they stopped, reset or removed it a moment ago. */
+    boolean stoppedByUserRecently() {
+        return userStopAt != 0 && android.os.SystemClock.elapsedRealtime() - userStopAt < 20000;
+    }
+
     void stop() {
+        userStopAt = android.os.SystemClock.elapsedRealtime();
         if (!begin()) return;
         set(State.STOPPING, null);
         new Thread(() -> {
