@@ -83,3 +83,6 @@ endforeach()
 
 # XDesk: raw input device access for the injector process, see lorie-app's Evdev.java
 add_library(xdesk_evdev SHARED lorie/xdesk_evdev.c)
+
+add_library(xdesk_android_frame SHARED lorie/android-frame.c)
+target_link_libraries(xdesk_android_frame android)

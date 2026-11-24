@@ -22,6 +22,8 @@
 #include <linux/dma-buf.h>
 #include <android/hardware_buffer.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #ifndef DRM_FORMAT_MOD_LINEAR
 #define DRM_FORMAT_MOD_LINEAR 0ULL
 #endif
@@ -135,6 +137,11 @@ static Bool todDestroyPixmap(PixmapPtr pixmap) {
     ScreenPtr screen = pixmap->drawable.pScreen;
     TodMappa m = *todMappa(pixmap);
     Bool ultima = pixmap->refcnt == 1, r;
+    // The experiment returns the source image to ImageReader after FreePixmap and an X round trip.
+    if (ultima && m.ahb && !m.lorie && m.img) {
+        glamor_make_current(glamor_get_screen_private(screen));
+        glFinish();
+    }
     screen->DestroyPixmap = todDestroyPixmapOrig;
     r = screen->DestroyPixmap(pixmap);
     todDestroyPixmapOrig = screen->DestroyPixmap;
@@ -329,12 +336,70 @@ fallito:
     return NullPixmap;
 }
 
+// An Android producer sends a complete AHardwareBuffer handle on this connected Unix socket.
+static PixmapPtr importAndroidFrame(ScreenPtr screen, int fd, CARD16 w, CARD16 h, CARD8 depth) {
+    struct ucred peer;
+    socklen_t length = sizeof(peer);
+    struct timeval timeout = { .tv_usec = 100000 };
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &length) || peer.uid != getuid() ||
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)))
+        return NullPixmap;
+    AHardwareBuffer *buffer = NULL;
+    if (AHardwareBuffer_recvHandleFromUnixSocket(fd, &buffer) || !buffer)
+        return NullPixmap;
+    AHardwareBuffer_Desc desc;
+    AHardwareBuffer_describe(buffer, &desc);
+    EGLImageKHR image = EGL_NO_IMAGE_KHR;
+    GLuint texture = 0;
+    PixmapPtr pixmap = NullPixmap;
+    if (desc.width != w || desc.height != h || desc.layers != 1 ||
+        desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM ||
+        !(desc.usage & AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE) ||
+        (desc.usage & AHARDWAREBUFFER_USAGE_PROTECTED_CONTENT))
+        goto fail;
+
+    glamor_make_current(glamor_get_screen_private(screen));
+    const EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+    image = eglCreateImageKHR(todDpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID,
+                              eglGetNativeClientBufferANDROID(buffer), attrs);
+    if (!image) goto fail;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    if (glGetError() != GL_NO_ERROR) goto fail;
+    pixmap = glamor_create_pixmap(screen, w, h, depth, GLAMOR_CREATE_PIXMAP_NO_TEXTURE);
+    if (!pixmap) goto fail;
+    glamor_set_pixmap_type(pixmap, GLAMOR_TEXTURE_DRM);
+    glamor_pixmap_fbo *fbo = glamor_create_fbo_from_tex(glamor_get_screen_private(screen), pixmap, w, h, texture, 0);
+    if (!fbo) goto fail;
+    glamor_pixmap_attach_fbo(pixmap, fbo);
+    todMappa(pixmap)->img = image;
+    todMappa(pixmap)->ahb = buffer;
+    static unsigned imports;
+    if ((++imports % 120) == 1)
+        log(INFO, "android-window: direct EGLImage import #%u (%ux%u)", imports, w, h);
+    return pixmap;
+fail:
+    if (pixmap) screen->DestroyPixmap(pixmap);
+    if (texture) glDeleteTextures(1, &texture);
+    if (image) eglDestroyImageKHR(todDpy, image);
+    AHardwareBuffer_release(buffer);
+    return NullPixmap;
+}
+
 PixmapPtr todGlamorPixmapFromFds(ScreenPtr screen, CARD8 num_fds, const int *fds, CARD16 width, CARD16 height,
                                  const CARD32 *strides, const CARD32 *offsets, CARD8 depth, CARD8 bpp, CARD64 modifier) {
     const CARD64 RAW_MMAPPABLE_FD = 1274;
     TodMappa m = { 0 };
     PixmapPtr pixmap;
 
+    if (modifier == 0x58443333ULL) {
+        if (num_fds != 1 || depth != 24 || bpp != 32 || offsets[0] || !width || !height)
+            return NullPixmap;
+        return importAndroidFrame(screen, fds[0], width, height, depth);
+    }
     if (num_fds != 1 || (modifier != DRM_FORMAT_MOD_INVALID && modifier != DRM_FORMAT_MOD_LINEAR && modifier != RAW_MMAPPABLE_FD)) {
         log(ERROR, "tod-glamor: DRI3 rifiutato (%d fd, modifier %llu)", num_fds, (unsigned long long) modifier);
         return NullPixmap;
