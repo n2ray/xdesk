@@ -2,7 +2,7 @@
 # Build the Chrome-private Gallium library against the same Ubuntu arm64 ABI as the image.
 set -eu
 revision=2118596185954c118db2eb42598972e2b56af672
-wsi_revision=8afcfa9c64730dec0bb18ab792ceac0deaf2ab1f
+wsi_revision=5bc820780d20fa26f198b1c136cca6f032f4fb60
 out=$1
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -22,8 +22,8 @@ git -C "$work/mesa" fetch --quiet --depth=1 https://github.com/n2ray/mesa-for-an
 git -C "$work/mesa" checkout --quiet --detach FETCH_HEAD
 test "$(git -C "$work/mesa" rev-parse HEAD)" = "$revision"
 # The WSI fix and the existing Gallium pin were reviewed independently.
-git -C "$work/mesa" fetch --quiet --depth=2 https://github.com/n2ray/mesa-for-android-container.git "$wsi_revision"
-git -C "$work/mesa" diff "$wsi_revision^" "$wsi_revision" -- src/vulkan/wsi/wsi_common_x11.c > "$work/wsi.patch"
+git -C "$work/mesa" fetch --quiet --depth=1 https://github.com/n2ray/mesa-for-android-container.git "$wsi_revision"
+git -C "$work/mesa" diff "$revision" "$wsi_revision" -- src/vulkan/wsi/wsi_common_x11.c > "$work/wsi.patch"
 git -C "$work/mesa" apply "$work/wsi.patch"
 meson setup "$work/build" "$work/mesa" -Dplatforms=x11,wayland \
     -Dgallium-drivers=zink,freedreno -Dfreedreno-kmds=kgsl -Dvulkan-drivers=freedreno \
