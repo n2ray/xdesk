@@ -433,6 +433,10 @@ public final class ScreenShareSession {
         send(d -> d.pointer(mask, x, y));
     }
 
+    public void wheel(int buttons, int wheel, int x, int y, int points) {
+        send(d -> d.wheel(buttons, wheel, x, y, Math.min(384, points)));
+    }
+
     /** An X keysym down or up. */
     public void key(boolean down, int keysym) {
         send(d -> d.key(down, keysym));
