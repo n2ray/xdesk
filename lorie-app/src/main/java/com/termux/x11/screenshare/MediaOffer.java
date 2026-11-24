@@ -15,6 +15,11 @@ import org.json.JSONObject;
 /** Encode the editable M4 profile. All per-connection fields are assigned during construction. */
 final class MediaOffer {
     private final JSONObject profile;
+    /** HEVC Main 4:2:0 instead of H.264 (ScreenShareSession picks it): payload 100, two formats, parameters in band. */
+    boolean hevc;
+    private static final byte[] HEVC_OPTIONS =
+            "FLS;LF:-1;POS:5;EOD:1;HTS:2;RR:3;POSE:4;AR:16/9,5/8;XR:16/9,5/8;"
+                    .getBytes(StandardCharsets.US_ASCII);
 
     MediaOffer(byte[] json) throws Exception {
         profile = new JSONObject(new String(json, StandardCharsets.UTF_8));
@@ -45,9 +50,9 @@ final class MediaOffer {
     }
 
     private Message video(JSONObject cfg, long ssrc, int width, int height) throws Exception {
-        Message codec = new Message().number(1, cfg.getInt("payloadType"));
+        Message codec = new Message().number(1, hevc ? 100 : cfg.getInt("payloadType"));
         JSONArray formats = cfg.getJSONArray("formats");
-        for (int i = 0; i < formats.length(); i++) {
+        for (int i = 0; i < (hevc ? 2 : formats.length()); i++) {
             Message format = new Message().number(1, 1).number(2, formats.getInt(i))
                     .number(3, cfg.getInt("formatField3")).number(4, 0);
             codec.nested(2, format);
@@ -55,10 +60,12 @@ final class MediaOffer {
         StringBuilder options = new StringBuilder();
         JSONArray tokens = cfg.getJSONArray("codecOptions");
         for (int i = 0; i < tokens.length(); i++) options.append(tokens.getString(i)).append(';');
-        codec.data(3, options.toString().getBytes(StandardCharsets.US_ASCII)).number(4, 1);
+        // 14 asks for VPS/SPS/PPS in band; H.264 takes an image description (avcC)
+        codec.data(3, hevc ? HEVC_OPTIONS : options.toString().getBytes(StandardCharsets.US_ASCII))
+                .number(4, hevc ? 14 : 1);
         return new Message().number(1, ssrc).number(2, 0).nested(3, codec)
                 .number(4, width).number(5, height).number(6, cfg.getInt("tiles"))
-                .number(7, 1).number(8, cfg.getInt("field8")).number(9, 1).number(12, 1);
+                .number(7, 1).number(8, hevc ? 1 : cfg.getInt("field8")).number(9, 1).number(12, 1);
     }
 
     byte[] create(boolean picture, long ssrc, int width, int height) throws Exception {

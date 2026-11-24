@@ -28,6 +28,8 @@ final class AvcReceiver {
     private long nextRecovery, nextKeyframeAsk;
     /** XDesk: set when a decoder was (re)attached; cleared by the next IDR. */
     volatile boolean wantKeyframe;
+    /** HEVC: its access units are assembled here instead (ScreenShareSession sets it before the first packet). */
+    volatile HevcPicture hevc;
     /** The last packet's index, to see a packet missing between pictures too (-1: none yet). */
     private long lastIndex = -1;
     int gaps;
@@ -65,13 +67,14 @@ final class AvcReceiver {
         if (index > lastIndex) lastIndex = index;
         ByteBuffer h = ByteBuffer.wrap(p);
         mediaSsrc = h.getInt(8);
+        if (pay.length == 0) return;
         int nal = pay[0] & 31;
-        if ((seenTypes & (1 << nal)) == 0) {
+        if (hevc == null && (seenTypes & (1 << nal)) == 0) {
             seenTypes |= 1 << nal;
             Log.i("XDeskScreenShare", "RTP payload type=" + (p[1]&127) + " first NAL type=" + nal
                     + " size=" + pay.length + " FU type=" + (nal==28 && pay.length>1 ? pay[1]&31 : -1));
         }
-        if (accepted < 5 && nal == 28) Log.i("XDeskScreenShare", "FU flags=" + (pay[1]&255)
+        if (hevc == null && accepted < 5 && nal == 28 && pay.length > 1) Log.i("XDeskScreenShare", "FU flags=" + (pay[1]&255)
                 + " marker=" + (p[1] < 0) + " seq=" + (index&65535));
         if (frames == 0 && feedback != null) {
             if (nextRecovery == 0) nextRecovery = ns + 1000000000L;
@@ -94,7 +97,10 @@ final class AvcReceiver {
         if(stamp!=ts&&!parts.isEmpty())flush(sink);
         if(parts.isEmpty())firstNs=ns;
         stamp=ts;parts.put(index,pay);
-        if((p[1]&128)!=0 && (nal!=28 || (pay.length>=2 && (pay[1]&64)!=0)))flush(sink);
+        // The marker ends the access unit, unless a fragment is still open (H.264 FU-A 28, HEVC FU 49 without its E bit)
+        boolean complete = hevc != null ? ((pay[0] >> 1) & 63) != 49 || (pay.length >= 3 && (pay[2] & 64) != 0)
+                : nal != 28 || (pay.length >= 2 && (pay[1] & 64) != 0);
+        if ((p[1] & 128) != 0 && complete) flush(sink);
     }
     void parameters(byte[] p){
         if(p.length<90)return;
@@ -123,6 +129,19 @@ final class AvcReceiver {
     }
     void flush(Sink sink)throws Exception{
         if(parts.lastKey()-parts.firstKey()+1!=parts.size()){lost++;parts.clear();wantKeyframe=true;return;}
+        if (hevc != null) {
+            HevcPicture h = hevc;
+            boolean complete = h.assemble(parts.values());
+            parts.clear();
+            if (!complete) { lost++; wantKeyframe = true; return; }
+            if (h.key) { idrs++; wantKeyframe = false; }
+            if (h.slice && !wantKeyframe) {
+                sink.frame(Arrays.copyOf(h.bytes(), h.size()), firstNs, h.key ? 1 : 0,
+                        clock.presentAt(mediaSsrc, (int) stamp, System.nanoTime()));
+                frames++;
+            }
+            return;
+        }
         List<byte[]> units=new ArrayList<>();ByteArrayOutputStream fu=null;
         for(byte[] p:parts.values()){
             if(p.length==0)continue;

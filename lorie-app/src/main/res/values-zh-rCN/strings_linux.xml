@@ -7,7 +7,7 @@
     <string name="xd_bl_state_installing">处理中…</string>
     <string name="xd_bl_state_stopping">正在停止…</string>
     <string name="xd_bl_install">安装 Ubuntu 26.04 和 XFCE</string>
-    <string name="xd_bl_install_note">只下载一次，约 600 MB，装好约占 2.5 GB。装在 XDesk 里：卸载 XDesk 或清除它的数据会一起删掉</string>
+    <string name="xd_bl_install_note">只下载一次，约 470 MB。装在 XDesk 里：卸载 XDesk 或清除它的数据会一起删掉</string>
     <string name="xd_bl_install_local_note">安装包已经在手机上，不用下载</string>
     <string name="xd_bl_start">启动桌面</string>
     <string name="xd_bl_start_note">启动 XFCE，并在外接屏上打开</string>
