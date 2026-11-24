@@ -1805,7 +1805,7 @@ public class XDeskActivity extends Activity {
     @Override protected void onStop() {
         super.onStop();
         activityStarted = false;
-        syncMacKeyboard();
+        syncDesktopKeyboard();
         if (discoveryHeld) {
             discoveryHeld = false;
             MacDiscovery.release();
@@ -1833,7 +1833,7 @@ public class XDeskActivity extends Activity {
         super.onStart();
         removeCover();
         activityStarted = true;
-        syncMacKeyboard();
+        syncDesktopKeyboard();
         // Only a saved Mac with a recognition key can be found at home: no such Mac, no mDNS
         if (!discoveryHeld && MacStore.anyFindableAtHome(this)) {
             discoveryHeld = true;
@@ -1929,7 +1929,7 @@ public class XDeskActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        syncMacKeyboard();
+        syncDesktopKeyboard();
         if (focus) {
             if (padFullscreen || gamepadShown) applyImmersive();
             // 选择界面开着时焦点归搜索框
@@ -4759,7 +4759,7 @@ public class XDeskActivity extends Activity {
     private void updateCapture() {
         if (keyView == null) return;
         boolean home = updateHome();
-        syncMacKeyboard();
+        syncDesktopKeyboard();
         // Everything that changes what is on the external screen ends up here: the Dock follows it
         updateExternalDock();
         applyCapture(home);
@@ -4883,26 +4883,29 @@ public class XDeskActivity extends Activity {
     }
 
     /** The input connection follows rawKeys(). Cheap when nothing changed; called wherever one of its parts may have. */
-    private ScreenShareInput capturedMac;
+    private InputSink capturedDesktop;
     private IMacKeyboard capturedKeys;
 
-    private void syncMacKeyboard() {
-        ScreenShareInput next = activityStarted && hasWindowFocus() && client instanceof ScreenShareInput
-                && !apps.isActive() && ownership.forwarded() && !phoneTyping() ? (ScreenShareInput) client : null;
-        if (capturedMac == next) return;
-        if (capturedMac != null) {
+    private void syncDesktopKeyboard() {
+        // WindowScopedInput belongs to the single-window switcher. Only the bare X desktop owns Alt+Tab.
+        boolean linuxDesktop = client instanceof DesktopInput && client == session.input();
+        boolean keyboardFocus = hasWindowFocus() || (linuxDesktop && desktopTaken);
+        InputSink next = activityStarted && keyboardFocus && (linuxDesktop || client instanceof ScreenShareInput)
+                && !apps.isActive() && ownership.forwarded() && !phoneTyping() ? client : null;
+        if (capturedDesktop == next) return;
+        if (capturedDesktop != null) {
             keysIn.cancel();
-            capturedMac.releaseAll();
+            if (capturedDesktop instanceof ScreenShareInput) ((ScreenShareInput) capturedDesktop).releaseAll();
             heldModifiers.clear();
         }
-        capturedMac = next;
+        capturedDesktop = next;
         capturedKeys = next == null ? null : new IMacKeyboard.Stub() {
             private final java.util.HashSet<Integer> modifiers = new java.util.HashSet<>();
             private final java.util.HashSet<Integer> shortcutKeys = new java.util.HashSet<>();
             @Override public void reset() { ui.post(() -> {
                 if (capturedKeys != this) return;
                 keysIn.cancel();
-                next.releaseAll();
+                if (next instanceof ScreenShareInput) ((ScreenShareInput) next).releaseAll();
                 modifiers.clear();
                 shortcutKeys.clear();
                 heldModifiers.clear();
@@ -4937,7 +4940,7 @@ public class XDeskActivity extends Activity {
                     shortcutKeys.add(scan);
                 }
                 boolean shortcut = value == 0 ? shortcutKeys.remove(scan) : shortcutKeys.contains(scan);
-                if (shortcut) physicalKey(event, false);
+                if (shortcut || (linuxDesktop && desktopTaken)) physicalKey(event, false);
                 else getWindow().injectInputEvent(event);
             }); }
         };
@@ -4945,7 +4948,7 @@ public class XDeskActivity extends Activity {
     }
 
     private void syncKeyMode() {
-        syncMacKeyboard();
+        syncDesktopKeyboard();
         if (keyView == null) return;
         boolean was = keyView.bridge().raw(), raw = rawKeys();
         keyView.bridge().setRaw(raw);
@@ -5765,7 +5768,7 @@ public class XDeskActivity extends Activity {
     private void setTarget(InputSink s) {
         if (client == SwitcherOverlay.INPUT && SwitcherOverlay.isShown()) beforeSwitcher = s;
         else client = s;
-        syncMacKeyboard();
+        syncDesktopKeyboard();
     }
 
     /** With a content that draws itself (a Mac) on top: the Android app was in front of the X desktop under it, not behind. */
