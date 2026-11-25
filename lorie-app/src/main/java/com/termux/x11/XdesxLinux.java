@@ -29,9 +29,12 @@ final class XdesxLinux implements AutoCloseable {
     private final BuiltinLinux.Listener listener = this::changed;
     private boolean closed, listed;
     private Process session, video;
+    private final AudioRoute audioRoute;
+    private AudioPlayer audio;
 
     XdesxLinux(Context context, Consumer<String> error) throws IOException {
         this.error = error;
+        audioRoute = AudioRoute.get(context.getApplicationContext());
         desktop = new File(context.getFilesDir(), "xd").getCanonicalFile();
         linux = BuiltinLinux.get(context);
         apps = new BuiltinApps(linux.rootfs, linux.home);
@@ -111,6 +114,7 @@ final class XdesxLinux implements AutoCloseable {
             if (!linux.installed()) throw new IOException("请先在全局设置中安装 Ubuntu 核心");
             if (verb.equals("reset") || verb.equals("remove")) {
                 if (linux.state() == BuiltinLinux.State.INSTALLING || linux.state() == BuiltinLinux.State.STOPPING) return;
+                stopAudio();
                 listed=false;
                 if (verb.equals("reset")) linux.reset(true); else linux.removeAll();
                 return;
@@ -145,13 +149,23 @@ final class XdesxLinux implements AutoCloseable {
             b.environment().remove("LD_PRELOAD");
             b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(linux.logDir(), "xdesx-apps.log")));
             session = b.start();
+            stopAudio();
+            audio = new AudioPlayer(new File(tmp,"xdesk-audio"),audioRoute);
         } catch (IOException e) {
             if (video != null) video.destroy();
             throw e;
         }
     }
 
+    private synchronized void stopAudio() {
+        if (audio != null) {
+            audio.close();
+            audio = null;
+        }
+    }
+
     @Override public synchronized void close() {
+        stopAudio();
         closed = true;
         linux.removeListener(listener);
         worker.shutdownNow();

@@ -29,6 +29,7 @@ final class AudioPlayer {
     private static final int SILENCE_MS = 500, SILENCE_BYTES = SILENCE_MS * BYTES_PER_MS;
 
     private final int port;
+    private final java.io.File socket;
     private volatile boolean running = true;
     private final AudioRoute route;
     private static final int NO_DEVICE = -1;
@@ -41,6 +42,15 @@ final class AudioPlayer {
     private final Thread thread;
 
     AudioPlayer(int port, AudioRoute route) {
+        this(port, null, route);
+    }
+
+    AudioPlayer(java.io.File socket, AudioRoute route) {
+        this(0, socket, route);
+    }
+
+    private AudioPlayer(int port, java.io.File socket, AudioRoute route) {
+        this.socket = socket;
         this.port = port;
         this.route = route;
         thread = new Thread(new Runnable() {
@@ -132,6 +142,17 @@ final class AudioPlayer {
 
     /** Through the X server, which can reach PulseAudio's private socket. The port is only there with an older xdesk command. */
     private Connection connect() throws IOException {
+        if (socket != null) {
+            android.net.LocalSocket local = new android.net.LocalSocket();
+            try {
+                local.connect(new android.net.LocalSocketAddress(socket.getAbsolutePath(),
+                        android.net.LocalSocketAddress.Namespace.FILESYSTEM));
+                return new Connection(local.getInputStream(), local);
+            } catch (IOException e) {
+                local.close();
+                throw e;
+            }
+        }
         ICmdEntryInterface x = MainActivity.verifiedServer;
         if (x != null) {
             try {
@@ -167,6 +188,7 @@ final class AudioPlayer {
         while (running) {
             try (Connection c = connect()) {
                 connection = c;
+                if (!running) break;
                 Log.i(TAG, "audio connected");
                 InputStream in = c.in;
                 AudioTrack t = newTrack();
