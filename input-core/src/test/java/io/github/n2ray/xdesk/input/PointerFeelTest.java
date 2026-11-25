@@ -21,6 +21,32 @@ public class PointerFeelTest {
         return rec;
     }
 
+    private static float desktopGain(float dpPerMs, int interval) {
+        Tuning t = new Tuning();
+        t.desktopPad = true;
+        Recorder rec = new Recorder();
+        Touchpad pad = new Touchpad(t, new FakeScheduler(), rec);
+        Touches e = new Touches();
+        pad.onTouch(e.set(Touches.DOWN, 0, 0).pointer(0, 0, 0));
+        int initial = 0;
+        for (int ms = interval; ms <= 800; ms += interval) {
+            pad.onTouch(e.set(Touches.MOVE, 0, ms).pointer(0, dpPerMs * ms, 0));
+            if (ms == 400) initial = rec.moveX;
+        }
+        return (rec.moveX - initial) / (400 * dpPerMs);
+    }
+
+    @Test public void desktopGainProgressesThroughMidrangeAcrossReportRates() {
+        float previous = 0;
+        for (float speed : new float[]{0.1f, 0.35f, 0.65f, 0.9f, 1.4f, 2f}) {
+            float gain = desktopGain(speed, 8);
+            assertTrue(gain > previous);
+            if (previous > 0) assertTrue(gain - previous < 0.25f);
+            assertEquals(gain, desktopGain(speed, 16), 0.03f);
+            previous = gain;
+        }
+    }
+
     @Test public void desktopDragStartsAtTheRestingCursor() {
         Tuning t = new Tuning();
         t.desktopPad = true;

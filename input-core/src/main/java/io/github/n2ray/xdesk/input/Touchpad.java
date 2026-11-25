@@ -55,6 +55,7 @@ public final class Touchpad {
     private int state = IDLE;
     private int maxFingers, fingers;
     private long previousMoveAt;
+    private float trackingSpeed; // dp/ms, smoothed across one stroke
     private long downAt, lastTapUp = Long.MIN_VALUE / 2;
     private float downX, downY;
     private float lastX, lastY, travelDp, armedTravelDp, pendingX, pendingY;
@@ -111,6 +112,7 @@ public final class Touchpad {
                 fingers = maxFingers = 1;
                 downAt = t.time;
                 previousMoveAt = downAt;
+                trackingSpeed = 0;
                 travelDp = 0;
                 gestured = scrolled = false;
                 rest.clear();
@@ -280,7 +282,11 @@ public final class Touchpad {
         if (tuning.desktopPad) {
             // Gain in output counts per dp. Slow corrections stay precise on high-density phones.
             float speed = (float) Math.hypot(dxDp, dyDp) / interval;
-            float gain = tuning.pointerSpeed * (0.85f + 1.75f * Math.min(1f, speed / 0.9f));
+            // Filter only the gain, so the pointer still responds to each movement immediately.
+            float weight = (float) -Math.expm1(-interval / 35.0);
+            trackingSpeed += weight * (speed - trackingSpeed);
+            // Leave headroom for the HDMI mouse seat's own acceleration.
+            float gain = tuning.pointerSpeed * (1f + 1.25f * trackingSpeed / (1f + trackingSpeed));
             if (rest.add(dxDp * gain, dyDp * gain)) out.move(rest.dx, rest.dy);
             return;
         }
