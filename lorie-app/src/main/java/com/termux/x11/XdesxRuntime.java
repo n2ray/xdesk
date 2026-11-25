@@ -166,7 +166,7 @@ final class XdesxRuntime {
                     if(peer.getPeerCredentials().getUid()!=Process.myUid()) continue;
                     peer.setSoTimeout(2000);
                     String line=new BufferedReader(new InputStreamReader(peer.getInputStream(),"UTF-8")).readLine();
-                    if(line!=null && line.matches("action (linux-install|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                    if(line!=null && line.matches("action (wallpaper-pick|linux-install|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
                         menu.selected("action",line.substring(7)); continue;
                     }
                     if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;

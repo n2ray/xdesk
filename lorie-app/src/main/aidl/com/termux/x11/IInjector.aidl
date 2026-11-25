@@ -118,6 +118,8 @@ interface IInjector {
     oneway void pointerAt(int x, int y) = 51;
     // The privacy cover: the external screen's Android apps without sound while it hides them (CoverMute).
     oneway void muteApps(boolean on) = 52;
+    boolean routeXdesxDesktop(int display) = 65;
+    oneway void desktopMouse(int op,float x,float y) = 66;
     void releaseXdesxDisplay(int id) = 60;
     void watchXdesxWindow(int display, com.termux.x11.IXdesxWindowListener callback) = 64;
     int moveXdesxTask(int window, int external, String pkg, int task, boolean enter, in Bitmap cursor, int hotspot, int width, int height) = 62;

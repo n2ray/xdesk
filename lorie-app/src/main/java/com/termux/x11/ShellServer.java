@@ -36,7 +36,7 @@ public final class ShellServer extends IShellServer.Stub {
     static final String EXTRA_BINDER = "binder", EXTRA_PORT = "port";
     /** Held by the shell user and not grantable to apps: signature|installer. Shizuku's provider relies on the same one. */
     static final String BINDER_PERMISSION = "android.permission.INTERACT_ACROSS_USERS_FULL";
-    static final String NICE_NAME = "xdesk_shell";
+    static final String NICE_NAME = "xdesx_shell";
 
     private static final String TAG = "XDeskShell";
     private static final String WRITE_SECURE_SETTINGS = "android.permission.WRITE_SECURE_SETTINGS";

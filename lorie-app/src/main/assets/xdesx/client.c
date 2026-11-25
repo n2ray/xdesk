@@ -88,7 +88,9 @@ int main(int argc, char **argv) {
     Atom full=XInternAtom(d,"_XDESX_NATIVE_FULLSCREEN",False), protocols[]={del,full};
     Atom wm=XInternAtom(d,"WM_PROTOCOLS",False);
     XSetWMProtocols(d,win,protocols,2);
-    XSelectInput(d, win, StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
+    Atom wm_state=XInternAtom(d,"WM_STATE",False);
+    int minimized=0;
+    XSelectInput(d, win, PropertyChangeMask | StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
     XMapWindow(d, win);
     XFlush(d);
     xcb_connection_t *conn = XGetXCBConnection(d);
@@ -104,6 +106,15 @@ int main(int argc, char **argv) {
             if (e.type==ClientMessage && e.xclient.message_type==wm && e.xclient.format==32) {
                 if ((Atom)e.xclient.data.l[0]==del) return 0;
                 if ((Atom)e.xclient.data.l[0]==full && !event(ctrl,7,0,0)) return 1;
+            }
+            if (e.type==PropertyNotify && e.xproperty.atom==wm_state) {
+                Atom type; int format; unsigned long count, remaining; unsigned char *data=NULL;
+                if (XGetWindowProperty(d,win,wm_state,0,2,False,wm_state,&type,&format,&count,&remaining,&data)==Success && format==32 && count) {
+                    int hidden=((long*)data)[0]==IconicState;
+                    if (hidden!=minimized && !event(ctrl,8,hidden,0)) return 1;
+                    minimized=hidden;
+                }
+                if(data) XFree(data);
             }
             if (e.type == ConfigureNotify && (w != e.xconfigure.width || h != e.xconfigure.height)) {
                 w = e.xconfigure.width; h = e.xconfigure.height;

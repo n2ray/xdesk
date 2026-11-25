@@ -64,7 +64,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Display d=displays.getDisplay(external);
         if (w==null || d==null || switching) return;
         if (fullWindow == null && !android.provider.Settings.canDrawOverlays(this)) {
-            error("请先允许 XDesk 显示在其他应用上层，以便在外屏退出全屏");
+            new android.app.AlertDialog.Builder(this).setMessage("请允许 xdesx 在外屏显示返回窗口工具条。").setNegativeButton("取消",null).setPositiveButton("打开权限设置",(a,b)->startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())))).show();
             return;
         }
         IInjector service = injector;
@@ -106,8 +106,21 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             });
         },"xdesx-fullscreen").start();
     }
+    private boolean desktopNative;
+    private void routeDesktop() {
+        if(injector==null || external<=0 || desktopNative) return;
+        try {
+            desktopNative=injector.routeXdesxDesktop(external);
+            MainActivity.xdesxHardwareCursor(desktopNative);
+            if(desktopNative && mouse.hasPointerCapture()) mouse.releasePointerCapture();
+        } catch(RemoteException e){error(e.toString());}
+    }
     private boolean nativeInput(int op,float x,float y) {
         if (switching || gamePassthrough) return true;
+        if(desktopNative && op>=1 && op<=3 && injector!=null) {
+            try {injector.desktopMouse(op,x,y);} catch(RemoteException e){error(e.toString());}
+            return true;
+        }
         if (fullWindow==null) return false;
         try { if (injector!=null) injector.xdesxNativeInput(op,x,y); }
         catch(RemoteException e) { error(e.toString()); }
@@ -126,10 +139,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if (next==null || isDestroyed()) return;
             try {
                 next.attach(fullscreenEvents,getPackageName());
-                injector=next;
+                injector=next; routeDesktop();
             } catch(RemoteException e) { error(e.toString()); }
         }
-        public void onServiceDisconnected(ComponentName name) { injector = null; }
+        public void onServiceDisconnected(ComponentName name) { injector = null; desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
     };
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -161,11 +174,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public boolean physicalKey(KeyEvent e) { return dispatchKeyEvent(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
+        android.widget.Button controls=new android.widget.Button(this);
+        controls.setText("桌面控制");controls.setAlpha(.72f);
+        layout.addView(controls,new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.END));
+        controls.setOnClickListener(v->onBackPressed());
         setContentView(layout);
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
         AppSession.get(this).activateIfPaired();
         openInjector();
+        if (!AppSession.get(this).injectorReady()) mouse.postDelayed(()->{
+            if (!isFinishing() && !isDestroyed() && !AppSession.get(this).injectorReady()) setup();
+        },1500);
         panel=new XdesxPanelState(this);
         place();
         try { linux = new XdesxLinux(this, this::error); }
@@ -190,12 +210,40 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 hideImeOnReturn = false;
                 getWindow().getInsetsController().hide(WindowInsets.Type.ime());
             }
-            if(!mouse.hasPointerCapture()) mouse.requestPointerCapture();
+            if(!desktopNative && !mouse.hasPointerCapture()) mouse.requestPointerCapture();
         }
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         if(focused) capture(); else if(mouse!=null) mouse.releaseMouse();
+    }
+    private ActivationPage activation;
+    private final Runnable checkSetup=new Runnable() {
+        public void run() {
+            if(activation==null || isDestroyed() || isFinishing()) return;
+            if(AppSession.get(XdesxActivity.this).injectorReady()) {
+                activation.close();activation=null;openInjector();return;
+            }
+            activation.refresh();
+            settingsHandler.postDelayed(this,1000);
+        }
+    };
+    private void setup() {
+        if(activation!=null) return;
+        AppSession session=AppSession.get(this);
+        if(session.injectorReady()){openInjector();error("桌面控制已授权");return;}
+        activation=new ActivationPage(this,new SettingsUi(this),session.shell(),session.shizukuInstalled(),new ActivationPage.Actions(){
+            public void openPairingSettings(){
+                try {startForegroundService(PairingService.startIntent(XdesxActivity.this));} catch(RuntimeException e){Log.w("XDesX","pairing notification",e);}
+                try {startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).putExtra(":settings:fragment_args_key","toggle_adb_wireless"));}catch(RuntimeException e){error("请从系统设置打开无线调试");}
+            }
+            public void useShizuku(){
+                if(session.shizukuState()==AppSession.SHIZUKU_NO_PERMISSION) session.requestPermission();
+                else error("请启动 Shizuku，然后回到 xdesx");
+            }
+            public void cancelled(){activation=null;settingsHandler.removeCallbacks(checkSetup);}
+        });
+        settingsHandler.post(checkSetup);
     }
     private void openInjector() {
         if (injector!=null || connecting) return;
@@ -206,6 +254,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Display d=TargetDisplay.real(displays);
         if (d==null || external==d.getDisplayId()) return;
         external=d.getDisplayId();
+        routeDesktop();
         Context app=getApplicationContext();
         MainActivity.displayAllowed=id -> TargetDisplay.allowsDesktop(app,id);
         panel.screen(d);
@@ -239,7 +288,44 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         DesktopScale.applyDpi(dpi);
         Log.i("XDesX","panel scale="+panel.scale+" render="+w+"x"+h);
     }
+    private void chooseWallpaper() {
+        Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
+        ActivityOptions options=ActivityOptions.makeBasic();
+        if(external>=0) options.setLaunchDisplayId(external);
+        try { startActivityForResult(pick,730,options.toBundle()); }
+        catch(RuntimeException e) { try { startActivityForResult(pick,730); } catch(RuntimeException unavailable){ error("没有可用的图片选择器"); } }
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if(request!=730 || result!=RESULT_OK || data==null || data.getData()==null) return;
+        android.net.Uri uri=data.getData();
+        Display d=displays.getDisplay(external);
+        if(d==null) return;
+        android.graphics.Point size=new android.graphics.Point();d.getRealSize(size);
+        new Thread(()->{
+            File dir=new File(getFilesDir(),"xd");
+            try {
+                android.graphics.Bitmap image=android.graphics.ImageDecoder.decodeBitmap(
+                    android.graphics.ImageDecoder.createSource(getContentResolver(),uri),(decoder,info,source)->{
+                        int w=info.getSize().getWidth(),h=info.getSize().getHeight();
+                        double ratio=Math.min(1.,Math.min(4096./Math.max(w,h),Math.max((double)size.x/w,(double)size.y/h)));
+                        decoder.setTargetSize(Math.max(1,(int)(w*ratio)),Math.max(1,(int)(h*ratio)));
+                        decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
+                    });
+                File tmp=File.createTempFile("wallpaper",".jpg",dir);
+                try {
+                    try(FileOutputStream out=new FileOutputStream(tmp)){
+                        if(!image.compress(android.graphics.Bitmap.CompressFormat.JPEG,92,out)) throw new IOException("图片保存失败");
+                    }
+                    java.nio.file.Files.move(tmp.toPath(),new File(dir,"wallpaper.jpg").toPath(),java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    java.nio.file.Files.write(new File(dir,"wallpaper-mode").toPath(),"fill".getBytes("UTF-8"));
+                    java.nio.file.Files.write(new File(dir,"run/wallpaper-update").toPath(),new byte[]{1});
+                } finally { image.recycle(); tmp.delete(); }
+            } catch(IOException|RuntimeException e){error("壁纸 · "+e.getMessage());}
+        },"xdesx-wallpaper").start();
+    }
     private void panelAction(String action) {
+        if(action.equals("wallpaper-pick")) {chooseWallpaper(); return;}
         if (action.startsWith("linux-")) {
             if (linux != null) linux.action(action.substring(6));
             return;
@@ -354,8 +440,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public void onBackPressed() {
         if (fullWindow!=null) { toggleWindow(fullWindow); return; }
-        new android.app.AlertDialog.Builder(this).setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","结束桌面","取消"},
-            (dialog,item) -> { if(item==0) { panel.returnSequence++; panel.publish(); } if(item==1) panelAction("recover"); if(item==2) finish(); }).show();
+        new android.app.AlertDialog.Builder(this).setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","结束桌面","连接与授权","手机键盘","取消"},
+            (dialog,item) -> { if(item==0) { panel.returnSequence++; panel.publish(); } if(item==1) panelAction("recover"); if(item==2) finish(); if(item==3) setup(); if(item==4){mouse.requestFocus();getWindow().getInsetsController().show(WindowInsets.Type.ime());} }).show();
     }
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);
@@ -364,12 +450,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         displays.unregisterDisplayListener(this);
         if (linux != null) linux.close();
         if(runtime!=null) runtime.close();
+        MainActivity.xdesxHardwareCursor(false);
         if(mouse!=null) mouse.releasePointerCapture();
         for (XdesxWindow w:windows.values()) w.stop();
         if (injector!=null) {
             try { injector.shutdown(); } catch(RemoteException e) { Log.w("XDesX","shutdown",e); }
         }
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);
+        settingsHandler.removeCallbacks(checkSetup);if(activation!=null) activation.close();
         super.onDestroy();
     }
 }

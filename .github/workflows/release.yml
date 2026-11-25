@@ -71,6 +71,12 @@ jobs:
     - name: Collect release files
       run: |
         mkdir out
+        if [[ "$GITHUB_REF_NAME" == xdesx ]]; then
+          cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesx.apk
+          (cd out && sha256sum xdesx.apk > SHA256SUMS)
+          rm -f "$XDESK_KEYSTORE"
+          exit 0
+        fi
         cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesk.apk
         cp receiver/build/outputs/apk/release/receiver-release.apk out/xdesk-receiver.apk
         dpkg-deb -x shell-loader/build/outputs/companion/termux-x11-*-all.deb deb
@@ -103,6 +109,7 @@ jobs:
 
   mac:
     # The phone's files are out by then, whatever happens here
+    if: github.ref_name != 'xdesx'
     needs: release
     continue-on-error: true
     runs-on: macos-latest

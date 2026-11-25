@@ -25,7 +25,7 @@ final class XdesxWindow {
     private volatile boolean stopped;
     private ImageReader reader;
     private volatile int display = -1;
-    private volatile boolean nativeFullscreen;
+    private volatile boolean nativeFullscreen, minimized;
     private int task=-1;
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
     String label() { return mac()?"Mac":chrome()?"Chrome":"应用"; }
@@ -59,6 +59,7 @@ final class XdesxWindow {
             control=fd;
             while (!stopped) {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
+                if (op==8 && !mac()) setMinimized(x!=0);
                 if (op==7) requestFullscreen.run();
                 if (op==1) resize(x,y);
                 if (display<0 || nativeFullscreen) continue;
@@ -83,11 +84,16 @@ final class XdesxWindow {
             finished.run();
         }
     }
+    private synchronized void setMinimized(boolean value) throws RemoteException {
+        if (value==minimized || display<0 || reader==null || nativeFullscreen) return;
+        injector.setVirtualDisplaySurface(display,value?null:reader.getSurface());
+        minimized=value;
+    }
     private int dpi=160;
     synchronized void density(int value) {
         dpi=value;
         if (stopped || reader==null || display<0) return;
-        try { injector.resizeVirtualDisplay(display,reader.getWidth(),reader.getHeight(),dpi,reader.getSurface()); }
+        try { injector.resizeVirtualDisplay(display,reader.getWidth(),reader.getHeight(),dpi,minimized?null:reader.getSurface()); }
         catch (RemoteException e) { Log.w("XDesX","window density",e); }
     }
     private synchronized void resize(int w,int h) throws Exception {
@@ -113,7 +119,7 @@ final class XdesxWindow {
                     }
                 });
             } else {
-                injector.resizeVirtualDisplay(display,w,h,dpi,next.getSurface());
+                injector.resizeVirtualDisplay(display,w,h,dpi,minimized?null:next.getSurface());
                 Log.i("XDesX","committed resize "+w+"x"+h);
             }
         } catch(Exception e) { next.close(); throw e; }
@@ -128,7 +134,7 @@ final class XdesxWindow {
     private void frame(ImageReader src) {
         if (stopped) return;
         try (Image image=src.acquireLatestImage()) {
-            if (image==null || nativeFullscreen) return;
+            if (image==null || nativeFullscreen || minimized) return;
             try (HardwareBuffer buffer=image.getHardwareBuffer(); SyncFence fence=image.getFence()) {
                 if (fence.isValid() && !fence.await(Duration.ofSeconds(1))) { stop(); return; }
                 server.xdesxFrame(key,buffer);

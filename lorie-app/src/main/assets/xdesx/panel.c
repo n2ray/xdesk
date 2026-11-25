@@ -23,6 +23,7 @@ typedef struct {
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
+    Pixmap wallpaper;
     int scale, render, return_sequence;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
     guint reveal_timer, hide_timer;
@@ -119,17 +120,20 @@ static GtkWidget *item(GtkWidget *menu,const char *name) {
     gtk_menu_shell_append(GTK_MENU_SHELL(menu),i);
     return i;
 }
-static GtkWidget *submenu(GtkWidget *menu,const char *name) {
-    GtkWidget *sub=gtk_menu_new();
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(item(menu,name)),sub);
-    return sub;
-}
 static gboolean timeout_dialog(gpointer d) {
     gtk_dialog_response(GTK_DIALOG(d),GTK_RESPONSE_CANCEL);
     return G_SOURCE_REMOVE;
 }
 static void selected(GtkWidget *i,gpointer unused) {
     const char *op=g_object_get_data(G_OBJECT(i),"action");
+    if (!strcmp(op,"linux-install")) {
+        GtkWidget *d=gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(i)),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"下载 Ubuntu 应用环境？");
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d),"首次使用需要联网下载并校验 ARM64 镜像，再解压到本机。建议使用 Wi-Fi 并预留数 GB 空间。安装后即可从应用菜单启动 Linux 应用。");
+        gtk_dialog_add_buttons(GTK_DIALOG(d),"取消",GTK_RESPONSE_CANCEL,"下载并安装",GTK_RESPONSE_OK,NULL);
+        gboolean install=gtk_dialog_run(GTK_DIALOG(d))==GTK_RESPONSE_OK;
+        gtk_widget_destroy(d);
+        if (!install) return;
+    }
     if (!action(op) || !g_str_has_prefix(op,"render-")) return;
     char *confirm=g_strdup_printf("confirm-%s",op+7);
     GtkWidget *d=gtk_message_dialog_new(NULL,0,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"保留这个桌面渲染分辨率？");
@@ -153,6 +157,7 @@ static void launch(GtkMenuItem *i,gpointer data) {
     g_spawn_async(NULL,argv,NULL,G_SPAWN_SEARCH_PATH,NULL,NULL,NULL,NULL);
     g_free(title);
 }
+#include "panel-wallpaper.h"
 #include "panel-settings.h"
 
 static void popup(GtkWidget *menu,GtkWidget *button) {
@@ -160,54 +165,7 @@ static void popup(GtkWidget *menu,GtkWidget *button) {
     gtk_widget_show_all(menu);
     gtk_menu_popup_at_widget(GTK_MENU(menu),button,GDK_GRAVITY_SOUTH_WEST,GDK_GRAVITY_NORTH_WEST,NULL);
 }
-static void main_menu(GtkWidget *button,Panel *p) {
-    GtkWidget *menu=gtk_menu_new(), *android=submenu(menu,"安卓应用");
-    GtkWidget *linux_apps=submenu(menu,"Linux 应用");
-    gchar *rows=NULL;
-    if (g_file_get_contents("run/ubuntu-apps",&rows,NULL,NULL)) {
-        gchar **lines=g_strsplit(rows,"\n",-1);
-        for (int n=0; lines[n]; n++) {
-            gchar **row=g_strsplit(lines[n],"\t",2);
-            if (g_strv_length(row)==2) {
-                gchar *op=g_strconcat("linux-",row[1],NULL);
-                command(linux_apps,row[0],op);
-                g_free(op);
-            }
-            g_strfreev(row);
-        }
-        g_strfreev(lines);
-    }
-    if (!rows || !*rows) gtk_widget_set_sensitive(item(linux_apps,"在全局设置中安装或刷新 Ubuntu 应用"),FALSE);
-    g_free(rows);
-    char *data=NULL;
-    if (g_file_get_contents("apps.tsv",&data,NULL,NULL)) {
-        char **lines=g_strsplit(data,"\n",-1);
-        for (int n=0;lines[n];n++) {
-            char **f=g_strsplit(lines[n],"\t",4);
-            if (g_strv_length(f)==4) {
-                if (strcmp(f[3],"mac")==0) { g_free(p->mac_id);p->mac_id=g_strdup(f[0]); }
-                GtkWidget *i=gtk_image_menu_item_new_with_label(f[1]);
-                if (g_path_is_absolute(f[2])) {
-                    int size=24*p->scale/100;
-                    GdkPixbuf *icon=gdk_pixbuf_new_from_file_at_scale(f[2],size,size,TRUE,NULL);
-                    if (icon) {
-                        gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(i),gtk_image_new_from_pixbuf(icon));
-                        gtk_image_menu_item_set_always_show_image(GTK_IMAGE_MENU_ITEM(i),TRUE);
-                        g_object_unref(icon);
-                    }
-                }
-                gtk_menu_shell_append(GTK_MENU_SHELL(strcmp(f[3],"mac")==0?menu:android),i);
-                g_object_set_data_full(G_OBJECT(i),"id",g_strdup(f[0]),g_free);
-                g_signal_connect(i,"activate",G_CALLBACK(launch),g_object_get_data(G_OBJECT(i),"id"));
-            }
-            g_strfreev(f);
-        }
-        g_strfreev(lines); g_free(data);
-    }
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu),gtk_separator_menu_item_new());
-    g_signal_connect(item(menu,"全局设置"),"activate",G_CALLBACK(settings_open),p);
-    popup(menu,button);
-}
+#include "panel-launcher.h"
 static void activate_window(GtkWidget *i,WnckWindow *w) {
     WnckWorkspace *ws=wnck_window_get_workspace(w);
     if (ws) wnck_workspace_activate(ws,gtk_get_current_event_time());
@@ -317,6 +275,7 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     char *name=g_file_get_basename(file);
     char *target=other?g_file_get_basename(other):NULL;
     if (g_strcmp0(name,"panel-state")==0 || g_strcmp0(target,"panel-state")==0) refresh(p);
+    if (!g_strcmp0(name,"wallpaper-update") || !g_strcmp0(target,"wallpaper-update")) paint_wallpaper(p);
     if (p->settings && (g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
         settings_contents(p);
     g_free(name); g_free(target);
@@ -325,7 +284,8 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     remove_fullscreen_bar(p);
     if(p->settings) gtk_widget_destroy(p->settings);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
-    Pixmap wallpaper=(Pixmap)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(plugin),"xdesx-wallpaper"));
+    g_signal_handlers_disconnect_by_data(gdk_screen_get_default(),p);
+    Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     stop_tracking(p);g_free(p->mac_id);
     g_signal_handlers_disconnect_by_data(p->screen,p);
@@ -366,15 +326,8 @@ static void construct(XfcePanelPlugin *plugin) {
     refresh(p);
     g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_window),p);
     for(GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_window(p->screen,l->data,p);
-    Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
-    Window root=DefaultRootWindow(d);
-    Pixmap wallpaper=XCreatePixmap(d,root,1,1,DefaultDepth(d,DefaultScreen(d)));
-    GC paint=XCreateGC(d,wallpaper,0,NULL);
-    XSetForeground(d,paint,0xd9d8d6);XFillRectangle(d,wallpaper,paint,0,0,1,1);XFreeGC(d,paint);
-    XChangeProperty(d,root,XInternAtom(d,"_XROOTPMAP_ID",False),XA_PIXMAP,32,PropModeReplace,(unsigned char*)&wallpaper,1);
-    XSetWindowBackgroundPixmap(d,root,wallpaper);XClearWindow(d,root);XFlush(d);
-    g_object_set_data(G_OBJECT(plugin),"xdesx-wallpaper",GSIZE_TO_POINTER(wallpaper));
-
+    paint_wallpaper(p);
+    g_signal_connect(gdk_screen_get_default(),"size-changed",G_CALLBACK(wallpaper_size),p);
     gtk_widget_show_all(bar);
     gtk_widget_set_no_show_all(p->current,TRUE);
     gtk_widget_set_no_show_all(p->separator,TRUE);

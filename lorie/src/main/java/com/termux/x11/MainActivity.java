@@ -1534,7 +1534,7 @@ public class MainActivity extends AppCompatActivity {
             if (!connected)
                 tryConnect();
             else
-                getLorieView().setPointerIcon(PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL));
+                applyPointerMode();
 
             applyWindowSettings();
         });
@@ -1556,6 +1556,23 @@ public class MainActivity extends AppCompatActivity {
      * XDesk took over the keyboard for the desktop: focus is on this window, on the external display, and the phone's
      * window cannot hold the mouse any more. This window then captures it, whatever the preference says.
      */
+    private static boolean desktopNative;
+    private static PointerIcon desktopShape;
+    public static void xdesxShape(PointerIcon icon) {
+        desktopShape=icon;
+        MainActivity a=getInstance("");
+        if(desktopNative && a!=null && a.getLorieView()!=null) a.getLorieView().setPointerIcon(icon);
+    }
+    public static void xdesxHardwareCursor(boolean enabled) {
+        desktopNative=enabled;
+        MainActivity a=getInstance("");
+        if(a!=null && a.getLorieView()!=null) a.applyPointerMode();
+    }
+    private void applyPointerMode() {
+        boolean nativePointer=desktopNative && getIntent().getBooleanExtra("xdesx_quiet",false);
+        getLorieView().setCursorHidden(nativePointer);
+        getLorieView().setPointerIcon(nativePointer?desktopShape:PointerIcon.getSystemIcon(this,PointerIcon.TYPE_NULL));
+    }
     private static boolean takeMouse;
 
     public static void setTakeMouse(boolean on) {

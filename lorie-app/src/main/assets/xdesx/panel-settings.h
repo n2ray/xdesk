@@ -51,6 +51,7 @@ static void settings_contents(Panel *p) {
     const char *sc[]={"1×","1.33×","2×"},*rs[]={"原生","75%","50%"},*sp[]={"慢","标准","快"},*yn[]={"开","关"},*ls[]={"2","3","4","6"};
     setting_row(view,"界面大小","scale",scales,sc,3,p->scale);
     setting_row(view,"渲染分辨率","render",renders,rs,3,p->render);
+    wallpaper_controls(page(s,"wallpaper","桌面背景"),p);
     view=page(s,"windows","桌面与窗口");
     setting_row(view,"记住窗口布局","remember",yesno,yn,2,p->remember);
     GtkWidget *b=gtk_button_new_with_label("将窗口移回屏幕内");g_signal_connect(b,"clicked",G_CALLBACK(bring_back),p);gtk_box_pack_start(GTK_BOX(view),b,FALSE,FALSE,0);
@@ -80,7 +81,7 @@ static void settings_contents(Panel *p) {
     gtk_box_pack_start(GTK_BOX(view),gtk_label_new(count),FALSE,FALSE,4);g_free(count);
     setting_row(view,"窗口上限","limit",limits,ls,4,p->limit);
     view=page(s,"about","关于与诊断");
-    gtk_box_pack_start(GTK_BOX(view),gtk_label_new("XDesk · xfwm4 4.20.0 · xfce4-panel 4.20"),FALSE,FALSE,2);
+    gtk_box_pack_start(GTK_BOX(view),gtk_label_new("xdesx · xfwm4 4.20.0 · xfce4-panel 4.20"),FALSE,FALSE,2);
     b=gtk_button_new_with_label("恢复外屏原生分辨率和 1× 界面");
     g_object_set_data(G_OBJECT(b),"action","recover");g_signal_connect(b,"clicked",G_CALLBACK(selected),NULL);
     gtk_box_pack_start(GTK_BOX(view),b,FALSE,FALSE,0);

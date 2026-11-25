@@ -16,7 +16,7 @@
 #include "buffer.h"
 #include "frame-permit.h"
 
-#define PORT 7892
+#define PORT 17892
 #define DOCUMENT_PORT_BASE 7900
 #define MAGIC "0xDEADBEEF"
 
