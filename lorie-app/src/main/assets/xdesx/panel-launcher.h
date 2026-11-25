@@ -1,4 +1,4 @@
-// The launcher and its thumbnails live only while the popover is open.
+// The launcher and its thumbnails live only while the menu window is open.
 typedef struct {
     Panel *panel;
     GtkWidget *popup, *grid, *search, *tabs;
@@ -21,7 +21,7 @@ static void open_tile(GtkButton *button,Launcher *l) {
     const char *id=g_object_get_data(G_OBJECT(button),"app-id");
     if(g_str_has_prefix(id,"linux-")) action(id);
     else launch(NULL,(gpointer)id);
-    gtk_popover_popdown(GTK_POPOVER(l->popup));
+    gtk_widget_hide(l->popup);
 }
 static void app_tile(Launcher *l,const char *name,const char *id,const char *icon,int category) {
     int side=40*l->panel->scale/100;
@@ -53,21 +53,20 @@ static void first_result(GtkEntry *entry,Launcher *l) {
 }
 static void launcher_settings(GtkButton *button,Launcher *l) {
     Panel *p=l->panel;
-    gtk_popover_popdown(GTK_POPOVER(l->popup));
+    gtk_widget_hide(l->popup);
     settings_open(NULL,p);
 }
 static void launcher_linux(GtkButton *button,Launcher *l) {
     Panel *p=l->panel;
-    gtk_popover_popdown(GTK_POPOVER(l->popup));
+    gtk_widget_hide(l->popup);
     settings_open(NULL,p);
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack),"linux");
 }
 static void main_menu(GtkWidget *button,Panel *p) {
     Launcher *l=g_new0(Launcher,1);
-    l->panel=p; l->popup=gtk_popover_new(button);
+    l->panel=p; l->popup=gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(l->popup),"xdesx 菜单");
     g_object_set_data_full(G_OBJECT(l->popup),"launcher",l,g_free);
-    gtk_popover_set_constrain_to(GTK_POPOVER(l->popup),GTK_POPOVER_CONSTRAINT_NONE);
-    gtk_popover_set_position(GTK_POPOVER(l->popup),GTK_POS_BOTTOM);
     GtkWidget *box=gtk_box_new(GTK_ORIENTATION_VERTICAL,8), *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6);
     gtk_container_set_border_width(GTK_CONTAINER(box),12);
     l->search=gtk_search_entry_new();
@@ -130,6 +129,9 @@ static void main_menu(GtkWidget *button,Panel *p) {
     g_signal_connect(l->tabs,"changed",G_CALLBACK(filter_apps),l);
     g_signal_connect(settings,"clicked",G_CALLBACK(launcher_settings),l);
     g_signal_connect(manage_linux,"clicked",G_CALLBACK(launcher_linux),l);
-    g_signal_connect_swapped(l->popup,"closed",G_CALLBACK(gtk_widget_destroy),l->popup);
-    gtk_widget_show_all(l->popup);gtk_widget_grab_focus(l->search);
+    gtk_widget_show_all(box);
+    gtk_widget_grab_focus(l->search);
+    XfcePanelPlugin *plugin=XFCE_PANEL_PLUGIN(gtk_widget_get_ancestor(button,XFCE_TYPE_PANEL_PLUGIN));
+    xfce_panel_plugin_popup_window(plugin,GTK_WINDOW(l->popup),button);
+    g_signal_connect_after(l->popup,"hide",G_CALLBACK(gtk_widget_destroy),NULL);
 }
