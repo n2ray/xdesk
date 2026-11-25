@@ -202,6 +202,19 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         w.start();
         refreshButton();
     }
+    private boolean routeUncapturedMouse(MotionEvent e) {
+        if (mouse==null || external<0 || !e.isFromSource(InputDevice.SOURCE_MOUSE)) return false;
+        // A newly connected mouse can hit the phone during the display focus transition.
+        // Only a finger on the pad should operate the native fullscreen button.
+        capture();
+        return mouse.mouseBeforeCapture(e);
+    }
+    @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        return routeUncapturedMouse(e) || super.dispatchTouchEvent(e);
+    }
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent e) {
+        return routeUncapturedMouse(e) || super.dispatchGenericMotionEvent(e);
+    }
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         if (e.getScanCode()>0 && e.getKeyCode()!=KeyEvent.KEYCODE_BACK) {
             boolean down=e.getAction()==KeyEvent.ACTION_DOWN;

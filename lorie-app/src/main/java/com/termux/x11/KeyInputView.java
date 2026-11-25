@@ -89,6 +89,18 @@ final class KeyInputView extends View {
         return true;
     }
 
+    /** Absolute phone coordinates are unusable on the desktop while capture is being reacquired. */
+    boolean mouseBeforeCapture(MotionEvent e) {
+        int action=e.getActionMasked();
+        if (action==MotionEvent.ACTION_MOVE || action==MotionEvent.ACTION_HOVER_MOVE) {
+            float dx=e.getAxisValue(MotionEvent.AXIS_RELATIVE_X);
+            float dy=e.getAxisValue(MotionEvent.AXIS_RELATIVE_Y);
+            if (dx!=0 || dy!=0) sink.mouseMove(dx,dy);
+            return true;
+        }
+        return onMouse(e);
+    }
+
     /** Capture is gone: buttons still down go up, as their releases will not come here (INPUT.md §2 cancel). */
     void releaseMouse() {
         buttons.releaseAll(buttonOut);
