@@ -201,7 +201,7 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
             throw new SecurityException("invalid XDesX window");
         LocalSocket socket = new LocalSocket();
         try {
-            socket.connect(new LocalSocketAddress("/data/data/com.termux/files/usr/tmp/xdesx-" + id,
+            socket.connect(new LocalSocketAddress(System.getenv("TMPDIR") + "/xdesx-" + id,
                     LocalSocketAddress.Namespace.FILESYSTEM));
             return socket;
         } catch (IOException e) { socket.close(); throw e; }

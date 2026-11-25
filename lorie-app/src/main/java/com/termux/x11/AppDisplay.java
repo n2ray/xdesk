@@ -43,10 +43,13 @@ final class AppDisplay {
      * turn: a portrait app gets bars instead of a sideways picture. PRESENTATION, so apps do not put their own
      * presentations there. OWN_FOCUS, so focus moves between displays as it does for an external display.
      */
-    private static int flags() {
+    private static int flags(String name) {
         int f = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | FLAG_SUPPORTS_TOUCH;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             f |= FLAG_TRUSTED | FLAG_OWN_DISPLAY_GROUP | FLAG_ALWAYS_UNLOCKED | FLAG_TOUCH_FEEDBACK_DISABLED;
+        }
+        if (name.startsWith("XDesX ") && Build.VERSION.SDK_INT >= 34) {
+            f |= (1 << 14) | (1 << 16); // OWN_FOCUS and STEAL_TOP_FOCUS_DISABLED
         }
         return f;
     }
@@ -58,7 +61,7 @@ final class AppDisplay {
             c.setAccessible(true);
             DisplayManager dm = c.newInstance(shellContext());
             VirtualDisplay d = refreshRate > 0 ? createAtRate(dm, name, width, height, dpi, surface, refreshRate) : null;
-            if (d == null) d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags());
+            if (d == null) d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags(name));
             if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
             return d;
         } catch (InvocationTargetException e) {
@@ -79,7 +82,7 @@ final class AppDisplay {
         try {
             android.hardware.display.VirtualDisplayConfig config = new android.hardware.display.VirtualDisplayConfig.Builder(name, width, height, dpi)
                 .setSurface(surface)
-                .setFlags(flags())
+                .setFlags(flags(name))
                 .setRequestedRefreshRate(rate)
                 .build();
             return (VirtualDisplay) DisplayManager.class.getMethod("createVirtualDisplay", android.hardware.display.VirtualDisplayConfig.class, android.os.Handler.class, VirtualDisplay.Callback.class)

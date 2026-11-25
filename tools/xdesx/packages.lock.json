@@ -1,0 +1,254 @@
+{
+  "at-spi2-core": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/a/at-spi2-core/at-spi2-core_2.62.2_aarch64.deb",
+    "54c11d8fca6aa03b93f888c01af617359b84c1f41aac57225f9ff6550ddd45f5"
+  ],
+  "brotli": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/b/brotli/brotli_1.2.1_aarch64.deb",
+    "4fba29438b2b44f8470d52173b4548e938542dc2fc632f8699be5a284cbb9485"
+  ],
+  "dbus": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/d/dbus/dbus_1.16.4_aarch64.deb",
+    "fff79b58f1a4d5819140ccd5b5d72bc157351285ababf0361229293a4fd69b82"
+  ],
+  "exo": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/e/exo/exo_4.21.0_aarch64.deb",
+    "614f78cc6752311422770b768cd8ae3a5038a581d51996d63c9ef5b9e7d966aa"
+  ],
+  "fontconfig": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fontconfig/fontconfig_2.18.4_aarch64.deb",
+    "c0e36ace6e698259bb362925f377e0c3d728079ee124d7c3655de6900da43b10"
+  ],
+  "freetype": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/freetype/freetype_2.15.0_aarch64.deb",
+    "fe217807b22aa40029874eb1d9e01b89a01b5f1e4f0556c4de9c8e83c4db4256"
+  ],
+  "fribidi": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/f/fribidi/fribidi_1.0.18_aarch64.deb",
+    "6d9a4f6403a1450d22514dc7dc4de2b2358bec28afbce4576e37a3b224beae4b"
+  ],
+  "garcon": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/g/garcon/garcon_4.20.0-1_aarch64.deb",
+    "827d11f461a3158c352225e94ad372f726de0c93c5fde1230718d24b24128dcc"
+  ],
+  "gdk-pixbuf": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/gdk-pixbuf/gdk-pixbuf_2.44.8-1_aarch64.deb",
+    "426498361b2ec2eb16abf6a1f5672cbf36717728209ed5a21823fa9e4b957fb6"
+  ],
+  "glib": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/glib/glib_2.90.1_aarch64.deb",
+    "132d8ce961d96a7252fd4bc2228bddd385b1b17b706a46caae6d541ae0e4b2c0"
+  ],
+  "gsettings-desktop-schemas": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/g/gsettings-desktop-schemas/gsettings-desktop-schemas_51.0-1_all.deb",
+    "b45124ff8516ba7b126ab55a493fce0b13b6e60c1b8d0855b23bb38eecbc4ba9"
+  ],
+  "gtk-layer-shell": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/g/gtk-layer-shell/gtk-layer-shell_0.10.1_aarch64.deb",
+    "e1e3dcdd2f5eb0e57e4c59b552925c9c038f706d8a2feae738aadfa326c95f24"
+  ],
+  "gtk3": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/g/gtk3/gtk3_3.24.52_aarch64.deb",
+    "65e72860a80e97d730012e9d2b686e91f67800ec33d89ae3258778eb298df971"
+  ],
+  "harfbuzz": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/h/harfbuzz/harfbuzz_15.2.0_aarch64.deb",
+    "956483c3f898fe522d10a494b2c33c221c0c9e9a4c8fc218c142e004f4e4385d"
+  ],
+  "libandroid-posix-semaphore": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/liba/libandroid-posix-semaphore/libandroid-posix-semaphore_0.1-4_aarch64.deb",
+    "0efa8677a0166315ba4e685863712eba0ca0a1732827492f38226e2723730c7a"
+  ],
+  "libandroid-shmem": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb",
+    "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6"
+  ],
+  "libandroid-support": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/liba/libandroid-support/libandroid-support_29-1_aarch64.deb",
+    "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517"
+  ],
+  "libbz2": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libb/libbz2/libbz2_1.0.8-8_aarch64.deb",
+    "4335d7f060650b0aabef545d1334c2f9f280223d5962e13c24a00ec934b794ba"
+  ],
+  "libc++": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libc/libc++/libc++_30_aarch64.deb",
+    "53d0b84a7ba7459024257cb94d5b136fe13ef858567f65a8064b35950799f2ca"
+  ],
+  "libcairo": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libc/libcairo/libcairo_1.18.6_aarch64.deb",
+    "c2caebbd7a5e2c778729868fdbae54f87a324cccb5ad254bcae050a412d9cd57"
+  ],
+  "libdisplay-info": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libd/libdisplay-info/libdisplay-info_0.4.0_aarch64.deb",
+    "6ff6d3a10ced70518860687281ccb9ed48e9cac1e696193332043a81c34ba6ed"
+  ],
+  "libepoxy": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libepoxy/libepoxy_1.5.10-3_aarch64.deb",
+    "89cec877ca34febc20dd62eaa07e95871c3c005e006fcc9fc155e09b4f61449b"
+  ],
+  "libexpat": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libe/libexpat/libexpat_2.11.0_aarch64.deb",
+    "ac744cb7cd047997da4410ca11d356ca9c952aa474b14a0032414d5677e0fbf1"
+  ],
+  "libffi": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libf/libffi/libffi_3.8.1_aarch64.deb",
+    "9e13f3b5c40625c384101992bb669a278e07d9e2baa37d286d7ed164288fab1a"
+  ],
+  "libgraphite": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libg/libgraphite/libgraphite_1.3.15_aarch64.deb",
+    "15ac85737a35150cecb9e46ecb32567ae2a4fc28071cdf58fb95e1b77d7889d9"
+  ],
+  "libice": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libi/libice/libice_1.1.2-1_aarch64.deb",
+    "7dadc832b7476778f1bf5d1164218762b5abcd1ffe0beebfcb78bc43c281fe12"
+  ],
+  "libiconv": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libi/libiconv/libiconv_1.19.1_aarch64.deb",
+    "a1c6323eff4f660e16ae6f5832356444b3269c19a4f61146355a49e7c4be5ed1"
+  ],
+  "libjpeg-turbo": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libj/libjpeg-turbo/libjpeg-turbo_3.2.1_aarch64.deb",
+    "3e46721f2fbb10d5f53a45b99e2549d18a34ca3751aa4b704b3404fcdea5f8e7"
+  ],
+  "libpixman": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libp/libpixman/libpixman_0.46.4-1_aarch64.deb",
+    "364b8c82ff68f8513930e5d413459fb7c52eccc7ba75a97a8c5a38760eee8d33"
+  ],
+  "libpng": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libp/libpng/libpng_1.6.59_aarch64.deb",
+    "32d61f0b1a60cf7283aa3a80e288737493df2c6b84c8c749606b77c94a10f2b2"
+  ],
+  "libsm": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libs/libsm/libsm_1.2.6-1_aarch64.deb",
+    "b3d0577db54b9a3663ca10d894fe34ca53339d90974f9cb6c9493f133113cebd"
+  ],
+  "libuuid": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libu/libuuid/libuuid_2.42.4_aarch64.deb",
+    "ecbaab0afd7f4c2c84d687c8e4ba46794d71001866efc261a7015f663eec4e85"
+  ],
+  "libwayland": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libw/libwayland/libwayland_1.26.0_aarch64.deb",
+    "f03ea02f7d523399514e2463c5459dab234b802bbda41a61c0340b4011dc773d"
+  ],
+  "libwnck": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libw/libwnck/libwnck_43.3_aarch64.deb",
+    "8666cb87bb2c231a32b639bc3150fa02cba4d0aba7761bcc5f2b2c72bd6ef7f4"
+  ],
+  "libx11": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libx11/libx11_1.8.14_aarch64.deb",
+    "c5206ee9cc26a63985d110b57bc24f23c7c97505e6100c4d6a8547a1aeed5532"
+  ],
+  "libxau": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxau/libxau_1.0.12-2_aarch64.deb",
+    "2d86bed61ce89dd8fdb55e565aede10155f2ce3adaccb61d5f1375aec3314083"
+  ],
+  "libxcb": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxcb/libxcb_1.17.0-1_aarch64.deb",
+    "191c3642b6a8c754bc75b69b94a81858ecb5f18766dc085aff55559b8087ad34"
+  ],
+  "libxcomposite": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxcomposite/libxcomposite_0.4.7_aarch64.deb",
+    "858836accb06ac3111eb540b396492733b277e94f5375b0d82cc0255886269b6"
+  ],
+  "libxcursor": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxcursor/libxcursor_1.2.3-1_aarch64.deb",
+    "9c5437a9be00f727d1c2ee55ec475ead27e235e6243f0011e2421575d6bc1fad"
+  ],
+  "libxdamage": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxdamage/libxdamage_1.1.7_aarch64.deb",
+    "2ded05bd7a409cff0dce05942d69028b962921a20d1c3559b302a75711e10c98"
+  ],
+  "libxdmcp": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxdmcp/libxdmcp_1.1.5-2_aarch64.deb",
+    "caea0cf5c0028af0840774094b8900ef7afffd8f9bbd7b1abfbe66851f0d6077"
+  ],
+  "libxext": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxext/libxext_1.3.7_aarch64.deb",
+    "6e98a24e0d1996d25f7db8d70ecae02cfe5fc146343428a065149003454c7fc9"
+  ],
+  "libxfce4ui": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxfce4ui/libxfce4ui_4.20.2-2_aarch64.deb",
+    "e1b97f92e71cc9231b41f713edf360c08bec5c6605391714964fd59bacedac20"
+  ],
+  "libxfce4util": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxfce4util/libxfce4util_4.20.1-1_aarch64.deb",
+    "284d62d3d95f89266a4e388d32da0867795b9a693100009e5cefd288d91c5c49"
+  ],
+  "libxfce4windowing": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxfce4windowing/libxfce4windowing_4.20.7_aarch64.deb",
+    "8130a05956005fd0d87e8b4222faeddc7ba61ac77fc09b513314dfe08e2d2943"
+  ],
+  "libxfixes": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxfixes/libxfixes_6.0.2_aarch64.deb",
+    "d6791716490c45faae8d7fcfa782f93edceef692c79b61c40ef8191c4e546ef1"
+  ],
+  "libxi": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxi/libxi_1.8.4_aarch64.deb",
+    "58a19a659db5a90c1557ab5c2ddd7b1c3449898e2dcbf6ffbc14ec02db56cba1"
+  ],
+  "libxinerama": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxinerama/libxinerama_1.1.6_aarch64.deb",
+    "2b30adb0517549e00e9206ad5051b135ae9666d5cf2b5f3795d824d6fdb748b2"
+  ],
+  "libxkbcommon": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxkbcommon/libxkbcommon_1.13.2_aarch64.deb",
+    "227f3895af38a49e41a06262b83760bb2764711821848cb7b583bcd42d8655d3"
+  ],
+  "libxpresent": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxpresent/libxpresent_1.0.2_aarch64.deb",
+    "b445ddb27d718ccd1568e53f40023df6039a7f329d991ea090327bedc880621f"
+  ],
+  "libxrandr": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxrandr/libxrandr_1.5.5_aarch64.deb",
+    "07d0ff1c6baa4d343d56706b71781af8ad4c494c345fee5dc542c53732ef08d2"
+  ],
+  "libxrender": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libx/libxrender/libxrender_0.9.13_aarch64.deb",
+    "66b96ac572a9133836b638fb773b0dde4980541d9c49279a75a9ebace8f827c8"
+  ],
+  "libxres": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/libx/libxres/libxres_1.2.3_aarch64.deb",
+    "af0845006a2526e40209e79a80bd63d953ed4be36f46499b7515fc3a6ae0bea8"
+  ],
+  "pango": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pango/pango_1.58.2_aarch64.deb",
+    "3089e2de505f3aed90b60235af7723bdc6e90bd0dd954bcd8083848a5d9c19e9"
+  ],
+  "pcre2": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/p/pcre2/pcre2_10.49_aarch64.deb",
+    "c27995e5f52b8ecc9b8b3e662eb08e49f82a18bfd3f34343936acc7b23964724"
+  ],
+  "startup-notification": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/s/startup-notification/startup-notification_0.12-29_aarch64.deb",
+    "254c5cfe26f59fd76ec36f10cb8fb4b1b85cef8586ea7f4dbe912ac176cd389d"
+  ],
+  "xcb-util": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/x/xcb-util/xcb-util_0.4.1-1_aarch64.deb",
+    "95f985a71136c6036a61db655315b291b7ef83e281bedc4493838c91d9da4f2e"
+  ],
+  "xfce4-panel": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/x/xfce4-panel/xfce4-panel_4.20.8_aarch64.deb",
+    "00669ac02f643fb530f8a6d61726bb6c3112fd07e939a74ec727aa53a3807dec"
+  ],
+  "xfconf": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/x/xfconf/xfconf_4.20.0_aarch64.deb",
+    "e34f6e2c145ee0f949a6cdc7ed92708d8ec08b9978720c7ee1bdfbd3c451a640"
+  ],
+  "xfwm4": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/x/xfwm4/xfwm4_4.20.0-3_aarch64.deb",
+    "468abba229fc57ff2ea73ddabfb3d632452d75732e0a92a697c52364a75ddbd7"
+  ],
+  "xkeyboard-config": [
+    "https://packages-cf.termux.dev/apt/termux-x11/pool/main/x/xkeyboard-config/xkeyboard-config_2.49_all.deb",
+    "9523dbe04fd7fba2218451813041872957dca459d86dfed9c23a3b247e8fa371"
+  ],
+  "xorgproto": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/x/xorgproto/xorgproto_2026.1_all.deb",
+    "2463651143a386eba0d7baebac87ca5d2db5239d36cf38f9b2086f3c1bfdcbce"
+  ],
+  "zlib": [
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/z/zlib/zlib_1.4_aarch64.deb",
+    "e3027565ae50bcd8ba5113c988b589754ae192c9cc3e6afbe3e4ed7c06b2598e"
+  ]
+}

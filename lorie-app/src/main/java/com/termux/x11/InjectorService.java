@@ -861,6 +861,19 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
+    @Override public void xdesxPointer(int id,int w,int h,int op,int x,int y) {
+        synchronized (appDisplays) { if (!appDisplays.containsKey(id)) return; }
+        post(() -> {
+            injector.setDisplay(id,w,h);
+            injector.moveTo((float)x/Math.max(1,w-1),(float)y/Math.max(1,h-1));
+            if (op==6) return;
+            int b=op & 15;
+            boolean down=op<32;
+            if (b<=3) injector.button(b==1?1:b==2?4:2,down);
+            else if (down) injector.scroll(b==4?1:b==5?-1:0,b==6?-1:b==7?1:0);
+        });
+    }
+
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.remove(id);

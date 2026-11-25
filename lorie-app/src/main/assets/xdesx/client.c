@@ -4,6 +4,10 @@
 #include <xcb/dri3.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/un.h>
+#include <sys/random.h>
+#include <stddef.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,7 +22,23 @@ static int event(int fd, unsigned kind, unsigned x, unsigned y) {
 }
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
-    int listener = atoi(argv[1]);
+    const char *menu = getenv("XDESX_MENU"), *tmp = getenv("TMPDIR");
+    unsigned char random[16];
+    char key[33], path[108], request[160];
+    if (!menu || !tmp || strlen(menu)>95 || strlen(argv[1])>12 || getrandom(random,sizeof(random),0)!=16) return 1;
+    for (int i=0;i<16;i++) snprintf(key+2*i,3,"%02x",random[i]);
+    if (snprintf(path,sizeof(path),"%s/xdesx-%s",tmp,key)>=(int)sizeof(path)) return 1;
+    struct sockaddr_un addr={.sun_family=AF_UNIX};
+    strcpy(addr.sun_path,path);
+    int listener=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
+    if (listener<0 || bind(listener,(void*)&addr,sizeof(addr)) || listen(listener,4)) return 1;
+    int notify=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
+    memset(addr.sun_path,0,sizeof(addr.sun_path));
+    strcpy(addr.sun_path+1,menu);
+    int size=snprintf(request,sizeof(request),"%s %s\n",key,argv[1]);
+    if (notify<0 || connect(notify,(void*)&addr,offsetof(struct sockaddr_un,sun_path)+1+strlen(menu)) ||
+            write(notify,request,size)!=size) { unlink(path); return 1; }
+    close(notify);
     struct pollfd start = { listener, POLLIN, 0 };
     if (poll(&start, 1, 30000) <= 0) return 1;
     int ctrl = accept(listener, NULL, NULL);
@@ -26,12 +46,15 @@ int main(int argc, char **argv) {
     if (ctrl < 0 || !d) return 1;
     int w = 800, h = 560;
     Window win = XCreateSimpleWindow(d, DefaultRootWindow(d), 40, 70, w, h, 0, 0, 0);
-    XStoreName(d, win, argv[2]);
+    char title[512]="Android";
+    FILE *label=fopen(argv[2],"r");
+    if (label) { if (!fgets(title,sizeof(title),label)) strcpy(title,"Android"); fclose(label); }
+    XStoreName(d, win, title);
     XChangeProperty(d, win, XInternAtom(d,"_NET_WM_NAME",False),XInternAtom(d,"UTF8_STRING",False),
-                    8, PropModeReplace,(unsigned char *)argv[2],strlen(argv[2]));
+                    8, PropModeReplace,(unsigned char *)title,strlen(title));
     Atom del = XInternAtom(d, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(d, win, &del, 1);
-    XSelectInput(d, win, StructureNotifyMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
+    XSelectInput(d, win, StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
     XMapWindow(d, win);
     XFlush(d);
     xcb_connection_t *conn = XGetXCBConnection(d);
@@ -49,8 +72,11 @@ int main(int argc, char **argv) {
                 w = e.xconfigure.width; h = e.xconfigure.height;
                 if (!event(ctrl, 1, w, h)) return 1;
             }
-            if ((e.type == ButtonPress || e.type == ButtonRelease) && e.xbutton.button == 1)
-                if (!event(ctrl, e.type == ButtonPress ? 2 : 3, e.xbutton.x, e.xbutton.y)) return 1;
+            if (e.type == MotionNotify && !event(ctrl,6,e.xmotion.x,e.xmotion.y)) return 1;
+            if (e.type == ButtonPress || e.type == ButtonRelease) {
+                unsigned b=e.xbutton.button;
+                if (b<=7 && !event(ctrl,(e.type==ButtonPress?16:32)+b,e.xbutton.x,e.xbutton.y)) return 1;
+            }
             if (e.type == KeyPress || e.type == KeyRelease)
                 if (!event(ctrl, e.type == KeyPress ? 4 : 5, e.xkey.keycode - 8, 0)) return 1;
         }

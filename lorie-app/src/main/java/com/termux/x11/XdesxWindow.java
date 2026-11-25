@@ -44,12 +44,12 @@ final class XdesxWindow {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
                 if (op==1) resize(x,y);
                 if (display<0) continue;
-                if (op==2 || op==3 || op==4 || op==5) {
-                    synchronized (injector) {
+                synchronized (injector) {
+                    if (op==4 || op==5) {
                         injector.setDisplay(display,reader.getWidth(),reader.getHeight());
-                        if (op<=3) injector.screenTouch(op==2?MotionEvent.ACTION_DOWN:MotionEvent.ACTION_UP,
-                            new int[]{0}, new float[]{x},new float[]{y});
-                        else injector.key(x,op==4);
+                        injector.key(x,op==4);
+                    } else if (op==6 || (op>=17 && op<=23) || (op>=33 && op<=39)) {
+                        injector.xdesxPointer(display,reader.getWidth(),reader.getHeight(),op,x,y);
                     }
                 }
             }
