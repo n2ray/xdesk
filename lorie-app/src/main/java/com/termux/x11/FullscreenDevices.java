@@ -73,7 +73,8 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
         if (closed) return;
         InputDevice d = inputs.getInputDevice(id);
         if (d == null || !d.isExternal() || d.isVirtual() ||
-            !(d.supportsSource(InputDevice.SOURCE_MOUSE) || d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)) return;
+            !(d.supportsSource(InputDevice.SOURCE_MOUSE) || d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE) ||
+              d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)) return;
         String descriptor = d.getDescriptor();
         if (descriptor == null || previous.containsKey(descriptor) || target.equals(initial.get(descriptor))) return;
         int beforeId = (int) associatedId.invoke(d);
@@ -120,11 +121,14 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
                     // Some InputReader versions retain the last viewport after removing the mapping.
                     // Deliver the former viewport first, then remove the system-wide override.
                     String original = returnDisplay.get(old.getKey());
-                    if (original != null) {
-                        add.invoke(service, old.getKey(), original);
-                        awaitViewport(old.getKey(), original);
+                    try {
+                        if (original != null) {
+                            add.invoke(service, old.getKey(), original);
+                            awaitViewport(old.getKey(), original);
+                        }
+                    } finally {
+                        remove.invoke(service, old.getKey());
                     }
-                    remove.invoke(service, old.getKey());
                 }
                 else add.invoke(service, old.getKey(), old.getValue());
             } catch (ReflectiveOperationException | RuntimeException e) { Log.w("XDesX", "restore input device", e); }
