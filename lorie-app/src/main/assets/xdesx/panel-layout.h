@@ -24,6 +24,7 @@ static void position_changed(WnckWindow *w,Placement *t) {
     t->timer=g_timeout_add(450,save_position,t);
 }
 static void state_change(WnckWindow *w,WnckWindowState changed,WnckWindowState state,Placement *t) {
+    if(changed&WNCK_WINDOW_STATE_FULLSCREEN) update_fullscreen(t->panel);
     position_changed(w,t);
 }
 static void free_position(gpointer data) {

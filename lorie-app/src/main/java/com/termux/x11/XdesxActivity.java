@@ -33,7 +33,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private float restX,restY;
     private android.widget.Button fullscreenButton;
     private XdesxWindow fullWindow;
-    private boolean switching;
+    private boolean switching,xFullscreen;
 
     private XdesxWindow fullscreenCandidate() {
         for (XdesxWindow w:windows.values()) if (w.mac()) return w;
@@ -41,6 +41,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         return null;
     }
     private void refreshButton() {
+        if (xFullscreen && fullWindow==null) {
+            fullscreenButton.setText("返回 X 窗口");
+            fullscreenButton.setVisibility(View.VISIBLE);
+            fullscreenButton.setEnabled(true);
+            return;
+        }
         XdesxWindow candidate=fullWindow!=null?fullWindow:fullscreenCandidate();
         fullscreenButton.setVisibility(candidate!=null?View.VISIBLE:View.GONE);
         fullscreenButton.setEnabled(!switching);
@@ -50,6 +56,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (candidate!=null) fullscreenButton.setText(fullWindow==null?candidate.label()+" 原生全屏":"返回 "+candidate.label()+" 窗口");
     }
     private void toggleFullscreen() {
+        if (fullWindow==null && xFullscreen) { panel.returnSequence++; panel.publish(); return; }
         XdesxWindow w=fullWindow!=null?fullWindow:fullscreenCandidate();
         if (fullWindow==null && w!=null && w.mac()) {
             for (XdesxWindow chrome:windows.values()) if (chrome.chrome()) {
@@ -221,6 +228,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Log.i("XDesX","panel scale="+panel.scale+" render="+w+"x"+h);
     }
     private void panelAction(String action) {
+        if (action.startsWith("xfull-")) { xFullscreen=action.equals("xfull-1");refreshButton();return; }
         if (action.startsWith("full-")) {
             if (fullWindow==null) toggleWindow(windows.get(action.substring(5)));
             return;
@@ -321,8 +329,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public void onBackPressed() {
         if (fullWindow!=null) { toggleWindow(fullWindow); return; }
-        new android.app.AlertDialog.Builder(this).setItems(new String[]{"恢复外屏原生显示","结束桌面","取消"},
-            (dialog,item) -> { if(item==0) panelAction("recover"); if(item==1) finish(); }).show();
+        new android.app.AlertDialog.Builder(this).setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","结束桌面","取消"},
+            (dialog,item) -> { if(item==0) { panel.returnSequence++; panel.publish(); } if(item==1) panelAction("recover"); if(item==2) finish(); }).show();
     }
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);

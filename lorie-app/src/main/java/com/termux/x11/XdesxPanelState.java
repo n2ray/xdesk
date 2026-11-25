@@ -23,7 +23,7 @@ final class XdesxPanelState {
     private final File dir;
     private String profile = "";
     private String battery = "电量未知", previous = "";
-    int mouseSpeed,padSpeed,limit,opened;
+    int mouseSpeed,padSpeed,limit,opened,returnSequence;
     boolean reverse,remember;
     String layoutKey="default";
     int scale = 100, render = 100;
@@ -95,7 +95,7 @@ final class XdesxPanelState {
         String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(),"MMMdEEE");
         String date = DateFormat.format(pattern, now).toString();
         String state = scale+"\n"+render+"\n"+connection()+"     "+battery+"     "+date+"  "+
-            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+"\n"+layoutKey;
+            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+" "+returnSequence+"\n"+layoutKey;
         if (state.equals(previous)) return;
         Path tmp = new File(dir,"panel-state.tmp").toPath();
         try {

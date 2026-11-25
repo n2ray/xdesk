@@ -23,11 +23,12 @@ typedef struct {
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
-    int scale, render;
+    int scale, render, return_sequence;
+    gboolean x_fullscreen;
 } Panel;
 
 #include "panel-art.h"
-#include "panel-layout.h"
+
 
 static gboolean action(const char *value) {
     const char *name = g_getenv("XDESX_MENU");
@@ -43,6 +44,12 @@ static gboolean action(const char *value) {
     close(fd);
     return ok;
 }
+static void update_fullscreen(Panel *p) {
+    WnckWindow *w=wnck_screen_get_active_window(p->screen);
+    gboolean full=w && wnck_window_is_fullscreen(w);
+    if(full!=p->x_fullscreen && action(full?"xfull-1":"xfull-0")) p->x_fullscreen=full;
+}
+#include "panel-layout.h"
 static GtkWidget *item(GtkWidget *menu,const char *name) {
     GtkWidget *i=gtk_menu_item_new_with_label(name);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu),i);
@@ -149,6 +156,7 @@ static void window_menu(GtkWidget *button,Panel *p) {
 }
 static void current(WnckScreen *screen,WnckWindow *previous,Panel *p) {
     WnckWindow *w=wnck_screen_get_active_window(screen);
+    update_fullscreen(p);
     if (w && wnck_window_is_skip_tasklist(w)) w=NULL;
     gtk_button_set_label(GTK_BUTTON(p->current),w?wnck_window_get_name(w):"桌面");
     GdkPixbuf *original=w?wnck_window_get_icon(w):NULL;
@@ -172,7 +180,13 @@ static void refresh(Panel *p) {
         gboolean settings_changed=scale!=p->scale || render!=p->render || strcmp(fields[3],p->options)!=0;
         g_strlcpy(p->options,fields[3],sizeof(p->options));
         p->render=render;
-        sscanf(fields[3],"%d %d %d %d %d %d",&p->mouse,&p->pad,&p->limit,&p->reverse,&p->remember,&p->opened);
+        int seq=0;
+        sscanf(fields[3],"%d %d %d %d %d %d %d",&p->mouse,&p->pad,&p->limit,&p->reverse,&p->remember,&p->opened,&seq);
+        if(seq!=p->return_sequence) {
+            p->return_sequence=seq;
+            WnckWindow *w=wnck_screen_get_active_window(p->screen);
+            if(w && wnck_window_is_fullscreen(w)) wnck_window_set_fullscreen(w,FALSE);
+        }
         g_strlcpy(p->profile,fields[4],sizeof(p->profile));
         gchar **parts=g_strsplit(fields[2],"     ",3);
         if(g_strv_length(parts)==3) {
@@ -220,6 +234,9 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     if(p->settings) gtk_widget_destroy(p->settings);
+    Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    Pixmap wallpaper=(Pixmap)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(plugin),"xdesx-wallpaper"));
+    if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     stop_tracking(p);g_free(p->mac_id);
     g_signal_handlers_disconnect_by_data(p->screen,p);
     g_clear_object(&p->monitor);
@@ -259,7 +276,12 @@ static void construct(XfcePanelPlugin *plugin) {
     for(GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_window(p->screen,l->data,p);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     Window root=DefaultRootWindow(d);
-    XSetWindowBackground(d,root,0xd9d8d6);XClearWindow(d,root);
+    Pixmap wallpaper=XCreatePixmap(d,root,1,1,DefaultDepth(d,DefaultScreen(d)));
+    GC paint=XCreateGC(d,wallpaper,0,NULL);
+    XSetForeground(d,paint,0xd9d8d6);XFillRectangle(d,wallpaper,paint,0,0,1,1);XFreeGC(d,paint);
+    XChangeProperty(d,root,XInternAtom(d,"_XROOTPMAP_ID",False),XA_PIXMAP,32,PropModeReplace,(unsigned char*)&wallpaper,1);
+    XSetWindowBackgroundPixmap(d,root,wallpaper);XClearWindow(d,root);XFlush(d);
+    g_object_set_data(G_OBJECT(plugin),"xdesx-wallpaper",GSIZE_TO_POINTER(wallpaper));
 
     gtk_widget_show_all(bar);
     g_signal_connect(plugin,"free-data",G_CALLBACK(destroy),p);
