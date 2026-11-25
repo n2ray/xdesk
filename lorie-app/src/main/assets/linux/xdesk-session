@@ -104,9 +104,11 @@ export PULSE_SERVER=unix:/tmp/xdesk-pulse
 if command -v pulseaudio >/dev/null 2>&1; then
     # One still going away makes the new one fail ("Daemon startup failed", no sound at all); --kill and --check go
     # through that runtime directory too, so by name
-    pkill -x pulseaudio 2>/dev/null
-    i=0
-    while [ $i -lt 30 ] && pgrep -x pulseaudio >/dev/null 2>&1; do sleep 0.1; i=$((i+1)); done
+    if [ "${XDESX_SHARED_X:-0}" != 1 ]; then
+        pkill -x pulseaudio 2>/dev/null
+        i=0
+        while [ $i -lt 30 ] && pgrep -x pulseaudio >/dev/null 2>&1; do sleep 0.1; i=$((i+1)); done
+    fi
     rm -f /tmp/xdesk-audio /tmp/xdesk-pulse
     for try in 1 2 3; do
         pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
@@ -117,6 +119,17 @@ if command -v pulseaudio >/dev/null 2>&1; then
         sleep 1
     done
     pactl set-default-sink xdesk >/dev/null 2>&1
+fi
+
+# xdesx already owns X, the WM, panel, DPI and cursor. The guest owns its application bus.
+# EOF on the controller pipe (including Android process death) ends the Burrow process tree.
+if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+    exec dbus-run-session -- sh -c '
+        /bin/sh /usr/local/bin/xdesk-launch --serve &
+        server=$!
+        trap "kill $server 2>/dev/null || :" EXIT
+        read -r stop || :
+    '
 fi
 
 # xfwm4 without GLX vblank (xdesk-core says why): xfwm4 writes all its settings into the user's xfconf file on its

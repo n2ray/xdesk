@@ -93,6 +93,11 @@ final class PointerLayer {
         }
     }
 
+    synchronized void show(boolean show) {
+        visible = show;
+        if (layer != null) t.setPosition(layer, x - offsetX, y - offsetY).setVisibility(layer, show).apply();
+    }
+
     synchronized void release() {
         drop();
     }

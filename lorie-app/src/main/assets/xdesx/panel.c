@@ -162,6 +162,23 @@ static void popup(GtkWidget *menu,GtkWidget *button) {
 }
 static void main_menu(GtkWidget *button,Panel *p) {
     GtkWidget *menu=gtk_menu_new(), *android=submenu(menu,"安卓应用");
+    GtkWidget *linux_apps=submenu(menu,"Linux 应用");
+    gchar *rows=NULL;
+    if (g_file_get_contents("run/ubuntu-apps",&rows,NULL,NULL)) {
+        gchar **lines=g_strsplit(rows,"\n",-1);
+        for (int n=0; lines[n]; n++) {
+            gchar **row=g_strsplit(lines[n],"\t",2);
+            if (g_strv_length(row)==2) {
+                gchar *op=g_strconcat("linux-",row[1],NULL);
+                command(linux_apps,row[0],op);
+                g_free(op);
+            }
+            g_strfreev(row);
+        }
+        g_strfreev(lines);
+    }
+    if (!rows || !*rows) gtk_widget_set_sensitive(item(linux_apps,"在全局设置中安装或刷新 Ubuntu 应用"),FALSE);
+    g_free(rows);
     char *data=NULL;
     if (g_file_get_contents("apps.tsv",&data,NULL,NULL)) {
         char **lines=g_strsplit(data,"\n",-1);
@@ -294,6 +311,8 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     char *name=g_file_get_basename(file);
     char *target=other?g_file_get_basename(other):NULL;
     if (g_strcmp0(name,"panel-state")==0 || g_strcmp0(target,"panel-state")==0) refresh(p);
+    if (p->settings && (g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
+        settings_contents(p);
     g_free(name); g_free(target);
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {

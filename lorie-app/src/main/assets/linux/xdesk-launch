@@ -27,12 +27,14 @@ case "$1" in
     id=$2 f=$D/$2.req
     { IFS= read -r sid; IFS= read -r term; IFS= read -r dir; IFS= read -r cmd; } <"$f"
     rm -f "$f"
-    [ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
-    p=$(pgrep -o -x xfce4-session 2>/dev/null)
-    [ -n "$p" ] || p=$(pgrep -o -x xfwm4 2>/dev/null)
-    if [ -n "$p" ]; then
-        a=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
-        [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
+    if [ "${XDESX_SHARED_X:-0}" != 1 ]; then
+        [ -r /tmp/xdesk-env ] && . /tmp/xdesk-env
+        p=$(pgrep -o -x xfce4-session 2>/dev/null)
+        [ -n "$p" ] || p=$(pgrep -o -x xfwm4 2>/dev/null)
+        if [ -n "$p" ]; then
+            a=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p' | head -1)
+            [ -n "$a" ] && export DBUS_SESSION_BUS_ADDRESS="$a"
+        fi
     fi
     if [ -n "$sid" ]; then export DESKTOP_STARTUP_ID="$sid"; else unset DESKTOP_STARTUP_ID; fi
     cd "${dir:-$HOME}" 2>/dev/null || cd "$HOME"

@@ -19,6 +19,7 @@ import org.json.JSONArray;
 public final class XdesxActivity extends Activity implements DisplayManager.DisplayListener {
     private final DesktopInput input = new DesktopInput();
     private XdesxRuntime runtime;
+    private XdesxLinux linux;
     private XdesxPanelState panel;
     private final Handler settingsHandler=new Handler(Looper.getMainLooper());
     private int savedRender;
@@ -33,8 +34,20 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private float restX,restY;
     private volatile XdesxFullscreenBar toolbar;
     private XdesxWindow fullWindow;
-    private boolean switching;
+    private boolean switching, gamePassthrough, leavingGameTouch;
+    private void setGame(boolean on) {
+        if (injector != null) try { injector.setGameMode(on); }
+        catch (RemoteException e) { error(e.toString()); }
+    }
     private final IInjectorListener fullscreenEvents = new WirelessDisplay.NoEvents() {
+        @Override public void onGameMode(boolean on) {
+            runOnUiThread(() -> {
+                gamePassthrough = on && fullWindow != null;
+                if (toolbar != null) toolbar.gameMode(gamePassthrough);
+                if (gamePassthrough) Toast.makeText(XdesxActivity.this,
+                    "游戏直通 · Ctrl+Alt+G 或轻触手机退出", Toast.LENGTH_SHORT).show();
+            });
+        }
         @Override public void onCursor(int x, int y) {
             XdesxFullscreenBar bar = toolbar;
             if (bar != null) bar.cursor(y);
@@ -44,6 +57,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void closeToolbar() {
         XdesxFullscreenBar bar = toolbar;
         toolbar = null;
+        gamePassthrough = false;
         if (bar != null) bar.close();
     }
     private void toggleWindow(XdesxWindow w) {
@@ -78,7 +92,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     closeToolbar();
                     if (fullWindow != null) {
                         Runnable exit = () -> { if (fullWindow == w) toggleWindow(w); };
-                        toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, () -> {
+                        toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, w.mac() ? null : () -> setGame(true), () -> {
                             error("外屏工具条无法显示，正在返回窗口");
                             exit.run();
                         });
@@ -90,7 +104,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         },"xdesx-fullscreen").start();
     }
     private boolean nativeInput(int op,float x,float y) {
-        if (switching) return true;
+        if (switching || gamePassthrough) return true;
         if (fullWindow==null) return false;
         try { if (injector!=null) injector.xdesxNativeInput(op,x,y); }
         catch(RemoteException e) { error(e.toString()); }
@@ -151,6 +165,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         openInjector();
         panel=new XdesxPanelState(this);
         place();
+        try { linux = new XdesxLinux(this, this::error); }
+        catch (IOException e) { error(e.toString()); }
         runtime=new XdesxRuntime(this);
         new Thread(() -> {
             try { runtime.run((key,app) -> runOnUiThread(() -> openWindow(key,app,SystemClock.elapsedRealtime()+25000))); }
@@ -217,6 +233,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Log.i("XDesX","panel scale="+panel.scale+" render="+w+"x"+h);
     }
     private void panelAction(String action) {
+        if (action.startsWith("linux-")) {
+            if (linux != null) linux.action(action.substring(6));
+            return;
+        }
 
         if (action.startsWith("full-")) {
             if (fullWindow==null) toggleWindow(windows.get(action.substring(5)));
@@ -300,10 +320,22 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         return mouse.mouseBeforeCapture(e);
     }
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && gamePassthrough) {
+                leavingGameTouch = true;
+                setGame(false);
+            }
+            if (leavingGameTouch) {
+                if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL)
+                    leavingGameTouch = false;
+                return true;
+            }
+        }
+        if (gamePassthrough) return super.dispatchTouchEvent(e);
         return routeUncapturedMouse(e) || super.dispatchTouchEvent(e);
     }
     @Override public boolean dispatchGenericMotionEvent(MotionEvent e) {
-        return routeUncapturedMouse(e) || super.dispatchGenericMotionEvent(e);
+        return (!gamePassthrough && routeUncapturedMouse(e)) || super.dispatchGenericMotionEvent(e);
     }
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         if (e.getScanCode()>0 && e.getKeyCode()!=KeyEvent.KEYCODE_BACK) {
@@ -323,6 +355,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         closeToolbar();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
+        if (linux != null) linux.close();
         if(runtime!=null) runtime.close();
         if(mouse!=null) mouse.releasePointerCapture();
         for (XdesxWindow w:windows.values()) w.stop();

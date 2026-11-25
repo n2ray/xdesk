@@ -18,6 +18,11 @@ final class XdesxTaskWatch {
         nativeTask = task;
     }
 
+    private volatile Runnable gameFrontChanged;
+    void gameFrontChanged(Runnable callback) {
+        gameFrontChanged = callback;
+    }
+
     private Object atm,listener;
     private Class<?> type;
     private final Runnable check=this::checkEmpty;
@@ -32,9 +37,20 @@ final class XdesxTaskWatch {
             Field f=stub.getDeclaredField("TRANSACTION_onTaskRemoved");
             f.setAccessible(true);
             final int removed=f.getInt(null);
+            int frontCode = -1;
+            try {
+                Field front = stub.getDeclaredField("TRANSACTION_onTaskMovedToFront");
+                front.setAccessible(true);
+                frontCode = front.getInt(null);
+            } catch (ReflectiveOperationException ignored) { }
+            final int movedToFront = frontCode;
             Binder endpoint=new Binder() {
                 @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags) throws RemoteException {
                     if (code==INTERFACE_TRANSACTION) return super.onTransact(code,data,reply,flags);
+                    if (code == movedToFront) {
+                        Runnable checkGame = gameFrontChanged;
+                        if (checkGame != null) handler.post(checkGame);
+                    }
                     if (code==removed) {
                         data.enforceInterface("android.app.ITaskStackListener");
                         handler.removeCallbacks(check);

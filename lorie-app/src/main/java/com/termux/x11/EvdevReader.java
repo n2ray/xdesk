@@ -130,7 +130,7 @@ final class EvdevReader extends Thread {
         if (new File(DIR).list() == null) return false;
         scan();
         setGrabbed(true);
-        if (exclusive.size() == devices.size()) return true;
+        if (exclusive.size() == devices.size() - keyboards.size()) return true;
         setGrabbed(false);
         closeAll();
         return false;
@@ -163,7 +163,7 @@ final class EvdevReader extends Thread {
             }
             // The phone's own touch screen, buttons and sensors have no capability that matches and stay untouched
             int capabilities = Evdev.capabilities(fd);
-            if (capabilities == 0 || (mouseOnly && (capabilities & Evdev.CAP_MOUSE) == 0) || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
+            if (capabilities == 0 || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
                 Evdev.close(fd);
                 skipped.add(n);
                 continue;
@@ -294,7 +294,7 @@ final class EvdevReader extends Thread {
 
     private void handle(int fd, int type, int code, int value) {
         if (mouseOnly) {
-            synchronized (this) { if (!exclusive.contains(fd)) return; }
+            synchronized (this) { if (grabbed && !keyboards.contains(fd) && !exclusive.contains(fd)) return; }
         }
         if (type == Evdev.EV_SYN && code == SYN_DROPPED) {
             dropped(fd);
@@ -362,7 +362,7 @@ final class EvdevReader extends Thread {
             if (!down) swallowG = false;
             return;
         }
-        if (hotkeyEnabled && code == KEY_M && value == 1 && ctrl() && alt()) {
+        if (!mouseOnly && hotkeyEnabled && code == KEY_M && value == 1 && ctrl() && alt()) {
             swallowM = true;
             setGrabbed(!grabbed);
             return;

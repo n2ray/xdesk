@@ -711,6 +711,12 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void setGameMode(boolean on) {
+        synchronized (appDisplays) {
+            if (fullscreenMouse != null) {
+                fullscreenGame(on);
+                return;
+            }
+        }
         game(on, true);
     }
 
@@ -896,12 +902,45 @@ public class InjectorService extends IInjector.Stub {
         public void onForwarding(boolean on, int count) { }
         public void onModifiersUp() { }
         public void onKeyboardUsed() { }
-        public void onGameKey() { }
+        public void onGameKey() {
+            synchronized (appDisplays) { fullscreenGame(!fullscreenPassthrough); }
+        }
     };
+
+    private volatile boolean fullscreenPassthrough;
+    private String fullscreenGamePackage;
+    private final Runnable checkGameFront = () -> {
+        synchronized (appDisplays) {
+            if (!fullscreenPassthrough) return;
+            String front = TaskMover.topPackage(xdesxNativeDisplay, ownPackage);
+            if (front != null && !front.equals(fullscreenGamePackage)) fullscreenGame(false);
+        }
+    };
+
+    // Caller holds appDisplays, which also serializes task moves and mouse teardown.
+    private void fullscreenGame(boolean on) {
+        if (fullscreenGamePackage == null || fullscreenMouse == null || fullscreenPassthrough == on) return;
+        fullscreenPassthrough = on;
+        xdesxTasks.gameFrontChanged(on ? checkGameFront : null);
+        fullscreenMouse.setGameMode(on);
+        fullscreenMouse.setGrabbed(!on);
+        final int target = xdesxNativeDisplay;
+        post(() -> {
+            if (target != xdesxNativeDisplay || fullscreenPassthrough != on) return;
+            injector.releaseAll();
+            pointer.show(!on);
+            if (on) injector.focus(target);
+            IInjectorListener l = listener;
+            if (l != null) l.onGameMode(on);
+        });
+    }
 
     private void leaveXdesxFullscreen() {
         xdesxNativeDisplay = -1;
         xdesxFullscreenWindow = -1;
+        fullscreenGamePackage = null;
+        xdesxTasks.gameFrontChanged(null);
+        fullscreenPassthrough = false;
         if (fullscreenMouse != null) {
             fullscreenMouse.setGrabbed(false);
             fullscreenMouse.shutdown();
@@ -917,7 +956,7 @@ public class InjectorService extends IInjector.Stub {
         int display=xdesxNativeDisplay;
         if (display<0) return;
         post(() -> {
-            if (xdesxNativeDisplay!=display) return;
+            if (xdesxNativeDisplay!=display || fullscreenPassthrough) return;
             switch (op) {
                 case 1: injector.moveBy(x,y); break;
                 case 2: injector.button((int)x==1?1:(int)x==2?4:2,y!=0); break;
@@ -955,6 +994,8 @@ public class InjectorService extends IInjector.Stub {
                     injector.moveTo(.5f,.5f);
                     pointer.set(external,cursor,hotspot,0,true,width/2,height/2);
                 });
+                fullscreenGamePackage = pkg.equals(ownPackage) ? null : pkg;
+                mouse.setHotkeyEnabled(fullscreenGamePackage != null);
                 fullscreenMouse = mouse;
                 fullscreenMouse.start();
             } else if (moved >= 0) {

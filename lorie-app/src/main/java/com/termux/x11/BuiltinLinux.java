@@ -475,9 +475,9 @@ final class BuiltinLinux {
      * lib/libtermux_va.so), run as the app so it may use the phone's decoders. It listens on the socket Mesa's
      * termuxva VA-API driver looks for by default, /tmp/termux-va/termux-va.sock; stopNow ends it with the rest.
      */
-    private void startVideoHelper(File tmp) {
+    Process startVideoHelper(File tmp) {
         File helper = new File(c.getApplicationInfo().nativeLibraryDir, VIDEO_HELPER);
-        if (!helper.canExecute()) return;
+        if (!helper.canExecute()) return null;
         File dir = new File(tmp, "termux-va");
         dir.mkdirs();
         new File(dir, "termux-va.sock").delete();
@@ -485,15 +485,39 @@ final class BuiltinLinux {
             ProcessBuilder b = new ProcessBuilder(helper.getPath(), "--sock", dir.getPath(), "-t");
             b.environment().remove("LD_PRELOAD");
             b.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logDir(), "video.log")));
-            b.start();
+            Process service = b.start();
             appendLog("video decoding service started");
+            return service;
         } catch (IOException e) {
             Log.w(TAG, "video helper", e);
+            return null;
         }
     }
 
     /** The command line that runs a shell script inside the container, with the session's environment. */
     private List<String> containerCmd(String script, String... env) {
+        return containerCmd(null, script, env);
+    }
+
+    List<String> xdesxCommand(File desktop, String script) {
+        return containerCmd(desktop, "/usr/local/bin/" + script, "XDESX_SHARED_X=1");
+    }
+
+    void prepareXdesx(File desktop) throws IOException, InterruptedException {
+        if (!installed()) throw new IOException("请先安装 Ubuntu 核心");
+        File tmp = new File(desktop, "linux-tmp");
+        new File(tmp, ".X11-unix").mkdirs();
+        Os_chmod(tmp, 01777);
+        shm().mkdirs();
+        Os_chmod(shm(), 01777);
+        writeResolvConf();
+        updateSystem(false);
+        writeAsset("xdesk-asuser");
+        writeAsset("xdesk-session");
+        writeAsset("xdesk-launch");
+    }
+
+    private List<String> containerCmd(File desktop, String script, String... env) {
         List<String> cmd = new ArrayList<>();
         cmd.add(burrow());
         cmd.add("-r"); cmd.add(rootfs.getPath());
@@ -504,6 +528,10 @@ final class BuiltinLinux {
         // The home XDesk keeps (a reset leaves it) is the user xdesk's; root's own /root is the system's
         new File(rootfs, "home/xdesk").mkdirs();  // the binding's place, in a system from before too
         cmd.add("-b"); cmd.add(home.getPath() + ":/home/xdesk");
+        if (desktop != null) {
+            cmd.add("-b"); cmd.add(new File(desktop, "linux-tmp").getPath() + ":/tmp");
+            cmd.add("-b"); cmd.add(new File(desktop, "tmp/.X11-unix").getPath() + ":/tmp/.X11-unix");
+        }
         cmd.add("-w"); cmd.add("/root");
         cmd.add("--");
         cmd.add("/usr/bin/env"); cmd.add("-i");
@@ -512,7 +540,7 @@ final class BuiltinLinux {
         cmd.add("TERM=xterm-256color");
         // English; the system's own locale (update-locale, /etc/default/locale) wins in xdesk-session
         cmd.add("LANG=en_US.UTF-8");
-        cmd.add("DISPLAY=" + DISPLAY);
+        cmd.add("DISPLAY=" + (desktop == null ? DISPLAY : ":19"));
         cmd.add("XDESK_GPU=" + (gpu() ? "1" : "0"));
         for (String e : env) cmd.add(e);
         cmd.add("/bin/sh"); cmd.add(script);
@@ -590,16 +618,21 @@ final class BuiltinLinux {
         Process p = u.start();
         long deadline = System.currentTimeMillis() + UPDATE_WAIT_MS;
         boolean shown = false;
-        while (!p.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            if (shows && !shown && marker.exists()) {
-                shown = true;
-                set(State.STARTING, c.getString(R.string.xd_bl_updating));
+        try {
+            while (!p.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                if (shows && !shown && marker.exists()) {
+                    shown = true;
+                    set(State.STARTING, c.getString(R.string.xd_bl_updating));
+                }
+                if (System.currentTimeMillis() > deadline) {
+                    appendLog("xdesk-update: still running after " + UPDATE_WAIT_MS / 1000 + " s, starting without it");
+                    p.destroy();
+                    break;
+                }
             }
-            if (System.currentTimeMillis() > deadline) {
-                appendLog("xdesk-update: still running after " + UPDATE_WAIT_MS / 1000 + " s, starting without it");
-                p.destroy();
-                break;
-            }
+        } catch (InterruptedException interrupted) {
+            p.destroy();
+            throw interrupted;
         }
         marker.delete();
         if (shown) set(State.STARTING, c.getString(R.string.xd_bl_starting_x));

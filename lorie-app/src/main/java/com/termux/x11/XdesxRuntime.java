@@ -149,6 +149,7 @@ final class XdesxRuntime {
         env.put("XDG_CACHE_HOME",dir+"/cache"); env.put("FONTCONFIG_FILE",dir+"/fonts.conf");
         env.put("XKB_CONFIG_ROOT",dir+"/share/xkeyboard-config-2"); env.put("DBUS_SESSION_BUS_ADDRESS","unix:path="+dir+"/run/bus");
         env.put("XCURSOR_THEME","Xdesx"); env.put("XCURSOR_PATH",dir+"/share/icons");
+        env.put("XDESK_AUDIO_SOCKET",dir+"/linux-tmp/xdesk-audio");
         env.put("DISPLAY",":19"); env.put("GIO_USE_VFS","local"); env.put("GDK_BACKEND","x11"); env.put("NO_AT_BRIDGE","1");
         env.put("GSETTINGS_SCHEMA_DIR",dir+"/share/glib-2.0/schemas"); env.put("CLASSPATH",context.getApplicationInfo().sourceDir);
         env.put("TERMUX_X11_GLAMOR","1"); env.put("XDESX_MENU",socketName);
@@ -165,7 +166,7 @@ final class XdesxRuntime {
                     if(peer.getPeerCredentials().getUid()!=Process.myUid()) continue;
                     peer.setSoTimeout(2000);
                     String line=new BufferedReader(new InputStreamReader(peer.getInputStream(),"UTF-8")).readLine();
-                    if(line!=null && line.matches("action (xfull-[01]|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                    if(line!=null && line.matches("action (linux-install|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
                         menu.selected("action",line.substring(7)); continue;
                     }
                     if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;
