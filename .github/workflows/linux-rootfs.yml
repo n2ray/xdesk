@@ -16,7 +16,7 @@ jobs:
         fetch-depth: 1
     - name: Build in ubuntu:26.04
       run: |
-        docker run --name xd --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/build-rootfs.sh
+        docker run -e XDESX_APPS_ONLY=1 --name xd --platform linux/arm64 -v "$PWD:/src:ro" ubuntu:26.04 sh /src/linux/build-rootfs.sh
     - name: Export
       run: |
         mkdir rootfs
@@ -42,15 +42,16 @@ jobs:
                 os.symlink(os.path.relpath(first[key], d), p)
         print(len(first), 'hard-linked files, the rest of their names now symlinks')
         PY
-        sudo tar --hard-dereference --numeric-owner -C rootfs -czf xdesk-ubuntu2604-arm64.tar.gz .
-        sha256sum xdesk-ubuntu2604-arm64.tar.gz | tee xdesk-ubuntu2604-arm64.tar.gz.sha256
-        ls -la xdesk-ubuntu2604-arm64.tar.gz
+        test -x rootfs/usr/bin/xterm && test ! -e rootfs/usr/bin/xfwm4 && test ! -e rootfs/usr/bin/xfce4-session
+        sudo tar --hard-dereference --numeric-owner -C rootfs -czf xdesx-ubuntu-apps-arm64.tar.gz .
+        sha256sum xdesx-ubuntu-apps-arm64.tar.gz | tee xdesx-ubuntu-apps-arm64.tar.gz.sha256
+        ls -la xdesx-ubuntu-apps-arm64.tar.gz
         sudo du -sh rootfs
     - uses: actions/upload-artifact@v7
       with:
-        name: xdesk-ubuntu2604-arm64
+        name: xdesx-ubuntu-apps-arm64
         path: |
-          xdesk-ubuntu2604-arm64.tar.gz
-          xdesk-ubuntu2604-arm64.tar.gz.sha256
+          xdesx-ubuntu-apps-arm64.tar.gz
+          xdesx-ubuntu-apps-arm64.tar.gz.sha256
         compression-level: 0
         retention-days: 14

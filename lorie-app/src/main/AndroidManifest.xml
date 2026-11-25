@@ -28,10 +28,10 @@
         </intent>
     </queries>
     <application
-        android:icon="@mipmap/xdesk_icon"
+        android:icon="@drawable/xdesx_icon"
         android:localeConfig="@xml/locales_config"
-        android:label="@string/lorie_app_name"
-        android:roundIcon="@mipmap/xdesk_icon"
+        android:label="xdesx"
+        android:roundIcon="@drawable/xdesx_icon"
         android:supportsRtl="true"
         android:theme="@style/LorieAppTheme"
         android:hardwareAccelerated="true"
@@ -45,7 +45,7 @@
             android:taskAffinity=".XdesxMac" android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
-        <activity android:name="com.termux.x11.XdesxActivity" android:label="XDesX"
+        <activity android:name="com.termux.x11.XdesxActivity" android:label="xdesx"
             android:theme="@android:style/Theme.Material.NoActionBar" android:exported="true"
             android:launchMode="singleTask" android:taskAffinity=".Xdesx"
             android:windowSoftInputMode="stateAlwaysHidden"
@@ -58,7 +58,7 @@
         <activity
             android:name="com.termux.x11.XDeskActivity"
             android:label="XDesk"
-            android:icon="@mipmap/xdesk_icon"
+            android:icon="@drawable/xdesx_icon"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:launchMode="singleTask"
             android:taskAffinity=".XDesk"
@@ -154,7 +154,7 @@
         <activity
             android:name="com.termux.x11.CarActivity"
             android:label="XDesk"
-            android:icon="@mipmap/xdesk_icon"
+            android:icon="@drawable/xdesx_icon"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:launchMode="singleTask"
             android:taskAffinity=".XDeskCar"
@@ -187,7 +187,7 @@
              车机是 Android Auto 建的虚拟显示器，别的应用要往上面放 Activity，系统要求它 allowEmbedded。
              allowEmbedded 也让别的应用能把它放进自己的显示器，所以它只留在 TargetDisplay.allowsDesktop 认的显示器上 -->
         <activity android:name="com.termux.x11.MainActivity" android:excludeFromRecents="true" android:allowEmbedded="true"
-            android:exported="false" android:icon="@mipmap/xdesk_icon" android:roundIcon="@mipmap/xdesk_icon"
+            android:exported="false" android:icon="@drawable/xdesx_icon" android:roundIcon="@drawable/xdesx_icon"
             tools:node="merge" tools:replace="android:exported,android:icon,android:roundIcon">
             <intent-filter tools:node="removeAll" />
         </activity>

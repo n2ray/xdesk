@@ -31,7 +31,7 @@ android {
     compileSdkVersion 34
     ndkVersion termuxX11NdkVersion
     defaultConfig {
-        applicationId "io.github.n2ray.xdesk.x11"
+        applicationId "io.github.n2ray.xdesx"
         minSdkVersion 30
         targetSdkVersion 34
         // Releases pass -PxdeskVersion=0.2.0 (from the tag): 0.2.0 becomes versionCode 200. Other builds keep the

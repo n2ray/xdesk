@@ -57,4 +57,4 @@ for p in "$SRC"/packages/*/; do
     echo "$OUT/${name}_${v}_${arch}.deb"
 done
 
-sh "$SRC/xfwm4/build.sh" "$OUT"
+if [ "${XDESX_APPS_ONLY:-0}" != 1 ]; then sh "$SRC/xfwm4/build.sh" "$OUT"; fi
