@@ -664,7 +664,7 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public void setDisplay(final int displayId, final int width, final int height) {
-        if (sessionOver) return;
+        if (sessionOver || xdesxNativeDisplay >= 0) return;
         this.displayId = displayId;
         pointer.display(displayId);
         post(() -> {
@@ -866,8 +866,9 @@ public class InjectorService extends IInjector.Stub {
 
     /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
     @Override public void xdesxPointer(int id,int w,int h,int op,int x,int y) {
-        synchronized (appDisplays) { if (!appDisplays.containsKey(id)) return; }
+        synchronized (appDisplays) { if (xdesxNativeDisplay >= 0 || !appDisplays.containsKey(id)) return; }
         post(() -> {
+            if (xdesxNativeDisplay >= 0) return;
             injector.setDisplay(id,w,h);
             injector.moveTo((float)x/Math.max(1,w-1),(float)y/Math.max(1,h-1));
             if (op==6) return;
@@ -879,6 +880,38 @@ public class InjectorService extends IInjector.Stub {
     }
 
     private volatile int xdesxNativeDisplay=-1;
+
+    // Owned by the window whose task is on HDMI, independent of the phone Activity's focus.
+    private int xdesxFullscreenWindow = -1;
+    private EvdevReader fullscreenMouse;
+
+    private final EvdevReader.Sink fullscreenInput = new EvdevReader.Sink() {
+        public void onMove(int dx, int dy) { physical.onMove(dx, dy); }
+        public void onWheel(int vertical, int horizontal) { physical.onWheel(vertical, horizontal); }
+        public void onButton(int code, boolean down) { physical.onButton(code, down); }
+        public void onKey(int code, int value) { physical.onKey(code, value); }
+        public void onDeviceCount(int count, boolean removed) {
+            if (removed) post(injector::releaseAll);
+        }
+        public void onForwarding(boolean on, int count) { }
+        public void onModifiersUp() { }
+        public void onKeyboardUsed() { }
+        public void onGameKey() { }
+    };
+
+    private void leaveXdesxFullscreen() {
+        xdesxNativeDisplay = -1;
+        xdesxFullscreenWindow = -1;
+        if (fullscreenMouse != null) {
+            fullscreenMouse.setGrabbed(false);
+            fullscreenMouse.shutdown();
+            fullscreenMouse = null;
+        }
+        post(() -> {
+            injector.releaseAll();
+            pointer.release();
+        });
+    }
 
     @Override public void xdesxNativeInput(int op,float x,float y) {
         int display=xdesxNativeDisplay;
@@ -899,19 +932,36 @@ public class InjectorService extends IInjector.Stub {
             VirtualDisplay d=appDisplays.get(window);
             if (sessionOver || d==null || external<=0 || appDisplays.containsKey(external) ||
                 !d.getDisplay().getName().startsWith("XDesX "+pkg+"/")) return -1;
+            if (enter ? xdesxFullscreenWindow >= 0 : xdesxFullscreenWindow != window) return -1;
+            if (enter) {
+                try { Evdev.close(-1); }
+                catch (LinkageError e) { Log.w(TAG, "fullscreen mouse unavailable", e); return -1; }
+            }
+            EvdevReader mouse = null;
+            if (enter) {
+                mouse = new EvdevReader(fullscreenInput, true);
+                if (!mouse.claimFullscreenMice()) {
+                    Log.w(TAG, "Cannot claim fullscreen mouse devices");
+                    return -1;
+                }
+            }
             int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
-            if (moved>=0) {
-                xdesxNativeDisplay=enter?external:-1;
+            if (moved >= 0 && enter) {
+                xdesxNativeDisplay = external;
+                xdesxFullscreenWindow = window;
+                xdesxTasks.fullscreen(window, external, moved);
                 post(() -> {
-                    if (enter) {
-                        injector.setDisplay(external,width,height);
-                        injector.moveTo(.5f,.5f);
-                        pointer.set(external,cursor,hotspot,0,true,width/2,height/2);
-                    } else {
-                        injector.releaseAll();
-                        pointer.release();
-                    }
+                    injector.setDisplay(external,width,height);
+                    injector.moveTo(.5f,.5f);
+                    pointer.set(external,cursor,hotspot,0,true,width/2,height/2);
                 });
+                fullscreenMouse = mouse;
+                fullscreenMouse.start();
+            } else if (moved >= 0) {
+                xdesxTasks.fullscreen(window, -1, -1);
+                leaveXdesxFullscreen();
+            } else if (mouse != null) {
+                mouse.closeAll();
             }
             return moved;
         }
@@ -927,6 +977,7 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
+            if (id == xdesxFullscreenWindow) leaveXdesxFullscreen();
             xdesxTasks.remove(id);
             VirtualDisplay d = appDisplays.remove(id);
             if (d != null) d.release();
@@ -935,6 +986,7 @@ public class InjectorService extends IInjector.Stub {
 
     private void releaseDisplays() {
         synchronized (appDisplays) {
+            if (xdesxFullscreenWindow >= 0) leaveXdesxFullscreen();
             xdesxTasks.clear();
             for (VirtualDisplay d : appDisplays.values()) d.release();
             appDisplays.clear();

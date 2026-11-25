@@ -108,8 +108,8 @@ final class XdesxWindow {
                     if (failure!=null) throw new IOException(failure);
                 }
                 injector.watchXdesxWindow(display,new IXdesxWindowListener.Stub() {
-                    public void taskEnded() {
-                        synchronized (XdesxWindow.this) { if (!nativeFullscreen) stop(); }
+                    public void taskEnded(int fullscreenTask) {
+                        synchronized (XdesxWindow.this) { if (nativeFullscreen ? task == fullscreenTask : fullscreenTask < 0) stop(); }
                     }
                 });
             } else {

@@ -24,7 +24,8 @@ typedef struct {
     GFileMonitor *monitor;
     GtkCssProvider *css;
     int scale, render, return_sequence;
-    gboolean x_fullscreen;
+    GtkWidget *fullscreen_bar, *fullscreen_reveal;
+    guint reveal_timer, hide_timer;
 } Panel;
 
 #include "panel-art.h"
@@ -44,10 +45,73 @@ static gboolean action(const char *value) {
     close(fd);
     return ok;
 }
+/* X fullscreen stays inside X, so its edge and button must see X pointer events. */
+static void cancel_timer(guint *timer) {
+    if (*timer) g_source_remove(*timer);
+    *timer = 0;
+}
+static gboolean reveal_bar(gpointer data) {
+    Panel *p = data;
+    p->reveal_timer = 0;
+    gtk_revealer_set_reveal_child(GTK_REVEALER(p->fullscreen_reveal), TRUE);
+    return G_SOURCE_REMOVE;
+}
+static gboolean hide_bar(gpointer data) {
+    Panel *p = data;
+    p->hide_timer = 0;
+    gtk_revealer_set_reveal_child(GTK_REVEALER(p->fullscreen_reveal), FALSE);
+    gtk_window_resize(GTK_WINDOW(p->fullscreen_bar), 1, 1);
+    return G_SOURCE_REMOVE;
+}
+static gboolean bar_crossing(GtkWidget *widget, GdkEventCrossing *e, Panel *p) {
+    if (e->detail == GDK_NOTIFY_INFERIOR) return FALSE;
+    cancel_timer(&p->reveal_timer);
+    cancel_timer(&p->hide_timer);
+    if (e->type == GDK_ENTER_NOTIFY && !(e->state & GDK_BUTTON1_MASK))
+        p->reveal_timer = g_timeout_add(300, reveal_bar, p);
+    if (e->type == GDK_LEAVE_NOTIFY)
+        p->hide_timer = g_timeout_add(200, hide_bar, p);
+    return FALSE;
+}
+static void leave_fullscreen(GtkButton *button, Panel *p) {
+    WnckWindow *w = wnck_screen_get_active_window(p->screen);
+    if (w && wnck_window_is_fullscreen(w)) wnck_window_set_fullscreen(w, FALSE);
+}
+static void remove_fullscreen_bar(Panel *p) {
+    cancel_timer(&p->reveal_timer);
+    cancel_timer(&p->hide_timer);
+    if (p->fullscreen_bar) gtk_widget_destroy(p->fullscreen_bar);
+    p->fullscreen_bar = p->fullscreen_reveal = NULL;
+}
 static void update_fullscreen(Panel *p) {
-    WnckWindow *w=wnck_screen_get_active_window(p->screen);
-    gboolean full=w && wnck_window_is_fullscreen(w);
-    if(full!=p->x_fullscreen && action(full?"xfull-1":"xfull-0")) p->x_fullscreen=full;
+    WnckWindow *w = wnck_screen_get_active_window(p->screen);
+    if (!w || !wnck_window_is_fullscreen(w)) {
+        remove_fullscreen_bar(p);
+        return;
+    }
+    if (p->fullscreen_bar) return;
+    GdkScreen *screen = gdk_screen_get_default();
+    int width = MAX(100, 136 * p->scale / 100);
+    GtkWidget *bar = gtk_window_new(GTK_WINDOW_POPUP);
+    p->fullscreen_bar = bar;
+    gtk_window_set_accept_focus(GTK_WINDOW(bar), FALSE);
+    gtk_window_set_resizable(GTK_WINDOW(bar), FALSE);
+    gtk_window_move(GTK_WINDOW(bar), (gdk_screen_get_width(screen) - width) / 2, 0);
+    gtk_widget_set_size_request(bar, width, 2);
+    GtkWidget *reveal = gtk_revealer_new();
+    p->fullscreen_reveal = reveal;
+    gtk_revealer_set_transition_type(GTK_REVEALER(reveal), GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+    gtk_revealer_set_transition_duration(GTK_REVEALER(reveal), 160);
+    GtkWidget *button = gtk_button_new_with_label("返回窗口");
+    gtk_widget_set_size_request(button, width, MAX(32, 38 * p->scale / 100));
+    gtk_widget_set_can_focus(button, FALSE);
+    gtk_container_add(GTK_CONTAINER(reveal), button);
+    gtk_container_add(GTK_CONTAINER(bar), reveal);
+    gtk_widget_add_events(bar, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+    g_signal_connect(bar, "enter-notify-event", G_CALLBACK(bar_crossing), p);
+    g_signal_connect(bar, "leave-notify-event", G_CALLBACK(bar_crossing), p);
+    g_signal_connect(button, "clicked", G_CALLBACK(leave_fullscreen), p);
+    gtk_widget_show_all(bar);
 }
 #include "panel-layout.h"
 static GtkWidget *item(GtkWidget *menu,const char *name) {
@@ -233,6 +297,7 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     g_free(name); g_free(target);
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {
+    remove_fullscreen_bar(p);
     if(p->settings) gtk_widget_destroy(p->settings);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     Pixmap wallpaper=(Pixmap)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(plugin),"xdesx-wallpaper"));

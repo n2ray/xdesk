@@ -10,6 +10,14 @@ import java.util.List;
 final class XdesxTaskWatch {
     private final HashMap<Integer,IXdesxWindowListener> windows=new HashMap<>();
     private final Handler handler=new Handler(Looper.getMainLooper());
+    private int nativeWindow = -1, nativeDisplay = -1, nativeTask = -1;
+
+    synchronized void fullscreen(int window, int external, int task) {
+        nativeWindow = external >= 0 ? window : -1;
+        nativeDisplay = external;
+        nativeTask = task;
+    }
+
     private Object atm,listener;
     private Class<?> type;
     private final Runnable check=this::checkEmpty;
@@ -46,11 +54,18 @@ final class XdesxTaskWatch {
     private synchronized void checkEmpty() {
         if (listener==null) return;
         for (int display:windows.keySet()) try {
-            List<?> tasks=(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm,display);
-            if (tasks.isEmpty()) windows.get(display).taskEnded();
+            List<?> tasks=(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm, display == nativeWindow ? nativeDisplay : display);
+            if (display == nativeWindow) {
+                boolean present = false;
+                for (Object info : tasks) {
+                    if (info.getClass().getField("taskId").getInt(info) == nativeTask) present = true;
+                }
+                if (!present) windows.get(display).taskEnded(nativeTask);
+            } else if (tasks.isEmpty()) windows.get(display).taskEnded(-1);
         } catch (ReflectiveOperationException | RemoteException | RuntimeException e) { Log.w("XDesX","check window tasks",e); }
     }
     synchronized void remove(int display) {
+        if (nativeWindow == display) fullscreen(-1, -1, -1);
         windows.remove(display);
         if (windows.isEmpty()) clear();
     }

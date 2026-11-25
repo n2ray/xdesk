@@ -1882,7 +1882,8 @@ final class WirelessDisplay {
     }
 
     /** The injector only needs XDesk's binder to notice XDesk dying; it sends nothing here. */
-    static final IInjectorListener NO_EVENTS = new IInjectorListener.Stub() {
+    static final IInjectorListener NO_EVENTS = new NoEvents();
+    static class NoEvents extends IInjectorListener.Stub {
         @Override public void onCursor(int x, int y) { }
         @Override public void onForwarding(boolean on, int deviceCount) { }
         @Override public void onMessage(String message) { }
@@ -1896,7 +1897,7 @@ final class WirelessDisplay {
             ShareHub h = ShareHub.peek();
             if (h != null) h.phone(text);
         }
-    };
+    }
 
     private static void closeQuietly(java.io.Closeable c) {
         if (c == null) return;

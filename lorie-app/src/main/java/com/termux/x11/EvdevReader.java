@@ -47,6 +47,8 @@ final class EvdevReader extends Thread {
     private static final int FIRST_BUTTON = 256;
 
     private final Sink sink;
+    private final boolean mouseOnly;
+    private final HashSet<Integer> exclusive = new HashSet<>();
     private final HashMap<String, Integer> devices = new HashMap<>();
     private final HashSet<String> skipped = new HashSet<>();
     /**
@@ -70,7 +72,13 @@ final class EvdevReader extends Thread {
     private int dx, dy, wheel, hwheel;
 
     EvdevReader(Sink sink) {
+        this(sink, false);
+    }
+
+    EvdevReader(Sink sink, boolean mouseOnly) {
         super("xdesk-evdev");
+        this.mouseOnly = mouseOnly;
+        hotkeyEnabled = !mouseOnly;
         this.sink = sink;
         setDaemon(true);
     }
@@ -117,9 +125,24 @@ final class EvdevReader extends Thread {
         }
     }
 
+    /** Claim mice already present before moving the task. With no mouse, keep watching for hotplug. */
+    synchronized boolean claimFullscreenMice() {
+        if (new File(DIR).list() == null) return false;
+        scan();
+        setGrabbed(true);
+        if (exclusive.size() == devices.size()) return true;
+        setGrabbed(false);
+        closeAll();
+        return false;
+    }
+
     private void applyGrab(int fd, boolean on) {
         if (keyboards.contains(fd)) return;
         int r = Evdev.grab(fd, on);
+        if (mouseOnly) {
+            if (on && r >= 0) exclusive.add(fd);
+            else exclusive.remove(fd);
+        }
         if (r < 0) Log.w(TAG, "grab " + on + " failed: " + r);
     }
 
@@ -140,7 +163,7 @@ final class EvdevReader extends Thread {
             }
             // The phone's own touch screen, buttons and sensors have no capability that matches and stay untouched
             int capabilities = Evdev.capabilities(fd);
-            if (capabilities == 0 || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
+            if (capabilities == 0 || (mouseOnly && (capabilities & Evdev.CAP_MOUSE) == 0) || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
                 Evdev.close(fd);
                 skipped.add(n);
                 continue;
@@ -161,6 +184,7 @@ final class EvdevReader extends Thread {
         if (found != null) devices.remove(found);
         Evdev.close(fd);
         keyboards.remove(fd);
+        exclusive.remove(fd);
         dropping.remove(fd);
         Log.i(TAG, "device gone: " + found);
         // Its keys will never report going up
@@ -203,7 +227,7 @@ final class EvdevReader extends Thread {
     }
 
     /** Ends the grab, so the devices go back to Android, and closes them. */
-    private synchronized void closeAll() {
+    synchronized void closeAll() {
         running = false;
         for (int fd : devices.values()) {
             if (grabbed) applyGrab(fd, false);
@@ -269,6 +293,9 @@ final class EvdevReader extends Thread {
     }
 
     private void handle(int fd, int type, int code, int value) {
+        if (mouseOnly) {
+            synchronized (this) { if (!exclusive.contains(fd)) return; }
+        }
         if (type == Evdev.EV_SYN && code == SYN_DROPPED) {
             dropped(fd);
             return;

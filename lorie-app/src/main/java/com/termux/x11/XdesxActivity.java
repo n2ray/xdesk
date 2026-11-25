@@ -31,47 +31,31 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     };
     private KeyInputView mouse;
     private float restX,restY;
-    private android.widget.Button fullscreenButton;
+    private volatile XdesxFullscreenBar toolbar;
     private XdesxWindow fullWindow;
-    private boolean switching,xFullscreen;
+    private boolean switching;
+    private final IInjectorListener fullscreenEvents = new WirelessDisplay.NoEvents() {
+        @Override public void onCursor(int x, int y) {
+            XdesxFullscreenBar bar = toolbar;
+            if (bar != null) bar.cursor(y);
+        }
+    };
 
-    private XdesxWindow fullscreenCandidate() {
-        for (XdesxWindow w:windows.values()) if (w.mac()) return w;
-        for (XdesxWindow w:windows.values()) if (w.chrome()) return w;
-        return null;
-    }
-    private void refreshButton() {
-        if (xFullscreen && fullWindow==null) {
-            fullscreenButton.setText("返回 X 窗口");
-            fullscreenButton.setVisibility(View.VISIBLE);
-            fullscreenButton.setEnabled(true);
-            return;
-        }
-        XdesxWindow candidate=fullWindow!=null?fullWindow:fullscreenCandidate();
-        fullscreenButton.setVisibility(candidate!=null?View.VISIBLE:View.GONE);
-        fullscreenButton.setEnabled(!switching);
-        if (fullWindow==null && candidate!=null && candidate.mac() && windows.values().stream().anyMatch(XdesxWindow::chrome)) {
-            fullscreenButton.setText("选择原生全屏窗口"); return;
-        }
-        if (candidate!=null) fullscreenButton.setText(fullWindow==null?candidate.label()+" 原生全屏":"返回 "+candidate.label()+" 窗口");
-    }
-    private void toggleFullscreen() {
-        if (fullWindow==null && xFullscreen) { panel.returnSequence++; panel.publish(); return; }
-        XdesxWindow w=fullWindow!=null?fullWindow:fullscreenCandidate();
-        if (fullWindow==null && w!=null && w.mac()) {
-            for (XdesxWindow chrome:windows.values()) if (chrome.chrome()) {
-                new android.app.AlertDialog.Builder(this).setItems(new String[]{"Mac","Chrome"},
-                    (dialog,index) -> toggleWindow(index==0?w:chrome)).show();
-                return;
-            }
-        }
-        toggleWindow(w);
+    private void closeToolbar() {
+        XdesxFullscreenBar bar = toolbar;
+        toolbar = null;
+        if (bar != null) bar.close();
     }
     private void toggleWindow(XdesxWindow w) {
         Display d=displays.getDisplay(external);
         if (w==null || d==null || switching) return;
+        if (fullWindow == null && !android.provider.Settings.canDrawOverlays(this)) {
+            error("请先允许 XDesk 显示在其他应用上层，以便在外屏退出全屏");
+            return;
+        }
+        IInjector service = injector;
+        if (service == null) return;
         switching=true;
-        refreshButton();
         android.graphics.Point size=new android.graphics.Point();
         d.getRealSize(size);
         View arrow=CursorOverlay.arrow(this,panel.scale/100f);
@@ -82,16 +66,26 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         final int target=external, hotspot=CursorOverlay.arrowTipX(arrow);
         new Thread(() -> {
             boolean ok=false;
-            try { ok=w.toggle(target,cursor,hotspot,size.x,size.y); }
+            try { service.setMouseSpeed(panel.mouseSpeed / 100f); ok=w.toggle(target,cursor,hotspot,size.x,size.y); }
             catch(RemoteException e) { Log.w("XDesX","toggle",e); }
             boolean moved=ok;
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 switching=false;
-                if (moved) fullWindow=w.fullscreen()?w:null;
+                if (moved) fullWindow=w.fullscreen() && windows.containsValue(w)?w:null;
                 else error(w.label()+" 任务切换失败");
-                refreshButton();
-                capture();
+                if (moved) {
+                    closeToolbar();
+                    if (fullWindow != null) {
+                        Runnable exit = () -> { if (fullWindow == w) toggleWindow(w); };
+                        toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, () -> {
+                            error("外屏工具条无法显示，正在返回窗口");
+                            exit.run();
+                        });
+                    }
+                }
+                if (fullWindow == null) capture();
+                else if (mouse.hasPointerCapture()) mouse.releasePointerCapture();
             });
         },"xdesx-fullscreen").start();
     }
@@ -114,7 +108,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             IInjector next=IInjector.Stub.asInterface(service);
             if (next==null || isDestroyed()) return;
             try {
-                next.attach(WirelessDisplay.NO_EVENTS,getPackageName());
+                next.attach(fullscreenEvents,getPackageName());
                 injector=next;
             } catch(RemoteException e) { error(e.toString()); }
         }
@@ -150,11 +144,6 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public boolean physicalKey(KeyEvent e) { return dispatchKeyEvent(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
-        fullscreenButton=new android.widget.Button(this);
-        fullscreenButton.setFocusable(false);
-        fullscreenButton.setOnClickListener(v -> toggleFullscreen());
-        layout.addView(fullscreenButton,new android.widget.FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.END));
-        refreshButton();
         setContentView(layout);
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
@@ -176,7 +165,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(x!=0 || y!=0) input.move(x,y);
     }
     private void capture() {
-        if(mouse!=null && external>=0 && !isDestroyed() && hasWindowFocus()) {
+        if(mouse!=null && fullWindow == null && !switching && external>=0 && !isDestroyed() && hasWindowFocus()) {
             mouse.requestFocus();
             if(!mouse.hasPointerCapture()) mouse.requestPointerCapture();
         }
@@ -228,7 +217,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Log.i("XDesX","panel scale="+panel.scale+" render="+w+"x"+h);
     }
     private void panelAction(String action) {
-        if (action.startsWith("xfull-")) { xFullscreen=action.equals("xfull-1");refreshButton();return; }
+
         if (action.startsWith("full-")) {
             if (fullWindow==null) toggleWindow(windows.get(action.substring(5)));
             return;
@@ -296,20 +285,17 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),
             () -> runOnUiThread(() -> {
-                if (windows.remove(key)==fullWindow) fullWindow=null;
+                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); }
                 panel.opened=windows.size(); panel.publish();
-                refreshButton();
             }));
         w.density(Math.round(160*panel.scale/100f));
         windows.put(key,w);
         panel.opened=windows.size(); panel.publish();
         w.start();
-        refreshButton();
     }
     private boolean routeUncapturedMouse(MotionEvent e) {
         if (mouse==null || external<0 || !e.isFromSource(InputDevice.SOURCE_MOUSE)) return false;
         // A newly connected mouse can hit the phone during the display focus transition.
-        // Only a finger on the pad should operate the native fullscreen button.
         capture();
         return mouse.mouseBeforeCapture(e);
     }
@@ -334,6 +320,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);
+        closeToolbar();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
         if(runtime!=null) runtime.close();
