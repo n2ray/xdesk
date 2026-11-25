@@ -906,8 +906,16 @@ public class InjectorService extends IInjector.Stub {
         int at = component.lastIndexOf('@');
         String user = at < 0 ? "current" : component.substring(at + 1);
         if (at >= 0) component = component.substring(0, at);
+        // A launcher reset can move a stale browser task here without a first frame.
+        // A native desktop window requests a distinct task on its own virtual display.
+        String flags = "0x10200000";
+        synchronized (appDisplays) {
+            VirtualDisplay d = appDisplays.get(displayId);
+            if (d != null && d.getDisplay().getName().startsWith("XDesX "))
+                flags = "0x18000000";  // NEW_TASK | MULTIPLE_TASK
+        }
         String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
-            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", "0x10200000", "-n", component);
+            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
         return r[1].contains("Error") ? r[1].trim() : null;
     }
