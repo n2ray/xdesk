@@ -24,7 +24,8 @@ typedef struct {
     GFileMonitor *monitor;
     GtkCssProvider *css;
     GtkWidget *bell_art,*notification_popup;
-    GtkWidget *ubuntu_status,*ubuntu_action;
+    GtkWidget *ubuntu_status,*ubuntu_action,*ubuntu_manage;
+    GtkWidget *resolution_label,*count_label,*names_button,*preview_button,*mac_page;
     int notify_access,notify_ready,notify_names,notify_unread;
     Pixmap wallpaper;
     int cursor_event;
@@ -278,7 +279,7 @@ static void refresh(Panel *p) {
             char font[80]; snprintf(font,sizeof(font),"Roboto,Noto Sans CJK SC Bold %d",(10*scale+50)/100);
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_font",font);
         }
-        if(p->settings && settings_changed) settings_contents(p);
+        if(p->settings && settings_changed) update_setting_values(p);
     }
     g_strfreev(fields); g_free(data);
 }
@@ -289,10 +290,10 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     if (!g_strcmp0(name,"wallpaper-update") || !g_strcmp0(target,"wallpaper-update")) paint_wallpaper(p);
     if (!g_strcmp0(name,"notify-state") || !g_strcmp0(target,"notify-state")) {
         int previous=p->notify_names;notification_refresh(p);
-        if(p->settings && previous!=p->notify_names)settings_contents(p);
+        if(p->settings && previous!=p->notify_names)update_setting_values(p);
     }
     if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts")))
-        settings_contents(p);
+        refresh_mac_settings(p);
     if (p->settings && (!g_strcmp0(name,"ubuntu-state") || !g_strcmp0(target,"ubuntu-state")))
         update_ubuntu_controls(p);
     g_free(name); g_free(target);

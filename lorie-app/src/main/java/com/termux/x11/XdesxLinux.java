@@ -65,16 +65,17 @@ final class XdesxLinux implements AutoCloseable {
     private void changed() {
         submit(() -> {
             boolean installed = linux.installed();
-            boolean installing = linux.state() == BuiltinLinux.State.INSTALLING;
+            BuiltinLinux.State state = linux.state();
+            boolean installing = state == BuiltinLinux.State.INSTALLING || state == BuiltinLinux.State.STOPPING;
             String status = installed ? "已安装" : "未安装";
             if (installing && linux.progress() != null) status = linux.progress();
             else if (!installed && linux.error() != null) status = linux.error();
             boolean cancelled = linux.downloadCancelled();
             if (cancelled) status = installing ? "正在取消下载…" : "下载已取消，可继续下载";
-            String phase = installed ? "ready" : linux.canCancelDownload() ? "busy-download"
-                    : installing ? "busy" : cancelled ? "paused" : "available";
+            String phase = linux.canCancelDownload() ? "busy-download" : installing ? "busy"
+                    : installed ? "ready" : cancelled ? "paused" : "available";
             publish("ubuntu-state", phase + "\n" + status);
-            if (installed && !listed) refreshApps();
+            if (installed && !installing && !listed) refreshApps();
             if (!installed) {
                 keys.clear();
                 listed = false;
@@ -108,6 +109,12 @@ final class XdesxLinux implements AutoCloseable {
                 return;
             }
             if (!linux.installed()) throw new IOException("请先在全局设置中安装 Ubuntu 核心");
+            if (verb.equals("reset") || verb.equals("remove")) {
+                if (linux.state() == BuiltinLinux.State.INSTALLING || linux.state() == BuiltinLinux.State.STOPPING) return;
+                listed=false;
+                if (verb.equals("reset")) linux.reset(true); else linux.removeAll();
+                return;
+            }
             if (verb.equals("refresh")) { refreshApps(); return; }
             String key = keys.get(verb);
             if (key == null) throw new IOException("请刷新 Linux 应用列表");

@@ -28,6 +28,13 @@ rm -f /tmp/xdesk.sources
 # The GPU drivers as xdesk-core wants them (quick when they are: a few stats; a download failed before tries again)
 [ -x /usr/lib/xdesk/xdesk-gpu ] && /usr/lib/xdesk/xdesk-gpu
 
+# The Android tar reader strips set-ID bits. Restore this package-owned helper
+# inside Burrow so its guest uid transition also works on already extracted images.
+helper=/usr/lib/xdesk/setpriv-root
+if [ -f "$helper" ] && [ ! -u "$helper" ] && cmp -s /usr/bin/setpriv "$helper"; then
+    chmod 4755 "$helper" || exit 1
+fi
+
 have=$(dpkg-query -W -f='${Version}' xdesk-core 2>/dev/null)
 [ -n "$have" ] && dpkg --compare-versions "$have" ge "$NEED" && exit 0
 echo "xdesk-update: xdesk-core ${have:-not installed}, this app needs $NEED"
