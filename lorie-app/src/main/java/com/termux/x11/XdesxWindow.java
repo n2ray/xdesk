@@ -99,6 +99,11 @@ final class XdesxWindow {
                     String failure=injector.startApp(component,display);
                     if (failure!=null) throw new IOException(failure);
                 }
+                injector.watchXdesxWindow(display,new IXdesxWindowListener.Stub() {
+                    public void taskEnded() {
+                        synchronized (XdesxWindow.this) { if (!nativeFullscreen) stop(); }
+                    }
+                });
             } else {
                 injector.resizeVirtualDisplay(display,w,h,160,next.getSurface());
                 Log.i("XDesX","committed resize "+w+"x"+h);

@@ -24,7 +24,7 @@ final class AppDisplay {
     private static final String SHELL_PACKAGE = "com.android.shell";
 
     /** Hidden in DisplayManager, values as in Android 13 to 16. */
-    private static final int FLAG_SUPPORTS_TOUCH = 1 << 6, FLAG_TRUSTED = 1 << 10, FLAG_OWN_DISPLAY_GROUP = 1 << 11,
+    private static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8, FLAG_SUPPORTS_TOUCH = 1 << 6, FLAG_TRUSTED = 1 << 10, FLAG_OWN_DISPLAY_GROUP = 1 << 11,
         FLAG_ALWAYS_UNLOCKED = 1 << 12, FLAG_TOUCH_FEEDBACK_DISABLED = 1 << 13;
 
     private AppDisplay() { }
@@ -48,6 +48,7 @@ final class AppDisplay {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             f |= FLAG_TRUSTED | FLAG_OWN_DISPLAY_GROUP | FLAG_ALWAYS_UNLOCKED | FLAG_TOUCH_FEEDBACK_DISABLED;
         }
+        if (name.startsWith("XDesX ")) f |= FLAG_DESTROY_CONTENT_ON_REMOVAL;
         if (name.startsWith("XDesX ") && Build.VERSION.SDK_INT >= 34) {
             f |= (1 << 14) | (1 << 16); // OWN_FOCUS and STEAL_TOP_FOCUS_DISABLED
         }

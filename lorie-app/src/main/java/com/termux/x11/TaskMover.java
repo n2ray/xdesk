@@ -20,7 +20,7 @@ final class TaskMover {
 
     private TaskMover() { }
 
-    private static Object taskManager() throws ReflectiveOperationException {
+    static Object taskManager() throws ReflectiveOperationException {
         Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "activity_task");
         return Class.forName("android.app.IActivityTaskManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
     }

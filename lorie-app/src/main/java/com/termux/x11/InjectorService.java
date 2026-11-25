@@ -532,7 +532,11 @@ public class InjectorService extends IInjector.Stub {
                     String left = audio.clear(false);
                     if (left != null) Log.w(TAG, "audio route not cleared: " + left);
                     // Move first: this way apps do not have to reconfigure on a display they are leaving
-                    if (displayId >= 0 && ownPackage != null) TaskMover.moveAllToPhone(displayId, ownPackage);
+                    synchronized (appDisplays) {
+                        VirtualDisplay d=appDisplays.get(displayId);
+                        if (displayId>=0 && ownPackage!=null && (d==null || !d.getDisplay().getName().startsWith("XDesX ")))
+                            TaskMover.moveAllToPhone(displayId,ownPackage);
+                    }
                     output.stop();
                     imes.restoreAll();
                     density.clearOurs();
@@ -913,8 +917,17 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    private final XdesxTaskWatch xdesxTasks=new XdesxTaskWatch();
+    @Override public void watchXdesxWindow(int display,IXdesxWindowListener callback) {
+        synchronized (appDisplays) {
+            VirtualDisplay d=appDisplays.get(display);
+            if (callback!=null && d!=null && d.getDisplay().getName().startsWith("XDesX ")) xdesxTasks.add(display,callback);
+        }
+    }
+
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
+            xdesxTasks.remove(id);
             VirtualDisplay d = appDisplays.remove(id);
             if (d != null) d.release();
         }
@@ -922,6 +935,7 @@ public class InjectorService extends IInjector.Stub {
 
     private void releaseDisplays() {
         synchronized (appDisplays) {
+            xdesxTasks.clear();
             for (VirtualDisplay d : appDisplays.values()) d.release();
             appDisplays.clear();
         }
