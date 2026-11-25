@@ -24,6 +24,7 @@ typedef struct {
     GFileMonitor *monitor;
     GtkCssProvider *css;
     Pixmap wallpaper;
+    int cursor_event;
     int scale, render, return_sequence;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
     guint reveal_timer, hide_timer;
@@ -158,6 +159,7 @@ static void launch(GtkMenuItem *i,gpointer data) {
     g_free(title);
 }
 #include "panel-wallpaper.h"
+#include "panel-cursor.h"
 #include "panel-settings.h"
 
 static void popup(GtkWidget *menu,GtkWidget *button) {
@@ -287,6 +289,7 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     g_signal_handlers_disconnect_by_data(gdk_screen_get_default(),p);
     Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
+    if(p->cursor_event) gdk_window_remove_filter(NULL,cursor_event,p);
     stop_tracking(p);g_free(p->mac_id);
     g_signal_handlers_disconnect_by_data(p->screen,p);
     g_clear_object(&p->monitor);
@@ -301,7 +304,7 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_widget_set_focus_on_click(main,FALSE); gtk_widget_set_focus_on_click(p->current,FALSE);
     p->logo=gtk_drawing_area_new();
     g_signal_connect(p->logo,"draw",G_CALLBACK(draw_logo),p);gtk_container_add(GTK_CONTAINER(main),p->logo);
-    gtk_widget_set_tooltip_text(main,"XDesk 菜单");
+    gtk_widget_set_tooltip_text(main,"xdesx 菜单");
     p->icons=gtk_drawing_area_new();g_signal_connect(p->icons,"draw",G_CALLBACK(draw_status),p);
     p->status=gtk_label_new("");
     gtk_box_pack_start(GTK_BOX(bar),main,FALSE,FALSE,0);
@@ -326,7 +329,7 @@ static void construct(XfcePanelPlugin *plugin) {
     refresh(p);
     g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_window),p);
     for(GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_window(p->screen,l->data,p);
-    paint_wallpaper(p);
+    paint_wallpaper(p);watch_cursor(p);
     g_signal_connect(gdk_screen_get_default(),"size-changed",G_CALLBACK(wallpaper_size),p);
     gtk_widget_show_all(bar);
     gtk_widget_set_no_show_all(p->current,TRUE);

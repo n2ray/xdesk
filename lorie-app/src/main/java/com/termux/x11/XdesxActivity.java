@@ -260,6 +260,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         panel.screen(d);
         applyDisplay();
         Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
+        prefs.pointerCapture.put(false);
         prefs.showAdditionalKbd.put(false);
         prefs.additionalKbdVisible.put(false);
         ActivityOptions opts=ActivityOptions.makeBasic();
@@ -324,7 +325,27 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             } catch(IOException|RuntimeException e){error("壁纸 · "+e.getMessage());}
         },"xdesx-wallpaper").start();
     }
+    private void readCursorShape() {
+        File file=new File(getFilesDir(),"xd/run/cursor-image");
+        if(file.length()>16+256*256*4) return;
+        try(java.io.DataInputStream in=new java.io.DataInputStream(new java.io.BufferedInputStream(new java.io.FileInputStream(file)))) {
+            int w=in.readInt(),h=in.readInt(),x=in.readInt(),y=in.readInt();
+            if(w<1 || h<1 || w>256 || h>256 || x<0 || y<0 || x>=w || y>=h) return;
+            int[] pixels=new int[w*h];
+            for(int i=0;i<pixels.length;i++){
+                int argb=in.readInt(),a=argb>>>24;
+                if(a>0 && a<255) {
+                    int r=Math.min(255,(argb>>16&255)*255/a),g=Math.min(255,(argb>>8&255)*255/a),b=Math.min(255,(argb&255)*255/a);
+                    argb=a<<24|r<<16|g<<8|b;
+                }
+                pixels[i]=argb;
+            }
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(pixels,w,h,android.graphics.Bitmap.Config.ARGB_8888);
+            MainActivity.xdesxShape(android.view.PointerIcon.create(bitmap,x,y));
+        } catch(IOException | IllegalArgumentException e){Log.w("XDesX","cursor image",e);}
+    }
     private void panelAction(String action) {
+        if(action.equals("cursor-image")) {readCursorShape();return;}
         if(action.equals("wallpaper-pick")) {chooseWallpaper(); return;}
         if (action.startsWith("linux-")) {
             if (linux != null) linux.action(action.substring(6));

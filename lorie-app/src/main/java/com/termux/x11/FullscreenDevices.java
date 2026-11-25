@@ -115,7 +115,10 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
         closed = true;
         inputs.unregisterInputDeviceListener(this);
         displays.unregisterDisplayListener(this);
+        Map<String,String> current=null;
+        try { current=associations(); } catch(RuntimeException e) { Log.w("XDesX","read routes on exit",e); }
         for (Map.Entry<String,String> old : previous.entrySet()) {
+            if(current!=null && !target.equals(current.get(old.getKey()))) continue;
             try {
                 if (old.getValue() == null) {
                     // Some InputReader versions retain the last viewport after removing the mapping.

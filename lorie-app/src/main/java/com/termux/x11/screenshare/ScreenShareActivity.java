@@ -111,7 +111,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     @Override public void cursorChanged(CursorUpdates.Shape shape) {
         if (arrow == null) return;
         if(desktopInput!=null && view!=null) {
-            view.setPointerIcon(shape==null?null:android.view.PointerIcon.create(shape.bitmap,shape.hotX,shape.hotY));
+            view.setPointerIcon(shape==null?null:android.view.PointerIcon.create(shape.bitmap,Math.max(0,Math.min(shape.hotX,shape.bitmap.getWidth()-1)),Math.max(0,Math.min(shape.hotY,shape.bitmap.getHeight()-1))));
         }
         arrow.shape = shape;
         arrow.invalidate();

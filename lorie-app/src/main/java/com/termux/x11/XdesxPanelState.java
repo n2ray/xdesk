@@ -51,7 +51,7 @@ final class XdesxPanelState {
     void screen(Display d) {
         profile = ScreenProfiles.wiredKey(d);
         layoutKey=java.util.UUID.nameUUIDFromBytes(profile.getBytes(StandardCharsets.UTF_8)).toString();
-        scale = prefs.getInt(profile + "/scale", 100);
+        scale = prefs.getInt(profile + "/scale", 133);
         render = prefs.getInt(profile + "/render", 100);
         publish();
     }

@@ -236,12 +236,8 @@ final class BuiltinLinux {
     private File download() throws IOException {
         cache.mkdirs();
         File part = new File(cache, IMAGE + ".part"), done = new File(cache, IMAGE);
-        String sum = null;
-        try {
-            sum = new String(fetch(IMAGE_URL + ".sha256"), StandardCharsets.US_ASCII).trim().split("\\s+")[0];
-        } catch (IOException e) {
-            Log.w(TAG, "no checksum", e);
-        }
+        String sum = new String(fetch(IMAGE_URL + ".sha256"), StandardCharsets.US_ASCII).trim().split("\\s+")[0];
+        if (!sum.matches("[a-fA-F0-9]{64}")) throw new IOException("Ubuntu 镜像校验信息无效");
         long have = part.length();
         HttpURLConnection conn = (HttpURLConnection) new URL(IMAGE_URL).openConnection();
         conn.setInstanceFollowRedirects(true);
@@ -254,6 +250,7 @@ final class BuiltinLinux {
         long total = conn.getContentLengthLong();
         if (total > 0) total += have;
         try (InputStream in = conn.getInputStream(); RandomAccessFile out = new RandomAccessFile(part, "rw")) {
+            out.setLength(have);
             out.seek(have);
             byte[] buf = new byte[1 << 16];
             long got = have, last = 0;

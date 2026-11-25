@@ -66,6 +66,7 @@ static void main_menu(GtkWidget *button,Panel *p) {
     Launcher *l=g_new0(Launcher,1);
     l->panel=p; l->popup=gtk_popover_new(button);
     g_object_set_data_full(G_OBJECT(l->popup),"launcher",l,g_free);
+    gtk_popover_set_constrain_to(GTK_POPOVER(l->popup),GTK_POPOVER_CONSTRAINT_NONE);
     gtk_popover_set_position(GTK_POPOVER(l->popup),GTK_POS_BOTTOM);
     GtkWidget *box=gtk_box_new(GTK_ORIENTATION_VERTICAL,8), *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6);
     gtk_container_set_border_width(GTK_CONTAINER(box),12);
@@ -113,7 +114,13 @@ static void main_menu(GtkWidget *button,Panel *p) {
         g_strfreev(lines);g_free(data);
     }
     row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6);
-    GtkWidget *settings=gtk_button_new_with_label("全局设置"),*manage_linux=gtk_button_new_with_label("Linux 应用管理");
+    gchar *state=NULL;
+    g_file_get_contents("run/ubuntu-state",&state,NULL,NULL);
+    gboolean installed=state && g_str_has_prefix(state,"ready");
+    gboolean busy=state && g_str_has_prefix(state,"busy");
+    GtkWidget *settings=gtk_button_new_with_label("全局设置");
+    GtkWidget *manage_linux=gtk_button_new_with_label(installed?"Linux 应用管理":busy?"查看 Ubuntu 下载进度":"下载 Ubuntu 应用环境");
+    g_free(state);
     gtk_box_pack_start(GTK_BOX(row),manage_linux,FALSE,FALSE,0);gtk_box_pack_end(GTK_BOX(row),settings,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(box),row,FALSE,FALSE,0);
     gtk_container_add(GTK_CONTAINER(l->popup),box);
