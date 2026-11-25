@@ -29,8 +29,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private boolean connecting;
     private final ServiceConnection connection = new ServiceConnection() {
         public void onServiceConnected(ComponentName name, IBinder service) {
-            injector = IInjector.Stub.asInterface(service);
             connecting = false;
+            IInjector next=IInjector.Stub.asInterface(service);
+            if (next==null || isDestroyed()) return;
+            try {
+                next.attach(WirelessDisplay.NO_EVENTS,getPackageName());
+                injector=next;
+            } catch(RemoteException e) { error(e.toString()); }
         }
         public void onServiceDisconnected(ComponentName name) { injector = null; }
     };
@@ -165,6 +170,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             catch(Exception ignored) {}
 
         for (XdesxWindow w:windows.values()) w.stop();
+        if (injector!=null) {
+            try { injector.shutdown(); } catch(RemoteException e) { Log.w("XDesX","shutdown",e); }
+        }
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);
         TermuxCommand.run(this,"cd ~/.local/share/xdesx && test \"$(cat session.token)\" = '"+token+
             "' && read -r p < session.pid && kill -TERM -- -\"$p\"",new TermuxCommand.Callback(){

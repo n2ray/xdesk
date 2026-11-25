@@ -1882,7 +1882,7 @@ final class WirelessDisplay {
     }
 
     /** The injector only needs XDesk's binder to notice XDesk dying; it sends nothing here. */
-    private static final IInjectorListener NO_EVENTS = new IInjectorListener.Stub() {
+    static final IInjectorListener NO_EVENTS = new IInjectorListener.Stub() {
         @Override public void onCursor(int x, int y) { }
         @Override public void onForwarding(boolean on, int deviceCount) { }
         @Override public void onMessage(String message) { }
