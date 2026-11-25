@@ -40,7 +40,7 @@ static void wallpaper_choice(GtkButton *button,Panel *p){
     if(g_file_set_contents("wallpaper-mode",mode,-1,NULL)) paint_wallpaper(p);
 }
 static void wallpaper_controls(GtkWidget *page,Panel *p){
-    const char *names[]={"默认灰","石墨","海蓝","选择图片…","适应","填满"};
+    const char *names[]={"默认灰","石墨","海蓝","从手机选择图片…","适应","填满"};
     const char *modes[]={"default","slate","blue","pick","fit","fill"};
     GtkWidget *row=NULL;
     for(int i=0;i<6;i++){

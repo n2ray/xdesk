@@ -345,9 +345,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void chooseWallpaper() {
         Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
         ActivityOptions options=ActivityOptions.makeBasic();
-        if(external>=0) options.setLaunchDisplayId(external);
+        options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         try { startActivityForResult(pick,730,options.toBundle()); }
-        catch(RuntimeException e) { try { startActivityForResult(pick,730); } catch(RuntimeException unavailable){ error("没有可用的图片选择器"); } }
+        catch(RuntimeException unavailable) { error("没有可用的图片选择器"); }
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
