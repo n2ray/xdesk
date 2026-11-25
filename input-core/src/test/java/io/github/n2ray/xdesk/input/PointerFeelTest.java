@@ -21,6 +21,44 @@ public class PointerFeelTest {
         return rec;
     }
 
+    @Test public void desktopDragStartsAtTheRestingCursor() {
+        Tuning t = new Tuning();
+        t.desktopPad = true;
+        FakeScheduler clock = new FakeScheduler();
+        Recorder rec = new Recorder();
+        Touchpad pad = new Touchpad(t, clock, rec);
+        Touches e = new Touches();
+        pad.onTouch(e.set(Touches.DOWN, 0, 0).pointer(0, 100, 100));
+        clock.advance(t.longPressMs);
+        pad.onTouch(e.set(Touches.MOVE, 0, 650).pointer(0, 114, 100));
+        assertEquals(0, rec.moveX);
+        assertEquals("button " + Input.LEFT + " down", rec.raw.get(0));
+        assertEquals(1, rec.feedback.size());
+        pad.onTouch(e.set(Touches.MOVE, 0, 675).pointer(0, 117, 100));
+        assertTrue(rec.moveX > 0 && rec.moveX <= 4);
+        pad.cancel();
+        assertEquals("button " + Input.LEFT + " up", rec.raw.get(rec.raw.size() - 1));
+    }
+
+    @Test public void desktopSlowSlideAfterTapNeverArmsDrag() {
+        Tuning t = new Tuning();
+        t.desktopPad = true;
+        FakeScheduler clock = new FakeScheduler();
+        Recorder rec = new Recorder();
+        Touchpad pad = new Touchpad(t, clock, rec);
+        Touches e = new Touches();
+        pad.onTouch(e.set(Touches.DOWN, 0, 0).pointer(0, 0, 0));
+        pad.onTouch(e.set(Touches.UP, 0, 40).pointer(0, 0, 0));
+        rec.feedback.clear();
+        rec.raw.clear();
+        pad.onTouch(e.set(Touches.DOWN, 0, 90).pointer(0, 0, 0));
+        pad.onTouch(e.set(Touches.MOVE, 0, 150).pointer(0, 3, 0));
+        clock.advance(900);
+        pad.onTouch(e.set(Touches.UP, 0, 910).pointer(0, 3, 0));
+        assertTrue(rec.feedback.isEmpty());
+        assertEquals(java.util.Collections.singletonList("move"), rec.summary());
+    }
+
     @Test public void gainFollowsPace() {
         // 10 dp per event: gain 1.3 + 0.9 = 2.2, in pixels of a density 2 screen: 44 per event
         assertEquals(88, slide(2, 1, 10, 2).moveX);

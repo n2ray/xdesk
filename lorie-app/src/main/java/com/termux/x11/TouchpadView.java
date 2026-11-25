@@ -29,9 +29,15 @@ final class TouchpadView extends View {
     private boolean used;
 
     TouchpadView(Context c, final GestureOutput output) {
+        this(c, output, false);
+    }
+
+    TouchpadView(Context c, final GestureOutput output, boolean desktopPad) {
         super(c);
         density = c.getResources().getDisplayMetrics().density;
         tuning = MotionTouches.tuning(this);
+        tuning.desktopPad = desktopPad;
+        if (desktopPad) tuning.longPressMs = Math.max(600, tuning.longPressMs);
         // Vibrations are the view's, the rest goes on as it is
         pad = new Touchpad(tuning, MotionTouches.scheduler(this), new GestureOutput() {
             @Override public void move(int dx, int dy) { output.move(dx, dy); }

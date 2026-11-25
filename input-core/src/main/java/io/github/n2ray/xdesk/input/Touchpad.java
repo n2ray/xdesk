@@ -54,7 +54,9 @@ public final class Touchpad {
 
     private int state = IDLE;
     private int maxFingers, fingers;
+    private long previousMoveAt;
     private long downAt, lastTapUp = Long.MIN_VALUE / 2;
+    private float downX, downY;
     private float lastX, lastY, travelDp, armedTravelDp, pendingX, pendingY;
     private boolean rebase, gestured, scrolled;
     // Two fingers
@@ -108,12 +110,15 @@ public final class Touchpad {
                 state = ONE;
                 fingers = maxFingers = 1;
                 downAt = t.time;
+                previousMoveAt = downAt;
                 travelDp = 0;
                 gestured = scrolled = false;
                 rest.clear();
                 setLast(t);
+                downX = lastX;
+                downY = lastY;
                 multi.down(t.id[0], t.x[0] / d, t.y[0] / d, t.time, false);
-                if (t.time - lastTapUp < tuning.doubleTapMs) {
+                if (!tuning.desktopPad && t.time - lastTapUp < tuning.doubleTapMs) {
                     state = TAP_ARMED;
                     pendingX = pendingY = 0;
                     armedTravelDp = 0;
@@ -205,16 +210,25 @@ public final class Touchpad {
         lastX = x;
         lastY = y;
         float step = Math.abs(dx) + Math.abs(dy);
-        travelDp += step;
+        long interval = Math.max(1, t.time - previousMoveAt);
+        previousMoveAt = t.time;
+        if (tuning.desktopPad && state == ONE)
+            travelDp = Math.max(travelDp, (float) Math.hypot(x - downX, y - downY) / d);
+        else
+            travelDp += step;
         if (travelDp >= tuning.slopDp) scheduler.cancel(longPress);
         switch (state) {
             case ONE:
-                if (travelDp >= tuning.slopDp) state = CURSOR;
-                moveCursor(dx, dy);
+                if (tuning.desktopPad) {
+                    if (travelDp < 2) break;
+                    scheduler.cancel(longPress);
+                    state = CURSOR;
+                } else if (travelDp >= tuning.slopDp) state = CURSOR;
+                moveCursor(dx, dy, interval);
                 break;
             case CURSOR:
             case DRAG:
-                moveCursor(dx, dy);
+                moveCursor(dx, dy, interval);
                 break;
             case LONG_ARMED:
             case TAP_ARMED:
@@ -222,11 +236,13 @@ public final class Touchpad {
                 armedTravelDp += step;
                 pendingX += dx;
                 pendingY += dy;
-                if (armedTravelDp >= tuning.slopDp) {
+                if ((tuning.desktopPad ? Math.hypot(pendingX, pendingY) : armedTravelDp) >= tuning.slopDp) {
                     state = DRAG;
                     out.button(Input.LEFT, true);
-                    out.feedback(Input.FEEDBACK_LONG_PRESS);
-                    moveCursor(pendingX, pendingY);
+                    if (!tuning.desktopPad) {
+                        out.feedback(Input.FEEDBACK_LONG_PRESS);
+                        moveCursor(pendingX, pendingY, interval);
+                    }
                 }
                 break;
             case TWO:
@@ -260,7 +276,14 @@ public final class Touchpad {
         }
     }
 
-    private void moveCursor(float dxDp, float dyDp) {
+    private void moveCursor(float dxDp, float dyDp, long interval) {
+        if (tuning.desktopPad) {
+            // Gain in output counts per dp. Slow corrections stay precise on high-density phones.
+            float speed = (float) Math.hypot(dxDp, dyDp) / interval;
+            float gain = tuning.pointerSpeed * (0.85f + 1.75f * Math.min(1f, speed / 0.9f));
+            if (rest.add(dxDp * gain, dyDp * gain)) out.move(rest.dx, rest.dy);
+            return;
+        }
         float gain = tuning.gain((float) Math.hypot(dxDp, dyDp)), d = tuning.density;
         // Moves are in pixels of the touched screen, as the touchpad has always sent them
         if (rest.add(dxDp * d * gain, dyDp * d * gain)) out.move(rest.dx, rest.dy);
@@ -515,6 +538,7 @@ public final class Touchpad {
 
     private void tap(Touches t) {
         lastTapUp = Long.MIN_VALUE / 2;
+        if (tuning.desktopPad && state == CURSOR) return;
         if (gestured || scrolled || travelDp >= tuning.slopDp || t.time - downAt >= tuning.longPressMs) return;
         int button = maxFingers == 1 ? Input.LEFT : maxFingers == 2 ? Input.RIGHT : maxFingers == 3 ? Input.MIDDLE : 0;
         if (button == 0) return;
