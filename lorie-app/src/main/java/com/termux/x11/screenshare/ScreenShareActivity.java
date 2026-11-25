@@ -33,6 +33,44 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private final Handler ui = new Handler(Looper.getMainLooper());
     private String hostId;
     private SurfaceView view;
+    private com.termux.x11.ScreenShareInput desktopInput;
+    private final io.github.n2ray.xdesk.input.MouseButtons buttons=new io.github.n2ray.xdesk.input.MouseButtons();
+    private final int[] pictureOrigin=new int[2];
+
+    private boolean desktopPointer(android.view.MotionEvent e) {
+        if (desktopInput==null || view==null || view.getWidth()==0 || view.getHeight()==0) return false;
+        view.getLocationOnScreen(pictureOrigin);
+        float x=(e.getRawX()-pictureOrigin[0])/view.getWidth(), y=(e.getRawY()-pictureOrigin[1])/view.getHeight();
+        int action=e.getActionMasked();
+        boolean inside=x>=0 && x<=1 && y>=0 && y<=1;
+        if (!inside && !buttons.holding() && action!=android.view.MotionEvent.ACTION_UP
+                && action!=android.view.MotionEvent.ACTION_CANCEL) return true;
+        desktopInput.moveToFraction(x,y);
+        if (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+            buttons.event(action,e.getActionButton(),e.getButtonState(),desktopInput::button);
+            if (action==android.view.MotionEvent.ACTION_SCROLL)
+                desktopInput.scrollFine(-e.getAxisValue(android.view.MotionEvent.AXIS_VSCROLL),
+                    e.getAxisValue(android.view.MotionEvent.AXIS_HSCROLL),0);
+        } else if (action==android.view.MotionEvent.ACTION_DOWN) desktopInput.button(1,true);
+        else if (action==android.view.MotionEvent.ACTION_UP || action==android.view.MotionEvent.ACTION_CANCEL) desktopInput.button(1,false);
+        return true;
+    }
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent e) {
+        return desktopPointer(e) || super.dispatchTouchEvent(e);
+    }
+    @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent e) {
+        return (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE) && desktopPointer(e)) || super.dispatchGenericMotionEvent(e);
+    }
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        if (desktopInput!=null && e.getScanCode()>0 && (e.getAction()==0 || e.getAction()==1)) {
+            desktopInput.key(e.getScanCode(),e.getAction()==0); return true;
+        }
+        return super.dispatchKeyEvent(e);
+    }
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (!focus && desktopInput!=null) { buttons.clear(); desktopInput.releaseAll(); }
+    }
     /** The pointer: Screen Sharing's fast mode does not put the Mac's cursor in the picture, so it is drawn here. */
     private ArrowView arrow;
     private int pointerX = -1, pointerY = -1;
@@ -78,6 +116,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     private void placeArrow() {
+        if (desktopInput!=null) return; // The X or native pointer is already visible.
         if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) {
             logArrow("not drawn: arrow " + (arrow != null) + " view " + view.getWidth() + " at " + pointerX);
             return;
@@ -196,6 +235,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             return;
         }
         session = s;
+        if (getIntent().getBooleanExtra("xdesx_input",false)) desktopInput=new com.termux.x11.ScreenShareInput(hostId);
         if (showing != null && showing != this) showing.finish();
         showing = this;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

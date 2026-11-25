@@ -25,17 +25,32 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private XdesxWindow fullWindow;
     private boolean switching;
 
-    private XdesxWindow chromeWindow() {
+    private XdesxWindow fullscreenCandidate() {
+        for (XdesxWindow w:windows.values()) if (w.mac()) return w;
         for (XdesxWindow w:windows.values()) if (w.chrome()) return w;
         return null;
     }
     private void refreshButton() {
-        fullscreenButton.setVisibility(chromeWindow()!=null?View.VISIBLE:View.GONE);
+        XdesxWindow candidate=fullWindow!=null?fullWindow:fullscreenCandidate();
+        fullscreenButton.setVisibility(candidate!=null?View.VISIBLE:View.GONE);
         fullscreenButton.setEnabled(!switching);
-        fullscreenButton.setText(fullWindow==null?"Chrome 原生全屏":"返回 Chrome 窗口");
+        if (fullWindow==null && candidate!=null && candidate.mac() && windows.values().stream().anyMatch(XdesxWindow::chrome)) {
+            fullscreenButton.setText("选择原生全屏窗口"); return;
+        }
+        if (candidate!=null) fullscreenButton.setText(fullWindow==null?candidate.label()+" 原生全屏":"返回 "+candidate.label()+" 窗口");
     }
     private void toggleFullscreen() {
-        XdesxWindow w=fullWindow!=null?fullWindow:chromeWindow();
+        XdesxWindow w=fullWindow!=null?fullWindow:fullscreenCandidate();
+        if (fullWindow==null && w!=null && w.mac()) {
+            for (XdesxWindow chrome:windows.values()) if (chrome.chrome()) {
+                new android.app.AlertDialog.Builder(this).setItems(new String[]{"Mac","Chrome"},
+                    (dialog,index) -> toggleWindow(index==0?w:chrome)).show();
+                return;
+            }
+        }
+        toggleWindow(w);
+    }
+    private void toggleWindow(XdesxWindow w) {
         Display d=displays.getDisplay(external);
         if (w==null || d==null || switching) return;
         switching=true;
@@ -57,7 +72,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (isDestroyed()) return;
                 switching=false;
                 if (moved) fullWindow=w.fullscreen()?w:null;
-                else error("Chrome 任务切换失败");
+                else error(w.label()+" 任务切换失败");
                 refreshButton();
                 capture();
             });
@@ -193,7 +208,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             } else error("X server or shell input service unavailable");
             return;
         }
-        XdesxWindow w = new XdesxWindow(MainActivity.verifiedServer,injector,key,app,
+        if (app.endsWith("/"+XdesxMacActivity.class.getName())) {
+            for (XdesxWindow existing:windows.values()) if (existing.mac()) {
+                error("Mac 共享窗口已打开"); return;
+            }
+        }
+        XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> {
                 if (windows.remove(key)==fullWindow) fullWindow=null;
                 refreshButton();

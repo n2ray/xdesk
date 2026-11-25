@@ -105,6 +105,12 @@ final class XdesxRuntime {
                 "\nPath="+dir+"\nExec="+dir+"/bin/xdesx-window "+i+" "+dir+"/titles/"+i+"\nIcon="+launcherIcon(r,activity)+"\n");
             menu.append("<Filename>").append(name).append("</Filename>");
         }
+        int mac=apps.size();
+        apps.add(new ComponentName(context,XdesxMacActivity.class).flattenToString());
+        text("titles/"+mac,"Mac 屏幕共享");
+        text("data/applications/xdesx-mac.desktop","[Desktop Entry]\nType=Application\nName=连接 Mac\nPath="+dir+
+            "\nExec="+dir+"/bin/xdesx-window "+mac+" "+dir+"/titles/"+mac+"\n");
+        menu.append("<Filename>xdesx-mac.desktop</Filename>");
         text("config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
             "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/></property></channel>");
         text("config/gtk-3.0/settings.ini","[Settings]\ngtk-menu-images=true\n");

@@ -15,6 +15,7 @@ import java.time.Duration;
 
 /** A window owns one virtual display. Both ends sleep while there is no damage or input. */
 final class XdesxWindow {
+    private final android.content.Context context;
     private final ICmdEntryInterface server;
     private final IInjector injector;
     private final String key, component;
@@ -26,6 +27,8 @@ final class XdesxWindow {
     private volatile int display = -1;
     private volatile boolean nativeFullscreen;
     private int task=-1;
+    boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
+    String label() { return mac()?"Mac":"Chrome"; }
     boolean chrome() { return component.startsWith("com.android.chrome/"); }
     boolean fullscreen() { return nativeFullscreen; }
     synchronized boolean toggle(int external,android.graphics.Bitmap cursor,int hotspot,int width,int height) throws RemoteException {
@@ -38,8 +41,8 @@ final class XdesxWindow {
         Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
         return true;
     }
-    XdesxWindow(ICmdEntryInterface s,IInjector i,String k,String c,Runnable f) {
-        server=s; injector=i; key=k; component=c; finished=f;
+    XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable f) {
+        this.context=context; server=s; injector=i; key=k; component=c; finished=f;
     }
     void start() {
         frames.start();
@@ -71,6 +74,7 @@ final class XdesxWindow {
         } catch (Exception e) { Log.e("XDesX","window "+component,e); }
         finally {
             stopped=true; control=null;
+            if (mac()) XdesxMacActivity.closeWindow(key);
             if (display>=0) try { injector.releaseXdesxDisplay(display); } catch(Exception ignored) {}
             frames.quitSafely();
             try { frames.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -84,8 +88,17 @@ final class XdesxWindow {
         try {
             if (display<0) {
                 display=injector.createVirtualDisplay("XDesX "+component,w,h,160,next.getSurface(),0);
-                String failure=injector.startApp(component,display);
-                if (failure!=null) throw new IOException(failure);
+                if (mac()) {
+                    android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
+                    options.setLaunchDisplayId(display);
+                    android.content.Intent intent=new android.content.Intent(context,XdesxMacActivity.class);
+                    intent.putExtra("window",key).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                        android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    context.startActivity(intent,options.toBundle());
+                } else {
+                    String failure=injector.startApp(component,display);
+                    if (failure!=null) throw new IOException(failure);
+                }
             } else {
                 injector.resizeVirtualDisplay(display,w,h,160,next.getSurface());
                 Log.i("XDesX","committed resize "+w+"x"+h);

@@ -36,6 +36,7 @@ import java.util.List;
 final class ScreenShareSource implements ContentSource {
     static final String PREFIX = "v:";
     private static final String TAG = ScreenShareSession.TAG;
+    interface WindowResult extends ContentSource.Result { void showSession(String id); }
     private static ScreenShareSource instance;
 
     private final Context context;
@@ -158,13 +159,17 @@ final class ScreenShareSource implements ContentSource {
         if (old != null) ((Result) old[2]).failed((String) old[0], context.getString(R.string.xd_ss_cancelled));
         // Opened on the external screen and no kept password to unlock with the finger: the password is asked there,
         // where one is looking (owner, 22 November). A kept one needs the phone's fingerprint prompt anyway
-        if (displayId != android.view.Display.DEFAULT_DISPLAY
+        if (!(result instanceof WindowResult) && displayId != android.view.Display.DEFAULT_DISPLAY
             && !com.termux.x11.screenshare.ScreenSharePasswords.has(context, id)
             && MacLogin.ask(context, h, displayId)) return;
         Intent i = new Intent(context, ScreenShareLoginActivity.class);
         i.putExtra(ScreenShareLoginActivity.EXTRA_HOST, id);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(i);
+        if (result instanceof WindowResult) {
+            ActivityOptions phone=ActivityOptions.makeBasic();
+            phone.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+            context.startActivity(i,phone.toBundle());
+        } else context.startActivity(i);
     }
 
     /** The sizes for this Mac on that display (its output now; an assumed 1920×1080 one when it is not there). */
@@ -185,6 +190,10 @@ final class ScreenShareSource implements ContentSource {
         int displayId = (Integer) p[1];
         // 桌面缩放: worked out afresh at each connection from the screen it shows on, as it is driven now (its mode,
         // its rotation), and this Mac's tier; another screen, a turn or a new mode counts from the next connection
+        if (p[2] instanceof WindowResult) {
+            Display external=TargetDisplay.real(context.getSystemService(DisplayManager.class));
+            if (external!=null) displayId=external.getDisplayId();
+        }
         ScreenShareSizing z = h.fixed1080 ? ScreenShareSizing.fixed1080()
             : sizing(context, displayId, h.scale);
         ScreenShareSession.start(context, h, password, z, sessions);
@@ -193,6 +202,10 @@ final class ScreenShareSource implements ContentSource {
     }
 
     private void show(String hostId, int displayId, String key, Result result) {
+        if (result instanceof WindowResult) {
+            ((WindowResult)result).showSession(hostId);
+            return;
+        }
         Contents.Host host = Contents.host();
         if (host != null) host.freeDisplay();
         if (!ScreenShareActivity.isShowing(hostId)) {
@@ -210,6 +223,11 @@ final class ScreenShareSource implements ContentSource {
             }
         }
         result.shown(key, input(hostId));
+    }
+
+    void closeWindowLogin(String id,WindowResult owner) {
+        Object[] p=pending.get(id);
+        if (p!=null && p[2]==owner) pending.remove(id);
     }
 
     private void loginCancelled(String hostId) {

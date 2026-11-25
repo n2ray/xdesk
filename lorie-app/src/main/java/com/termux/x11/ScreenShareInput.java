@@ -13,13 +13,13 @@ import java.util.HashMap;
  * and Command trade places so the PC keyboard's Ctrl+C is the Mac's ⌘C. Text from the phone's keyboard goes as the
  * characters' keysyms. Keys held when the input leaves are let go (releaseAll).
  */
-final class ScreenShareInput implements InputSink {
+public final class ScreenShareInput implements InputSink {
     private final String hostId;
     private int x = -1, y = -1, buttons;
     /** Linux key code -> the keysym sent down for it, to let go of the same one. */
     private final HashMap<Integer, Integer> down = new HashMap<>();
 
-    ScreenShareInput(String hostId) {
+    public ScreenShareInput(String hostId) {
         this.hostId = hostId;
     }
 
@@ -197,7 +197,7 @@ final class ScreenShareInput implements InputSink {
     }
 
     /** Lets go of every key and button held (the input leaves, the screen goes). */
-    void releaseAll() {
+    public void releaseAll() {
         wheelPoints.clear();
         for (int sym : down.values()) keysym(false, sym);
         down.clear();
