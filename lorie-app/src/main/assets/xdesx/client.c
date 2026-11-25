@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     if (argc != 3) return 2;
     int listener = atoi(argv[1]);
     struct pollfd start = { listener, POLLIN, 0 };
-    if (poll(&start, 1, 15000) <= 0) return 1;
+    if (poll(&start, 1, 30000) <= 0) return 1;
     int ctrl = accept(listener, NULL, NULL);
     Display *d = XOpenDisplay(NULL);
     if (ctrl < 0 || !d) return 1;

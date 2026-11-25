@@ -133,15 +133,21 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             while ((line=lines.readLine())!=null) {
                 JSONArray request=new JSONArray(line);
                 String key=request.getString(0), app=request.getString(1);
-                runOnUiThread(() -> openWindow(key,app));
+                long deadline=SystemClock.elapsedRealtime()+25000;
+                runOnUiThread(() -> openWindow(key,app,deadline));
             }
         } catch(Exception e) { if (!isDestroyed()) error(e.toString()); }
     }
-    private void openWindow(String key,String app) {
+    private void openWindow(String key,String app,long deadline) {
         if (isDestroyed()) return;
         if (key==null || !key.matches("[0-9a-f]{32}") || app==null || !allowed.contains(app) || windows.containsKey(key)) return;
         openInjector();
-        if (injector==null || MainActivity.verifiedServer==null) { error("X server or shell input service unavailable"); return; }
+        if (injector==null || MainActivity.verifiedServer==null) {
+            if (SystemClock.elapsedRealtime()<deadline) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> openWindow(key,app,deadline),250);
+            } else error("X server or shell input service unavailable");
+            return;
+        }
         XdesxWindow w = new XdesxWindow(MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> windows.remove(key)));
         windows.put(key,w);
