@@ -18,7 +18,8 @@ import org.json.JSONArray;
 /** Minimal phone controller for the native Termux energy experiment. */
 public final class XdesxActivity extends Activity implements DisplayManager.DisplayListener {
     private final DesktopInput input = new DesktopInput();
-    private final String token = UUID.randomUUID().toString();
+    private final String token = UUID.randomUUID().toString().replace("-","");
+    private volatile ParcelFileDescriptor menu;
     private final Set<String> allowed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Map<String,XdesxWindow> windows = new HashMap<>();
     private DisplayManager displays;
@@ -42,6 +43,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }));
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
+        AppSession.get(this).activateIfPaired();
         shizuku = AppSession.get(this).openWirelessInjector(connection);
         place();
         new Thread(this::installSession,"xdesx-start").start();
@@ -80,7 +82,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 catalog.put(new JSONArray().put(id).put(r.loadLabel(getPackageManager()).toString()));
             }
             StringBuilder cmd = new StringBuilder("set -eu\numask 077\nmkdir -p ~/.local/share/xdesx\ncd ~/.local/share/xdesx\n");
-            for (String name : new String[]{"session.sh","setup.py","window.py","client.c"}) {
+            for (String name : new String[]{"session.sh","setup.py","window.py","client.c","broker.py"}) {
                 try (InputStream in = getAssets().open("xdesx/"+name); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
                     byte[] buf = new byte[4096]; int n;
                     while ((n=in.read(buf))!=-1) bytes.write(buf,0,n);
@@ -92,17 +94,38 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             cmd.append("python setup.py\nclang -O2 client.c -o client.tmp -lX11 -lX11-xcb -lxcb -lxcb-dri3\nmv client.tmp client\n")
                .append("exec setsid bash session.sh >session.log 2>&1");
             runOnUiThread(() -> {
-                if (!isDestroyed() && !TermuxCommand.run(this,cmd.toString(),new TermuxCommand.Callback() {
+                if (isDestroyed()) return;
+                new Thread(this::menuLoop,"xdesx-menu").start();
+                if (!TermuxCommand.run(this,cmd.toString(),new TermuxCommand.Callback() {
                     public void onOutput(String s) { }
                     public void onFailure(String s) { error(s); }
                 })) error("Termux RUN_COMMAND failed");
             });
         } catch (Exception e) { error(e.toString()); }
     }
-    @Override protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        if (!token.equals(intent.getStringExtra("token"))) return;
-        String key=intent.getStringExtra("window"), app=intent.getStringExtra("component");
+    private void menuLoop() {
+        long end = SystemClock.elapsedRealtime()+60000;
+        while (!isDestroyed() && SystemClock.elapsedRealtime()<end) {
+            ICmdEntryInterface server=MainActivity.verifiedServer;
+            if (server!=null) {
+                try { menu=server.xdesxSocket(token); } catch(Exception ignored) {}
+                if (menu!=null) break;
+            }
+            SystemClock.sleep(250);
+        }
+        if (menu==null) { if (!isDestroyed()) error("XDesX menu connection timed out"); return; }
+        try (BufferedReader lines=new BufferedReader(new InputStreamReader(
+                new ParcelFileDescriptor.AutoCloseInputStream(menu),"UTF-8"))) {
+            String line;
+            while ((line=lines.readLine())!=null) {
+                JSONArray request=new JSONArray(line);
+                String key=request.getString(0), app=request.getString(1);
+                runOnUiThread(() -> openWindow(key,app));
+            }
+        } catch(Exception e) { if (!isDestroyed()) error(e.toString()); }
+    }
+    private void openWindow(String key,String app) {
+        if (isDestroyed()) return;
         if (key==null || !key.matches("[0-9a-f]{32}") || app==null || !allowed.contains(app) || windows.containsKey(key)) return;
         if (injector==null || MainActivity.verifiedServer==null) { error("X server or shell input service unavailable"); return; }
         XdesxWindow w = new XdesxWindow(MainActivity.verifiedServer,injector,key,app,
@@ -118,6 +141,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override protected void onDestroy() {
         displays.unregisterDisplayListener(this);
+        if (menu!=null) try { android.system.Os.shutdown(menu.getFileDescriptor(),android.system.OsConstants.SHUT_RDWR); }
+            catch(Exception ignored) {}
+
         for (XdesxWindow w:windows.values()) w.stop();
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);
         TermuxCommand.run(this,"cd ~/.local/share/xdesx && test \"$(cat session.token)\" = '"+token+

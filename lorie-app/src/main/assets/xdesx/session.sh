@@ -2,6 +2,7 @@ set -eu
 cd "$HOME/.local/share/xdesx"
 export DISPLAY=:19
 export XDG_CONFIG_HOME="$PWD/config" XDG_DATA_HOME="$PWD/data" XDG_CACHE_HOME="$PWD/cache"
+export GIO_USE_VFS=local
 export XDG_RUNTIME_DIR="$PWD/runtime" GDK_BACKEND=x11
 umask 077
 mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
@@ -21,10 +22,12 @@ for ((i=0;i<100;i++)); do
 done
 xrandr >/dev/null
 dbus-run-session -- bash -c '
+    python broker.py &
+    broker=$!
     xfwm4 --compositor=on &
     wm=$!
     xfce4-panel --disable-wm-check &
     panel=$!
-    trap "kill $wm $panel 2>/dev/null || true" EXIT
-    wait -n "$wm" "$panel"
+    trap "kill $wm $panel $broker 2>/dev/null || true" EXIT
+    wait -n "$wm" "$panel" "$broker"
 '
