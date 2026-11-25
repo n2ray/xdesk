@@ -85,7 +85,7 @@ android {
         minifyEnabled true
         shrinkResources true
         proguardFiles 'proguard-rules.pro'
-        ndk.abiFilters 'arm64-v8a', 'armeabi-v7a'
+        ndk.abiFilters 'arm64-v8a'
     }
 }
 
@@ -104,6 +104,17 @@ androidComponents {
         }
     }
 }
+
+// All standalone APKs contain the Bionic runtime, including builds made outside CI.
+def nativeDesktop = tasks.register('packageXdesxRuntime', Exec) {
+    inputs.files(rootProject.file('tools/xdesx/package-runtime.py'), rootProject.file('tools/xdesx/packages.lock.json'),
+        file('src/main/assets/xdesx/client.c'))
+    outputs.file(file('src/main/assets/xdesx/runtime.zip'))
+    outputs.files(fileTree('src/main/jniLibs/arm64-v8a') { include 'libxd*.so' })
+    environment 'ANDROID_NDK_HOME', System.getenv('ANDROID_NDK_HOME') ?: new File(android.sdkDirectory, 'ndk/' + android.ndkVersion)
+    commandLine 'python3', rootProject.file('tools/xdesx/package-runtime.py')
+}
+tasks.named('preBuild').configure { dependsOn nativeDesktop }
 
 tasks.matching { it.name == 'assembleDebug' }.configureEach { dependsOn ':shell-loader:buildCompanionPackage' }
 

@@ -52,9 +52,9 @@ def install(name):
         subprocess.run(["curl","--retry","3","-fLsS",url,"-o",deb],check=True)
     if hashlib.sha256(deb.read_bytes()).hexdigest()!=checksum: raise ValueError(name+" checksum")
     archive=next(n for n in subprocess.check_output(["ar","t",deb],text=True).splitlines() if n.startswith("data.tar"))
-    with tempfile.TemporaryFile() as f:
+    with tempfile.NamedTemporaryFile(suffix=archive.rstrip("/")) as f:
         subprocess.run([BIN/"llvm-ar","p",deb,archive.rstrip("/")],stdout=f,check=True); f.seek(0)
-        subprocess.run(["tar","-xf","-","-C",work],stdin=f,check=True)
+        subprocess.run(["tar","-xf",f.name,"-C",work],check=True)
     selected.add(name)
 
 for n in (["xfwm4","xfce4-panel","xfconf","dbus","glib","libx11","libxcb","xorgproto","xkeyboard-config","gsettings-desktop-schemas","gtk3","libxau","libxdmcp"] if update else packages):
@@ -64,13 +64,19 @@ programs=["bin/xfwm4","bin/xfce4-panel","bin/dbus-daemon","lib/xfce4/xfconf/xfco
 system=set("libandroid.so libc.so libdl.so liblog.so libm.so libz.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libjnigraphics.so libOpenSLES.so libvulkan.so libmediandk.so libnativewindow.so libaaudio.so".split())
 pending=programs+["lib/libX11-xcb.so","lib/libxcb-dri3.so"]
 links={}
+blobs={}
 while pending:
     item=pending.pop()
     if item in links: continue
     src=prefix/item
     if not src.exists() and update: install(owners[item])
     data=src.read_bytes()
-    out="libxd_"+str(len(links))+".so"
+    digest=hashlib.sha256(data).digest()
+    if digest in blobs:
+        links[item]=blobs[digest]
+        continue
+    out="libxd_"+str(len(blobs))+".so"
+    blobs[digest]=out
     links[item]=out
     (native/out).write_bytes(data.replace(PREFIX,RELOCATED))
     needed=re.findall(r'Shared library: \[(.*?)\]',subprocess.check_output([BIN/"llvm-readelf","-d",src],text=True))

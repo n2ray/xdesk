@@ -45,8 +45,6 @@ jobs:
         cc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
         "$cc" -std=c11 -O2 -fPIE -pie -Wl,-z,max-page-size=16384 -I"$src/common" "$src/daemon/termux-va.c" \
           -o lorie-app/src/main/jniLibs/arm64-v8a/libtermux_va.so -lmediandk -llog -landroid
-    - name: Package the native XDesX desktop
-      run: python3 tools/xdesx/package-runtime.py
     - name: Version
       env:
         TAG: ${{ github.ref_name }}
