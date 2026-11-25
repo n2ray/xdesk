@@ -62,10 +62,13 @@ while True:
     time.sleep(min(1.5 if args.layer else 10, remaining))
 after = cpu()
 duration = time.monotonic()-start
-samples = {name: round(100*(v-before[(pid,name)])/duration,2)
-           for (pid,name),v in after.items() if (pid,name) in before and name in
-           {"xdesx-x11","xfwm4","xfce4-panel","surfaceflinger","com.android.chrome",
-            "com.google.android.youtube","io.github.n2ray.xdesk.x11","client"}}
+tracked = {"xdesx-x11", "xfwm4", "xfce4-panel", "surfaceflinger", "com.android.chrome",
+           "com.google.android.youtube", "io.github.n2ray.xdesk.x11", "client"}
+samples = {}
+for (pid, name), value in after.items():
+    if (pid, name) in before and name in tracked:
+        samples[name] = samples.get(name, 0) + 100 * (value-before[(pid,name)])/duration
+samples = {name: round(value,2) for name,value in samples.items()}
 out = dict(label=args.label, seconds=round(duration,2), cpu_one_core_pct=samples, battery=states,
            burrow_seen=any("burrow" in name.lower() for _, name in set(before)|set(after)))
 if all(s["plugged"]=="UNPLUGGED" and s["status"]=="DISCHARGING" for s in states):
