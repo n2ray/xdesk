@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/hero.svg" width="760" alt="大屏上是 XDesk 的启动台，旁边的手机当触摸板，前面是键盘鼠标"></p>
 
-**让手机给任何一块屏幕当主机。** 手机用 USB-C 插上显示器，或者经 Wi-Fi 连上投影、平板、电视、车机，XDesk 就把那块屏变成一个桌面：有启动台、Dock、通知和光标。手机当它的触摸板、键盘、手柄或遥控器。不用 root，也不用另装别的。
+**又一个手机接任何屏幕的软件。** 手机用 USB-C 插上显示器，或者经 Wi-Fi 连上投影、平板、电视、车机，XDesk 就把那块屏变成一个桌面：有启动台、Dock、通知和光标。手机当它的触摸板、键盘、手柄或遥控器。不用 root，也不用另装别的。
 
 **[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [下载](https://github.com/n2ray/xdesk/releases/latest) · [English](README.md) · [使用手册](MANUAL.zh-CN.md) · GPL-3.0
 

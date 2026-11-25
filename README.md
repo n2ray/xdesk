@@ -2,7 +2,7 @@
 
 <p align="center"><img src="docs/img/hero.svg" width="760" alt="A monitor showing XDesk's Launchpad, the phone beside it as a touchpad, a keyboard and mouse in front"></p>
 
-**A desktop for any screen, run by your phone.** Plug the phone into a monitor, or reach a projector, tablet, TV or car screen over Wi-Fi, and XDesk turns that screen into a desktop: a Launchpad, a Dock, your notifications, a pointer. The phone becomes its touchpad, keyboard, gamepad or remote. No root, and nothing else to install.
+**Yet another phone-on-any-screen app.** Plug the phone into a monitor, or reach a projector, tablet, TV or car screen over Wi-Fi, and XDesk turns that screen into a desktop: a Launchpad, a Dock, your notifications, a pointer. The phone becomes its touchpad, keyboard, gamepad or remote. No root, and nothing else to install.
 
 **[Website](https://n2ray.github.io/xdesk/)** · [Download](https://github.com/n2ray/xdesk/releases/latest) · [中文](README.zh-CN.md) · [Manual](MANUAL.md) · GPL-3.0
 
