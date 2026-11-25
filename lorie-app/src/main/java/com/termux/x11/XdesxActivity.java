@@ -19,6 +19,16 @@ import org.json.JSONArray;
 public final class XdesxActivity extends Activity implements DisplayManager.DisplayListener {
     private final DesktopInput input = new DesktopInput();
     private XdesxRuntime runtime;
+    private XdesxPanelState panel;
+    private final Handler settingsHandler=new Handler(Looper.getMainLooper());
+    private int savedRender;
+    private final Runnable revertRender=() -> {
+        if (savedRender==0) return;
+        panel.render=savedRender;
+        savedRender=0;
+        applyDisplay();
+        panel.publish();
+    };
     private KeyInputView mouse;
     private float restX,restY;
     private android.widget.Button fullscreenButton;
@@ -145,6 +155,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         displays.registerDisplayListener(this,null);
         AppSession.get(this).activateIfPaired();
         openInjector();
+        panel=new XdesxPanelState(this);
         place();
         runtime=new XdesxRuntime(this);
         new Thread(() -> {
@@ -173,11 +184,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         external=d.getDisplayId();
         Context app=getApplicationContext();
         MainActivity.displayAllowed=id -> TargetDisplay.allowsDesktop(app,id);
+        panel.screen(d);
+        applyDisplay();
         Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
-        android.graphics.Point pixels=new android.graphics.Point();
-        d.getRealSize(pixels);
-        prefs.displayResolutionMode.put("custom");
-        prefs.displayResolutionCustom.put(pixels.x+"x"+pixels.y);
         prefs.showAdditionalKbd.put(false);
         prefs.additionalKbdVisible.put(false);
         ActivityOptions opts=ActivityOptions.makeBasic();
@@ -191,6 +200,49 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             capture();
         },400);
     }
+    private void applyDisplay() {
+        Display d=displays.getDisplay(external);
+        if (d==null) return;
+        android.graphics.Point px=new android.graphics.Point();
+        d.getRealSize(px);
+        Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
+        int w=Math.max(1,Math.round(px.x*panel.render/100f)), h=Math.max(1,Math.round(px.y*panel.render/100f));
+        prefs.displayResolutionMode.put("custom");
+        prefs.displayResolutionCustom.put(w+"x"+h);
+        prefs.displayFilteringMode.put("bilinear");
+        int dpi=Math.round(96*panel.scale/100f);
+        prefs.putInt("xdeskDpi",dpi);
+        DesktopScale.applyDpi(dpi);
+        Log.i("XDesX","panel scale="+panel.scale+" render="+w+"x"+h);
+    }
+    private void panelAction(String action) {
+        if (action.startsWith("full-")) {
+            if (fullWindow==null) toggleWindow(windows.get(action.substring(5)));
+            return;
+        }
+        String[] parts=action.split("-",2);
+        int value=Integer.parseInt(parts[1]);
+        if (parts[0].equals("confirm")) {
+            if (savedRender!=0 && panel.render==value) {
+                settingsHandler.removeCallbacks(revertRender);
+                savedRender=0;
+                panel.save();
+            }
+        } else if (parts[0].equals("scale")) {
+            if (savedRender!=0) revertRender.run();
+            panel.scale=value;
+            panel.save();
+            applyDisplay();
+            for (XdesxWindow w:windows.values()) w.density(Math.round(160*value/100f));
+        } else if (parts[0].equals("render") && panel.render!=value) {
+            if (savedRender==0) savedRender=panel.render;
+            panel.render=value;
+            applyDisplay();
+            panel.publish();
+            settingsHandler.removeCallbacks(revertRender);
+            settingsHandler.postDelayed(revertRender,15000);
+        }
+    }
     public void onDisplayAdded(int id) { place(); }
     public void onDisplayChanged(int id) { }
     public void onDisplayRemoved(int id) { if (external == id) finish(); }
@@ -200,6 +252,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private void openWindow(String key,String app,long deadline) {
         if (isDestroyed()) return;
+        if ("action".equals(key)) { panelAction(app); return; }
         if (key==null || !key.matches("[0-9a-f]{32}") || app==null || windows.containsKey(key)) return;
         openInjector();
         if (injector==null || MainActivity.verifiedServer==null) {
@@ -218,6 +271,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (windows.remove(key)==fullWindow) fullWindow=null;
                 refreshButton();
             }));
+        w.density(Math.round(160*panel.scale/100f));
         windows.put(key,w);
         w.start();
         refreshButton();
@@ -244,6 +298,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         return super.dispatchKeyEvent(e);
     }
     @Override protected void onDestroy() {
+        settingsHandler.removeCallbacks(revertRender);
+        if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
         if(runtime!=null) runtime.close();
         if(mouse!=null) mouse.releasePointerCapture();

@@ -90,7 +90,7 @@ final class XdesxRuntime {
     private void configure() throws Exception {
         for(String dir:new String[]{"tmp","run","data/applications","cache","config"}) path(dir).mkdirs();
         String dir=prefix.getPath();
-        StringBuilder menu=new StringBuilder("<Menu><Name>Android</Name><AppDir>"+dir+"/data/applications</AppDir><Include>");
+        StringBuilder menu=new StringBuilder();
         List<ResolveInfo> entries=context.getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0);
         entries.sort(new ResolveInfo.DisplayNameComparator(context.getPackageManager()));
         for(ResolveInfo r:entries) {
@@ -98,26 +98,38 @@ final class XdesxRuntime {
             ComponentName activity=new ComponentName(r.activityInfo.packageName,r.activityInfo.name);
             String component=activity.flattenToString();
             int i=apps.size(); apps.add(component);
-            String name="android-"+i+".desktop";
-            String label=r.loadLabel(context.getPackageManager()).toString().replace('\n',' ').replace('\r',' ');
+            String label=r.loadLabel(context.getPackageManager()).toString().replaceAll("[\\t\\r\\n]"," ");
+            String icon=launcherIcon(r,activity);
             text("titles/"+i,label);
-            text("data/applications/"+name,"[Desktop Entry]\nType=Application\nName="+label.replace("\\","\\\\")+
-                "\nPath="+dir+"\nExec="+dir+"/bin/xdesx-window "+i+" "+dir+"/titles/"+i+"\nIcon="+launcherIcon(r,activity)+"\n");
-            menu.append("<Filename>").append(name).append("</Filename>");
+            if (icon.startsWith("/")) {
+                File raw=new File(icon+".argb");
+                if (!raw.isFile()) {
+                    android.graphics.Bitmap image=android.graphics.BitmapFactory.decodeFile(icon);
+                    if (image!=null) {
+                        int[] pixels=new int[64*64];
+                        image.getPixels(pixels,0,64,0,0,64,64);
+                        image.recycle();
+                        try (DataOutputStream out=new DataOutputStream(new BufferedOutputStream(new FileOutputStream(raw)))) {
+                            for (int pixel:pixels) out.writeInt(pixel);
+                        }
+                    }
+                }
+                text("titles/"+i+".icon",raw.getPath());
+            } else path("titles/"+i+".icon").delete();
+            menu.append(i).append('\t').append(label).append('\t').append(icon).append("\tandroid\n");
         }
         int mac=apps.size();
         apps.add(new ComponentName(context,XdesxMacActivity.class).flattenToString());
         text("titles/"+mac,"Mac 屏幕共享");
-        text("data/applications/xdesx-mac.desktop","[Desktop Entry]\nType=Application\nName=连接 Mac\nPath="+dir+
-            "\nExec="+dir+"/bin/xdesx-window "+mac+" "+dir+"/titles/"+mac+"\n");
-        menu.append("<Filename>xdesx-mac.desktop</Filename>");
+        path("titles/"+mac+".icon").delete();
+        menu.append(mac).append("\t连接 Mac\t\tmac\n");
+        text("apps.tsv",menu.toString());
         text("config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
-            "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/></property></channel>");
-        text("config/gtk-3.0/settings.ini","[Settings]\ngtk-menu-images=true\n");
-        text("android.menu",menu.append("</Include></Menu>").toString());
+            "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/>"+
+            "<property name='show_dock_shadow' type='bool' value='false'/></property></channel>");
         try(InputStream in=context.getAssets().open("xdesx/panel.xml"); BufferedReader r=new BufferedReader(new InputStreamReader(in))) {
             StringBuilder xml=new StringBuilder(); String line; while((line=r.readLine())!=null) xml.append(line);
-            text("config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",xml.toString().replace("@MENU@",dir+"/android.menu"));
+            text("config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",xml.toString().replace("@SIZE@","36"));
         }
         text("fonts.conf","<fontconfig><dir>/system/fonts</dir><cachedir>"+dir+"/cache/fonts</cachedir></fontconfig>");
         text("dbus.conf","<busconfig><type>session</type><listen>unix:path="+dir+"/run/bus</listen><auth>EXTERNAL</auth>"+
@@ -150,6 +162,9 @@ final class XdesxRuntime {
                     if(peer.getPeerCredentials().getUid()!=Process.myUid()) continue;
                     peer.setSoTimeout(2000);
                     String line=new BufferedReader(new InputStreamReader(peer.getInputStream(),"UTF-8")).readLine();
+                    if(line!=null && line.matches("action (scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                        menu.selected("action",line.substring(7)); continue;
+                    }
                     if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;
                     int i=Integer.parseInt(line.substring(33));
                     if(i<apps.size()) menu.selected(line.substring(0,32),apps.get(i));

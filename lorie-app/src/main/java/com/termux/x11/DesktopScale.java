@@ -50,6 +50,10 @@ final class DesktopScale {
         int dpi = Sizing.desktopDpi(a, d, width, nativeWidth(d));
         // Unchanged values change nothing: SharedPreferences only tells listeners about real changes
         p.putInt("xdeskDpi", dpi);
+        applyDpi(dpi);
+    }
+
+    static void applyDpi(int dpi) {
         wanted = dpi;
         tellX();
     }

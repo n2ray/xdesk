@@ -28,7 +28,7 @@ final class XdesxWindow {
     private volatile boolean nativeFullscreen;
     private int task=-1;
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
-    String label() { return mac()?"Mac":"Chrome"; }
+    String label() { return mac()?"Mac":chrome()?"Chrome":"应用"; }
     boolean chrome() { return component.startsWith("com.android.chrome/"); }
     boolean fullscreen() { return nativeFullscreen; }
     synchronized boolean toggle(int external,android.graphics.Bitmap cursor,int hotspot,int width,int height) throws RemoteException {
@@ -82,12 +82,19 @@ final class XdesxWindow {
             finished.run();
         }
     }
-    private void resize(int w,int h) throws Exception {
+    private int dpi=160;
+    synchronized void density(int value) {
+        dpi=value;
+        if (stopped || reader==null || display<0) return;
+        try { injector.resizeVirtualDisplay(display,reader.getWidth(),reader.getHeight(),dpi,reader.getSurface()); }
+        catch (RemoteException e) { Log.w("XDesX","window density",e); }
+    }
+    private synchronized void resize(int w,int h) throws Exception {
         if (w<=0 || h<=0 || (long)w*h>16777216) throw new IOException("invalid window dimensions");
         ImageReader next=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3,HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE);
         try {
             if (display<0) {
-                display=injector.createVirtualDisplay("XDesX "+component,w,h,160,next.getSurface(),0);
+                display=injector.createVirtualDisplay("XDesX "+component,w,h,dpi,next.getSurface(),0);
                 if (mac()) {
                     android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
                     options.setLaunchDisplayId(display);
@@ -105,7 +112,7 @@ final class XdesxWindow {
                     }
                 });
             } else {
-                injector.resizeVirtualDisplay(display,w,h,160,next.getSurface());
+                injector.resizeVirtualDisplay(display,w,h,dpi,next.getSurface());
                 Log.i("XDesX","committed resize "+w+"x"+h);
             }
         } catch(Exception e) { next.close(); throw e; }

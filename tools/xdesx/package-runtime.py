@@ -60,9 +60,9 @@ def install(name):
 for n in (["xfwm4","xfce4-panel","xfconf","dbus","glib","libx11","libxcb","xorgproto","xkeyboard-config","gsettings-desktop-schemas","gtk3","libxau","libxdmcp"] if update else packages):
     install(n)
 programs=["bin/xfwm4","bin/xfce4-panel","bin/dbus-daemon","lib/xfce4/xfconf/xfconfd",
-          "libexec/gio-launch-desktop","lib/xfce4/panel/wrapper-2.0","lib/xfce4/panel/plugins/libapplicationsmenu.so"]
+          "libexec/gio-launch-desktop","lib/xfce4/panel/wrapper-2.0"]
 system=set("libandroid.so libc.so libdl.so liblog.so libm.so libz.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libjnigraphics.so libOpenSLES.so libvulkan.so libmediandk.so libnativewindow.so libaaudio.so".split())
-pending=programs+["lib/libX11-xcb.so","lib/libxcb-dri3.so"]
+pending=programs+["lib/libX11-xcb.so","lib/libxcb-dri3.so","lib/libwnck-3.so","lib/libxfconf-0.so"]
 links={}
 blobs={}
 while pending:
@@ -84,6 +84,17 @@ while pending:
 client=native/"libxdclient.so"
 subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-I"+str(prefix/"include"),assets/"client.c","-L"+str(prefix/"lib"),"-Wl,--allow-shlib-undefined","-lX11","-lX11-xcb","-lxcb","-lxcb-dri3","-o",client],check=True)
 links["bin/xdesx-window"]=client.name
+# Compile the internal panel module against the same pinned Bionic ABI as its host.
+includes = ["include", "include/gtk-3.0", "include/glib-2.0", "lib/glib-2.0/include",
+            "include/cairo", "include/pango-1.0", "include/harfbuzz", "include/gdk-pixbuf-2.0",
+            "include/atk-1.0", "include/xfce4", "include/xfce4/libxfce4panel-2.0",
+            "include/xfce4/xfconf-0", "include/libwnck-3.0", "include/freetype2"]
+panel=native/"libxdpanel.so"
+subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-fPIC","-shared",
+    *["-I"+str(prefix/i) for i in includes],assets/"panel.c","-L"+str(prefix/"lib"),
+    "-Wl,--allow-shlib-undefined","-lxfce4panel-2.0","-lxfconf-0","-lwnck-3","-lgtk-3",
+    "-lgdk-3","-lgdk_pixbuf-2.0","-lgio-2.0","-lgobject-2.0","-lglib-2.0","-lX11","-o",panel],check=True)
+links["lib/xfce4/panel/plugins/libxdesx.so"]=panel.name
 schemas=prefix/"share/glib-2.0/schemas"
 subprocess.run(["glib-compile-schemas",schemas],check=True)
 with zipfile.ZipFile(assets/"runtime.zip","w",zipfile.ZIP_DEFLATED) as z:
@@ -92,6 +103,7 @@ with zipfile.ZipFile(assets/"runtime.zip","w",zipfile.ZIP_DEFLATED) as z:
                     "etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml","share/licenses/**/*","share/doc/*/copyright"]:
         for p in prefix.glob(pattern):
             if p.is_file(): z.writestr(str(p.relative_to(prefix)),p.read_bytes().replace(PREFIX,RELOCATED))
+    z.write(assets/"xdesx.desktop","share/xfce4/panel/plugins/xdesx.desktop")
     z.writestr("links.json",json.dumps(links))
 if update: LOCK.write_text(json.dumps({n:packages[n] for n in sorted(selected)},indent=2)+"\n")
 shutil.rmtree(work)

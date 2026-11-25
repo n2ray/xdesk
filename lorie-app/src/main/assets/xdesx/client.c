@@ -20,6 +20,23 @@ static int event(int fd, unsigned kind, unsigned x, unsigned y) {
     uint32_t msg[] = {htonl(kind), htonl(x), htonl(y)};
     return send(fd, msg, sizeof(msg), MSG_NOSIGNAL) == sizeof(msg);
 }
+static void window_icon(Display *d, Window w, const char *title_file) {
+    char filename[PATH_MAX], raw[PATH_MAX];
+    if (snprintf(filename,sizeof(filename),"%s.icon",title_file)>=(int)sizeof(filename)) return;
+    FILE *meta=fopen(filename,"r");
+    if (!meta) return;
+    int found=fgets(raw,sizeof(raw),meta)!=NULL;
+    fclose(meta);
+    FILE *image=found?fopen(raw,"rb"):NULL;
+    if (!image) return;
+    uint32_t pixels[4096];
+    if (fread(pixels,sizeof(*pixels),4096,image)==4096) {
+        unsigned long icon[4098]={64,64};
+        for (int i=0;i<4096;i++) icon[i+2]=ntohl(pixels[i]);
+        XChangeProperty(d,w,XInternAtom(d,"_NET_WM_ICON",False),XA_CARDINAL,32,PropModeReplace,(unsigned char*)icon,4098);
+    }
+    fclose(image);
+}
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--check-display") == 0) {
         Display *probe = XOpenDisplay(NULL);
@@ -55,6 +72,8 @@ int main(int argc, char **argv) {
     char title[512]="Android";
     FILE *label=fopen(argv[2],"r");
     if (label) { if (!fgets(title,sizeof(title),label)) strcpy(title,"Android"); fclose(label); }
+    XChangeProperty(d,win,XInternAtom(d,"_XDESX_KEY",False),XA_STRING,8,PropModeReplace,(unsigned char*)key,32);
+    window_icon(d,win,argv[2]);
     XStoreName(d, win, title);
     XChangeProperty(d, win, XInternAtom(d,"_NET_WM_NAME",False),XInternAtom(d,"UTF8_STRING",False),
                     8, PropModeReplace,(unsigned char *)title,strlen(title));

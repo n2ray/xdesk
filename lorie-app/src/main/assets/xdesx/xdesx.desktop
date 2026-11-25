@@ -1,0 +1,6 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Name=XDesX
+X-XFCE-Module=xdesx
+X-XFCE-Internal=TRUE
+X-XFCE-API=2.0
