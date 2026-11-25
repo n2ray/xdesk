@@ -40,7 +40,7 @@ def decorations(z,scale):
         for state in ("active","inactive","pressed","prelight"):
             w=px(28)
             bh=h-2*px(4)
-            im=Image.new("RGBA",(w*4,bh*4))
+            im=Image.new("RGB",(w*4,bh*4),PAPER)
             draw=ImageDraw.Draw(im)
             if state in ("pressed","prelight"):
                 pad=px(3)*4
