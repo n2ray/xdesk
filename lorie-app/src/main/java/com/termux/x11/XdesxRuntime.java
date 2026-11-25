@@ -65,8 +65,7 @@ final class XdesxRuntime {
         String pkg=component.getPackageName();
         try {
             long version=pm.getPackageInfo(pkg,0).lastUpdateTime;
-            String name=android.util.Base64.encodeToString(component.flattenToString().getBytes("UTF-8"),
-                android.util.Base64.URL_SAFE|android.util.Base64.NO_WRAP|android.util.Base64.NO_PADDING);
+            String name=UUID.nameUUIDFromBytes(component.flattenToString().getBytes("UTF-8")).toString();
             File target=path("cache/icons/"+name+"-"+version+".png");
             if (!target.isFile()) {
                 target.getParentFile().mkdirs();
@@ -84,7 +83,7 @@ final class XdesxRuntime {
                 } finally { bitmap.recycle(); tmp.delete(); }
             }
             return target.getAbsolutePath();
-        } catch (android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
+        } catch (android.content.pm.PackageManager.NameNotFoundException | IOException | RuntimeException e) {
             return "applications-other";
         }
     }
@@ -108,6 +107,7 @@ final class XdesxRuntime {
         }
         text("config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
             "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/></property></channel>");
+        text("config/gtk-3.0/settings.ini","[Settings]\ngtk-menu-images=true\n");
         text("android.menu",menu.append("</Include></Menu>").toString());
         try(InputStream in=context.getAssets().open("xdesx/panel.xml"); BufferedReader r=new BufferedReader(new InputStreamReader(in))) {
             StringBuilder xml=new StringBuilder(); String line; while((line=r.readLine())!=null) xml.append(line);
