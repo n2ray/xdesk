@@ -196,6 +196,18 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
         return super.onTransact(code, data, reply, flags);
     }
 
+    @Override public ParcelFileDescriptor xdesxSocket(String id) {
+        if (Binder.getCallingUid() != appUid() || id == null || !id.matches("[a-f0-9]{32}"))
+            throw new SecurityException("invalid XDesX window");
+        try (LocalSocket socket = new LocalSocket()) {
+            socket.connect(new LocalSocketAddress("/data/data/com.termux/files/usr/tmp/xdesx-" + id,
+                    LocalSocketAddress.Namespace.FILESYSTEM));
+            return ParcelFileDescriptor.dup(socket.getFileDescriptor());
+        } catch (IOException e) {
+            throw new IllegalStateException(e.toString());
+        }
+    }
+
     /** @noinspection DataFlowIssue*/
     @SuppressLint("DiscouragedPrivateApi")
     public static Context createContext() {

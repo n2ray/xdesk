@@ -861,6 +861,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
+    @Override public void releaseXdesxDisplay(int id) {
+        synchronized (appDisplays) {
+            VirtualDisplay d = appDisplays.remove(id);
+            if (d != null) d.release();
+        }
+    }
+
     private void releaseDisplays() {
         synchronized (appDisplays) {
             for (VirtualDisplay d : appDisplays.values()) d.release();

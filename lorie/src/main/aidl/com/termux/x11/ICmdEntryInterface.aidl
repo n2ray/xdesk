@@ -32,4 +32,6 @@ interface ICmdEntryInterface {
      * server answers null.
      */
     String launchStatus(int pid);
+    /** A connected socket in the native Termux desktop's private runtime directory. */
+    ParcelFileDescriptor xdesxSocket(String id);
 }
