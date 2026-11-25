@@ -112,7 +112,6 @@ public final class AudioRoute {
     }
 
     private void devicesChanged() {
-        WirelessDisplay.get(context).updateSound();
         boolean missing = isMissing();
         if (missing && !wasMissing && listener != null) listener.onAudioMessage(context.getString(R.string.xd_audio_missing));
         wasMissing = missing;
@@ -290,7 +289,6 @@ public final class AudioRoute {
 
     void select(String key) {
         prefs.edit().putString(PREF_KEY, key).apply();
-        WirelessDisplay.get(context).updateSound();
         wasMissing = isMissing();
         appliedKey = null;  // 再选一次也要真的设一次，比如清掉别的进程留下的
         syncSystem();

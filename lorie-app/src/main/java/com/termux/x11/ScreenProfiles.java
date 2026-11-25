@@ -69,10 +69,6 @@ final class ScreenProfiles {
     /** The key of display d as XDesk uses it: the car, the wireless display (its receiver) or a wired screen. */
     static String keyOf(Context c, Display d) {
         if (TargetDisplay.isCar(d)) return CAR;
-        if (d.getDisplayId() == WirelessDisplay.displayId()) {
-            String k = WirelessDisplay.get(c).screenKey();
-            if (k != null) return k;
-        }
         return wiredKey(d);
     }
 

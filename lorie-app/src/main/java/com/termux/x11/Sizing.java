@@ -98,7 +98,6 @@ public final class Sizing {
             d.getRealMetrics(m);
             return (m.densityDpi > 0 ? m.densityDpi / 160f : 1f) * distance(CAR);
         }
-        if (d.getDisplayId() == WirelessDisplay.displayId()) return WirelessDisplay.get(c).screenB(p.kind);
         return wiredB(d, p.kind);
     }
 
@@ -129,12 +128,10 @@ public final class Sizing {
 
     private static final class Cached {
         final int generation;
-        final long stamp;
         final Shell shell;
 
-        Cached(int generation, long stamp, Shell shell) {
+        Cached(int generation, Shell shell) {
             this.generation = generation;
-            this.stamp = stamp;
             this.shell = shell;
         }
     }
@@ -152,15 +149,14 @@ public final class Sizing {
         if (d == null) return new Shell(1f);
         ScreenProfiles profiles = ScreenProfiles.get(c);
         int generation = profiles.generation();
-        long stamp = WirelessDisplay.get(c).shellStamp();
         Cached hit = shells.get(d.getDisplayId());
-        if (hit != null && hit.generation == generation && hit.stamp == stamp) return hit.shell;
+        if (hit != null && hit.generation == generation) return hit.shell;
         ScreenProfiles.Profile p = profiles.of(c, d);
         float f = b(c, d, p) * u(p.size);
         if (!(f > 0f)) f = 1f;  // a factor of 0 or NaN would draw nothing
         // Display ids of virtual displays never repeat, but don't grow without bound either
         if (shells.size() > 8) shells.clear();
-        Cached fresh = new Cached(generation, stamp, new Shell(f));
+        Cached fresh = new Cached(generation, new Shell(f));
         shells.put(d.getDisplayId(), fresh);
         return fresh.shell;
     }

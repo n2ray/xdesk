@@ -5,10 +5,14 @@ on:
       version:
         description: 'Version to build, e.g. 0.2.0'
         required: true
-        default: '0.8.0-xdesx.31'
+        default: '0.8.0-xdesx.32'
+      publish:
+        type: boolean
+        default: false
+        description: Publish this APK in the configured xdesx distribution repository
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -40,11 +44,10 @@ jobs:
           -o lorie-app/src/main/jniLibs/arm64-v8a/libtermux_va.so -lmediandk -llog -landroid
     - name: Version
       env:
-        TAG: ${{ github.ref_name }}
         INPUT: ${{ inputs.version }}
       run: |
-        if [ "${{ github.event_name }}" = push ]; then V="${TAG#v}"; else V="$INPUT"; fi
-        echo "VERSION=$V" >> "$GITHUB_ENV"
+        [[ "$INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+        echo "VERSION=$INPUT" >> "$GITHUB_ENV"
     - name: Release key
       env:
         KEYSTORE_B64: ${{ secrets.XDESK_KEYSTORE_B64 }}
@@ -73,3 +76,16 @@ jobs:
       with:
         name: xdesx-release-${{ env.VERSION }}
         path: out/
+    - name: Publish xdesx APK
+      if: inputs.publish
+      env:
+        GH_TOKEN: ${{ secrets.XDESX_RELEASE_TOKEN }}
+        RELEASE_REPO: ${{ vars.XDESX_RELEASE_REPO }}
+      run: |
+        [[ "$RELEASE_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]]
+        [[ "${RELEASE_REPO,,}" != "n2ray/xdesk" ]]
+        args=()
+        if [[ "$VERSION" == *-* ]]; then args+=(--prerelease --latest=false); fi
+        gh release create "v$VERSION" --repo "$RELEASE_REPO" "${args[@]}" \
+          --title "xdesx $VERSION" --notes "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA" \
+          out/xdesx.apk out/SHA256SUMS

@@ -35,9 +35,7 @@ public class DesktopService extends Service {
         android.content.Context app = c.getApplicationContext();
         // Before deciding: whatever ended may be the last thing that needed the CPU, see updateWakeLock
         updateWakeLock(app);
-        // The web display keeps it while on: a browser may connect with XDesk in the background, see WebServer.start
-        if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()
-           ) return;
+        if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()) return;
         app.stopService(new Intent(app, DesktopService.class));
     }
 
@@ -136,8 +134,6 @@ public class DesktopService extends Service {
         AppSession.get(app).endSession(external, () -> {
             DesktopSession.get(app).abandon();
             DashboardActivity.closeIfAlive();
-            // 结束 XDesk 也结束无线投屏，接收端回到等待画面
-
             app.stopService(new Intent(app, DesktopService.class));
             ending = false;
         });
