@@ -246,8 +246,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(session.injectorReady()){openInjector();error("桌面控制已授权");return;}
         activation=new ActivationPage(this,new SettingsUi(this),session.shell(),session.shizukuInstalled(),new ActivationPage.Actions(){
             public void openPairingSettings(){
-                try {startForegroundService(PairingService.startIntent(XdesxActivity.this));} catch(RuntimeException e){Log.w("XDesX","pairing notification",e);}
-                try {startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).putExtra(":settings:fragment_args_key","toggle_adb_wireless"));}catch(RuntimeException e){error("请从系统设置打开无线调试");}
+                beginWirelessPairing();
             }
             public void useShizuku(){
                 if(session.shizukuState()==AppSession.SHIZUKU_NO_PERMISSION) session.requestPermission();
@@ -257,6 +256,48 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         });
         settingsHandler.post(checkSetup);
     }
+    private static final int REQUEST_PAIRING_NOTIFICATIONS = 731;
+    private static final int REQUEST_PAIRING_SETTINGS = 732;
+
+    private void beginWirelessPairing() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, REQUEST_PAIRING_NOTIFICATIONS);
+            return;
+        }
+        openWirelessSettingsForPairing();
+    }
+
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(request, permissions, grants);
+        if (request == REQUEST_PAIRING_NOTIFICATIONS && grants.length > 0) openWirelessSettingsForPairing();
+    }
+
+    private void openWirelessSettingsForPairing() {
+        android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
+        android.app.NotificationChannel channel = manager.getNotificationChannel(PairingService.CHANNEL);
+        boolean blockedChannel = channel != null && channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE;
+        if (!manager.areNotificationsEnabled() || blockedChannel) {
+            boolean appEnabled = manager.areNotificationsEnabled();
+            Intent settings = new Intent(appEnabled ? android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS
+                    : android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
+            if (appEnabled) settings.putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, PairingService.CHANNEL);
+            new android.app.AlertDialog.Builder(this).setTitle("开启配对通知")
+                    .setMessage("允许 xdesx 发送配对通知后，就能留在系统配对码页面，下拉通知栏输入六位码。")
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton("打开通知设置", (dialog, which) -> startActivityForResult(settings, REQUEST_PAIRING_SETTINGS)).show();
+            return;
+        }
+        try {
+            startForegroundService(PairingService.startIntent(this));
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                    .putExtra(":settings:fragment_args_key", "toggle_adb_wireless"));
+        } catch (RuntimeException e) {
+            error("无法开启无线配对：" + e.getLocalizedMessage());
+        }
+    }
+
     private void openInjector() {
         if (injector!=null || connecting) return;
         shizuku=AppSession.get(this).openWirelessInjector(connection);
@@ -310,6 +351,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
+        if (request == REQUEST_PAIRING_SETTINGS) {
+            android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
+            android.app.NotificationChannel channel = manager.getNotificationChannel(PairingService.CHANNEL);
+            if (manager.areNotificationsEnabled() && (channel == null || channel.getImportance() != android.app.NotificationManager.IMPORTANCE_NONE))
+                openWirelessSettingsForPairing();
+            return;
+        }
         if(request!=730 || result!=RESULT_OK || data==null || data.getData()==null) return;
         android.net.Uri uri=data.getData();
         Display d=displays.getDisplay(external);

@@ -27,7 +27,7 @@ import io.github.muntashirakon.adb.android.AdbMdns;
  */
 public final class PairingService extends Service {
     private static final String TAG = "XDeskShell";
-    private static final String CHANNEL = "xdesk_pairing";
+    static final String CHANNEL = "xdesk_pairing";
     private static final int NOTIFICATION = 7301, RESULT_NOTIFICATION = 7302;
     private static final String ACTION_START = "start", ACTION_REPLY = "reply", ACTION_STOP = "stop";
     private static final String EXTRA_PORT = "port", REMOTE_INPUT_CODE = "code";
