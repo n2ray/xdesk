@@ -8,11 +8,9 @@ import android.media.ImageReader;
 import android.os.*;
 import android.system.Os;
 import android.system.OsConstants;
-import android.system.StructTimeval;
 import android.util.Log;
 import android.view.MotionEvent;
 import java.io.*;
-import java.nio.ByteBuffer;
 import java.time.Duration;
 
 /** A window owns one virtual display. Both ends sleep while there is no damage or input. */
@@ -88,17 +86,9 @@ final class XdesxWindow {
         if (stopped) return;
         try (Image image=src.acquireLatestImage()) {
             if (image==null) return;
-            try (HardwareBuffer buffer=image.getHardwareBuffer(); SyncFence fence=image.getFence();
-                 ParcelFileDescriptor fd=server.xdesxSocket(key)) {
+            try (HardwareBuffer buffer=image.getHardwareBuffer(); SyncFence fence=image.getFence()) {
                 if (fence.isValid() && !fence.await(Duration.ofSeconds(1))) { stop(); return; }
-                FileDescriptor sock=fd.getFileDescriptor();
-                Os.setsockoptTimeval(sock,OsConstants.SOL_SOCKET,OsConstants.SO_RCVTIMEO,StructTimeval.fromMillis(3000));
-                byte[] size=ByteBuffer.allocate(8).putInt(buffer.getWidth()).putInt(buffer.getHeight()).array();
-                Os.write(sock,size,0,8);
-                System.loadLibrary("xdesk_android_frame");
-                byte[] ack=new byte[1];
-                if (AndroidFrameProbe.send(buffer,fd.getFd())!=0 || Os.read(sock,ack,0,1)!=1 || ack[0]!=1)
-                    throw new IOException("AHardwareBuffer import failed");
+                server.xdesxFrame(key,buffer);
                 if (!logged) { logged=true; Log.i("XDesX","imported "+component+" "+buffer.getWidth()+"x"+buffer.getHeight()); }
             }
         } catch(Exception e) { if (!stopped) Log.e("XDesX","frame "+component,e); stop(); }

@@ -15,7 +15,7 @@ import java.io.IOException;
 
 /** Experiment: transfer a shell-created display frame to the same UID's built-in X server. */
 public final class AndroidFrameProbe extends ContentProvider {
-    static native int send(HardwareBuffer buffer, int fd);
+    private static native int send(HardwareBuffer buffer, int fd);
 
     @Override public boolean onCreate() { return true; }
 

@@ -196,16 +196,37 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
         return super.onTransact(code, data, reply, flags);
     }
 
-    @Override public ParcelFileDescriptor xdesxSocket(String id) {
+    private static LocalSocket openXdesx(String id) throws IOException {
         if (Binder.getCallingUid() != appUid() || id == null || !id.matches("[a-f0-9]{32}"))
             throw new SecurityException("invalid XDesX window");
-        try (LocalSocket socket = new LocalSocket()) {
+        LocalSocket socket = new LocalSocket();
+        try {
             socket.connect(new LocalSocketAddress("/data/data/com.termux/files/usr/tmp/xdesx-" + id,
                     LocalSocketAddress.Namespace.FILESYSTEM));
+            return socket;
+        } catch (IOException e) { socket.close(); throw e; }
+    }
+
+    @Override public ParcelFileDescriptor xdesxSocket(String id) {
+        try (LocalSocket socket = openXdesx(id)) {
             return ParcelFileDescriptor.dup(socket.getFileDescriptor());
-        } catch (IOException e) {
-            throw new IllegalStateException(e.toString());
-        }
+        } catch (IOException e) { throw new IllegalStateException(e.toString()); }
+    }
+
+    private static native int sendXdesxBuffer(android.hardware.HardwareBuffer buffer, int fd);
+    private static final class FrameLibrary {
+        static final boolean loaded = NativeLibs.load(CmdEntryPoint.class.getClassLoader(), "xdesk_android_frame");
+    }
+    @Override public void xdesxFrame(String id, android.hardware.HardwareBuffer buffer) {
+        try (android.hardware.HardwareBuffer frame = buffer; LocalSocket socket = openXdesx(id);
+             ParcelFileDescriptor fd = ParcelFileDescriptor.dup(socket.getFileDescriptor())) {
+            socket.setSoTimeout(3000);
+            if (!FrameLibrary.loaded) throw new IOException("missing AHardwareBuffer sender");
+            java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+            out.writeLong(((long) frame.getWidth() << 32) | frame.getHeight());
+            if (sendXdesxBuffer(frame, fd.getFd()) != 0 || socket.getInputStream().read() != 1)
+                throw new IOException("X client did not import the Android frame");
+        } catch (IOException e) { throw new IllegalStateException(e.toString()); }
     }
 
     /** @noinspection DataFlowIssue*/

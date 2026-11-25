@@ -1,6 +1,7 @@
 package com.termux.x11;
 
 import com.termux.x11.IXWindowListener;
+import android.hardware.HardwareBuffer;
 
 // This interface is used by utility on termux side.
 interface ICmdEntryInterface {
@@ -34,4 +35,5 @@ interface ICmdEntryInterface {
     String launchStatus(int pid);
     /** A connected socket in the native Termux desktop's private runtime directory. */
     ParcelFileDescriptor xdesxSocket(String id);
+    void xdesxFrame(String id, in HardwareBuffer buffer);
 }
