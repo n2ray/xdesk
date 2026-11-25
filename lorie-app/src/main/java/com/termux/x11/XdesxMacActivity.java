@@ -14,6 +14,9 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
     private String key,host;
     private boolean loginPending;
     private LinearLayout list;
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener profilesChanged=(prefs,field)->{
+        if("hosts".equals(field) && list!=null && !isFinishing()) render();
+    };
 
     static void closeWindow(String key) {
         new Handler(Looper.getMainLooper()).post(() -> {
@@ -35,6 +38,7 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
         list.setBackgroundColor(0xfff3f5f4);
         list.setPadding(dp(24),dp(18),dp(24),dp(12));
         setContentView(list);
+        getSharedPreferences("screenshare",MODE_PRIVATE).registerOnSharedPreferenceChangeListener(profilesChanged);
         render();
     }
     private int dp(int n) { return Math.round(n*getResources().getDisplayMetrics().density); }
@@ -137,6 +141,7 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
         host=null;
     }
     @Override protected void onDestroy() {
+        getSharedPreferences("screenshare",MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(profilesChanged);
         if (owner==this) { owner=null; disconnect(); }
         super.onDestroy();
     }

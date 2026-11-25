@@ -31,6 +31,14 @@ public final class ScreenShareLoginActivity extends Activity {
     public static void closeFor(String id) {
         if(current!=null && current.host!=null && id.equals(current.host.id)) current.finish();
     }
+    private android.hardware.display.DisplayManager displayManager;
+    private final android.hardware.display.DisplayManager.DisplayListener displayListener=new android.hardware.display.DisplayManager.DisplayListener(){
+        public void onDisplayAdded(int id) { }
+        public void onDisplayChanged(int id) { }
+        public void onDisplayRemoved(int id) {
+            if(id==getIntent().getIntExtra(EXTRA_DISPLAY,-1)) finish();
+        }
+    };
     private boolean done;
     private ScreenShareStore.Host host;
 
@@ -43,6 +51,10 @@ public final class ScreenShareLoginActivity extends Activity {
                 (getDisplay()==null || getDisplay().getDisplayId()==android.view.Display.DEFAULT_DISPLAY ||
                 getDisplay().getDisplayId()!=getIntent().getIntExtra(EXTRA_DISPLAY,-1))) {
             finish(); return;
+        }
+        if(getIntent().hasExtra(EXTRA_DISPLAY)){
+            displayManager=getSystemService(android.hardware.display.DisplayManager.class);
+            displayManager.registerDisplayListener(displayListener,null);
         }
         if (host == null) {
             finish();
@@ -87,6 +99,7 @@ public final class ScreenShareLoginActivity extends Activity {
     }
 
     private void go(char[] pass) {
+        if(isFinishing() || isDestroyed()) {Arrays.fill(pass,(char)0);return;}
         done = true;
         Outcome out = outcome;
         if (out != null) out.password(host.id, pass);
@@ -95,6 +108,7 @@ public final class ScreenShareLoginActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(displayManager!=null)displayManager.unregisterDisplayListener(displayListener);
         if(current==this) current=null;
         if (!done && !isChangingConfigurations() && host != null) {
             Outcome out = outcome;

@@ -117,7 +117,7 @@ final class ScreenShareSource implements ContentSource {
     private void notifyChanged() {
         Runnable r = changed;
         if (r != null) ui.post(r);
-        ui.post(() -> Devices.get(context).touch());
+
         Contents.Host host = Contents.host();
         if (host != null) host.contentChanged();
     }
@@ -190,6 +190,7 @@ final class ScreenShareSource implements ContentSource {
         ScreenShareStore.Host h = ScreenShareStore.find(context, hostId);
         if (h == null || p == null) {
             Arrays.fill(password, (char) 0);
+            if(p!=null) ((Result)p[2]).failed((String)p[0],"设备已移除");
             return;
         }
         int displayId = (Integer) p[1];
