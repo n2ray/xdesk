@@ -21,6 +21,12 @@ static int event(int fd, unsigned kind, unsigned x, unsigned y) {
     return send(fd, msg, sizeof(msg), MSG_NOSIGNAL) == sizeof(msg);
 }
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--check-display") == 0) {
+        Display *probe = XOpenDisplay(NULL);
+        if (!probe) return 1;
+        XCloseDisplay(probe);
+        return 0;
+    }
     if (argc != 3) return 2;
     const char *menu = getenv("XDESX_MENU"), *tmp = getenv("TMPDIR");
     unsigned char random[16];

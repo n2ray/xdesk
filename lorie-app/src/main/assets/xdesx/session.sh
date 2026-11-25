@@ -12,11 +12,16 @@ children="$server"
 "$PWD/bin/dbus-daemon" --config-file="$PWD/dbus.conf" --nofork &
 bus=$!
 children="$bus $children"
+ready=false
 for i in $(seq 1 120); do
-  if [ -S "$TMPDIR/.X11-unix/X19" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then break; fi
+  if [ -S "$XDG_RUNTIME_DIR/bus" ] && "$PWD/bin/xdesx-window" --check-display; then
+    ready=true
+    break
+  fi
   kill -0 "$server" && kill -0 "$bus" || exit 1
   sleep .1
 done
+[ "$ready" = true ] || exit 1
 "$PWD/lib/xfce4/xfconf/xfconfd" &
 children="$! $children"
 "$PWD/bin/xfwm4" --compositor=on &
