@@ -21,6 +21,7 @@ final class EvdevReader extends Thread {
         void onDeviceCount(int deviceCount, boolean removed);
         /** Physical Ctrl and Alt are up after a grab, see InputInjector.clearModifiers. */
         void onModifiersUp();
+        default void onNativeMouseUsed() { }
         void onMove(int dx, int dy);
         void onWheel(int vertical, int horizontal);
         void onButton(int code, boolean down);
@@ -294,6 +295,7 @@ final class EvdevReader extends Thread {
 
     private void handle(int fd, int type, int code, int value) {
         if (mouseOnly) {
+            if (!grabbed && type == Evdev.EV_REL && value != 0) sink.onNativeMouseUsed();
             synchronized (this) { if (grabbed && !keyboards.contains(fd) && !exclusive.contains(fd)) return; }
         }
         if (type == Evdev.EV_SYN && code == SYN_DROPPED) {

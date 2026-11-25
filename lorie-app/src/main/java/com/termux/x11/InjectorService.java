@@ -890,6 +890,8 @@ public class InjectorService extends IInjector.Stub {
     // Owned by the window whose task is on HDMI, independent of the phone Activity's focus.
     private int xdesxFullscreenWindow = -1;
     private EvdevReader fullscreenMouse;
+    private FullscreenDevices fullscreenDevices;
+    private volatile boolean padPointerVisible;
 
     private final EvdevReader.Sink fullscreenInput = new EvdevReader.Sink() {
         public void onMove(int dx, int dy) { physical.onMove(dx, dy); }
@@ -900,6 +902,12 @@ public class InjectorService extends IInjector.Stub {
             if (removed) post(injector::releaseAll);
         }
         public void onForwarding(boolean on, int count) { }
+        public void onNativeMouseUsed() {
+            if (padPointerVisible) {
+                padPointerVisible = false;
+                post(() -> { if (!padPointerVisible && xdesxNativeDisplay >= 0) pointer.show(false); });
+            }
+        }
         public void onModifiersUp() { }
         public void onKeyboardUsed() { }
         public void onGameKey() {
@@ -923,12 +931,12 @@ public class InjectorService extends IInjector.Stub {
         fullscreenPassthrough = on;
         xdesxTasks.gameFrontChanged(on ? checkGameFront : null);
         fullscreenMouse.setGameMode(on);
-        fullscreenMouse.setGrabbed(!on);
+        if (fullscreenDevices == null) fullscreenMouse.setGrabbed(!on);
         final int target = xdesxNativeDisplay;
         post(() -> {
             if (target != xdesxNativeDisplay || fullscreenPassthrough != on) return;
             injector.releaseAll();
-            pointer.show(!on);
+            pointer.show(!on && (fullscreenDevices == null || padPointerVisible));
             if (on) injector.focus(target);
             IInjectorListener l = listener;
             if (l != null) l.onGameMode(on);
@@ -936,6 +944,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     private void leaveXdesxFullscreen() {
+        int external = xdesxNativeDisplay;
+        if (fullscreenDevices != null) {
+            fullscreenDevices.close();
+            fullscreenDevices = null;
+        }
+        imes.place(external, false);
+        padPointerVisible = false;
         xdesxNativeDisplay = -1;
         xdesxFullscreenWindow = -1;
         fullscreenGamePackage = null;
@@ -957,6 +972,10 @@ public class InjectorService extends IInjector.Stub {
         if (display<0) return;
         post(() -> {
             if (xdesxNativeDisplay!=display || fullscreenPassthrough) return;
+            if (fullscreenDevices != null && op == 1 && !padPointerVisible) {
+                padPointerVisible = true;
+                pointer.show(true);
+            }
             switch (op) {
                 case 1: injector.moveBy(x,y); break;
                 case 2: injector.button((int)x==1?1:(int)x==2?4:2,y!=0); break;
@@ -972,14 +991,18 @@ public class InjectorService extends IInjector.Stub {
             if (sessionOver || d==null || external<=0 || appDisplays.containsKey(external) ||
                 !d.getDisplay().getName().startsWith("XDesX "+pkg+"/")) return -1;
             if (enter ? xdesxFullscreenWindow >= 0 : xdesxFullscreenWindow != window) return -1;
-            if (enter) {
+            if (enter && !pkg.equals(ownPackage)) {
+                try { fullscreenDevices = new FullscreenDevices(external); }
+                catch (Exception | LinkageError e) { Log.w(TAG, "native input association unavailable", e); }
+            }
+            if (enter && fullscreenDevices == null) {
                 try { Evdev.close(-1); }
                 catch (LinkageError e) { Log.w(TAG, "fullscreen mouse unavailable", e); return -1; }
             }
             EvdevReader mouse = null;
             if (enter) {
                 mouse = new EvdevReader(fullscreenInput, true);
-                if (!mouse.claimFullscreenMice()) {
+                if (fullscreenDevices == null && !mouse.claimFullscreenMice()) {
                     Log.w(TAG, "Cannot claim fullscreen mouse devices");
                     return -1;
                 }
@@ -989,10 +1012,13 @@ public class InjectorService extends IInjector.Stub {
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
                 xdesxTasks.fullscreen(window, external, moved);
+                boolean nativeDevices = fullscreenDevices != null;
+                if (!pkg.equals(ownPackage)) imes.place(external, true);
                 post(() -> {
                     injector.setDisplay(external,width,height);
                     injector.moveTo(.5f,.5f);
-                    pointer.set(external,cursor,hotspot,0,true,width/2,height/2);
+                    pointer.set(external,cursor,hotspot,0,!nativeDevices,width/2,height/2);
+                    if (nativeDevices) injector.focus(external);
                 });
                 fullscreenGamePackage = pkg.equals(ownPackage) ? null : pkg;
                 mouse.setHotkeyEnabled(fullscreenGamePackage != null);
@@ -1001,8 +1027,10 @@ public class InjectorService extends IInjector.Stub {
             } else if (moved >= 0) {
                 xdesxTasks.fullscreen(window, -1, -1);
                 leaveXdesxFullscreen();
+                post(() -> injector.focus(android.view.Display.DEFAULT_DISPLAY));
             } else if (mouse != null) {
                 mouse.closeAll();
+                if (fullscreenDevices != null) { fullscreenDevices.close(); fullscreenDevices = null; }
             }
             return moved;
         }

@@ -16,7 +16,8 @@ final class XdesxFullscreenBar {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final WindowManager windows;
     private final LinearLayout bar;
-    private boolean game;
+    private final android.view.View edge;
+    private boolean edgeAttached, game;
     private final int height;
     private boolean attached, closed;
     private int zone = -1;
@@ -36,6 +37,20 @@ final class XdesxFullscreenBar {
         background.setColor(0xfff7f7f8);
         background.setCornerRadius(height / 4f);
         bar.setBackground(background);
+        edge = new android.view.View(dc);
+        edge.setOnHoverListener((v, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_EXIT) {
+                cursor(height + 9);
+            } else cursor(0);
+            return true;
+        });
+        // Native physical pointer movements go straight to HDMI. Only the edge needs a hit target.
+        WindowManager.LayoutParams trigger = params(160 * scale / 100, 2);
+        trigger.setTitle("Xdesx fullscreen edge");
+        trigger.alpha = 0;
+        try { windows.addView(edge, trigger); edgeAttached = true; }
+        catch (RuntimeException e) { android.util.Log.w("XDesX", "fullscreen edge unavailable", e); ui.post(failure); }
+
     }
 
     private void addAction(Context dc, int scale, String label, Runnable action) {
@@ -47,6 +62,10 @@ final class XdesxFullscreenBar {
         button.setPadding(height / 2, 0, height / 2, 0);
         button.setBackgroundColor(0x00000000);
         button.setOnClickListener(v -> action.run());
+        button.setOnHoverListener((v, event) -> {
+            cursor(event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_EXIT ? height + 9 : 3);
+            return false;
+        });
         bar.addView(button, -2, -1);
     }
 
@@ -54,6 +73,7 @@ final class XdesxFullscreenBar {
         game = active;
         zone = -1;
         ui.removeCallbacks(show);
+        edge.setVisibility(active ? android.view.View.GONE : android.view.View.VISIBLE);
         if (active) hide();
     }
 
@@ -70,12 +90,7 @@ final class XdesxFullscreenBar {
 
     private synchronized void show() {
         if (closed || attached || zone != 0) return;
-        WindowManager.LayoutParams p = new WindowManager.LayoutParams(-2, height,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT);
-        p.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        p.setFitInsetsTypes(0);
+        WindowManager.LayoutParams p = params(-2, height);
         p.setTitle("Xdesx fullscreen controls");
         try {
             windows.addView(bar, p);
@@ -88,6 +103,16 @@ final class XdesxFullscreenBar {
         }
     }
 
+    private WindowManager.LayoutParams params(int w, int h) {
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(w, h,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        p.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        p.setFitInsetsTypes(0);
+        return p;
+    }
+
     private synchronized void hide() {
         if (!attached) return;
         bar.animate().cancel();
@@ -97,6 +122,7 @@ final class XdesxFullscreenBar {
 
     synchronized void close() {
         closed = true;
+        if (edgeAttached) { windows.removeViewImmediate(edge); edgeAttached = false; }
         ui.removeCallbacks(show);
         ui.removeCallbacks(hide);
         hide();
