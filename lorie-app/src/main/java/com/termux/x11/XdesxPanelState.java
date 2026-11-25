@@ -23,6 +23,9 @@ final class XdesxPanelState {
     private final File dir;
     private String profile = "";
     private String battery = "电量未知", previous = "";
+    int mouseSpeed,padSpeed,limit,opened;
+    boolean reverse,remember;
+    String layoutKey="default";
     int scale = 100, render = 100;
     private boolean closed;
 
@@ -31,6 +34,11 @@ final class XdesxPanelState {
         dir = new File(context.getFilesDir(), "xd/run");
         dir.mkdirs();
         prefs = context.getSharedPreferences("xdesx-panel", Context.MODE_PRIVATE);
+        mouseSpeed=prefs.getInt("mouse",100);
+        padSpeed=prefs.getInt("pad",100);
+        limit=prefs.getInt("limit",3);
+        reverse=prefs.getBoolean("reverse",false);
+        remember=prefs.getBoolean("remember",true);
         network = context.getSystemService(ConnectivityManager.class);
         IntentFilter events = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         events.addAction(Intent.ACTION_TIME_TICK);
@@ -42,8 +50,14 @@ final class XdesxPanelState {
     }
     void screen(Display d) {
         profile = ScreenProfiles.wiredKey(d);
+        layoutKey=java.util.UUID.nameUUIDFromBytes(profile.getBytes(StandardCharsets.UTF_8)).toString();
         scale = prefs.getInt(profile + "/scale", 100);
         render = prefs.getInt(profile + "/render", 100);
+        publish();
+    }
+    void saveOptions() {
+        prefs.edit().putInt("mouse",mouseSpeed).putInt("pad",padSpeed).putInt("limit",limit)
+            .putBoolean("reverse",reverse).putBoolean("remember",remember).apply();
         publish();
     }
     void save() {
@@ -81,7 +95,7 @@ final class XdesxPanelState {
         String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(),"MMMdEEE");
         String date = DateFormat.format(pattern, now).toString();
         String state = scale+"\n"+render+"\n"+connection()+"     "+battery+"     "+date+"  "+
-            DateFormat.getTimeFormat(context).format(now);
+            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+"\n"+layoutKey;
         if (state.equals(previous)) return;
         Path tmp = new File(dir,"panel-state.tmp").toPath();
         try {

@@ -1,0 +1,35 @@
+--- a/src/client.c
++++ b/src/client.c
+@@ -4299,7 +4299,31 @@
+                 }
+                 break;
+             case SHADE_BUTTON:
+-                clientToggleShaded (c);
++                {
++                    Atom request = XInternAtom (display_info->dpy, "_XDESX_NATIVE_FULLSCREEN", False);
++                    Atom *protocols = NULL;
++                    int count = 0;
++                    gboolean native = FALSE;
++                    if (XGetWMProtocols (display_info->dpy, c->window, &protocols, &count))
++                    {
++                        for (int i = 0; i < count; ++i)
++                            if (protocols[i] == request) native = TRUE;
++                        XFree (protocols);
++                    }
++                    if (native)
++                    {
++                        XEvent msg = {0};
++                        msg.xclient.type = ClientMessage;
++                        msg.xclient.window = c->window;
++                        msg.xclient.message_type = XInternAtom (display_info->dpy, "WM_PROTOCOLS", False);
++                        msg.xclient.format = 32;
++                        msg.xclient.data.l[0] = request;
++                        msg.xclient.data.l[1] = event->time;
++                        XSendEvent (display_info->dpy, c->window, False, NoEventMask, &msg);
++                    }
++                    else
++                        clientToggleFullscreen (c);
++                }
+                 break;
+             case STICK_BUTTON:
+                 clientToggleSticky (c, TRUE);

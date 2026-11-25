@@ -2,7 +2,12 @@
 // and the loader apk into a termux installation.
 
 buildscript {
-    repositories { mavenCentral() }
+    repositories {
+        if (System.getenv('GITHUB_ACTIONS') == 'true') {
+            maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
+        }
+        mavenCentral()
+    }
     dependencies {
         classpath 'org.apache.commons:commons-compress:1.26.2'
         classpath 'org.tukaani:xz:1.9'

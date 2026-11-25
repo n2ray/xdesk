@@ -1,4 +1,5 @@
 """Bundle the arm64 Bionic desktop from pinned Termux debs and resolve its ELF closure."""
+from xfwm import theme
 import gzip
 import hashlib
 import json
@@ -59,6 +60,7 @@ def install(name):
 
 for n in (["xfwm4","xfce4-panel","xfconf","dbus","glib","libx11","libxcb","xorgproto","xkeyboard-config","gsettings-desktop-schemas","gtk3","libxau","libxdmcp"] if update else packages):
     install(n)
+subprocess.run([sys.executable,HERE/"xfwm/build.py",prefix,BIN/"aarch64-linux-android30-clang",CACHE,work],check=True)
 programs=["bin/xfwm4","bin/xfce4-panel","bin/dbus-daemon","lib/xfce4/xfconf/xfconfd",
           "libexec/gio-launch-desktop","lib/xfce4/panel/wrapper-2.0"]
 system=set("libandroid.so libc.so libdl.so liblog.so libm.so libz.so libEGL.so libGLESv1_CM.so libGLESv2.so libGLESv3.so libjnigraphics.so libOpenSLES.so libvulkan.so libmediandk.so libnativewindow.so libaaudio.so".split())
@@ -93,16 +95,17 @@ panel=native/"libxdpanel.so"
 subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-fPIC","-shared",
     *["-I"+str(prefix/i) for i in includes],assets/"panel.c","-L"+str(prefix/"lib"),
     "-Wl,--allow-shlib-undefined","-lxfce4panel-2.0","-lxfconf-0","-lwnck-3","-lgtk-3",
-    "-lgdk-3","-lgdk_pixbuf-2.0","-lgio-2.0","-lgobject-2.0","-lglib-2.0","-lX11","-o",panel],check=True)
+    "-lgdk-3","-lgdk_pixbuf-2.0","-lgio-2.0","-lgobject-2.0","-lglib-2.0","-lX11","-lcairo","-lXcursor","-lXfixes","-lm","-o",panel],check=True)
 links["lib/xfce4/panel/plugins/libxdesx.so"]=panel.name
 schemas=prefix/"share/glib-2.0/schemas"
 subprocess.run(["glib-compile-schemas",schemas],check=True)
 with zipfile.ZipFile(assets/"runtime.zip","w",zipfile.ZIP_DEFLATED) as z:
     for pattern in ["share/X11/xkb/**/*","share/xkeyboard-config*/**/*","share/xfwm4/defaults","share/themes/Default/xfwm4/*",
                     "share/xfce4/panel/plugins/applicationsmenu.desktop","share/glib-2.0/schemas/gschemas.compiled",
-                    "etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml","share/licenses/**/*","share/doc/*/copyright"]:
+                    "etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml","etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml","share/licenses/**/*","share/doc/*/copyright"]:
         for p in prefix.glob(pattern):
             if p.is_file(): z.writestr(str(p.relative_to(prefix)),p.read_bytes().replace(PREFIX,RELOCATED))
+    theme.write(z)
     z.write(assets/"xdesx.desktop","share/xfce4/panel/plugins/xdesx.desktop")
     z.writestr("links.json",json.dumps(links))
 if update: LOCK.write_text(json.dumps({n:packages[n] for n in sorted(selected)},indent=2)+"\n")

@@ -1,6 +1,9 @@
 set -eu
 umask 077
 # Child stdin is the controller's pipe. Its EOF also arrives if Android kills the activity process.
+scale=100
+if [ -r run/panel-state ]; then read -r scale < run/panel-state || :; fi
+case "$scale" in 133) export XCURSOR_SIZE=32;; 200) export XCURSOR_SIZE=48;; *) export XCURSOR_SIZE=24;; esac
 children=""
 trap 'for pid in $children; do kill "$pid" 2>/dev/null || :; done' EXIT
 (

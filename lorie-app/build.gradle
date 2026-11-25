@@ -109,6 +109,8 @@ androidComponents {
 def nativeDesktop = tasks.register('packageXdesxRuntime', Exec) {
     inputs.files(rootProject.file('tools/xdesx/package-runtime.py'), rootProject.file('tools/xdesx/packages.lock.json'),
         file('src/main/assets/xdesx/client.c'), file('src/main/assets/xdesx/panel.c'), file('src/main/assets/xdesx/xdesx.desktop'))
+    inputs.files(fileTree('src/main/assets/xdesx') { include '*.h' })
+    inputs.dir(rootProject.file('tools/xdesx/xfwm'))
     outputs.file(file('src/main/assets/xdesx/runtime.zip'))
     outputs.files(fileTree('src/main/jniLibs/arm64-v8a') { include 'libxd*.so' })
     environment 'ANDROID_NDK_HOME', System.getenv('ANDROID_NDK_HOME') ?: new File(android.sdkDirectory, 'ndk/' + android.ndkVersion)

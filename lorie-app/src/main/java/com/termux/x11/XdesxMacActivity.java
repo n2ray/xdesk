@@ -46,7 +46,10 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
         title.setTextSize(20);
         list.addView(title);
         if (loginPending) return;
-        for (ScreenShareStore.Host h:ScreenShareStore.all(this)) button(h.label(),() -> open(h.id));
+        for (ScreenShareStore.Host h:ScreenShareStore.all(this)) {
+            button(h.label(),() -> open(h.id));
+            button("管理 "+h.label(),() -> ScreenShareSettings.edit(this,h.id));
+        }
         button("添加 Mac",this::add);
     }
     private void button(String label,Runnable action) {

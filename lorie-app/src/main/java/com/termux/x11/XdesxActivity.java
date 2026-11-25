@@ -67,7 +67,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         refreshButton();
         android.graphics.Point size=new android.graphics.Point();
         d.getRealSize(size);
-        View arrow=CursorOverlay.arrow(this,1.5f);
+        View arrow=CursorOverlay.arrow(this,panel.scale/100f);
         int side=arrow.getLayoutParams().width;
         arrow.layout(0,0,side,side);
         android.graphics.Bitmap cursor=android.graphics.Bitmap.createBitmap(side,side,android.graphics.Bitmap.Config.ARGB_8888);
@@ -119,9 +119,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
         layout.addView(new TouchpadView(this, new GestureOutput() {
-            public void move(int x,int y) { if (!nativeInput(1,x,y)) input.move(x,y); }
+            public void move(int x,int y) { int speed=panel==null?100:panel.padSpeed; movePointer(x*speed/100f,y*speed/100f); }
             public void button(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
-            public void scroll(int phase,float x,float y) { if (!nativeInput(3,x,y)) input.scrollFine(y,x,phase); }
+            public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!nativeInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
         }));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
@@ -132,13 +132,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (!nativeInput(4,scan,1)) input.tapKey(scan); else nativeInput(4,scan,0);
             }
             public void mouseMove(float dx,float dy) {
-                if (nativeInput(1,dx,dy)) return;
-                restX+=dx; restY+=dy; int x=(int)restX,y=(int)restY;
-                restX-=x; restY-=y;
-                if(x!=0 || y!=0) input.move(x,y);
+                float gain=panel==null?1f:panel.mouseSpeed/100f;
+                movePointer(dx*gain,dy*gain);
             }
             public void mouseButton(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
-            public void mouseScroll(float v,float h) { if (!nativeInput(3,h,-v)) input.scrollFine(-v,h,0); }
+            public void mouseScroll(float v,float h) { float k=panel!=null && panel.reverse?-1:1; if (!nativeInput(3,h*k,-v*k)) input.scrollFine(-v*k,h*k,0); }
             public void captureChanged(boolean has) { if(!has) { mouse.releaseMouse(); mouse.postDelayed(XdesxActivity.this::capture,200); } }
             public Object target() { return input; }
             public boolean latched() { return false; }
@@ -162,6 +160,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             try { runtime.run((key,app) -> runOnUiThread(() -> openWindow(key,app,SystemClock.elapsedRealtime()+25000))); }
             catch(Exception e) { if(!isDestroyed()) error(e.toString()); }
         },"xdesx-start").start();
+    }
+    private void movePointer(float dx,float dy) {
+        if (nativeInput(1,dx,dy)) return;
+        restX+=dx; restY+=dy;
+        int x=(int)restX,y=(int)restY;
+        restX-=x; restY-=y;
+        if(x!=0 || y!=0) input.move(x,y);
     }
     private void capture() {
         if(mouse!=null && external>=0 && !isDestroyed() && hasWindowFocus()) {
@@ -220,8 +225,21 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if (fullWindow==null) toggleWindow(windows.get(action.substring(5)));
             return;
         }
+        if (action.equals("recover")) {
+            settingsHandler.removeCallbacks(revertRender);
+            savedRender=0; panel.render=100; panel.scale=100; panel.save(); applyDisplay();
+            for(XdesxWindow w:windows.values()) w.density(160);
+            return;
+        }
         String[] parts=action.split("-",2);
         int value=Integer.parseInt(parts[1]);
+        switch(parts[0]) {
+            case "mouse": panel.mouseSpeed=value; panel.saveOptions(); return;
+            case "pad": panel.padSpeed=value; panel.saveOptions(); return;
+            case "limit": panel.limit=value; panel.saveOptions(); return;
+            case "reverse": panel.reverse=value==1; panel.saveOptions(); return;
+            case "remember": panel.remember=value==1; panel.saveOptions(); return;
+        }
         if (parts[0].equals("confirm")) {
             if (savedRender!=0 && panel.render==value) {
                 settingsHandler.removeCallbacks(revertRender);
@@ -266,13 +284,17 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 error("Mac 共享窗口已打开"); return;
             }
         }
+        if (windows.size()>=panel.limit) { error("已达 "+panel.limit+" 个窗口上限，请先关闭一个，或在全局设置中调整"); return; }
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
+            () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),
             () -> runOnUiThread(() -> {
                 if (windows.remove(key)==fullWindow) fullWindow=null;
+                panel.opened=windows.size(); panel.publish();
                 refreshButton();
             }));
         w.density(Math.round(160*panel.scale/100f));
         windows.put(key,w);
+        panel.opened=windows.size(); panel.publish();
         w.start();
         refreshButton();
     }
@@ -296,6 +318,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             return true;
         }
         return super.dispatchKeyEvent(e);
+    }
+    @Override public void onBackPressed() {
+        if (fullWindow!=null) { toggleWindow(fullWindow); return; }
+        new android.app.AlertDialog.Builder(this).setItems(new String[]{"恢复外屏原生显示","结束桌面","取消"},
+            (dialog,item) -> { if(item==0) panelAction("recover"); if(item==1) finish(); }).show();
     }
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);

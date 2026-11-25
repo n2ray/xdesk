@@ -19,7 +19,7 @@ final class XdesxWindow {
     private final ICmdEntryInterface server;
     private final IInjector injector;
     private final String key, component;
-    private final Runnable finished;
+    private final Runnable finished, requestFullscreen;
     private final HandlerThread frames = new HandlerThread("xdesx-frames");
     private volatile ParcelFileDescriptor control;
     private volatile boolean stopped;
@@ -41,8 +41,8 @@ final class XdesxWindow {
         Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
         return true;
     }
-    XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable f) {
-        this.context=context; server=s; injector=i; key=k; component=c; finished=f;
+    XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable fs,Runnable f) {
+        this.context=context; server=s; injector=i; key=k; component=c; requestFullscreen=fs; finished=f;
     }
     void start() {
         frames.start();
@@ -59,6 +59,7 @@ final class XdesxWindow {
             control=fd;
             while (!stopped) {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
+                if (op==7) requestFullscreen.run();
                 if (op==1) resize(x,y);
                 if (display<0 || nativeFullscreen) continue;
                 synchronized (injector) {

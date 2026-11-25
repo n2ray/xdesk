@@ -1,6 +1,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
 #include <X11/Xatom.h>
+#include <X11/Xutil.h>
 #include <xcb/dri3.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -63,7 +64,7 @@ int main(int argc, char **argv) {
             write(notify,request,size)!=size) { unlink(path); return 1; }
     close(notify);
     struct pollfd start = { listener, POLLIN, 0 };
-    if (poll(&start, 1, 30000) <= 0) return 1;
+    if (poll(&start, 1, 30000) <= 0) { unlink(path); return 1; }
     int ctrl = accept(listener, NULL, NULL);
     Display *d = XOpenDisplay(NULL);
     if (ctrl < 0 || !d) return 1;
@@ -73,12 +74,20 @@ int main(int argc, char **argv) {
     FILE *label=fopen(argv[2],"r");
     if (label) { if (!fgets(title,sizeof(title),label)) strcpy(title,"Android"); fclose(label); }
     XChangeProperty(d,win,XInternAtom(d,"_XDESX_KEY",False),XA_STRING,8,PropModeReplace,(unsigned char*)key,32);
+    char identity[256]="xdesx.app",metadata[PATH_MAX];
+    snprintf(metadata,sizeof(metadata),"%s.class",argv[2]);
+    FILE *identity_file=fopen(metadata,"r");
+    if (identity_file) { if (!fgets(identity,sizeof(identity),identity_file)) strcpy(identity,"xdesx.app"); fclose(identity_file); }
+    XClassHint hint={identity,identity};
+    XSetClassHint(d,win,&hint);
     window_icon(d,win,argv[2]);
     XStoreName(d, win, title);
     XChangeProperty(d, win, XInternAtom(d,"_NET_WM_NAME",False),XInternAtom(d,"UTF8_STRING",False),
                     8, PropModeReplace,(unsigned char *)title,strlen(title));
     Atom del = XInternAtom(d, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(d, win, &del, 1);
+    Atom full=XInternAtom(d,"_XDESX_NATIVE_FULLSCREEN",False), protocols[]={del,full};
+    Atom wm=XInternAtom(d,"WM_PROTOCOLS",False);
+    XSetWMProtocols(d,win,protocols,2);
     XSelectInput(d, win, StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
     XMapWindow(d, win);
     XFlush(d);
@@ -92,7 +101,10 @@ int main(int argc, char **argv) {
         while (XPending(d)) {
             XEvent e;
             XNextEvent(d, &e);
-            if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == del) return 0;
+            if (e.type==ClientMessage && e.xclient.message_type==wm && e.xclient.format==32) {
+                if ((Atom)e.xclient.data.l[0]==del) return 0;
+                if ((Atom)e.xclient.data.l[0]==full && !event(ctrl,7,0,0)) return 1;
+            }
             if (e.type == ConfigureNotify && (w != e.xconfigure.width || h != e.xconfigure.height)) {
                 w = e.xconfigure.width; h = e.xconfigure.height;
                 if (!event(ctrl, 1, w, h)) return 1;
