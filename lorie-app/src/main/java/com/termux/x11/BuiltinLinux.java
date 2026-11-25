@@ -77,6 +77,28 @@ final class BuiltinLinux {
     private volatile State state;
     private volatile String progress, error;
     private volatile boolean busy;
+    private volatile boolean downloading, downloadCancelled;
+    private HttpURLConnection downloadConnection;
+
+    boolean canCancelDownload() { return downloading && !downloadCancelled; }
+    boolean downloadCancelled() { return downloadCancelled; }
+
+    void cancelDownload() {
+        HttpURLConnection connection;
+        synchronized (this) {
+            if (!canCancelDownload()) return;
+            downloadCancelled = true;
+            connection = downloadConnection;
+        }
+        changed();
+        if (connection != null) connection.disconnect();
+    }
+
+    private synchronized HttpURLConnection openDownloadConnection(String url) throws IOException {
+        if (downloadCancelled) throw new IOException("下载已取消");
+        return downloadConnection = (HttpURLConnection) new URL(url).openConnection();
+    }
+
     /** Opens the desktop on the external screen once it runs (XDeskActivity sets it while it lives). */
     static volatile Runnable attachHook;
 
@@ -182,6 +204,7 @@ final class BuiltinLinux {
             busy = true;
         }
         error = null;
+        downloadCancelled = false;
         return true;
     }
 
@@ -236,59 +259,86 @@ final class BuiltinLinux {
     private File download() throws IOException {
         cache.mkdirs();
         File part = new File(cache, IMAGE + ".part"), done = new File(cache, IMAGE);
-        String sum = new String(fetch(IMAGE_URL + ".sha256"), StandardCharsets.US_ASCII).trim().split("\\s+")[0];
-        if (!sum.matches("[a-fA-F0-9]{64}")) throw new IOException("Ubuntu 镜像校验信息无效");
-        long have = part.length();
-        HttpURLConnection conn = (HttpURLConnection) new URL(IMAGE_URL).openConnection();
-        conn.setInstanceFollowRedirects(true);
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-        if (have > 0) conn.setRequestProperty("Range", "bytes=" + have + "-");
-        int code = conn.getResponseCode();
-        if (code != 200 && code != 206) throw new IOException("HTTP " + code);
-        if (code == 200) have = 0;
-        long total = conn.getContentLengthLong();
-        if (total > 0) total += have;
-        try (InputStream in = conn.getInputStream(); RandomAccessFile out = new RandomAccessFile(part, "rw")) {
-            out.setLength(have);
-            out.seek(have);
-            byte[] buf = new byte[1 << 16];
-            long got = have, last = 0;
-            for (int n; (n = in.read(buf)) > 0; ) {
-                out.write(buf, 0, n);
-                got += n;
-                long now = System.currentTimeMillis();
-                if (now - last > 500) {
-                    last = now;
-                    set(State.INSTALLING, total > 0
-                        ? c.getString(R.string.xd_bl_downloading_pct, got * 100 / total, mb(got), mb(total))
-                        : c.getString(R.string.xd_bl_downloading, mb(got)));
-                }
+        synchronized (this) {
+            downloadCancelled = false;
+            downloading = true;
+        }
+        changed();
+        String sum;
+        try {
+            sum = new String(fetch(IMAGE_URL + ".sha256"), StandardCharsets.US_ASCII).trim().split("\\s+")[0];
+            if (!sum.matches("[a-fA-F0-9]{64}")) throw new IOException("Ubuntu 镜像校验信息无效");
+            transferImage(part);
+        } catch (IOException e) {
+            if (downloadCancelled) return null;
+            throw e;
+        } finally {
+            synchronized (this) {
+                downloading = false;
+                downloadConnection = null;
+                changed();
             }
         }
-        if (sum != null) {
-            set(State.INSTALLING, c.getString(R.string.xd_bl_checking));
-            if (!sum.equalsIgnoreCase(sha256(part))) {
-                part.delete();
-                throw new IOException(c.getString(R.string.xd_bl_bad_checksum));
-            }
+        if (downloadCancelled) return null;
+        set(State.INSTALLING, c.getString(R.string.xd_bl_checking));
+        if (!sum.equalsIgnoreCase(sha256(part))) {
+            part.delete();
+            throw new IOException(c.getString(R.string.xd_bl_bad_checksum));
         }
         if (!part.renameTo(done)) throw new IOException("rename " + part);
         return done;
     }
 
-    private static byte[] fetch(String url) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+    private void transferImage(File part) throws IOException {
+        long have = part.length();
+        HttpURLConnection conn = openDownloadConnection(IMAGE_URL);
+        conn.setInstanceFollowRedirects(true);
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(30000);
+        if (have > 0) conn.setRequestProperty("Range", "bytes=" + have + "-");
+        try {
+            int code = conn.getResponseCode();
+            if (code == 416 && have > 0) return; // A completed partial file is verified by the caller.
+            if (downloadCancelled) return;
+            if (code != 200 && code != 206) throw new IOException("HTTP " + code);
+            if (code == 200) have = 0;
+            long total = conn.getContentLengthLong();
+            if (total > 0) total += have;
+            try (InputStream in = conn.getInputStream(); RandomAccessFile out = new RandomAccessFile(part, "rw")) {
+                out.setLength(have);
+                out.seek(have);
+                byte[] buf = new byte[1 << 16];
+                long got = have, last = 0;
+                for (int n; (n = in.read(buf)) > 0; ) {
+                    if (downloadCancelled) return;
+                    out.write(buf, 0, n);
+                    got += n;
+                    long now = System.currentTimeMillis();
+                    if (now - last > 500) {
+                        last = now;
+                        set(State.INSTALLING, total > 0
+                            ? c.getString(R.string.xd_bl_downloading_pct, got * 100 / total, mb(got), mb(total))
+                            : c.getString(R.string.xd_bl_downloading, mb(got)));
+                    }
+                }
+            }
+        } finally { conn.disconnect(); }
+    }
+
+    private byte[] fetch(String url) throws IOException {
+        HttpURLConnection conn = openDownloadConnection(url);
         conn.setInstanceFollowRedirects(true);
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(15000);
-        if (conn.getResponseCode() != 200) throw new IOException("HTTP " + conn.getResponseCode());
-        try (InputStream in = conn.getInputStream()) {
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
-            return out.toByteArray();
-        }
+        try {
+            if (conn.getResponseCode() != 200) throw new IOException("HTTP " + conn.getResponseCode());
+            try (InputStream in = conn.getInputStream()) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                return out.toByteArray();
+            }
+        } finally { conn.disconnect(); }
     }
 
     private static String sha256(File f) throws IOException {

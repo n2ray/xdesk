@@ -69,7 +69,11 @@ final class XdesxLinux implements AutoCloseable {
             String status = installed ? "已安装" : "未安装";
             if (installing && linux.progress() != null) status = linux.progress();
             else if (!installed && linux.error() != null) status = linux.error();
-            publish("ubuntu-state", (installed ? "ready" : installing ? "busy" : "available") + "\n" + status);
+            boolean cancelled = linux.downloadCancelled();
+            if (cancelled) status = installing ? "正在取消下载…" : "下载已取消，可继续下载";
+            String phase = installed ? "ready" : linux.canCancelDownload() ? "busy-download"
+                    : installing ? "busy" : cancelled ? "paused" : "available";
+            publish("ubuntu-state", phase + "\n" + status);
             if (installed && !listed) refreshApps();
             if (!installed) {
                 keys.clear();
@@ -98,6 +102,7 @@ final class XdesxLinux implements AutoCloseable {
 
     void action(String verb) {
         submit(() -> {
+            if (verb.equals("cancel")) { linux.cancelDownload(); return; }
             if (verb.equals("install")) {
                 if (!linux.installed()) linux.install();
                 return;

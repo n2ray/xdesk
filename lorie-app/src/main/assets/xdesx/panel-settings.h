@@ -35,11 +35,13 @@ static void update_ubuntu_controls(Panel *p) {
     g_file_get_contents("run/ubuntu-state",&state,NULL,NULL);
     gboolean ready=state && g_str_has_prefix(state,"ready\n");
     gboolean busy=state && g_str_has_prefix(state,"busy\n");
+    gboolean downloading=state && g_str_has_prefix(state,"busy-download\n");
+    gboolean paused=state && g_str_has_prefix(state,"paused\n");
     const char *status=state?strchr(state,'\n'):NULL;
     gtk_label_set_text(GTK_LABEL(p->ubuntu_status),status?status+1:"正在读取安装状态");
-    gtk_button_set_label(GTK_BUTTON(p->ubuntu_action),ready?"刷新 Linux 应用列表":"安装 Ubuntu 核心");
+    gtk_button_set_label(GTK_BUTTON(p->ubuntu_action),downloading?"取消下载":ready?"刷新 Linux 应用列表":paused?"继续下载":"安装 Ubuntu 核心");
     gtk_widget_set_sensitive(p->ubuntu_action,state && !busy);
-    g_object_set_data(G_OBJECT(p->ubuntu_action),"action",ready?"linux-refresh":"linux-install");
+    g_object_set_data(G_OBJECT(p->ubuntu_action),"action",downloading?"linux-cancel":ready?"linux-refresh":"linux-install");
     g_free(state);
 }
 static void settings_contents(Panel *p) {
