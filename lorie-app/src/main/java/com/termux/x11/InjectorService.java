@@ -865,8 +865,7 @@ public class InjectorService extends IInjector.Stub {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(id);
             if (d == null) throw new IllegalArgumentException("no display " + id);
-            d.resize(width, height, dpi);
-            d.setSurface(surface);
+            AppDisplay.resize(d, width, height, dpi, surface);
         }
     }
 

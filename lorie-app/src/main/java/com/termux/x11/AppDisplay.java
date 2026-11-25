@@ -94,6 +94,39 @@ final class AppDisplay {
         }
     }
 
+    static void resize(VirtualDisplay display, int width, int height, int dpi, Surface surface) {
+        android.view.Display viewport = display.getDisplay();
+        android.graphics.Point size = new android.graphics.Point();
+        viewport.getRealSize(size);
+        if (!"Xiaomi".equalsIgnoreCase(Build.MANUFACTURER) || !viewport.getName().startsWith("XDesX ")
+                || (size.x == width && size.y == height)) {
+            display.resize(width, height, dpi);
+            display.setSurface(surface);
+            return;
+        }
+
+        // HyperOS can put the live display-change snapshot on the phone. Commit the size
+        // while this window's output is off, then attach the new reader to the same display.
+        Surface previous = display.getSurface();
+        display.setSurface(null);
+        try {
+            long deadline = android.os.SystemClock.uptimeMillis() + 300;
+            while (viewport.getState() != android.view.Display.STATE_OFF && android.os.SystemClock.uptimeMillis() < deadline)
+                android.os.SystemClock.sleep(8);
+            display.resize(width, height, dpi);
+            deadline = android.os.SystemClock.uptimeMillis() + 300;
+            do {
+                viewport.getRealSize(size);
+                if (size.x == width && size.y == height) break;
+                android.os.SystemClock.sleep(8);
+            } while (android.os.SystemClock.uptimeMillis() < deadline);
+            display.setSurface(surface);
+        } catch (RuntimeException failure) {
+            display.setSurface(previous);
+            throw failure;
+        }
+    }
+
     /** A context the system takes as the shell package, for services that check the caller's package. */
     static Context shellContext() throws ReflectiveOperationException {
         return new ShellContext(systemContext());
