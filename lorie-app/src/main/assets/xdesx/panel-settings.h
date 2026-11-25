@@ -30,6 +30,18 @@ static void bring_back(GtkButton *b,Panel *p) {
     }
 }
 #include "panel-mac.h"
+static void update_ubuntu_controls(Panel *p) {
+    gchar *state=NULL;
+    g_file_get_contents("run/ubuntu-state",&state,NULL,NULL);
+    gboolean ready=state && g_str_has_prefix(state,"ready\n");
+    gboolean busy=state && g_str_has_prefix(state,"busy\n");
+    const char *status=state?strchr(state,'\n'):NULL;
+    gtk_label_set_text(GTK_LABEL(p->ubuntu_status),status?status+1:"正在读取安装状态");
+    gtk_button_set_label(GTK_BUTTON(p->ubuntu_action),ready?"刷新 Linux 应用列表":"安装 Ubuntu 核心");
+    gtk_widget_set_sensitive(p->ubuntu_action,state && !busy);
+    g_object_set_data(G_OBJECT(p->ubuntu_action),"action",ready?"linux-refresh":"linux-install");
+    g_free(state);
+}
 static void settings_contents(Panel *p) {
     const char *last=p->stack?gtk_stack_get_visible_child_name(GTK_STACK(p->stack)):NULL;
     char *restore=g_strdup(last);
@@ -64,20 +76,13 @@ static void settings_contents(Panel *p) {
     gtk_box_pack_start(GTK_BOX(view),notify_button("手机通知访问设置","notify-access"),FALSE,FALSE,0);
     mac_settings(page(s,"mac","Mac 屏幕共享"),p);
     view=page(s,"linux","Ubuntu / Linux");
-    gchar *ubuntu=NULL;
-    g_file_get_contents("run/ubuntu-state",&ubuntu,NULL,NULL);
-    gboolean ready=ubuntu && g_str_has_prefix(ubuntu,"ready\n");
-    gboolean busy=ubuntu && g_str_has_prefix(ubuntu,"busy\n");
-    char *status=ubuntu?strchr(ubuntu,'\n'):NULL;
-    GtkWidget *summary=gtk_label_new(status?status+1:"正在读取安装状态");
-    gtk_label_set_line_wrap(GTK_LABEL(summary),TRUE);
-    gtk_box_pack_start(GTK_BOX(view),summary,FALSE,FALSE,0);
-    b=gtk_button_new_with_label(ready?"刷新 Linux 应用列表":"安装 Ubuntu 核心");
-    gtk_widget_set_sensitive(b,ubuntu && !busy);
-    g_object_set_data(G_OBJECT(b),"action",ready?"linux-refresh":"linux-install");
-    g_signal_connect(b,"clicked",G_CALLBACK(selected),NULL);
-    gtk_box_pack_start(GTK_BOX(view),b,FALSE,FALSE,0);
-    g_free(ubuntu);
+    p->ubuntu_status=gtk_label_new(NULL);
+    gtk_label_set_line_wrap(GTK_LABEL(p->ubuntu_status),TRUE);
+    gtk_box_pack_start(GTK_BOX(view),p->ubuntu_status,FALSE,FALSE,0);
+    p->ubuntu_action=gtk_button_new();
+    g_signal_connect(p->ubuntu_action,"clicked",G_CALLBACK(selected),NULL);
+    gtk_box_pack_start(GTK_BOX(view),p->ubuntu_action,FALSE,FALSE,0);
+    update_ubuntu_controls(p);
     view=page(s,"power","性能与电源");
     char *count=g_strdup_printf("已打开 %d 个应用窗口",p->opened);
     gtk_box_pack_start(GTK_BOX(view),gtk_label_new(count),FALSE,FALSE,4);g_free(count);
@@ -91,7 +96,7 @@ static void settings_contents(Panel *p) {
     if(restore) gtk_stack_set_visible_child_name(s,restore);
     g_free(restore);
 }
-static void settings_closed(GtkWidget *w,Panel *p) { p->settings=NULL;p->stack=NULL; }
+static void settings_closed(GtkWidget *w,Panel *p) { p->settings=NULL;p->stack=NULL;p->ubuntu_status=NULL;p->ubuntu_action=NULL; }
 static void settings_open(GtkWidget *unused,Panel *p) {
     if(!p->settings) {
         p->settings=gtk_window_new(GTK_WINDOW_TOPLEVEL);

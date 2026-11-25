@@ -24,6 +24,7 @@ typedef struct {
     GFileMonitor *monitor;
     GtkCssProvider *css;
     GtkWidget *bell_art,*notification_popup;
+    GtkWidget *ubuntu_status,*ubuntu_action;
     int notify_access,notify_ready,notify_names,notify_unread;
     Pixmap wallpaper;
     int cursor_event;
@@ -290,8 +291,10 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
         int previous=p->notify_names;notification_refresh(p);
         if(p->settings && previous!=p->notify_names)settings_contents(p);
     }
-    if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts") || g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
+    if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts")))
         settings_contents(p);
+    if (p->settings && (!g_strcmp0(name,"ubuntu-state") || !g_strcmp0(target,"ubuntu-state")))
+        update_ubuntu_controls(p);
     g_free(name); g_free(target);
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {
