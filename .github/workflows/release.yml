@@ -1,18 +1,11 @@
-name: Release
-
-# Push a tag such as v0.2.0 to build and publish. A tag with a suffix (v0.6.0-beta.1) is a pre-release, one without (v0.6.0) the latest release.
-# Run it by hand (workflow_dispatch) to build the same signed release files as an artifact without publishing,
-# to test them on a phone before tagging.
+name: xdesx signed APK
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build, e.g. 0.2.0'
         required: true
-        default: '0.2.0'
+        default: '0.8.0-xdesx.31'
 
 permissions:
   contents: write
@@ -67,100 +60,16 @@ jobs:
         XDESK_KEY_ALIAS: ${{ secrets.XDESK_KEY_ALIAS }}
       # :input-core:test runs the shared gesture table (input-core/src/test/resources/gestures.json). In this step because
       # configuring the other projects needs its version and key settings.
-      run: ./gradlew -PxdeskVersion="$VERSION" :input-core:test assembleStandaloneRelease :receiver:assembleRelease :shell-loader:buildCompanionPackage
+      run: ./gradlew -PxdeskVersion="$VERSION" :input-core:test :lorie-app:assembleStandaloneRelease
     - name: Collect release files
       run: |
         mkdir out
-        if [[ "$GITHUB_REF_NAME" == xdesx ]]; then
-          cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesx.apk
-          (cd out && sha256sum xdesx.apk > SHA256SUMS)
-          rm -f "$XDESK_KEYSTORE"
-          exit 0
-        fi
-        cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesk.apk
-        cp receiver/build/outputs/apk/release/receiver-release.apk out/xdesk-receiver.apk
-        dpkg-deb -x shell-loader/build/outputs/companion/termux-x11-*-all.deb deb
-        cp "$(find deb -name loader.apk)" out/loader.apk
-        cp xdesk/xdesk out/xdesk
-        sed -i "s/^XDESK_CLI_VERSION=.*/XDESK_CLI_VERSION=$VERSION/" out/xdesk
-        # xdesk update downloads this release's install script and checks it against SHA256SUMS
-        cp xdesk/install.sh out/install.sh
-        (cd out && sha256sum xdesk.apk xdesk-receiver.apk loader.apk xdesk install.sh > SHA256SUMS)
+        cp lorie-app/build/outputs/apk/standalone/release/termux-x11-universal-release.apk out/xdesx.apk
+        (cd out && sha256sum xdesx.apk > SHA256SUMS)
         rm -f "$XDESK_KEYSTORE"
     - name: Upload (manual runs)
       if: github.event_name == 'workflow_dispatch'
       uses: actions/upload-artifact@v7
       with:
-        name: xdesk-release-${{ env.VERSION }}
+        name: xdesx-release-${{ env.VERSION }}
         path: out/
-    - name: Publish
-      if: github.event_name == 'push'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        TAG: ${{ github.ref_name }}
-      run: |
-        # Full releases by default; a tag with a suffix such as v0.3.0-rc1 is a pre-release
-        case "$TAG" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
-        # Hand-written notes when the repository has them (release-notes/0.6.0-beta.1.md for v0.6.0-beta.1)
-        NOTES=release-notes/${TAG#v}.md
-        if [ -f "$NOTES" ]; then NOTE_ARGS=(--notes-file "$NOTES"); else NOTE_ARGS=(--generate-notes); fi
-        gh release create "$TAG" $PRE --title "XDesk $TAG" "${NOTE_ARGS[@]}" \
-          out/xdesk.apk out/xdesk-receiver.apk out/loader.apk out/xdesk out/install.sh out/SHA256SUMS
-
-  mac:
-    # The phone's files are out by then, whatever happens here
-    if: github.ref_name != 'xdesx'
-    needs: release
-    continue-on-error: true
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v7
-      with:
-        submodules: false
-        fetch-depth: 1
-    - name: Tools
-      run: |
-        command -v cargo > /dev/null || brew install rust
-        command -v cmake > /dev/null || brew install cmake
-    - name: Version
-      env:
-        TAG: ${{ github.ref_name }}
-        INPUT: ${{ inputs.version }}
-      run: |
-        if [ "${{ github.event_name }}" = push ]; then V="${TAG#v}"; else V="$INPUT"; fi
-        echo "VERSION=$V" >> "$GITHUB_ENV"
-    - name: Signing certificate
-      env:
-        CERT_B64: ${{ secrets.XDESK_MAC_CERT_B64 }}
-        CERT_PASSWORD: ${{ secrets.XDESK_MAC_CERT_PASSWORD }}
-      run: |
-        [ -n "$CERT_B64" ] || { echo "The XDESK_MAC_CERT_B64 secret is missing"; exit 1; }
-        kc="$RUNNER_TEMP/xdesk.keychain-db"
-        security create-keychain -p "" "$kc"
-        security set-keychain-settings "$kc"
-        security unlock-keychain -p "" "$kc"
-        echo "$CERT_B64" | base64 -d > "$RUNNER_TEMP/xdesk.p12"
-        security import "$RUNNER_TEMP/xdesk.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign > /dev/null
-        rm -f "$RUNNER_TEMP/xdesk.p12"
-        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$kc" > /dev/null
-        security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
-        echo "IDENTITY=$(security find-identity -p codesigning "$kc" | awk '/\)/ {print $2; exit}')" >> "$GITHUB_ENV"
-    - name: Build
-      run: bash desktop/packaging/build-app.sh "$VERSION" "$IDENTITY"
-    - name: Collect
-      run: |
-        mkdir out
-        cp desktop/target/package/XDesk.dmg out/XDesk-macos-arm64.dmg
-        (cd out && shasum -a 256 XDesk-macos-arm64.dmg > XDesk-macos-arm64.dmg.sha256)
-    - name: Upload (manual runs)
-      if: github.event_name == 'workflow_dispatch'
-      uses: actions/upload-artifact@v7
-      with:
-        name: xdesk-mac-${{ env.VERSION }}
-        path: out/
-    - name: Publish
-      if: github.event_name == 'push'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        TAG: ${{ github.ref_name }}
-      run: gh release upload "$TAG" out/XDesk-macos-arm64.dmg out/XDesk-macos-arm64.dmg.sha256 -R "$GITHUB_REPOSITORY"

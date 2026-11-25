@@ -21,6 +21,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private XdesxRuntime runtime;
     private XdesxLinux linux;
     private XdesxMacProfiles macProfiles;
+    private XdesxNotifications notifications;
     private XdesxPanelState panel;
     private final Handler settingsHandler=new Handler(Looper.getMainLooper());
     private int savedRender;
@@ -40,7 +41,15 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (injector != null) try { injector.setGameMode(on); }
         catch (RemoteException e) { error(e.toString()); }
     }
-    private final IInjectorListener fullscreenEvents = new WirelessDisplay.NoEvents() {
+    private final IInjectorListener fullscreenEvents = new IInjectorListener.Stub() {
+        public void onForwarding(boolean on,int count) {}
+        public void onMessage(String message) {}
+        public void onAppInSession(boolean inSession) {}
+        public void onButtonUp() {}
+        public void onTopApp(String pkg) {}
+        public void onFingers(float[] x,float[] y) {}
+        public void onEdgePush(int edge,int dx,int dy,boolean held,int x,int y,boolean left) {}
+        public void onClipboard(String text) {}
         @Override public void onGameMode(boolean on) {
             runOnUiThread(() -> {
                 gamePassthrough = on && fullWindow != null;
@@ -192,7 +201,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         place();
         try { linux = new XdesxLinux(this, this::error); }
         catch (IOException e) { error(e.toString()); }
-        runtime=new XdesxRuntime(this);
+        notifications=new XdesxNotifications(this);
+        runtime=new XdesxRuntime(this,notifications);
         new Thread(() -> {
             try { runtime.run((key,app) -> runOnUiThread(() -> openWindow(key,app,SystemClock.elapsedRealtime()+25000))); }
             catch(Exception e) { if(!isDestroyed()) error(e.toString()); }
@@ -347,6 +357,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         } catch(IOException | IllegalArgumentException e){Log.w("XDesX","cursor image",e);}
     }
     private void panelAction(String action) {
+        if(action.startsWith("notify-")) {notifications.action(action.substring(7));return;}
         if(action.startsWith("mac-")) {
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
             return;
@@ -470,9 +481,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         new android.app.AlertDialog.Builder(this).setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","结束桌面","连接与授权","手机键盘","取消"},
             (dialog,item) -> { if(item==0) { panel.returnSequence++; panel.publish(); } if(item==1) panelAction("recover"); if(item==2) finish(); if(item==3) setup(); if(item==4){mouse.requestFocus();getWindow().getInsetsController().show(WindowInsets.Type.ime());} }).show();
     }
+    @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);
         closeToolbar();
+        if(notifications!=null) notifications.close();
         if(macProfiles!=null) macProfiles.close();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);

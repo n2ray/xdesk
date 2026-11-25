@@ -23,6 +23,8 @@ typedef struct {
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
+    GtkWidget *bell_art,*notification_popup;
+    int notify_access,notify_ready,notify_names,notify_unread;
     Pixmap wallpaper;
     int cursor_event;
     int scale, render, return_sequence;
@@ -33,16 +35,20 @@ typedef struct {
 #include "panel-art.h"
 
 
-static gboolean action(const char *value) {
+static int menu_connect(void) {
     const char *name = g_getenv("XDESX_MENU");
     struct sockaddr_un addr = {.sun_family = AF_UNIX};
-    if (!name || strlen(name) >= sizeof(addr.sun_path)-1) return FALSE;
+    if (!name || strlen(name) >= sizeof(addr.sun_path)-1) return -1;
     strcpy(addr.sun_path+1, name);
     int fd = socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
-    if (fd < 0) return FALSE;
+    if (fd < 0) return -1;
+    if(connect(fd,(void*)&addr,offsetof(struct sockaddr_un,sun_path)+1+strlen(name))<0){close(fd);return -1;}
+    return fd;
+}
+static gboolean action(const char *value) {
+    int fd=menu_connect();if(fd<0)return FALSE;
     char *line = g_strdup_printf("action %s\n", value);
-    gboolean ok = connect(fd, (void*)&addr, offsetof(struct sockaddr_un,sun_path)+1+strlen(name)) == 0 &&
-            send(fd, line, strlen(line), MSG_NOSIGNAL) == (ssize_t)strlen(line);
+    gboolean ok = send(fd, line, strlen(line), MSG_NOSIGNAL) == (ssize_t)strlen(line);
     g_free(line);
     close(fd);
     return ok;
@@ -160,6 +166,7 @@ static void launch(GtkMenuItem *i,gpointer data) {
 }
 #include "panel-wallpaper.h"
 #include "panel-cursor.h"
+#include "panel-notifications.h"
 #include "panel-settings.h"
 
 static void popup(GtkWidget *menu,GtkWidget *button) {
@@ -264,6 +271,7 @@ static void refresh(Panel *p) {
             char theme[32];snprintf(theme,sizeof(theme),"Xdesx%d",scale);
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/theme",theme);
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_alignment","left");
+            gtk_widget_set_size_request(p->bell_art,MAX(16,22*scale/100),MAX(16,22*scale/100));
             desktop_cursor(p);
             current(p->screen,NULL,p);
             char font[80]; snprintf(font,sizeof(font),"Roboto,Noto Sans CJK SC Bold %d",(10*scale+50)/100);
@@ -278,12 +286,17 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     char *target=other?g_file_get_basename(other):NULL;
     if (g_strcmp0(name,"panel-state")==0 || g_strcmp0(target,"panel-state")==0) refresh(p);
     if (!g_strcmp0(name,"wallpaper-update") || !g_strcmp0(target,"wallpaper-update")) paint_wallpaper(p);
+    if (!g_strcmp0(name,"notify-state") || !g_strcmp0(target,"notify-state")) {
+        int previous=p->notify_names;notification_refresh(p);
+        if(p->settings && previous!=p->notify_names)settings_contents(p);
+    }
     if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts") || g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
         settings_contents(p);
     g_free(name); g_free(target);
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     remove_fullscreen_bar(p);
+    if(p->notification_popup){g_signal_handlers_disconnect_by_data(p->notification_popup,p);gtk_widget_destroy(p->notification_popup);}
     if(p->settings) gtk_widget_destroy(p->settings);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     g_signal_handlers_disconnect_by_data(gdk_screen_get_default(),p);
@@ -312,6 +325,12 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_box_pack_start(GTK_BOX(bar),p->current,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(bar),p->status,FALSE,FALSE,8);
     gtk_box_pack_end(GTK_BOX(bar),p->icons,FALSE,FALSE,2);
+    GtkWidget *bell=gtk_button_new();p->bell_art=gtk_drawing_area_new();
+    gtk_widget_set_focus_on_click(bell,FALSE);
+    gtk_widget_set_tooltip_text(bell,"通知中心");gtk_container_add(GTK_CONTAINER(bell),p->bell_art);
+    gtk_box_pack_end(GTK_BOX(bar),bell,FALSE,FALSE,0);
+    g_signal_connect(p->bell_art,"draw",G_CALLBACK(bell_draw),p);
+    g_signal_connect(bell,"clicked",G_CALLBACK(show_notifications),p);
     gtk_container_add(GTK_CONTAINER(plugin),bar);
     xfce_panel_plugin_set_expand(plugin,TRUE);
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
@@ -326,7 +345,7 @@ static void construct(XfcePanelPlugin *plugin) {
     p->monitor=g_file_monitor_directory(file,G_FILE_MONITOR_WATCH_MOVES,NULL,NULL);
     if (p->monitor) g_signal_connect(p->monitor,"changed",G_CALLBACK(state_changed),p);
     g_object_unref(file);
-    refresh(p);
+    refresh(p);notification_refresh(p);
     g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_window),p);
     for(GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_window(p->screen,l->data,p);
     paint_wallpaper(p);watch_cursor(p);

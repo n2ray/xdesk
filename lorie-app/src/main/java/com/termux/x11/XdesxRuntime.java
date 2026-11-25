@@ -25,7 +25,8 @@ final class XdesxRuntime {
     private volatile LocalServerSocket socket;
     private java.lang.Process session;
     private boolean closed;
-    XdesxRuntime(Context c) { context=c.getApplicationContext(); prefix=new File(c.getFilesDir(),"xd"); }
+    private final XdesxNotifications notifications;
+    XdesxRuntime(Context c,XdesxNotifications notifications) { this.notifications=notifications; context=c.getApplicationContext(); prefix=new File(c.getFilesDir(),"xd"); }
     private File path(String name) { return new File(prefix,name); }
     private void text(String name,String value) throws IOException {
         File f=path(name); f.getParentFile().mkdirs();
@@ -166,7 +167,11 @@ final class XdesxRuntime {
                     if(peer.getPeerCredentials().getUid()!=Process.myUid()) continue;
                     peer.setSoTimeout(2000);
                     String line=new BufferedReader(new InputStreamReader(peer.getInputStream(),"UTF-8")).readLine();
-                    if(line!=null && line.matches("action (mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                    if("notify-list".equals(line)) {
+                        try {peer.getOutputStream().write(notifications.rows());} catch(IOException ignored) {}
+                        continue;
+                    }
+                    if(line!=null && line.matches("action (notify-(access|seen|clear|names|summary|rebind|[a-f0-9-]{36})|mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
                         menu.selected("action",line.substring(7)); continue;
                     }
                     if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;

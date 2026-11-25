@@ -37,7 +37,7 @@ public class DesktopService extends Service {
         updateWakeLock(app);
         // The web display keeps it while on: a browser may connect with XDesk in the background, see WebServer.start
         if (DashboardActivity.isAlive() || AppSession.get(app).isActive() || DesktopSession.get(app).isActive()
-            || WirelessDisplay.get(app).isActive() || WebServer.get(app).isRunning()) return;
+           ) return;
         app.stopService(new Intent(app, DesktopService.class));
     }
 
@@ -48,8 +48,7 @@ public class DesktopService extends Service {
     private static void updateWakeLock(android.content.Context app) {
         synchronized (WAKE_GUARD) {
             if (wakeLock == null) return;
-            boolean needed = DesktopSession.get(app).isActive() || AppSession.get(app).isActive()
-                || WirelessDisplay.get(app).isActive();
+            boolean needed = DesktopSession.get(app).isActive() || AppSession.get(app).isActive();
             if (needed && !wakeLock.isHeld()) wakeLock.acquire();
             else if (!needed && wakeLock.isHeld()) wakeLock.release();
         }
@@ -138,7 +137,7 @@ public class DesktopService extends Service {
             DesktopSession.get(app).abandon();
             DashboardActivity.closeIfAlive();
             // 结束 XDesk 也结束无线投屏，接收端回到等待画面
-            WirelessDisplay.get(app).stop();
+
             app.stopService(new Intent(app, DesktopService.class));
             ending = false;
         });

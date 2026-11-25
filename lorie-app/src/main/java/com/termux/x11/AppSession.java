@@ -1210,7 +1210,7 @@ final class AppSession {
     private void fitPanels(IInjector i) throws RemoteException {
         for (Display d : displays().getDisplays()) {
             int id = d.getDisplayId();
-            if (id == Display.DEFAULT_DISPLAY || !TargetDisplay.isReal(d) || id == WirelessDisplay.displayId()) continue;
+            if (id == Display.DEFAULT_DISPLAY || !TargetDisplay.isReal(d)) continue;
             Display.Mode m = d.getMode();
             int w = Math.max(m.getPhysicalWidth(), m.getPhysicalHeight()), h = Math.min(m.getPhysicalWidth(), m.getPhysicalHeight());
             String key = densityKey(i, d);

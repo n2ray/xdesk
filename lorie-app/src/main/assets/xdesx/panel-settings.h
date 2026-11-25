@@ -57,6 +57,11 @@ static void settings_contents(Panel *p) {
     setting_row(view,"鼠标速度","mouse",speed,sp,3,p->mouse);
     setting_row(view,"触摸板速度","pad",speed,sp,3,p->pad);
     setting_row(view,"反向滚动","reverse",yesno,yn,2,p->reverse);
+    view=page(s,"notifications","通知");
+    GtkWidget *names=notify_button("仅显示应用名","notify-names"),*summary=notify_button("显示通知摘要","notify-summary");
+    gtk_style_context_add_class(gtk_widget_get_style_context(p->notify_names?names:summary),"chosen");
+    gtk_box_pack_start(GTK_BOX(view),names,FALSE,FALSE,0);gtk_box_pack_start(GTK_BOX(view),summary,FALSE,FALSE,0);
+    gtk_box_pack_start(GTK_BOX(view),notify_button("手机通知访问设置","notify-access"),FALSE,FALSE,0);
     mac_settings(page(s,"mac","Mac 屏幕共享"),p);
     view=page(s,"linux","Ubuntu / Linux");
     gchar *ubuntu=NULL;

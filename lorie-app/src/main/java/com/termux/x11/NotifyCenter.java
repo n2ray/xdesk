@@ -545,7 +545,7 @@ final class NotifyCenter {
      * app name only (NOTIFY.md §6: a projector or a meeting-room screen); once the user picks, that holds.
      */
     int bannerContent() {
-        if (!prefs.contains("content")) return WirelessDisplay.get(context).isActive() ? CONTENT_NAME : CONTENT_ALL;
+        if (!prefs.contains("content")) return CONTENT_NAME;
         int v = prefs.getInt("content", CONTENT_ALL);
         return v >= CONTENT_ALL && v <= CONTENT_NONE ? v : CONTENT_ALL;
     }
