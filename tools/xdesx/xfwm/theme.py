@@ -39,14 +39,15 @@ def decorations(z,scale):
     for name,lines in LINES.items():
         for state in ("active","inactive","pressed","prelight"):
             w=px(28)
-            im=Image.new("RGB",(w*4,h*4),PAPER)
+            bh=h-2*px(4)
+            im=Image.new("RGBA",(w*4,bh*4))
             draw=ImageDraw.Draw(im)
             if state in ("pressed","prelight"):
                 pad=px(3)*4
-                draw.rounded_rectangle((pad,pad,w*4-pad,h*4-pad),radius=px(5)*4,fill="#dedee0" if state=="pressed" else "#eaeaec")
+                draw.rounded_rectangle((pad,pad,w*4-pad,bh*4-pad),radius=px(5)*4,fill="#dedee0" if state=="pressed" else "#eaeaec")
             for line in lines:
-                draw.line([((w/2+x*factor)*4,(h/2+y*factor)*4) for x,y in line],fill=INK if state!="inactive" else "#727276",width=round(5.6*factor))
-            save(name+"-"+state,im.resize((w,h),Image.Resampling.LANCZOS))
+                draw.line([((w/2+x*factor)*4,(bh/2+y*factor)*4) for x,y in line],fill=INK if state!="inactive" else "#727276",width=round(5.6*factor))
+            save(name+"-"+state,im.resize((w,bh),Image.Resampling.LANCZOS))
     z.writestr(folder+"themerc",f"active_text_color=#202023\ninactive_text_color=#6a6a70\nbutton_spacing={px(2)}\nframe_border_top={px(3)}\nshow_app_icon=true\nfull_width_title=true\ntitle_alignment=left\ntitle_horizontal_offset={px(6)}\ntitle_shadow_active=false\ntitle_shadow_inactive=false\n")
 
 def cursor_images(kind):

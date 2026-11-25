@@ -16,7 +16,7 @@
 #include <string.h>
 
 typedef struct {
-    GtkWidget *current, *status, *logo, *icons, *settings, *stack;
+    GtkWidget *current, *separator, *status, *logo, *icons, *settings, *stack;
     int mouse,pad,limit,reverse,remember,opened,battery,charging;
     char network[64],profile[64],options[96];
     char *mac_id;
@@ -239,7 +239,13 @@ static void current(WnckScreen *screen,WnckWindow *previous,Panel *p) {
     WnckWindow *w=wnck_screen_get_active_window(screen);
     update_fullscreen(p);
     if (w && wnck_window_is_skip_tasklist(w)) w=NULL;
-    gtk_button_set_label(GTK_BUTTON(p->current),w?wnck_window_get_name(w):"桌面");
+    gboolean has_windows=w!=NULL;
+    for (GList *l=wnck_screen_get_windows(screen);!has_windows && l;l=l->next)
+        has_windows=!wnck_window_is_skip_tasklist(l->data);
+    gtk_widget_set_visible(p->current,has_windows);
+    gtk_widget_set_visible(p->separator,has_windows);
+    if (!has_windows) return;
+    gtk_button_set_label(GTK_BUTTON(p->current),w?wnck_window_get_name(w):"窗口");
     GdkPixbuf *original=w?wnck_window_get_icon(w):NULL;
     int size=MAX(1,(24*p->scale+50)/100);
     GdkPixbuf *icon=original?gdk_pixbuf_scale_simple(original,size,size,GDK_INTERP_BILINEAR):NULL;
@@ -339,7 +345,7 @@ static void construct(XfcePanelPlugin *plugin) {
     p->icons=gtk_drawing_area_new();g_signal_connect(p->icons,"draw",G_CALLBACK(draw_status),p);
     p->status=gtk_label_new("");
     gtk_box_pack_start(GTK_BOX(bar),main,FALSE,FALSE,0);
-    GtkWidget *separator=gtk_separator_new(GTK_ORIENTATION_VERTICAL);gtk_widget_set_valign(separator,GTK_ALIGN_CENTER);gtk_widget_set_size_request(separator,1,18);gtk_box_pack_start(GTK_BOX(bar),separator,FALSE,FALSE,0);
+    p->separator=gtk_separator_new(GTK_ORIENTATION_VERTICAL);gtk_widget_set_valign(p->separator,GTK_ALIGN_CENTER);gtk_widget_set_size_request(p->separator,1,18);gtk_box_pack_start(GTK_BOX(bar),p->separator,FALSE,FALSE,0);
     gtk_box_pack_start(GTK_BOX(bar),p->current,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(bar),p->status,FALSE,FALSE,8);
     gtk_box_pack_end(GTK_BOX(bar),p->icons,FALSE,FALSE,2);
@@ -347,6 +353,8 @@ static void construct(XfcePanelPlugin *plugin) {
     xfce_panel_plugin_set_expand(plugin,TRUE);
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
     g_signal_connect(p->screen,"active-window-changed",G_CALLBACK(current),p);
+    g_signal_connect(p->screen,"window-opened",G_CALLBACK(current),p);
+    g_signal_connect(p->screen,"window-closed",G_CALLBACK(current),p);
     g_signal_connect(main,"clicked",G_CALLBACK(main_menu),p);
     g_signal_connect(p->current,"clicked",G_CALLBACK(window_menu),p);
     p->css=gtk_css_provider_new();
@@ -355,7 +363,7 @@ static void construct(XfcePanelPlugin *plugin) {
     p->monitor=g_file_monitor_directory(file,G_FILE_MONITOR_WATCH_MOVES,NULL,NULL);
     if (p->monitor) g_signal_connect(p->monitor,"changed",G_CALLBACK(state_changed),p);
     g_object_unref(file);
-    refresh(p); current(p->screen,NULL,p);
+    refresh(p);
     g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_window),p);
     for(GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_window(p->screen,l->data,p);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
@@ -368,6 +376,9 @@ static void construct(XfcePanelPlugin *plugin) {
     g_object_set_data(G_OBJECT(plugin),"xdesx-wallpaper",GSIZE_TO_POINTER(wallpaper));
 
     gtk_widget_show_all(bar);
+    gtk_widget_set_no_show_all(p->current,TRUE);
+    gtk_widget_set_no_show_all(p->separator,TRUE);
+    current(p->screen,NULL,p);
     g_signal_connect(plugin,"free-data",G_CALLBACK(destroy),p);
 }
 XFCE_PANEL_PLUGIN_REGISTER(construct)

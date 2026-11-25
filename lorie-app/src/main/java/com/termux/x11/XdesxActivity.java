@@ -34,7 +34,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private float restX,restY;
     private volatile XdesxFullscreenBar toolbar;
     private XdesxWindow fullWindow;
-    private boolean switching, gamePassthrough, leavingGameTouch;
+    private boolean switching, gamePassthrough, leavingGameTouch, hideImeOnReturn;
     private void setGame(boolean on) {
         if (injector != null) try { injector.setGameMode(on); }
         catch (RemoteException e) { error(e.toString()); }
@@ -98,7 +98,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                         });
                     }
                 }
-                if (fullWindow == null) capture();
+                if (fullWindow == null) {
+                    hideImeOnReturn = moved;
+                    capture();
+                }
                 else if (mouse.hasPointerCapture()) mouse.releasePointerCapture();
             });
         },"xdesx-fullscreen").start();
@@ -183,6 +186,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void capture() {
         if(mouse!=null && fullWindow == null && !switching && external>=0 && !isDestroyed() && hasWindowFocus()) {
             mouse.requestFocus();
+            if (hideImeOnReturn) {
+                hideImeOnReturn = false;
+                getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+            }
             if(!mouse.hasPointerCapture()) mouse.requestPointerCapture();
         }
     }

@@ -48,6 +48,7 @@
         <activity android:name="com.termux.x11.XdesxActivity" android:label="XDesX"
             android:theme="@android:style/Theme.Material.NoActionBar" android:exported="true"
             android:launchMode="singleTask" android:taskAffinity=".Xdesx"
+            android:windowSoftInputMode="stateAlwaysHidden"
             android:configChanges="orientation|screenSize|keyboardHidden|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
