@@ -47,7 +47,7 @@ public class LinuxService extends Service {
     private Notification notification() {
         boolean awake = wake != null && wake.isHeld();
         PendingIntent open = PendingIntent.getActivity(this, 0,
-                new Intent(this, XDeskActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
+                new Intent(this, XdesxActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, LinuxService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent toggle = PendingIntent.getService(this, 2,

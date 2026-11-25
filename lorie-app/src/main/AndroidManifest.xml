@@ -7,9 +7,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 外接屏上放 Mac 画面时按住 Wi-Fi 低延迟模式（MacClient） -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只在扫描时向系统要 -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- 外接屏上的光标（只有运行安卓应用时用） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- 通知中心里的勿扰开关（NOTIFY.md §4），用户在系统设置里授权 -->
@@ -55,27 +52,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <activity
-            android:name="com.termux.x11.XDeskActivity"
-            android:label="XDesk"
-            android:icon="@drawable/xdesx_icon"
-            android:theme="@android:style/Theme.Material.NoActionBar"
-            android:launchMode="singleTask"
-            android:taskAffinity=".XDesk"
-            android:screenOrientation="fullUser"
-            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density"
-            android:exported="true">
-
-            <!-- 点开 Sill 的配对链接（相机应用读出二维码后也会给这个链接），在手机上确认后配对。
-                 装了两个客户端（XDesk 和 Sall）时系统会问用哪个 -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="sill" android:host="pair" />
-            </intent-filter>
-        </activity>
         <!-- stopWithTask 必须是 false，否则划掉任务时收不到 onTaskRemoved -->
         <!-- 导出的分享目标：发送前总要在对话框里确认文件和接收方，所以窗口不能是 NoDisplay -->
         <activity android:name="com.termux.x11.ShareToComputerActivity" android:exported="true" android:label="@string/xd_share_label"
@@ -117,16 +93,6 @@
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density"
             android:exported="false" />
-        <!-- 外接屏上的 Mac 窗口或 Mac 桌面（Sill 的 HEVC 直接解到 SurfaceView）。自己一个任务，不进最近任务，不抢焦点 -->
-        <activity
-            android:name="com.termux.x11.mac.MacActivity"
-            android:label="Mac"
-            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
-            android:taskAffinity=".XDeskMac"
-            android:excludeFromRecents="true"
-            android:resizeableActivity="true"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|smallestScreenSize|screenLayout|density|fontScale|locale|layoutDirection"
-            android:exported="false" />
         <!-- 外接屏上经 macOS 自带屏幕共享连的 Mac（H.264 硬解到 SurfaceView）。自己一个任务，不进最近任务 -->
         <activity
             android:name="com.termux.x11.screenshare.ScreenShareActivity"
@@ -145,11 +111,6 @@
             android:excludeFromRecents="true"
             android:windowSoftInputMode="stateAlwaysVisible"
             android:exported="false" />
-        <!-- 扫 Mac 上 Sill 配对窗口里的二维码（MacSettings 的"扫描二维码"）。只由 XDesk 自己打开，不进最近任务 -->
-        <activity android:name="com.termux.x11.mac.PairScannerActivity" android:exported="false"
-            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
-            android:excludeFromRecents="true"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- Android Auto 停车时的入口（手机 Android 15 以上）。Android Auto 目前只开放游戏这一类，所以 application 标了 game -->
         <activity
             android:name="com.termux.x11.CarActivity"

@@ -29,9 +29,7 @@ static void bring_back(GtkButton *b,Panel *p) {
         if(nx!=x||ny!=wy) wnck_window_set_geometry(w,WNCK_WINDOW_GRAVITY_STATIC,WNCK_WINDOW_CHANGE_X|WNCK_WINDOW_CHANGE_Y,nx,ny,width,height);
     }
 }
-static void open_mac(GtkWidget *w,Panel *p) {
-    if(p->mac_id) launch(NULL,p->mac_id);
-}
+#include "panel-mac.h"
 static void settings_contents(Panel *p) {
     const char *last=p->stack?gtk_stack_get_visible_child_name(GTK_STACK(p->stack)):NULL;
     char *restore=g_strdup(last);
@@ -59,8 +57,7 @@ static void settings_contents(Panel *p) {
     setting_row(view,"鼠标速度","mouse",speed,sp,3,p->mouse);
     setting_row(view,"触摸板速度","pad",speed,sp,3,p->pad);
     setting_row(view,"反向滚动","reverse",yesno,yn,2,p->reverse);
-    view=page(s,"apps","应用与连接");
-    b=gtk_button_new_with_label("连接与管理 Mac");g_signal_connect(b,"clicked",G_CALLBACK(open_mac),p);gtk_box_pack_start(GTK_BOX(view),b,FALSE,FALSE,0);
+    mac_settings(page(s,"mac","Mac 屏幕共享"),p);
     view=page(s,"linux","Ubuntu / Linux");
     gchar *ubuntu=NULL;
     g_file_get_contents("run/ubuntu-state",&ubuntu,NULL,NULL);

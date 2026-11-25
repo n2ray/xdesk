@@ -10,3 +10,8 @@
 -keep class io.github.muntashirakon.crypto.spake2.** { *; }
 # HiddenApiBypass reads the layout of these mirror classes by reflection.
 -keep class org.lsposed.hiddenapibypass.** { *; }
+
+# xdesx ships full-desktop Screen Sharing only. Catch accidental reachability from legacy entry points.
+-checkdiscard class com.termux.x11.mac.SillTls
+-checkdiscard class com.termux.x11.mac.MacDiscovery
+-checkdiscard class com.termux.x11.mac.MacPairing

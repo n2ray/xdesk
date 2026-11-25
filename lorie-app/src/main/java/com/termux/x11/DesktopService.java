@@ -69,17 +69,17 @@ public class DesktopService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         PendingIntent open = PendingIntent.getActivity(this, 0,
-            new Intent(this, XDeskActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            new Intent(this, XdesxActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             PendingIntent.FLAG_IMMUTABLE);
         // PhoneNotify.dc.html: the two actions go through the activity's existing paths (showSwitcher, End XDesk)
         PendingIntent launchpad = PendingIntent.getActivity(this, REQUEST_LAUNCHPAD,
-            new Intent(this, XDeskActivity.class)
+            new Intent(this, XdesxActivity.class)
                 .setAction("com.termux.x11.action.LAUNCHPAD")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 .putExtra(EXTRA_LAUNCHPAD, true),
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent end = PendingIntent.getActivity(this, REQUEST_END,
-            new Intent(this, XDeskActivity.class)
+            new Intent(this, XdesxActivity.class)
                 .setAction("com.termux.x11.action.END")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 .putExtra(EXTRA_END, true),
@@ -110,7 +110,7 @@ public class DesktopService extends Service {
      */
     @Override public void onTaskRemoved(Intent rootIntent) {
         android.content.ComponentName c = rootIntent != null ? rootIntent.getComponent() : null;
-        if (c == null || !XDeskActivity.class.getName().equals(c.getClassName())) return;
+        if (c == null || !XdesxActivity.class.getName().equals(c.getClassName())) return;
         endAll(this);
     }
 

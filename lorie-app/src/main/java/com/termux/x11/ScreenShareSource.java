@@ -166,9 +166,14 @@ final class ScreenShareSource implements ContentSource {
         i.putExtra(ScreenShareLoginActivity.EXTRA_HOST, id);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (result instanceof WindowResult) {
-            ActivityOptions phone=ActivityOptions.makeBasic();
-            phone.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-            context.startActivity(i,phone.toBundle());
+            Display hdmi=TargetDisplay.real(context.getSystemService(DisplayManager.class));
+            if (hdmi==null) { loginCancelled(id); return; }
+            int target=hdmi.getDisplayId();
+            i.putExtra(ScreenShareLoginActivity.EXTRA_DISPLAY,target);
+            ActivityOptions options=ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(target);
+            try { context.startActivity(i,options.toBundle()); }
+            catch(RuntimeException e) { pending.remove(id); result.failed(key,"无法在外屏打开登录窗口"); }
         } else context.startActivity(i);
     }
 
@@ -227,7 +232,10 @@ final class ScreenShareSource implements ContentSource {
 
     void closeWindowLogin(String id,WindowResult owner) {
         Object[] p=pending.get(id);
-        if (p!=null && p[2]==owner) pending.remove(id);
+        if (p!=null && p[2]==owner) {
+            pending.remove(id);
+            ScreenShareLoginActivity.closeFor(id);
+        }
     }
 
     private void loginCancelled(String hostId) {

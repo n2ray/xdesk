@@ -291,7 +291,7 @@ final class Permissions {
                 if (text.length() > 0) text.append(" · ");
                 text.append(c.getString(i.lost));
             }
-            Intent open = new Intent(c, XDeskActivity.class)
+            Intent open = new Intent(c, XdesxActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             PendingIntent tap = PendingIntent.getActivity(c, 0, open, PendingIntent.FLAG_IMMUTABLE);
             Notification n = new Notification.Builder(c, CHANNEL)

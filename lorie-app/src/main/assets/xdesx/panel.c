@@ -278,7 +278,7 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
     char *target=other?g_file_get_basename(other):NULL;
     if (g_strcmp0(name,"panel-state")==0 || g_strcmp0(target,"panel-state")==0) refresh(p);
     if (!g_strcmp0(name,"wallpaper-update") || !g_strcmp0(target,"wallpaper-update")) paint_wallpaper(p);
-    if (p->settings && (g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
+    if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts") || g_strcmp0(name,"ubuntu-state")==0 || g_strcmp0(target,"ubuntu-state")==0))
         settings_contents(p);
     g_free(name); g_free(target);
 }

@@ -20,6 +20,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private final DesktopInput input = new DesktopInput();
     private XdesxRuntime runtime;
     private XdesxLinux linux;
+    private XdesxMacProfiles macProfiles;
     private XdesxPanelState panel;
     private final Handler settingsHandler=new Handler(Looper.getMainLooper());
     private int savedRender;
@@ -186,6 +187,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (!AppSession.get(this).injectorReady()) mouse.postDelayed(()->{
             if (!isFinishing() && !isDestroyed() && !AppSession.get(this).injectorReady()) setup();
         },1500);
+        try {macProfiles=new XdesxMacProfiles(this);} catch(IOException e){error(e.toString());}
         panel=new XdesxPanelState(this);
         place();
         try { linux = new XdesxLinux(this, this::error); }
@@ -345,6 +347,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         } catch(IOException | IllegalArgumentException e){Log.w("XDesX","cursor image",e);}
     }
     private void panelAction(String action) {
+        if(action.startsWith("mac-")) {
+            try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
+            return;
+        }
         if(action.equals("cursor-image")) {readCursorShape();return;}
         if(action.equals("wallpaper-pick")) {chooseWallpaper(); return;}
         if (action.startsWith("linux-")) {
@@ -467,6 +473,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     @Override protected void onDestroy() {
         settingsHandler.removeCallbacks(revertRender);
         closeToolbar();
+        if(macProfiles!=null) macProfiles.close();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
         if (linux != null) linux.close();

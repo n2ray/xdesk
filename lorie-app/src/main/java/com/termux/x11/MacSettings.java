@@ -19,7 +19,7 @@ import com.termux.x11.mac.MacClients;
 import com.termux.x11.mac.MacPairing;
 import com.termux.x11.mac.MacStore;
 import com.termux.x11.mac.PairLink;
-import com.termux.x11.mac.PairScannerActivity;
+
 
 /**
  * Pairing with a Mac: Add device › Mac (by address and the 12-digit code Sill shows on the Mac, or by scanning the
@@ -188,17 +188,7 @@ final class MacSettings {
     }
 
     /** "Scan QR code": the scanner hands the link back through PairScannerActivity's pending receiver. */
-    private void askScan() {
-        if (!(c instanceof Activity)) {
-            toast(c.getString(R.string.xd_mac_scan_unavailable));
-            return;
-        }
-        try {
-            if (!PairScannerActivity.start((Activity) c, this::offer)) toast(c.getString(R.string.xd_mac_scan_busy));
-        } catch (RuntimeException e) {
-            toast(c.getString(R.string.xd_mac_scan_unavailable));
-        }
-    }
+    private void askScan() { askAddress(null); }
 
     /** A pairing link, from the scanner or a tapped sill://pair link: show what it names, then pair. */
     private void offer(String raw) {

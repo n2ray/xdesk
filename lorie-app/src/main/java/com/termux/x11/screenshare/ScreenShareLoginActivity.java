@@ -26,6 +26,11 @@ public final class ScreenShareLoginActivity extends Activity {
     }
     public static volatile Outcome outcome;
 
+    public static final String EXTRA_DISPLAY="external_display";
+    private static ScreenShareLoginActivity current;
+    public static void closeFor(String id) {
+        if(current!=null && current.host!=null && id.equals(current.host.id)) current.finish();
+    }
     private boolean done;
     private ScreenShareStore.Host host;
 
@@ -33,6 +38,12 @@ public final class ScreenShareLoginActivity extends Activity {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         host = ScreenShareStore.find(this, getIntent().getStringExtra(EXTRA_HOST));
+        current=this;
+        if(getIntent().hasExtra(EXTRA_DISPLAY) &&
+                (getDisplay()==null || getDisplay().getDisplayId()==android.view.Display.DEFAULT_DISPLAY ||
+                getDisplay().getDisplayId()!=getIntent().getIntExtra(EXTRA_DISPLAY,-1))) {
+            finish(); return;
+        }
         if (host == null) {
             finish();
             return;
@@ -84,6 +95,7 @@ public final class ScreenShareLoginActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(current==this) current=null;
         if (!done && !isChangingConfigurations() && host != null) {
             Outcome out = outcome;
             if (out != null) out.cancelled(host.id);

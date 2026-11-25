@@ -587,10 +587,6 @@ final class DeviceSettings {
 
     /** The Termux command permission's page: the permission centre asks the system; from elsewhere, the app's details. */
     private void openTermuxPermission() {
-        if (c instanceof XDeskActivity) {
-            ((XDeskActivity) c).showPermissionDetail(Permissions.TERMUX);
-            return;
-        }
         try {
             c.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
