@@ -26,9 +26,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private int external = -1;
     private IInjector injector;
     private Boolean shizuku;
+    private boolean connecting;
     private final ServiceConnection connection = new ServiceConnection() {
         public void onServiceConnected(ComponentName name, IBinder service) {
             injector = IInjector.Stub.asInterface(service);
+            connecting = false;
         }
         public void onServiceDisconnected(ComponentName name) { injector = null; }
     };
@@ -44,20 +46,31 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
         AppSession.get(this).activateIfPaired();
-        shizuku = AppSession.get(this).openWirelessInjector(connection);
+        openInjector();
         place();
         new Thread(this::installSession,"xdesx-start").start();
     }
+    private void openInjector() {
+        if (injector!=null || connecting) return;
+        shizuku=AppSession.get(this).openWirelessInjector(connection);
+        connecting=shizuku!=null;
+    }
     private void place() {
-        for (Display d : displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-            if (d.getName().startsWith("XDesX") || external == d.getDisplayId()) continue;
-            if (external != -1) return;
-            external = d.getDisplayId();
-            ActivityOptions opts = ActivityOptions.makeBasic();
-            opts.setLaunchDisplayId(external);
-            startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),opts.toBundle());
-            return;
-        }
+        Display d=TargetDisplay.real(displays);
+        if (d==null || external==d.getDisplayId()) return;
+        external=d.getDisplayId();
+        Context app=getApplicationContext();
+        MainActivity.displayAllowed=id -> TargetDisplay.allowsDesktop(app,id);
+        Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
+        android.graphics.Point pixels=new android.graphics.Point();
+        d.getRealSize(pixels);
+        prefs.displayResolutionMode.put("custom");
+        prefs.displayResolutionCustom.put(pixels.x+"x"+pixels.y);
+        prefs.showAdditionalKbd.put(false);
+        prefs.additionalKbdVisible.put(false);
+        ActivityOptions opts=ActivityOptions.makeBasic();
+        opts.setLaunchDisplayId(external);
+        startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),opts.toBundle());
     }
     public void onDisplayAdded(int id) { place(); }
     public void onDisplayChanged(int id) { }
@@ -109,7 +122,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             ICmdEntryInterface server=MainActivity.verifiedServer;
             if (server!=null) {
                 try { menu=server.xdesxSocket(token); } catch(Exception ignored) {}
-                if (menu!=null) break;
+                if (menu!=null) { runOnUiThread(this::openInjector); break; }
             }
             SystemClock.sleep(250);
         }
@@ -127,6 +140,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void openWindow(String key,String app) {
         if (isDestroyed()) return;
         if (key==null || !key.matches("[0-9a-f]{32}") || app==null || !allowed.contains(app) || windows.containsKey(key)) return;
+        openInjector();
         if (injector==null || MainActivity.verifiedServer==null) { error("X server or shell input service unavailable"); return; }
         XdesxWindow w = new XdesxWindow(MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> windows.remove(key)));
