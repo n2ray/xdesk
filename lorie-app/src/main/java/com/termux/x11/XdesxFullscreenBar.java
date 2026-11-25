@@ -69,6 +69,28 @@ final class XdesxFullscreenBar {
         bar.addView(button, -2, -1);
     }
 
+    private final int[] padOrigin = new int[2];
+    private boolean padPressed;
+
+    // The Mac toolbar has one action. Its normal button still handles physical mice.
+    boolean padEvent(int x, int y, int op, int button, boolean down) {
+        int width = windows.getCurrentWindowMetrics().getBounds().width();
+        boolean near = Math.abs(x - width / 2) <= edge.getLayoutParams().width / 2;
+        cursor(near ? y : height + 9);
+        if (op != 2 || button != 1) return false;
+        boolean hit = false;
+        if (attached) {
+            bar.getLocationOnScreen(padOrigin);
+            hit = x >= padOrigin[0] && x < padOrigin[0] + bar.getWidth()
+                    && y >= padOrigin[1] && y < padOrigin[1] + bar.getHeight();
+        }
+        if (down) { padPressed = hit; return hit; }
+        if (!padPressed) return false;
+        padPressed = false;
+        if (hit) bar.getChildAt(0).performClick();
+        return true;
+    }
+
     synchronized void gameMode(boolean active) {
         game = active;
         zone = -1;

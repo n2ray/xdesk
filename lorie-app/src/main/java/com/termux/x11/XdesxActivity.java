@@ -125,6 +125,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if(desktopNative && mouse.hasPointerCapture()) mouse.releasePointerCapture();
         } catch(RemoteException e){error(e.toString());}
     }
+    private boolean padInput(int op, float x, float y) {
+        if (!switching && fullWindow != null && fullWindow.mac() &&
+                com.termux.x11.screenshare.ScreenShareActivity.fullscreenPad(external,op,x,y,
+                        toolbar == null ? null : toolbar::padEvent)) return true;
+        return nativeInput(op,x,y);
+    }
+
     private boolean nativeInput(int op,float x,float y) {
         if (switching || gamePassthrough) return true;
         if(desktopNative && op>=1 && op<=3 && injector!=null) {
@@ -160,9 +167,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
         layout.addView(new TouchpadView(this, new GestureOutput() {
-            public void move(int x,int y) { int speed=panel==null?100:panel.padSpeed; movePointer(x*speed/100f,y*speed/100f); }
-            public void button(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
-            public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!nativeInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
+            public void move(int x,int y) {
+                int speed=panel==null?100:panel.padSpeed;
+                float dx=x*speed/100f, dy=y*speed/100f;
+                if (!padInput(1,dx,dy)) moveXPointer(dx,dy);
+            }
+            public void button(int b,boolean down) { if (!padInput(2,b,down?1:0)) input.button(b,down); }
+            public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!padInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
         }));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
@@ -209,7 +220,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         },"xdesx-start").start();
     }
     private void movePointer(float dx,float dy) {
-        if (nativeInput(1,dx,dy)) return;
+        if (!nativeInput(1,dx,dy)) moveXPointer(dx,dy);
+    }
+    private void moveXPointer(float dx,float dy) {
         restX+=dx; restY+=dy;
         int x=(int)restX,y=(int)restY;
         restX-=x; restY-=y;

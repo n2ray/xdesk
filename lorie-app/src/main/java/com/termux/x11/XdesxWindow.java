@@ -68,7 +68,8 @@ final class XdesxWindow {
                         injector.setDisplay(display,reader.getWidth(),reader.getHeight());
                         injector.key(x,op==4);
                     } else if (op==6 || (op>=17 && op<=23) || (op>=33 && op<=39)) {
-                        injector.xdesxPointer(display,reader.getWidth(),reader.getHeight(),op,x,y);
+                        if (!mac() || !com.termux.x11.screenshare.ScreenShareActivity.windowPointer(display,op,x,y))
+                            injector.xdesxPointer(display,reader.getWidth(),reader.getHeight(),op,x,y);
                     }
                 }
             }

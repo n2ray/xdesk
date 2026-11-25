@@ -28,7 +28,8 @@ import com.termux.x11.app.R;
 public final class ScreenShareActivity extends Activity implements SurfaceHolder.Callback, ScreenShareSession.PictureListener {
     public static final String EXTRA_HOST = "host";
 
-    private static ScreenShareActivity showing;
+    private static volatile ScreenShareActivity showing;
+    private volatile boolean resumed;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private String hostId;
@@ -37,8 +38,78 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private final io.github.n2ray.xdesk.input.MouseButtons buttons=new io.github.n2ray.xdesk.input.MouseButtons();
     private final int[] pictureOrigin=new int[2];
 
+    // X gives coordinates in this virtual display. Use the same Mac input session as HDMI.
+    public static boolean windowPointer(int display, int op, int x, int y) {
+        ScreenShareActivity a = showing;
+        if (a == null || !a.acceptsWindowPointer(display)) return false;
+        a.ui.post(() -> {
+            if (!a.acceptsWindowPointer(display) || a.view.getWidth() < 1 || a.view.getHeight() < 1) return;
+            if (a.phonePointer) {
+                a.phonePointer = false;
+                if (a.arrow != null) a.arrow.setVisibility(View.GONE);
+            }
+            a.view.getLocationOnScreen(a.pictureOrigin);
+            float fx = (float)(x - a.pictureOrigin[0]) / a.view.getWidth();
+            float fy = (float)(y - a.pictureOrigin[1]) / a.view.getHeight();
+            int b = op & 15;
+            boolean inside = fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1;
+            if (!inside && op < 32 && a.windowButtons == 0) return;
+            a.desktopInput.moveToFraction(fx, fy);
+            if (op == 6) return;
+            boolean down = op < 32;
+            if (b <= 3) {
+                if (down) a.windowButtons |= 1 << b; else a.windowButtons &= ~(1 << b);
+                a.desktopInput.button(b, down);
+            } else if (down) {
+                a.desktopInput.scrollFine(b == 4 ? -1 : b == 5 ? 1 : 0,
+                        b == 6 ? -1 : b == 7 ? 1 : 0, io.github.n2ray.xdesk.input.Input.WHEEL);
+            }
+        });
+        return true;
+    }
+    private int windowButtons;
+    private boolean acceptsWindowPointer(int display) {
+        return resumed && showing == this && desktopInput != null && getDisplay() != null
+                && getDisplay().getDisplayId() == display;
+    }
+    @Override protected void onResume() { super.onResume(); resumed = true; }
+    @Override protected void onPause() {
+        resumed = false;
+        windowButtons = 0;
+        phonePointer = false;
+        if (desktopInput != null && arrow != null) arrow.setVisibility(View.GONE);
+        if (desktopInput != null) desktopInput.releaseAll();
+        super.onPause();
+    }
+
+    public interface PadControls {
+        boolean handle(int x, int y, int op, int button, boolean down);
+    }
+    private boolean phonePointer;
+    private final float[] padPosition = new float[2];
+
+    /** The phone controller and the viewer share the main thread and the authenticated input session. */
+    public static boolean fullscreenPad(int display, int op, float x, float y, PadControls controls) {
+        ScreenShareActivity a = showing;
+        if (a == null || !a.acceptsWindowPointer(display) || a.view.getWidth() < 1) return false;
+        a.phonePointer = true;
+        if (op == 1) a.desktopInput.move(Math.round(x), Math.round(y));
+        if (!a.desktopInput.pointerPlace(a.padPosition)) return false;
+        a.view.getLocationOnScreen(a.pictureOrigin);
+        int px = a.pictureOrigin[0] + Math.round(a.padPosition[0] * (a.view.getWidth() - 1));
+        int py = a.pictureOrigin[1] + Math.round(a.padPosition[1] * (a.view.getHeight() - 1));
+        if (controls != null && controls.handle(px, py, op, (int)x, y != 0)) return true;
+        if (op == 2) a.desktopInput.button((int)x, y != 0);
+        if (op == 3) a.desktopInput.scrollFine(y,x,io.github.n2ray.xdesk.input.Input.WHEEL);
+        return true;
+    }
+
     private boolean desktopPointer(android.view.MotionEvent e) {
         if (desktopInput==null || view==null || view.getWidth()==0 || view.getHeight()==0) return false;
+        if (phonePointer) {
+            phonePointer = false;
+            if (arrow != null) arrow.setVisibility(View.GONE);
+        }
         view.getLocationOnScreen(pictureOrigin);
         float x=(e.getRawX()-pictureOrigin[0])/view.getWidth(), y=(e.getRawY()-pictureOrigin[1])/view.getHeight();
         int action=e.getActionMasked();
@@ -69,7 +140,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (!focus && desktopInput!=null) { buttons.clear(); desktopInput.releaseAll(); }
+        if (!focus && desktopInput!=null) { windowButtons=0; buttons.clear(); desktopInput.releaseAll(); }
     }
     /** The pointer: Screen Sharing's fast mode does not put the Mac's cursor in the picture, so it is drawn here. */
     private ArrowView arrow;
@@ -119,7 +190,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     private void placeArrow() {
-        if (desktopInput!=null) return; // The X or native pointer is already visible.
+        if (desktopInput!=null && !phonePointer) return;
         if (arrow == null || session == null || pointerX < 0 || view.getWidth() < 2) {
             logArrow("not drawn: arrow " + (arrow != null) + " view " + view.getWidth() + " at " + pointerX);
             return;
