@@ -60,6 +60,34 @@ final class XdesxRuntime {
         }
         done.createNewFile();
     }
+    private String launcherIcon(ResolveInfo entry, ComponentName component) throws IOException {
+        android.content.pm.PackageManager pm=context.getPackageManager();
+        String pkg=component.getPackageName();
+        try {
+            long version=pm.getPackageInfo(pkg,0).lastUpdateTime;
+            String name=android.util.Base64.encodeToString(component.flattenToString().getBytes("UTF-8"),
+                android.util.Base64.URL_SAFE|android.util.Base64.NO_WRAP|android.util.Base64.NO_PADDING);
+            File target=path("cache/icons/"+name+"-"+version+".png");
+            if (!target.isFile()) {
+                target.getParentFile().mkdirs();
+                android.graphics.drawable.Drawable icon=entry.loadIcon(pm);
+                if (icon==null) return "applications-other";
+                android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(64,64,android.graphics.Bitmap.Config.ARGB_8888);
+                icon.setBounds(0,0,64,64);
+                icon.draw(new android.graphics.Canvas(bitmap));
+                File tmp=File.createTempFile("icon",".png",target.getParentFile());
+                try {
+                    try (OutputStream out=new FileOutputStream(tmp)) {
+                        if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out)) return "applications-other";
+                    }
+                    Files.move(tmp.toPath(),target.toPath(),StandardCopyOption.REPLACE_EXISTING);
+                } finally { bitmap.recycle(); tmp.delete(); }
+            }
+            return target.getAbsolutePath();
+        } catch (android.content.pm.PackageManager.NameNotFoundException | RuntimeException e) {
+            return "applications-other";
+        }
+    }
     private void configure() throws Exception {
         for(String dir:new String[]{"tmp","run","data/applications","cache","config"}) path(dir).mkdirs();
         String dir=prefix.getPath();
@@ -68,15 +96,18 @@ final class XdesxRuntime {
         entries.sort(new ResolveInfo.DisplayNameComparator(context.getPackageManager()));
         for(ResolveInfo r:entries) {
             if(r.activityInfo.packageName.equals(context.getPackageName())) continue;
-            String component=new ComponentName(r.activityInfo.packageName,r.activityInfo.name).flattenToString();
+            ComponentName activity=new ComponentName(r.activityInfo.packageName,r.activityInfo.name);
+            String component=activity.flattenToString();
             int i=apps.size(); apps.add(component);
             String name="android-"+i+".desktop";
             String label=r.loadLabel(context.getPackageManager()).toString().replace('\n',' ').replace('\r',' ');
             text("titles/"+i,label);
             text("data/applications/"+name,"[Desktop Entry]\nType=Application\nName="+label.replace("\\","\\\\")+
-                "\nPath="+dir+"\nExec="+dir+"/bin/xdesx-window "+i+" "+dir+"/titles/"+i+"\nIcon=applications-other\n");
+                "\nPath="+dir+"\nExec="+dir+"/bin/xdesx-window "+i+" "+dir+"/titles/"+i+"\nIcon="+launcherIcon(r,activity)+"\n");
             menu.append("<Filename>").append(name).append("</Filename>");
         }
+        text("config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
+            "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/></property></channel>");
         text("android.menu",menu.append("</Include></Menu>").toString());
         try(InputStream in=context.getAssets().open("xdesx/panel.xml"); BufferedReader r=new BufferedReader(new InputStreamReader(in))) {
             StringBuilder xml=new StringBuilder(); String line; while((line=r.readLine())!=null) xml.append(line);

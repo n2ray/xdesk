@@ -874,6 +874,45 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    private volatile int xdesxNativeDisplay=-1;
+
+    @Override public void xdesxNativeInput(int op,float x,float y) {
+        int display=xdesxNativeDisplay;
+        if (display<0) return;
+        post(() -> {
+            if (xdesxNativeDisplay!=display) return;
+            switch (op) {
+                case 1: injector.moveBy(x,y); break;
+                case 2: injector.button((int)x==1?1:(int)x==2?4:2,y!=0); break;
+                case 3: injector.scroll(-y,x); break;
+                case 4: injector.key((int)x,y!=0?1:0); break;
+            }
+        });
+    }
+
+    @Override public int moveXdesxTask(int window, int external, String pkg, int task, boolean enter, android.graphics.Bitmap cursor,int hotspot,int width,int height) {
+        synchronized (appDisplays) {
+            VirtualDisplay d=appDisplays.get(window);
+            if (sessionOver || d==null || external<=0 || appDisplays.containsKey(external) ||
+                !d.getDisplay().getName().startsWith("XDesX "+pkg+"/")) return -1;
+            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
+            if (moved>=0) {
+                xdesxNativeDisplay=enter?external:-1;
+                post(() -> {
+                    if (enter) {
+                        injector.setDisplay(external,width,height);
+                        injector.moveTo(.5f,.5f);
+                        pointer.set(external,cursor,hotspot,0,true,width/2,height/2);
+                    } else {
+                        injector.releaseAll();
+                        pointer.release();
+                    }
+                });
+            }
+            return moved;
+        }
+    }
+
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.remove(id);
@@ -925,7 +964,7 @@ public class InjectorService extends IInjector.Stub {
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(displayId);
             if (d != null && d.getDisplay().getName().startsWith("XDesX "))
-                flags = "0x18000000";  // NEW_TASK | MULTIPLE_TASK
+                flags = "0x18010000";  // NEW_TASK | MULTIPLE_TASK | NO_ANIMATION
         }
         String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);

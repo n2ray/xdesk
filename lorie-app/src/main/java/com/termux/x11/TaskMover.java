@@ -112,6 +112,22 @@ final class TaskMover {
         return r[0];
     }
 
+    static int moveWindowTask(int source, int target, String pkg, int expected) {
+        try {
+            Object atm=taskManager();
+            List<?> tasks=(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm,source);
+            for (Object info:tasks) {
+                int id=info.getClass().getField("taskId").getInt(info);
+                if ((expected>=0 && expected!=id) || !belongsTo(info,pkg)) continue;
+                atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
+                return id;
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG,"move window from "+source+" to "+target,e);
+        }
+        return -1;
+    }
+
     private static boolean belongsTo(Object info, String pkg) throws ReflectiveOperationException {
         for (String name : new String[]{"baseActivity", "topActivity"}) {
             ComponentName c = (ComponentName) info.getClass().getField(name).get(info);

@@ -23,7 +23,21 @@ final class XdesxWindow {
     private volatile ParcelFileDescriptor control;
     private volatile boolean stopped;
     private ImageReader reader;
-    private int display = -1;
+    private volatile int display = -1;
+    private volatile boolean nativeFullscreen;
+    private int task=-1;
+    boolean chrome() { return component.startsWith("com.android.chrome/"); }
+    boolean fullscreen() { return nativeFullscreen; }
+    synchronized boolean toggle(int external,android.graphics.Bitmap cursor,int hotspot,int width,int height) throws RemoteException {
+        if (stopped || display<0) return false;
+        boolean enter=!nativeFullscreen;
+        int moved=injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
+        if (moved<0) return false;
+        task=moved;
+        nativeFullscreen=enter;
+        Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
+        return true;
+    }
     XdesxWindow(ICmdEntryInterface s,IInjector i,String k,String c,Runnable f) {
         server=s; injector=i; key=k; component=c; finished=f;
     }
@@ -43,7 +57,7 @@ final class XdesxWindow {
             while (!stopped) {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
                 if (op==1) resize(x,y);
-                if (display<0) continue;
+                if (display<0 || nativeFullscreen) continue;
                 synchronized (injector) {
                     if (op==4 || op==5) {
                         injector.setDisplay(display,reader.getWidth(),reader.getHeight());
@@ -72,7 +86,10 @@ final class XdesxWindow {
                 display=injector.createVirtualDisplay("XDesX "+component,w,h,160,next.getSurface(),0);
                 String failure=injector.startApp(component,display);
                 if (failure!=null) throw new IOException(failure);
-            } else injector.resizeVirtualDisplay(display,w,h,160,next.getSurface());
+            } else {
+                injector.resizeVirtualDisplay(display,w,h,160,next.getSurface());
+                Log.i("XDesX","committed resize "+w+"x"+h);
+            }
         } catch(Exception e) { next.close(); throw e; }
         ImageReader old=reader;
         reader=next;
@@ -85,7 +102,7 @@ final class XdesxWindow {
     private void frame(ImageReader src) {
         if (stopped) return;
         try (Image image=src.acquireLatestImage()) {
-            if (image==null) return;
+            if (image==null || nativeFullscreen) return;
             try (HardwareBuffer buffer=image.getHardwareBuffer(); SyncFence fence=image.getFence()) {
                 if (fence.isValid() && !fence.await(Duration.ofSeconds(1))) { stop(); return; }
                 server.xdesxFrame(key,buffer);

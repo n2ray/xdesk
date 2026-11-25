@@ -21,6 +21,55 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private XdesxRuntime runtime;
     private KeyInputView mouse;
     private float restX,restY;
+    private android.widget.Button fullscreenButton;
+    private XdesxWindow fullWindow;
+    private boolean switching;
+
+    private XdesxWindow chromeWindow() {
+        for (XdesxWindow w:windows.values()) if (w.chrome()) return w;
+        return null;
+    }
+    private void refreshButton() {
+        fullscreenButton.setVisibility(chromeWindow()!=null?View.VISIBLE:View.GONE);
+        fullscreenButton.setEnabled(!switching);
+        fullscreenButton.setText(fullWindow==null?"Chrome 原生全屏":"返回 Chrome 窗口");
+    }
+    private void toggleFullscreen() {
+        XdesxWindow w=fullWindow!=null?fullWindow:chromeWindow();
+        Display d=displays.getDisplay(external);
+        if (w==null || d==null || switching) return;
+        switching=true;
+        refreshButton();
+        android.graphics.Point size=new android.graphics.Point();
+        d.getRealSize(size);
+        View arrow=CursorOverlay.arrow(this,1.5f);
+        int side=arrow.getLayoutParams().width;
+        arrow.layout(0,0,side,side);
+        android.graphics.Bitmap cursor=android.graphics.Bitmap.createBitmap(side,side,android.graphics.Bitmap.Config.ARGB_8888);
+        arrow.draw(new android.graphics.Canvas(cursor));
+        final int target=external, hotspot=CursorOverlay.arrowTipX(arrow);
+        new Thread(() -> {
+            boolean ok=false;
+            try { ok=w.toggle(target,cursor,hotspot,size.x,size.y); }
+            catch(RemoteException e) { Log.w("XDesX","toggle",e); }
+            boolean moved=ok;
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                switching=false;
+                if (moved) fullWindow=w.fullscreen()?w:null;
+                else error("Chrome 任务切换失败");
+                refreshButton();
+                capture();
+            });
+        },"xdesx-fullscreen").start();
+    }
+    private boolean nativeInput(int op,float x,float y) {
+        if (switching) return true;
+        if (fullWindow==null) return false;
+        try { if (injector!=null) injector.xdesxNativeInput(op,x,y); }
+        catch(RemoteException e) { error(e.toString()); }
+        return true;
+    }
     private final Map<String,XdesxWindow> windows = new HashMap<>();
     private DisplayManager displays;
     private int external = -1;
@@ -45,26 +94,37 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
         layout.addView(new TouchpadView(this, new GestureOutput() {
-            public void move(int x,int y) { input.move(x,y); }
-            public void button(int b,boolean down) { input.button(b,down); }
-            public void scroll(int phase,float x,float y) { input.scrollFine(y,x,phase); }
+            public void move(int x,int y) { if (!nativeInput(1,x,y)) input.move(x,y); }
+            public void button(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
+            public void scroll(int phase,float x,float y) { if (!nativeInput(3,x,y)) input.scrollFine(y,x,phase); }
         }));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
-            public void text(String s) { input.text(s); }
-            public void tapKey(int scan) { input.tapKey(scan); }
+            public void text(String s) {
+                if (fullWindow==null) input.text(s);
+                else try { if (injector!=null) injector.text(s); } catch(RemoteException e) { error(e.toString()); }
+            }
+            public void tapKey(int scan) {
+                if (!nativeInput(4,scan,1)) input.tapKey(scan); else nativeInput(4,scan,0);
+            }
             public void mouseMove(float dx,float dy) {
+                if (nativeInput(1,dx,dy)) return;
                 restX+=dx; restY+=dy; int x=(int)restX,y=(int)restY;
                 restX-=x; restY-=y;
                 if(x!=0 || y!=0) input.move(x,y);
             }
-            public void mouseButton(int b,boolean down) { input.button(b,down); }
-            public void mouseScroll(float v,float h) { input.scrollFine(-v,h,0); }
+            public void mouseButton(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
+            public void mouseScroll(float v,float h) { if (!nativeInput(3,h,-v)) input.scrollFine(-v,h,0); }
             public void captureChanged(boolean has) { if(!has) { mouse.releaseMouse(); mouse.postDelayed(XdesxActivity.this::capture,200); } }
             public Object target() { return input; }
             public boolean latched() { return false; }
             public boolean physicalKey(KeyEvent e) { return dispatchKeyEvent(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
+        fullscreenButton=new android.widget.Button(this);
+        fullscreenButton.setFocusable(false);
+        fullscreenButton.setOnClickListener(v -> toggleFullscreen());
+        layout.addView(fullscreenButton,new android.widget.FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.END));
+        refreshButton();
         setContentView(layout);
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
@@ -107,7 +167,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         prefs.additionalKbdVisible.put(false);
         ActivityOptions opts=ActivityOptions.makeBasic();
         opts.setLaunchDisplayId(external);
-        startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),opts.toBundle());
+        startActivity(new Intent(this,MainActivity.class).putExtra("xdesx_quiet",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NO_ANIMATION),opts.toBundle());
         mouse.postDelayed(() -> {
             if(isDestroyed() || isFinishing() || external<0) return;
             ActivityOptions phone=ActivityOptions.makeBasic();
@@ -134,13 +194,19 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             return;
         }
         XdesxWindow w = new XdesxWindow(MainActivity.verifiedServer,injector,key,app,
-            () -> runOnUiThread(() -> windows.remove(key)));
+            () -> runOnUiThread(() -> {
+                if (windows.remove(key)==fullWindow) fullWindow=null;
+                refreshButton();
+            }));
         windows.put(key,w);
         w.start();
+        refreshButton();
     }
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         if (e.getScanCode()>0 && e.getKeyCode()!=KeyEvent.KEYCODE_BACK) {
-            input.key(e.getScanCode(),e.getAction()==KeyEvent.ACTION_DOWN); return true;
+            boolean down=e.getAction()==KeyEvent.ACTION_DOWN;
+            if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
+            return true;
         }
         return super.dispatchKeyEvent(e);
     }

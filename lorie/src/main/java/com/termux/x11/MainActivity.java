@@ -385,6 +385,7 @@ public class MainActivity extends AppCompatActivity {
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.main_activity);
+        if (getIntent().getBooleanExtra("xdesx_quiet",false)) findViewById(R.id.stub).setVisibility(View.GONE);
         applyWindowSettings();
 
         frm = findViewById(R.id.frame);
@@ -1525,7 +1526,7 @@ public class MainActivity extends AppCompatActivity {
 
             setTerminalToolbarView();
             findViewById(R.id.mouse_buttons).setVisibility(prefs.showMouseHelper.get() && "1".equals(prefs.touchMode.get()) && connected ? View.VISIBLE : View.GONE);
-            findViewById(R.id.stub).setVisibility(connected?View.INVISIBLE:View.VISIBLE);
+            findViewById(R.id.stub).setVisibility(connected || getIntent().getBooleanExtra("xdesx_quiet",false) ? View.INVISIBLE : View.VISIBLE);
             noServerSignal.setVisibility(View.GONE);
             getLorieView().setVisibility(connected?View.VISIBLE:View.INVISIBLE);
 
