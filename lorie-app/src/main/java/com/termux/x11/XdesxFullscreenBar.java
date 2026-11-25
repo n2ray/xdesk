@@ -47,7 +47,7 @@ final class XdesxFullscreenBar {
         // Native physical pointer movements go straight to HDMI. Only the edge needs a hit target.
         WindowManager.LayoutParams trigger = params(160 * scale / 100, 2);
         trigger.setTitle("Xdesx fullscreen edge");
-        trigger.alpha = 0;
+        // The empty View draws nothing. A zero-alpha Window is excluded from pointer hit testing.
         try { windows.addView(edge, trigger); edgeAttached = true; }
         catch (RuntimeException e) { android.util.Log.w("XDesX", "fullscreen edge unavailable", e); ui.post(failure); }
 
