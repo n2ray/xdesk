@@ -3,6 +3,9 @@
 buildscript {
     repositories {
         google()
+        if (System.getenv('GITHUB_ACTIONS') == 'true') {
+            maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
+        }
         mavenCentral()
     }
     dependencies {
@@ -15,6 +18,9 @@ buildscript {
 allprojects {
     repositories {
         google()
+        if (System.getenv('GITHUB_ACTIONS') == 'true') {
+            maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
+        }
         mavenCentral()
         maven { url "https://jitpack.io" }
     }
