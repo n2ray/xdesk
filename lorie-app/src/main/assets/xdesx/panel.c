@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -150,6 +151,11 @@ static void current(WnckScreen *screen,WnckWindow *previous,Panel *p) {
     GdkPixbuf *icon=w?wnck_window_get_mini_icon(w):NULL;
     gtk_button_set_image(GTK_BUTTON(p->current),icon?gtk_image_new_from_pixbuf(icon):NULL);
     gtk_button_set_always_show_image(GTK_BUTTON(p->current),TRUE);
+    GtkWidget *child=gtk_bin_get_child(GTK_BIN(p->current));
+    if (GTK_IS_LABEL(child)) {
+        gtk_label_set_max_width_chars(GTK_LABEL(child),28);
+        gtk_label_set_ellipsize(GTK_LABEL(child),PANGO_ELLIPSIZE_END);
+    }
 }
 static void refresh(Panel *p) {
     char *data=NULL;
@@ -170,7 +176,10 @@ static void refresh(Panel *p) {
     g_strfreev(fields); g_free(data);
 }
 static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorEvent e,Panel *p) {
-    refresh(p);
+    char *name=g_file_get_basename(file);
+    char *target=other?g_file_get_basename(other):NULL;
+    if (g_strcmp0(name,"panel-state")==0 || g_strcmp0(target,"panel-state")==0) refresh(p);
+    g_free(name); g_free(target);
 }
 static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     g_signal_handlers_disconnect_by_data(p->screen,p);
@@ -196,8 +205,8 @@ static void construct(XfcePanelPlugin *plugin) {
     g_signal_connect(p->current,"clicked",G_CALLBACK(window_menu),p);
     p->css=gtk_css_provider_new();
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),GTK_STYLE_PROVIDER(p->css),GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    GFile *file=g_file_new_for_path("run/panel-state");
-    p->monitor=g_file_monitor_file(file,G_FILE_MONITOR_NONE,NULL,NULL);
+    GFile *file=g_file_new_for_path("run");
+    p->monitor=g_file_monitor_directory(file,G_FILE_MONITOR_WATCH_MOVES,NULL,NULL);
     if (p->monitor) g_signal_connect(p->monitor,"changed",G_CALLBACK(state_changed),p);
     g_object_unref(file);
     refresh(p); current(p->screen,NULL,p);
