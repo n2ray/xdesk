@@ -23,14 +23,24 @@ apt-get install -y --allow-remove-essential coreutils-from-gnu coreutils-from-uu
 ls --version | head -1
 
 # XDesk's own package, built from this tree (the repository has the same)
-# Keep native build dependencies out of the exported desktop.
-installed() { dpkg-query -W -f='${db:Status-Status} ${binary:Package}\n' | sed -n 's/^installed //p' | LC_ALL=C sort; }
-installed > /tmp/pre-build-packages
-sh /src/linux/build-debs.sh /tmp/debs
-installed > /tmp/post-build-packages
-LC_ALL=C comm -13 /tmp/pre-build-packages /tmp/post-build-packages | xargs -r apt-get purge -y
-rm -f /tmp/pre-build-packages /tmp/post-build-packages
-apt-get install -y /tmp/debs/xdesk-core_*_arm64.deb
+if [ "${XDESX_APPS_ONLY:-0}" = 1 ]; then
+    # Use the same signed ARM64 package and key used by the installed app.
+    install -m 644 /src/linux/apt/xdesk-archive.asc /usr/share/keyrings/xdesk-archive.asc
+    echo 'deb [signed-by=/usr/share/keyrings/xdesk-archive.asc] https://n2ray.github.io/xdesk-apt resolute main' > /etc/apt/sources.list.d/xdesx-build.list
+    apt-get update
+    core_version=$(sed -n 's/^Version: //p' /src/linux/packages/xdesk-core/DEBIAN/control)
+    apt-get install -y --no-install-recommends "xdesk-core=$core_version"
+    rm /etc/apt/sources.list.d/xdesx-build.list
+else
+    # Keep native build dependencies out of the exported desktop.
+    installed() { dpkg-query -W -f='${db:Status-Status} ${binary:Package}\n' | sed -n 's/^installed //p' | LC_ALL=C sort; }
+    installed > /tmp/pre-build-packages
+    sh /src/linux/build-debs.sh /tmp/debs
+    installed > /tmp/post-build-packages
+    LC_ALL=C comm -13 /tmp/pre-build-packages /tmp/post-build-packages | xargs -r apt-get purge -y
+    rm -f /tmp/pre-build-packages /tmp/post-build-packages
+    apt-get install -y /tmp/debs/xdesk-core_*_arm64.deb
+fi
 
 apt-get update
 # Greybird and elementary-xfce: the theme and icons XFCE's own settings name (without them it falls back to bare GTK)

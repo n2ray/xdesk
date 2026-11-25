@@ -3,9 +3,17 @@ name: Built-in Linux image
 # Builds the Ubuntu 26.04 + XFCE image XDesk's built-in Linux installs, as an artifact (not published).
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+        description: Publish the verified xdesx Ubuntu apps r1 image
   push:
     branches: [builtin-linux]
     paths: ['linux/**', 'lorie-app/src/main/assets/linux/**', '.github/workflows/linux-rootfs.yml']
+
+permissions:
+  contents: write
 
 jobs:
   rootfs:
@@ -55,3 +63,13 @@ jobs:
           xdesx-ubuntu-apps-arm64.tar.gz.sha256
         compression-level: 0
         retention-days: 14
+    - name: Publish xdesx Ubuntu apps r1
+      if: inputs.publish && github.ref_name == 'xdesx'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        sha256sum -c xdesx-ubuntu-apps-arm64.tar.gz.sha256
+        gh release create xdesx-ubuntu-apps-r1 --target "$GITHUB_SHA" --prerelease \
+          --title "xdesx Ubuntu 26.04 应用环境 r1" \
+          --notes "xdesx 首次启用 Linux 时下载的 ARM64 应用环境。包含 xterm、Mousepad 和图形加速支持，窗口由外屏上的 xfwm4 管理。" \
+          xdesx-ubuntu-apps-arm64.tar.gz xdesx-ubuntu-apps-arm64.tar.gz.sha256
