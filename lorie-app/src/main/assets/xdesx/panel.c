@@ -18,7 +18,7 @@
 typedef struct {
     GtkWidget *current, *status, *logo, *icons, *settings, *stack;
     int mouse,pad,limit,reverse,remember,opened,battery,charging;
-    char network[64],profile[64];
+    char network[64],profile[64],options[96];
     char *mac_id;
     WnckScreen *screen;
     GFileMonitor *monitor;
@@ -168,7 +168,10 @@ static void refresh(Panel *p) {
     if (!g_file_get_contents("run/panel-state",&data,NULL,NULL)) return;
     char **fields=g_strsplit(data,"\n",5);
     if (g_strv_length(fields)==5) {
-        int scale=atoi(fields[0]); p->render=atoi(fields[1]);
+        int scale=atoi(fields[0]),render=atoi(fields[1]);
+        gboolean settings_changed=scale!=p->scale || render!=p->render || strcmp(fields[3],p->options)!=0;
+        g_strlcpy(p->options,fields[3],sizeof(p->options));
+        p->render=render;
         sscanf(fields[3],"%d %d %d %d %d %d",&p->mouse,&p->pad,&p->limit,&p->reverse,&p->remember,&p->opened);
         g_strlcpy(p->profile,fields[4],sizeof(p->profile));
         gchar **parts=g_strsplit(fields[2],"     ",3);
@@ -191,7 +194,9 @@ static void refresh(Panel *p) {
                 "#xdesx-bar button {border:0;box-shadow:none;background:transparent;color:#19191b;border-radius:5px;padding:0 %dpx;} "
                 "#xdesx-bar button:hover,menuitem:hover {background:#e6e6e8;color:#19191b;} "
                 "menu {background:#fafafa;color:#19191b;border:1px solid #c6c6c8;padding:4px;} "
-                "menuitem {padding:%dpx %dpx;} #xdesx-settings .chosen {background:#d4e5fb;}",
+                "menuitem {padding:%dpx %dpx;} #xdesx-settings {background:#fafafa;color:#202023;} "
+                "#xdesx-settings button {background:#f1f1f3;border:1px solid #d2d2d5;box-shadow:none;border-radius:5px;} "
+                "#xdesx-settings .chosen {background:#d4e5fb;}",
                 14*scale/100,8*scale/100,5*scale/100,9*scale/100);
             gtk_css_provider_load_from_data(p->css,css,-1,NULL); g_free(css);
             xfconf_channel_set_uint(xfconf_channel_get("xfce4-panel"),"/panels/panel-1/size",(36*scale+50)/100);
@@ -203,8 +208,8 @@ static void refresh(Panel *p) {
             char font[80]; snprintf(font,sizeof(font),"Roboto,Noto Sans CJK SC Bold %d",(10*scale+50)/100);
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_font",font);
         }
+        if(p->settings && settings_changed) settings_contents(p);
     }
-    if(p->settings) settings_contents(p);
     g_strfreev(fields); g_free(data);
 }
 static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorEvent e,Panel *p) {

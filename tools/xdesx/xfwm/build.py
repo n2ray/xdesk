@@ -27,7 +27,7 @@ values = {"GETTEXT_PACKAGE":"xfwm4", "PACKAGE":"xfwm4", "PACKAGE_NAME":"xfwm4", 
 includes = ["include","include/gtk-3.0","include/glib-2.0","lib/glib-2.0/include","include/cairo","include/pango-1.0",
             "include/harfbuzz","include/gdk-pixbuf-2.0","include/atk-1.0","include/freetype2","include/xfce4",
             "include/xfce4/libxfce4ui-2","include/xfce4/libxfce4kbd-private-3","include/xfce4/xfconf-0","include/startup-notification-1.0"]
-libs = "xfce4kbd-private-3 xfce4ui-2 xfce4util xfconf-0 gtk-3 gdk-3 gdk_pixbuf-2.0 pango-1.0 pangocairo-1.0 cairo gio-2.0 gobject-2.0 glib-2.0 X11 Xext Xi Xrender Xcomposite Xdamage Xfixes Xpresent Xrandr Xinerama Xres epoxy startup-notification-1 m"
+libs = "xfce4kbd-private-3 xfce4ui-2 xfce4util xfconf-0 gtk-3 gdk-3 gdk_pixbuf-2.0 pango-1.0 pangocairo-1.0 cairo gio-2.0 gobject-2.0 glib-2.0 X11 Xext Xi Xrender Xcomposite Xdamage Xfixes Xpresent Xrandr Xinerama XRes epoxy startup-notification-1 m"
 sources = re.findall(r'^\s*([\w-]+\.c)\s*\\', (src/"src/Makefile.am").read_text(), re.M)
 subprocess.run([compiler,"-O2","-DHAVE_CONFIG_H","-I.",*["-I"+str(prefix/i) for i in includes],
                 "-I"+str(here/"compat"),"common/xfwm-common.c", *["src/"+s for s in sources],"-L"+str(prefix/"lib"),
