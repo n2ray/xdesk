@@ -424,6 +424,22 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             MainActivity.xdesxShape(android.view.PointerIcon.create(bitmap,x,y));
         } catch(IOException | IllegalArgumentException e){Log.w("XDesX","cursor image",e);}
     }
+    private void setAppearance(int value) {
+        SharedPreferences prefs=getSharedPreferences("xdesx-panel",MODE_PRIVATE);
+        String previous=prefs.getString("previous-system-night",null);
+        if(injector!=null) try {
+            String current=injector.desktopNightMode("read");
+            if(value!=0 && current!=null) {
+                if(previous==null)prefs.edit().putString("previous-system-night",current).apply();
+                injector.desktopNightMode(value==2?"yes":"no");
+            } else if(value==0 && previous!=null) {
+                String last=panel.appearance==2?"yes":"no";
+                if(!last.equals(current) || injector.desktopNightMode(previous)!=null)
+                    prefs.edit().remove("previous-system-night").apply();
+            }
+        } catch(RemoteException e){Log.w("XDesX","system appearance",e);}
+        panel.appearance=value;panel.saveOptions();
+    }
     private void panelAction(String action) {
         if(action.startsWith("notify-")) {notifications.action(action.substring(7));return;}
         if(action.startsWith("mac-")) {
@@ -453,24 +469,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         switch(parts[0]) {
             case "lang":
                 panel.language=value; panel.saveOptions();
-                if(android.os.Build.VERSION.SDK_INT>=33) getSystemService(android.app.LocaleManager.class).setApplicationLocales(
-                    android.os.LocaleList.forLanguageTags(new String[]{"","en","zh-Hans","zh-Hant"}[value]));
-                else {
-                    java.util.Locale locale=value==0?android.content.res.Resources.getSystem().getConfiguration().getLocales().get(0):
-                        java.util.Locale.forLanguageTag(new String[]{"","en","zh-CN","zh-TW"}[value]);
-                    // Android 11–12 have no per-app LocaleManager. Limit this override to our resources.
-                    for(Context c:new Context[]{this,getApplicationContext()}) {
-                        android.content.res.Resources resources=c.getResources();
-                        android.content.res.Configuration config=new android.content.res.Configuration(resources.getConfiguration());
-                        config.setLocale(locale);
-                        resources.updateConfiguration(config,resources.getDisplayMetrics());
-                    }
-                    controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
-                }
+                ((XdesxApp)getApplication()).refreshLanguage();
+                controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
                 return;
             case "appearance":
-                if(value!=0 && injector!=null) try {if(!injector.setDesktopNight(value==2)) Log.w("XDesX","System night mode change was declined");} catch(RemoteException ex){error(ex.toString());}
-                panel.appearance=value; panel.saveOptions(); return;
+                setAppearance(value); return;
             case "mouse": panel.mouseSpeed=value; panel.saveOptions(); return;
             case "pad": panel.padSpeed=value; panel.saveOptions(); return;
             case "limit": panel.limit=value; panel.saveOptions(); return;

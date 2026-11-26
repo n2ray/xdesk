@@ -24,7 +24,7 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
-    <application
+    <application android:name="com.termux.x11.XdesxApp" tools:replace="android:name"
         android:icon="@drawable/xdesx_icon"
         android:localeConfig="@xml/locales_config"
         android:label="xdesx"

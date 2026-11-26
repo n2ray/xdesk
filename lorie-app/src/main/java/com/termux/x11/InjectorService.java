@@ -1056,8 +1056,18 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
-    @Override public boolean setDesktopNight(boolean dark) {
-        return exec(2000,"/system/bin/cmd","uimode","night",dark?"yes":"no")[0]==null;
+    @Override public String desktopNightMode(String mode) {
+        boolean read="read".equals(mode);
+        if(!read && !validNightMode(mode))return null;
+        String[] result=read?exec(2000,"/system/bin/cmd","uimode","night"):
+            exec(2000,"/system/bin/cmd","uimode","night",mode);
+        if(result[0]!=null)return null;
+        String value=result[1].trim().replaceFirst("^Night mode: ", "");
+        return validNightMode(value)?value:null;
+    }
+    private boolean validNightMode(String mode) {
+        return "auto".equals(mode)||"yes".equals(mode)||"no".equals(mode)||
+            "custom_schedule".equals(mode)||"custom_bedtime".equals(mode);
     }
     @Override public void xdesxNativeInput(int op,float x,float y) {
         int display=xdesxNativeDisplay;

@@ -99,6 +99,17 @@ static void launcher_settings(GtkButton *button,Launcher *l) {
     gtk_widget_hide(l->popup);
     settings_open(NULL,p);
 }
+static gboolean power_icon(GtkWidget *widget,cairo_t *cr,Panel *p) {
+    double side=MIN(gtk_widget_get_allocated_width(widget),gtk_widget_get_allocated_height(widget));
+    cairo_translate(cr,gtk_widget_get_allocated_width(widget)/2.,gtk_widget_get_allocated_height(widget)/2.);
+    cairo_scale(cr,side/20.,side/20.);
+    cairo_set_source_rgb(cr,p->dark?1:.76,.23,.22);
+    cairo_set_line_width(cr,2.2);
+    cairo_set_line_cap(cr,CAIRO_LINE_CAP_ROUND);
+    cairo_arc(cr,0,.5,6.6,-.28*G_PI,1.28*G_PI);
+    cairo_move_to(cr,0,-8);cairo_line_to(cr,0,-.8);cairo_stroke(cr);
+    return FALSE;
+}
 static void launcher_exit(GtkButton *b,Launcher *l) {
     gtk_widget_hide(l->popup);
     GtkWidget *d=gtk_message_dialog_new(NULL,GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"%s",T("结束外屏桌面？"));
@@ -180,7 +191,11 @@ static void main_menu(GtkWidget *button,Panel *p) {
         gtk_button_set_always_show_image(GTK_BUTTON(settings),TRUE);
         g_object_unref(gear);
     }
-    GtkWidget *exit=gtk_button_new_with_label("⏻");
+    GtkWidget *exit=gtk_button_new(),*art=gtk_drawing_area_new();
+    gtk_widget_set_size_request(art,gear_size,gear_size);
+    gtk_container_add(GTK_CONTAINER(exit),art);
+    g_signal_connect(art,"draw",G_CALLBACK(power_icon),p);
+    atk_object_set_name(gtk_widget_get_accessible(exit),T("结束桌面"));
     gtk_widget_set_tooltip_text(exit,T("结束桌面"));
     gtk_widget_set_name(exit,"xdesx-power");
     gtk_box_pack_start(GTK_BOX(row),settings,FALSE,FALSE,0);
