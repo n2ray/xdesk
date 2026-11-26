@@ -10,6 +10,8 @@
 
 这是两个可以并排安装、独立发版的桌面实验。**XDesk 以手机为中心**，在手机上选好应用或会话，再送到想用的屏幕。**xdesx 以外屏为中心**，从显示器上的开始菜单打开应用，把安卓应用、Ubuntu 应用和 Mac 共享桌面排在不同窗口里。手机可以放在手边当触摸板或键盘。
 
+只装 **xdesx.apk** 就能启动外屏桌面，无需先安装 XDesk 或 Termux。用到 Linux 应用时，再到全局设置下载 Ubuntu 核心。
+
 [下载 xdesx 首个 0.1.0 预览版（Android APK）](https://github.com/n2ray/xdesx/releases/download/v0.1.0-preview.4/xdesx.apk) · [安装条件和预览说明](https://github.com/n2ray/xdesx/releases/tag/v0.1.0-preview.4)
 
 ## 屏上能放什么

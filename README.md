@@ -10,6 +10,8 @@
 
 XDesk explores a **phone-first** workflow. Choose an app or session on your phone and send it to the screen you want. **xdesx** explores an **external-display-first** workflow. Open apps from the monitor’s own launcher and arrange Android apps, Ubuntu apps and a shared Mac desktop in separate windows. The phone can serve as a touchpad or keyboard. The two Android apps can be installed side by side and have separate releases.
 
+Install **xdesx.apk** on its own. XDesk and Termux are not required. Download the optional Ubuntu core in Global Settings only when you want to run Linux apps.
+
 [Download the first xdesx 0.1.0 preview for Android (APK)](https://github.com/n2ray/xdesx/releases/download/v0.1.0-preview.4/xdesx.apk) · [Requirements and preview notes](https://github.com/n2ray/xdesx/releases/tag/v0.1.0-preview.4)
 
 ## What goes on the screen
