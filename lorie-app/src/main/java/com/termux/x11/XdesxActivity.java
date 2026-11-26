@@ -80,6 +80,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         IInjector service = injector;
         if (service == null) return;
         switching=true;
+        syncDesktopKeys();
         android.graphics.Point size=new android.graphics.Point();
         d.getRealSize(size);
         View arrow=CursorOverlay.arrow(this,panel.scale/100f);
@@ -108,6 +109,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                         });
                     }
                 }
+                syncDesktopKeys();
                 if (fullWindow == null) {
                     hideImeOnReturn = moved;
                     capture();
@@ -115,6 +117,32 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 else if (mouse.hasPointerCapture()) mouse.releasePointerCapture();
             });
         },"xdesx-fullscreen").start();
+    }
+    private IMacKeyboard desktopKeys;
+    private final Set<Integer> pressedDesktopKeys=new HashSet<>();
+
+    private void releaseDesktopKeys() {
+        for(int scan:pressedDesktopKeys)input.key(scan,false);
+        pressedDesktopKeys.clear();
+    }
+
+    // Android consumes system shortcuts before Activity key dispatch. The existing external
+    // keyboard reader sends physical scan codes straight to X, where xfwm4 owns the shortcuts.
+    private void syncDesktopKeys() {
+        boolean wanted=injector!=null && !isFinishing() && !isDestroyed() && !switching && fullWindow==null
+            && ((XdesxApp)getApplication()).desktopVisible(external);
+        if(wanted==(desktopKeys!=null))return;
+        releaseDesktopKeys();
+        desktopKeys=wanted?new IMacKeyboard.Stub(){
+            public void reset(){runOnUiThread(()->{if(desktopKeys==this)releaseDesktopKeys();});}
+            public void key(String device,int scan,int value){runOnUiThread(()->{
+                if(desktopKeys!=this || DesktopInput.view()==null)return;
+                if(value==1 && pressedDesktopKeys.add(scan))input.key(scan,true);
+                if(value==0 && pressedDesktopKeys.remove(scan))input.key(scan,false);
+            });}
+        }:null;
+        if(injector!=null)try {injector.macKeyboard(desktopKeys);}
+        catch(RemoteException e){desktopKeys=null;Log.w("XDesX","desktop keyboard route",e);}
     }
     private boolean desktopNative;
     private void routeDesktop() {
@@ -157,10 +185,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if (next==null || isDestroyed()) return;
             try {
                 next.attach(fullscreenEvents,getPackageName());
-                injector=next; routeDesktop();
+                injector=next; routeDesktop(); syncDesktopKeys();
             } catch(RemoteException e) { error(e.toString()); }
         }
-        public void onServiceDisconnected(ComponentName name) { injector = null; desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
+        public void onServiceDisconnected(ComponentName name) { injector = null; syncDesktopKeys(); desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
     };
     private android.widget.Button controls;
     @Override public void onConfigurationChanged(android.content.res.Configuration config) {
@@ -170,6 +198,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        ((XdesxApp)getApplication()).observeDesktop(this::syncDesktopKeys);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
@@ -528,7 +557,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),
             () -> runOnUiThread(() -> {
-                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); }
+                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); syncDesktopKeys(); }
                 panel.opened=windows.size(); panel.publish();
             }));
         w.density(Math.round(160*panel.scale/100f));
@@ -601,6 +630,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}
     @Override protected void onDestroy() {
+        ((XdesxApp)getApplication()).observeDesktop(null);
+        desktopKeys=null;
+        releaseDesktopKeys();
         settingsHandler.removeCallbacks(revertRender);
         closeToolbar();
         if(notifications!=null) notifications.close();

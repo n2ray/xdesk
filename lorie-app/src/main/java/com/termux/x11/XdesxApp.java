@@ -42,9 +42,26 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
     }
     @Override public void onActivityDestroyed(Activity screen){screens.remove(screen);}
     @Override public void onActivityCreated(Activity screen,Bundle state){}
-    @Override public void onActivityStarted(Activity screen){}
+    private Activity visibleDesktop;
+    private Runnable desktopChanged;
+    void observeDesktop(Runnable listener) {desktopChanged=listener;}
+    boolean desktopVisible(int display) {
+        return visibleDesktop!=null && visibleDesktop.getDisplay()!=null &&
+            visibleDesktop.getDisplay().getDisplayId()==display;
+    }
+    @Override public void onActivityStarted(Activity screen){
+        if(screen instanceof MainActivity && screen.getIntent().getBooleanExtra("xdesx_quiet",false)){
+            visibleDesktop=screen;
+            if(desktopChanged!=null)desktopChanged.run();
+        }
+    }
     @Override public void onActivityResumed(Activity screen){}
     @Override public void onActivityPaused(Activity screen){}
-    @Override public void onActivityStopped(Activity screen){}
+    @Override public void onActivityStopped(Activity screen){
+        if(visibleDesktop==screen){
+            visibleDesktop=null;
+            if(desktopChanged!=null)desktopChanged.run();
+        }
+    }
     @Override public void onActivitySaveInstanceState(Activity screen,Bundle state){}
 }
