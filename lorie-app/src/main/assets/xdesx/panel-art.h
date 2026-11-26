@@ -1,7 +1,7 @@
 static gboolean draw_logo(GtkWidget *w,cairo_t *cr,Panel *p) {
-    double size=gtk_widget_get_allocated_width(w), ink=.2*size, edge=ink/2, mid=size/2;
+    double width=gtk_widget_get_allocated_width(w), size=.85*width, ink=.2*size, edge=ink/2, mid=size/2;
     double gap=(ink+1)/sqrt(2.);
-    cairo_translate(cr,0,(gtk_widget_get_allocated_height(w)-size)/2.);
+    cairo_translate(cr,(width-size)/2.,(gtk_widget_get_allocated_height(w)-size)/2.);
     cairo_set_source_rgb(cr,.02,.02,.025); cairo_set_line_width(cr,ink);
     cairo_set_line_cap(cr,CAIRO_LINE_CAP_ROUND);
     cairo_move_to(cr,edge,edge); cairo_line_to(cr,size-edge,size-edge);

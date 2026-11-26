@@ -118,6 +118,13 @@ static void main_menu(GtkWidget *button,Panel *p) {
     gboolean installed=state && g_str_has_prefix(state,"ready");
     gboolean busy=state && g_str_has_prefix(state,"busy");
     GtkWidget *settings=gtk_button_new_with_label("全局设置");
+    int gear_size=(16*p->scale+50)/100;
+    GdkPixbuf *gear=gdk_pixbuf_new_from_file_at_scale("share/xdesx/settings.png",gear_size,gear_size,TRUE,NULL);
+    if (gear) {
+        gtk_button_set_image(GTK_BUTTON(settings),gtk_image_new_from_pixbuf(gear));
+        gtk_button_set_always_show_image(GTK_BUTTON(settings),TRUE);
+        g_object_unref(gear);
+    }
     GtkWidget *manage_linux=gtk_button_new_with_label(installed?"Linux 应用管理":busy?"查看 Ubuntu 下载进度":"下载 Ubuntu 应用环境");
     g_free(state);
     gtk_box_pack_start(GTK_BOX(row),manage_linux,FALSE,FALSE,0);gtk_box_pack_end(GTK_BOX(row),settings,FALSE,FALSE,0);

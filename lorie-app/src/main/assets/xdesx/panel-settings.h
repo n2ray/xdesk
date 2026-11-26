@@ -147,6 +147,7 @@ static void settings_open(GtkWidget *unused,Panel *p) {
     if(!p->settings) {
         p->settings=gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_set_title(GTK_WINDOW(p->settings),"全局设置");
+        gtk_window_set_icon_from_file(GTK_WINDOW(p->settings),"share/xdesx/settings.png",NULL);
         gtk_widget_set_name(p->settings,"xdesx-settings");
         gtk_window_set_default_size(GTK_WINDOW(p->settings),550*p->scale/100,320*p->scale/100);
         g_signal_connect(p->settings,"destroy",G_CALLBACK(settings_closed),p);

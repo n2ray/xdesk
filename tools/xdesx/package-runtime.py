@@ -106,6 +106,7 @@ with zipfile.ZipFile(assets/"runtime.zip","w",zipfile.ZIP_DEFLATED) as z:
         for p in prefix.glob(pattern):
             if p.is_file(): z.writestr(str(p.relative_to(prefix)),p.read_bytes().replace(PREFIX,RELOCATED))
     theme.write(z)
+    z.write(ROOT/"tools/xdesx/art/settings.png","share/xdesx/settings.png")
     z.write(assets/"xdesx.desktop","share/xfce4/panel/plugins/xdesx.desktop")
     z.writestr("links.json",json.dumps(links))
 if update: LOCK.write_text(json.dumps({n:packages[n] for n in sorted(selected)},indent=2)+"\n")
