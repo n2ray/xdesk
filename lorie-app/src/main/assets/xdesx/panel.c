@@ -16,7 +16,7 @@
 #include <string.h>
 
 typedef struct {
-    GtkWidget *current, *separator, *status, *logo, *icons, *settings, *stack;
+    GtkWidget *tasks, *task_scroll, *separator, *status, *logo, *icons, *settings, *stack;
     int mouse,pad,limit,reverse,remember,opened,battery,charging;
     char network[64],profile[64],options[96];
     char *mac_id;
@@ -31,6 +31,7 @@ typedef struct {
     int cursor_event;
     int scale, render, return_sequence;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
+    guint tasks_idle;
     guint reveal_timer, hide_timer;
 } Panel;
 
@@ -182,51 +183,7 @@ static void activate_window(GtkWidget *i,WnckWindow *w) {
     if (ws) wnck_workspace_activate(ws,gtk_get_current_event_time());
     wnck_window_activate(w,gtk_get_current_event_time());
 }
-static void window_menu(GtkWidget *button,Panel *p) {
-    GtkWidget *menu=gtk_menu_new();
-    WnckWindow *active=wnck_screen_get_active_window(p->screen);
-    if (active && !wnck_window_is_skip_tasklist(active)) {
-        Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
-        Atom type; int format; unsigned long count,remaining; unsigned char *key=NULL;
-        if (XGetWindowProperty(d,wnck_window_get_xid(active),XInternAtom(d,"_XDESX_KEY",False),0,8,
-                False,XA_STRING,&type,&format,&count,&remaining,&key)==Success && key && count==32) {
-            char *op=g_strdup_printf("full-%.*s",32,key);
-            command(menu,"在外屏原生全屏打开",op);
-            g_free(op);
-        }
-        if (key) XFree(key);
-    }
-    for (GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) {
-        WnckWindow *w=l->data;
-        if (wnck_window_is_skip_tasklist(w)) continue;
-        GtkWidget *i=item(menu,wnck_window_get_name(w));
-        g_signal_connect_object(i,"activate",G_CALLBACK(activate_window),w,0);
-    }
-    popup(menu,button);
-}
-static void current(WnckScreen *screen,WnckWindow *previous,Panel *p) {
-    WnckWindow *w=wnck_screen_get_active_window(screen);
-    update_fullscreen(p);
-    if (w && wnck_window_is_skip_tasklist(w)) w=NULL;
-    gboolean has_windows=w!=NULL;
-    for (GList *l=wnck_screen_get_windows(screen);!has_windows && l;l=l->next)
-        has_windows=!wnck_window_is_skip_tasklist(l->data);
-    gtk_widget_set_visible(p->current,has_windows);
-    gtk_widget_set_visible(p->separator,has_windows);
-    if (!has_windows) return;
-    gtk_button_set_label(GTK_BUTTON(p->current),w?wnck_window_get_name(w):"窗口");
-    GdkPixbuf *original=w?wnck_window_get_icon(w):NULL;
-    int size=MAX(1,(24*p->scale+50)/100);
-    GdkPixbuf *icon=original?gdk_pixbuf_scale_simple(original,size,size,GDK_INTERP_BILINEAR):NULL;
-    gtk_button_set_image(GTK_BUTTON(p->current),icon?gtk_image_new_from_pixbuf(icon):NULL);
-    if (icon) g_object_unref(icon);
-    gtk_button_set_always_show_image(GTK_BUTTON(p->current),TRUE);
-    GtkWidget *child=gtk_bin_get_child(GTK_BIN(p->current));
-    if (GTK_IS_LABEL(child)) {
-        gtk_label_set_max_width_chars(GTK_LABEL(child),28);
-        gtk_label_set_ellipsize(GTK_LABEL(child),PANGO_ELLIPSIZE_END);
-    }
-}
+#include "panel-tasks.h"
 static void refresh(Panel *p) {
     char *data=NULL;
     if (!g_file_get_contents("run/panel-state",&data,NULL,NULL)) return;
@@ -263,6 +220,8 @@ static void refresh(Panel *p) {
                 "#xdesx-bar,.xfce4-panel {background:#f7f7f8;color:#19191b;} "
                 "#xdesx-bar button {border:0;box-shadow:none;background:transparent;color:#19191b;border-radius:5px;padding:0 %dpx;} "
                 "#xdesx-bar button:hover,menuitem:hover {background:#e6e6e8;color:#19191b;} "
+                "#xdesx-bar .task {background:#ededf0;} #xdesx-bar .task:hover {background:#e0e1e5;} "
+                "#xdesx-bar .task.active {background:#dce7f6;box-shadow:inset 0 -2px #5579a9;} "
                 "menu {background:#fafafa;color:#19191b;border:1px solid #c6c6c8;padding:4px;} "
                 "menuitem {padding:%dpx %dpx;} #xdesx-settings {background:#fafafa;color:#202023;} "
                 "#xdesx-settings button {background:#f1f1f3;border:1px solid #d2d2d5;box-shadow:none;border-radius:5px;} "
@@ -275,7 +234,7 @@ static void refresh(Panel *p) {
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_alignment","left");
             gtk_widget_set_size_request(p->bell_art,MAX(16,22*scale/100),MAX(16,22*scale/100));
             desktop_cursor(p);
-            current(p->screen,NULL,p);
+            schedule_tasks(p);
             char font[80]; snprintf(font,sizeof(font),"Roboto,Noto Sans CJK SC Bold %d",(10*scale+50)/100);
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_font",font);
         }
@@ -307,6 +266,9 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     if(p->cursor_event) gdk_window_remove_filter(NULL,cursor_event,p);
+    if (p->tasks_idle) g_source_remove(p->tasks_idle);
+    for (GList *l=wnck_screen_get_windows(p->screen);l;l=l->next)
+        g_signal_handlers_disconnect_by_data(l->data,p);
     stop_tracking(p);g_free(p->mac_id);
     g_signal_handlers_disconnect_by_data(p->screen,p);
     g_clear_object(&p->monitor);
@@ -317,8 +279,8 @@ static void construct(XfcePanelPlugin *plugin) {
     Panel *p=g_new0(Panel,1);
     GtkWidget *bar=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,4);
     gtk_widget_set_name(bar,"xdesx-bar");
-    GtkWidget *main=gtk_button_new(); p->current=gtk_button_new();
-    gtk_widget_set_focus_on_click(main,FALSE); gtk_widget_set_focus_on_click(p->current,FALSE);
+    GtkWidget *main=gtk_button_new();
+    gtk_widget_set_focus_on_click(main,FALSE);
     p->logo=gtk_drawing_area_new();
     g_signal_connect(p->logo,"draw",G_CALLBACK(draw_logo),p);gtk_container_add(GTK_CONTAINER(main),p->logo);
     gtk_widget_set_tooltip_text(main,"xdesx 菜单");
@@ -326,7 +288,12 @@ static void construct(XfcePanelPlugin *plugin) {
     p->status=gtk_label_new("");
     gtk_box_pack_start(GTK_BOX(bar),main,FALSE,FALSE,0);
     p->separator=gtk_separator_new(GTK_ORIENTATION_VERTICAL);gtk_widget_set_valign(p->separator,GTK_ALIGN_CENTER);gtk_widget_set_size_request(p->separator,1,18);gtk_box_pack_start(GTK_BOX(bar),p->separator,FALSE,FALSE,0);
-    gtk_box_pack_start(GTK_BOX(bar),p->current,FALSE,FALSE,0);
+    p->tasks=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,3);
+    p->task_scroll=gtk_scrolled_window_new(NULL,NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->task_scroll),GTK_POLICY_EXTERNAL,GTK_POLICY_NEVER);
+    gtk_container_add(GTK_CONTAINER(p->task_scroll),p->tasks);
+    gtk_box_pack_start(GTK_BOX(bar),p->task_scroll,TRUE,TRUE,0);
+    g_signal_connect(p->task_scroll,"scroll-event",G_CALLBACK(scroll_tasks),NULL);
     gtk_box_pack_end(GTK_BOX(bar),p->status,FALSE,FALSE,8);
     gtk_box_pack_end(GTK_BOX(bar),p->icons,FALSE,FALSE,2);
     GtkWidget *bell=gtk_button_new();p->bell_art=gtk_drawing_area_new();
@@ -338,11 +305,11 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_container_add(GTK_CONTAINER(plugin),bar);
     xfce_panel_plugin_set_expand(plugin,TRUE);
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
-    g_signal_connect(p->screen,"active-window-changed",G_CALLBACK(current),p);
-    g_signal_connect(p->screen,"window-opened",G_CALLBACK(current),p);
-    g_signal_connect(p->screen,"window-closed",G_CALLBACK(current),p);
+    g_signal_connect(p->screen,"active-window-changed",G_CALLBACK(active_task_changed),p);
+    g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_task),p);
+    g_signal_connect(p->screen,"window-closed",G_CALLBACK(task_list_changed),p);
     g_signal_connect(main,"clicked",G_CALLBACK(main_menu),p);
-    g_signal_connect(p->current,"clicked",G_CALLBACK(window_menu),p);
+    for (GList *l=wnck_screen_get_windows(p->screen);l;l=l->next) watch_task(p->screen,l->data,p);
     p->css=gtk_css_provider_new();
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),GTK_STYLE_PROVIDER(p->css),GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     GFile *file=g_file_new_for_path("run");
@@ -355,9 +322,9 @@ static void construct(XfcePanelPlugin *plugin) {
     paint_wallpaper(p);watch_cursor(p);
     g_signal_connect(gdk_screen_get_default(),"size-changed",G_CALLBACK(wallpaper_size),p);
     gtk_widget_show_all(bar);
-    gtk_widget_set_no_show_all(p->current,TRUE);
+    gtk_widget_set_no_show_all(p->task_scroll,TRUE);
     gtk_widget_set_no_show_all(p->separator,TRUE);
-    current(p->screen,NULL,p);
+    schedule_tasks(p);
     g_signal_connect(plugin,"free-data",G_CALLBACK(destroy),p);
 }
 XFCE_PANEL_PLUGIN_REGISTER(construct)
