@@ -52,6 +52,37 @@ int main(int argc, char **argv) {
     if (!menu || !tmp || strlen(menu)>95 || strlen(argv[1])>12 || getrandom(random,sizeof(random),0)!=16) return 1;
     for (int i=0;i<16;i++) snprintf(key+2*i,3,"%02x",random[i]);
     if (snprintf(path,sizeof(path),"%s/xdesx-%s",tmp,key)>=(int)sizeof(path)) return 1;
+    Display *d = XOpenDisplay(NULL);
+    if (!d) return 1;
+    int w = 800, h = 560;
+    Window win = XCreateSimpleWindow(d, DefaultRootWindow(d), 40, 70, w, h, 0, 0, 0);
+    char identity[256]="xdesx.app",metadata[PATH_MAX];
+    snprintf(metadata,sizeof(metadata),"%s.class",argv[2]);
+    FILE *identity_file=fopen(metadata,"r");
+    if (!identity_file) return 1;
+    int have_identity = fgets(identity,sizeof(identity),identity_file) != NULL;
+    fclose(identity_file);
+    if (!have_identity) return 1;
+    // Reserve the package before asking Android to create its task. The X server
+    // releases the selection when this client exits, including failed launches.
+    Atom activate = XInternAtom(d, "_XDESX_ACTIVATE", False);
+    if (strcmp(identity,"xdesx.mac") != 0) {
+        char name[sizeof(identity) + 32];
+        snprintf(name,sizeof(name),"_XDESX_ANDROID_PACKAGE_%s",identity);
+        Atom selection = XInternAtom(d,name,False);
+        XGrabServer(d);
+        Window owner = XGetSelectionOwner(d,selection);
+        if (owner == None) {
+            XSetSelectionOwner(d,selection,win,CurrentTime);
+        } else {
+            XEvent msg = {0};
+            msg.xclient = (XClientMessageEvent){.type=ClientMessage,.window=owner,.message_type=activate,.format=32};
+            XSendEvent(d,owner,False,NoEventMask,&msg);
+        }
+        XUngrabServer(d);
+        XFlush(d);
+        if (owner != None) { XCloseDisplay(d); return 0; }
+    }
     struct sockaddr_un addr={.sun_family=AF_UNIX};
     strcpy(addr.sun_path,path);
     int listener=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
@@ -66,18 +97,11 @@ int main(int argc, char **argv) {
     struct pollfd start = { listener, POLLIN, 0 };
     if (poll(&start, 1, 30000) <= 0) { unlink(path); return 1; }
     int ctrl = accept(listener, NULL, NULL);
-    Display *d = XOpenDisplay(NULL);
-    if (ctrl < 0 || !d) return 1;
-    int w = 800, h = 560;
-    Window win = XCreateSimpleWindow(d, DefaultRootWindow(d), 40, 70, w, h, 0, 0, 0);
+    if (ctrl < 0) return 1;
     char title[512]="Android";
     FILE *label=fopen(argv[2],"r");
     if (label) { if (!fgets(title,sizeof(title),label)) strcpy(title,"Android"); fclose(label); }
     XChangeProperty(d,win,XInternAtom(d,"_XDESX_KEY",False),XA_STRING,8,PropModeReplace,(unsigned char*)key,32);
-    char identity[256]="xdesx.app",metadata[PATH_MAX];
-    snprintf(metadata,sizeof(metadata),"%s.class",argv[2]);
-    FILE *identity_file=fopen(metadata,"r");
-    if (identity_file) { if (!fgets(identity,sizeof(identity),identity_file)) strcpy(identity,"xdesx.app"); fclose(identity_file); }
     XClassHint hint={identity,identity};
     XSetClassHint(d,win,&hint);
     window_icon(d,win,argv[2]);
@@ -103,6 +127,14 @@ int main(int argc, char **argv) {
         while (XPending(d)) {
             XEvent e;
             XNextEvent(d, &e);
+            if (e.type==ClientMessage && e.xclient.message_type==activate) {
+                XEvent msg = {0};
+                msg.xclient = (XClientMessageEvent){.type=ClientMessage,.window=win,
+                    .message_type=XInternAtom(d,"_NET_ACTIVE_WINDOW",False),.format=32};
+                msg.xclient.data.l[0]=2; // launcher activation, also restores an iconic window
+                XSendEvent(d,DefaultRootWindow(d),False,SubstructureRedirectMask|SubstructureNotifyMask,&msg);
+                XFlush(d);
+            }
             if (e.type==ClientMessage && e.xclient.message_type==wm && e.xclient.format==32) {
                 if ((Atom)e.xclient.data.l[0]==del) return 0;
                 if ((Atom)e.xclient.data.l[0]==full && !event(ctrl,7,0,0)) return 1;
