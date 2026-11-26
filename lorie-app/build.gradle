@@ -36,7 +36,10 @@ android {
         targetSdkVersion 34
         // Releases pass -PxdeskVersion=0.2.0 (from the tag): 0.2.0 becomes versionCode 200. Other builds keep the
         // upstream-style name with the commit, and a code below every release.
-        versionCode xdeskVersionCode
+        versionCode project.hasProperty('xdeskVersion') && !xdeskVersionName.contains('-xdesx.') ?
+            1000000 + xdeskVersionCode * 1000 + (xdeskVersionName.contains('-preview') ?
+                (xdeskVersionName.tokenize('.').last().isInteger() ? xdeskVersionName.tokenize('.').last().toInteger() : 1) : 999) :
+            xdeskVersionCode
         versionName xdeskVersionName
     }
 

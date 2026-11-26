@@ -147,7 +147,7 @@ final class XdesxRuntime {
             StringBuilder xml=new StringBuilder(); String line; while((line=r.readLine())!=null) xml.append(line);
             text("config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",xml.toString().replace("@SIZE@",String.valueOf((36*scale+50)/100)));
         }
-        text("fonts.conf","<fontconfig><dir>/system/fonts</dir><alias><family>sans-serif</family><prefer><family>Roboto</family><family>Noto Sans CJK SC</family></prefer></alias><cachedir>"+dir+"/cache/fonts</cachedir></fontconfig>");
+        text("fonts.conf","<fontconfig><dir>"+dir+"/share/fonts</dir><dir>/system/fonts</dir><alias><family>sans-serif</family><prefer><family>Source Han Sans CN</family><family>Roboto</family><family>Noto Sans CJK SC</family></prefer></alias><cachedir>"+dir+"/cache/fonts</cachedir></fontconfig>");
         text("dbus.conf","<busconfig><type>session</type><listen>unix:path="+dir+"/run/bus</listen><auth>EXTERNAL</auth>"+
             "<servicedir>"+dir+"/services</servicedir><policy context=\"default\"><allow send_destination=\"*\"/><allow receive_sender=\"*\"/><allow own=\"*\"/></policy></busconfig>");
         text("services/org.xfce.Xfconf.service","[D-BUS Service]\nName=org.xfce.Xfconf\nExec="+dir+"/lib/xfce4/xfconf/xfconfd\n");

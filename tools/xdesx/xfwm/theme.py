@@ -28,16 +28,16 @@ def decorations(z,scale,dark=False):
     h=px(32)
     for state in ("active","inactive"):
         for name in ["title-"+str(i) for i in range(1,6)]+["top-left","top-right","left","right","bottom","bottom-left","bottom-right"]:
-            width=px(6) if "left" in name or "right" in name else 2
-            height=h if name.startswith(("title","top")) else px(5) if "bottom" in name else 2
+            width=px(8) if "-" in name and not name.startswith("title") else 1
+            height=h if name.startswith(("title","top")) else 1 if "bottom" in name else 2
             im=Image.new("RGBA",(width,height),paper)
             draw=ImageDraw.Draw(im)
             if height==h: draw.line([(0,0),(width,0)],fill=edge)
             if "left" in name: draw.line([(0,0),(0,height)],fill=edge)
             if "right" in name: draw.line([(width-1,0),(width-1,height)],fill=edge)
             if "bottom" in name: draw.line([(0,height-1),(width,height-1)],fill=edge)
-            if name in ("top-left","top-right","bottom-left","bottom-right"):
-                radius=px(4)
+            if name in ("top-left","top-right"):
+                radius=px(7)
                 for x in range(radius):
                     for y in range(radius):
                         if (radius-x-.5)**2+(radius-y-.5)**2>radius**2:

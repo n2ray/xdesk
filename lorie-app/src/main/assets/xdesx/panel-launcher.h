@@ -66,6 +66,7 @@ static void open_tile(GtkButton *button,Launcher *l) {
 static void app_tile(Launcher *l,const char *name,const char *id,const char *icon,int category,const char *identity) {
     int side=40*l->panel->scale/100;
     GtkWidget *tile=gtk_button_new(), *box=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
+    gtk_style_context_add_class(gtk_widget_get_style_context(tile),"app-tile");
     gtk_button_set_relief(GTK_BUTTON(tile),GTK_RELIEF_NONE);
     GdkPixbuf *image=icon && g_path_is_absolute(icon)?gdk_pixbuf_new_from_file_at_scale(icon,side,side,TRUE,NULL):NULL;
     GtkWidget *picture=image?gtk_image_new_from_pixbuf(image):gtk_image_new_from_icon_name(category==2?"utilities-terminal":"computer",GTK_ICON_SIZE_DIALOG);
@@ -99,17 +100,6 @@ static void launcher_settings(GtkButton *button,Launcher *l) {
     gtk_widget_hide(l->popup);
     settings_open(NULL,p);
 }
-static gboolean power_icon(GtkWidget *widget,cairo_t *cr,Panel *p) {
-    double side=MIN(gtk_widget_get_allocated_width(widget),gtk_widget_get_allocated_height(widget));
-    cairo_translate(cr,gtk_widget_get_allocated_width(widget)/2.,gtk_widget_get_allocated_height(widget)/2.);
-    cairo_scale(cr,side/20.,side/20.);
-    cairo_set_source_rgb(cr,p->dark?1:.76,.23,.22);
-    cairo_set_line_width(cr,2.2);
-    cairo_set_line_cap(cr,CAIRO_LINE_CAP_ROUND);
-    cairo_arc(cr,0,.5,6.6,-.28*G_PI,1.28*G_PI);
-    cairo_move_to(cr,0,-8);cairo_line_to(cr,0,-.8);cairo_stroke(cr);
-    return FALSE;
-}
 static void launcher_exit(GtkButton *b,Launcher *l) {
     gtk_widget_hide(l->popup);
     GtkWidget *d=gtk_message_dialog_new(NULL,GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"%s",T("结束外屏桌面？"));
@@ -136,29 +126,39 @@ static void main_menu(GtkWidget *button,Panel *p) {
     l->search=gtk_search_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(l->search),T("搜索应用"));
     gtk_box_pack_start(GTK_BOX(box),l->search,FALSE,FALSE,0);
-    const char *categories[]={T("全部"),T("安卓"),"Linux","Mac",T("我的收藏")};
+    const char *categories[]={T("全部"),T("收藏"),T("安卓"),"Linux","Mac"};
+    const int filters[]={0,4,1,2,3};
     GtkRadioButton *group=NULL;
     for(int i=0;i<5;i++){
         GtkWidget *tab=gtk_radio_button_new_with_label_from_widget(group,categories[i]);
         if(!group)group=GTK_RADIO_BUTTON(tab);
         gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(tab),FALSE);
-        g_object_set_data(G_OBJECT(tab),"tab",GINT_TO_POINTER(i));
+        g_object_set_data(G_OBJECT(tab),"tab",GINT_TO_POINTER(filters[i]));
         g_signal_connect(tab,"toggled",G_CALLBACK(choose_tab),l);
         gtk_box_pack_start(GTK_BOX(row),tab,TRUE,TRUE,0);
     }
-    gtk_box_pack_start(GTK_BOX(box),row,FALSE,FALSE,0);
+    GtkWidget *section=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+    gtk_box_pack_start(GTK_BOX(box),section,TRUE,TRUE,0);
+    gtk_widget_set_name(row,"category-tabs");
+    gtk_box_pack_start(GTK_BOX(section),row,FALSE,FALSE,0);
+    GtkWidget *content=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+    gtk_widget_set_name(content,"category-content");
+    gtk_box_pack_start(GTK_BOX(section),content,TRUE,TRUE,0);
     GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(scroll,MIN(wnck_screen_get_width(p->screen)-48,520*p->scale/100),MIN(wnck_screen_get_height(p->screen)*2/3,390*p->scale/100));
-    l->empty=gtk_label_new(NULL);gtk_box_pack_start(GTK_BOX(box),l->empty,FALSE,FALSE,4);
+    l->empty=gtk_label_new(NULL);gtk_box_pack_start(GTK_BOX(content),l->empty,FALSE,FALSE,4);
     l->grid=gtk_flow_box_new();
     gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(l->grid),GTK_SELECTION_NONE);
     gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(l->grid),5);
     gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(l->grid),2);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(l->grid),6*p->scale/100);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(l->grid),6*p->scale/100);
+    gtk_container_set_border_width(GTK_CONTAINER(l->grid),6*p->scale/100);
     gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(l->grid),TRUE);
     gtk_widget_set_valign(l->grid,GTK_ALIGN_START);
     gtk_container_add(GTK_CONTAINER(scroll),l->grid);
-    gtk_box_pack_start(GTK_BOX(box),scroll,TRUE,TRUE,0);
+    gtk_box_pack_start(GTK_BOX(content),scroll,TRUE,TRUE,0);
     gchar *data=NULL;
     if(g_file_get_contents("apps.tsv",&data,NULL,NULL)){
         gchar **lines=g_strsplit(data,"\n",-1);
@@ -191,15 +191,15 @@ static void main_menu(GtkWidget *button,Panel *p) {
         gtk_button_set_always_show_image(GTK_BUTTON(settings),TRUE);
         g_object_unref(gear);
     }
-    GtkWidget *exit=gtk_button_new(),*art=gtk_drawing_area_new();
-    gtk_widget_set_size_request(art,gear_size,gear_size);
-    gtk_container_add(GTK_CONTAINER(exit),art);
-    g_signal_connect(art,"draw",G_CALLBACK(power_icon),p);
-    atk_object_set_name(gtk_widget_get_accessible(exit),T("结束桌面"));
-    gtk_widget_set_tooltip_text(exit,T("结束桌面"));
-    gtk_widget_set_name(exit,"xdesx-power");
+    GtkWidget *exit=gtk_button_new_with_label(T("退出 xdesx"));
+    GdkPixbuf *power=gdk_pixbuf_new_from_file_at_scale("share/xdesx/power.png",gear_size,gear_size,TRUE,NULL);
+    if(power){
+        gtk_button_set_image(GTK_BUTTON(exit),gtk_image_new_from_pixbuf(power));
+        gtk_button_set_always_show_image(GTK_BUTTON(exit),TRUE);
+        g_object_unref(power);
+    }
     gtk_box_pack_start(GTK_BOX(row),settings,FALSE,FALSE,0);
-    gtk_box_pack_start(GTK_BOX(row),exit,FALSE,FALSE,0);
+    gtk_box_pack_end(GTK_BOX(row),exit,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(box),row,FALSE,FALSE,0);
     gtk_container_add(GTK_CONTAINER(l->popup),box);
     gtk_flow_box_set_filter_func(GTK_FLOW_BOX(l->grid),matches_app,l,NULL);

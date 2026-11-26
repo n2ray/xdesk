@@ -121,7 +121,9 @@ final class XdesxLinux implements AutoCloseable {
             if (!linux.installed()) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_install_ubuntu_in_settings_first));
             if (verb.equals("reset") || verb.equals("remove")) {
                 if (linux.state() == BuiltinLinux.State.INSTALLING || linux.state() == BuiltinLinux.State.STOPPING) return;
-                stopAudio();
+                stopGuestForMaintenance();
+                keys.clear();
+                publish("ubuntu-apps","");
                 listed=false;
                 if (verb.equals("reset")) linux.reset(true); else linux.removeAll();
                 return;
@@ -162,6 +164,17 @@ final class XdesxLinux implements AutoCloseable {
             if (video != null) video.destroy();
             throw e;
         }
+    }
+
+    private synchronized void stopGuestForMaintenance() throws IOException, InterruptedException {
+        if(session!=null && session.isAlive()){
+            session.getOutputStream().close();
+            if(!session.waitFor(5,java.util.concurrent.TimeUnit.SECONDS))
+                throw new IOException(context.getString(com.termux.x11.app.R.string.xu_guest_busy));
+        }
+        session=null;
+        stopAudio();
+        if(video!=null){video.destroy();video=null;}
     }
 
     private synchronized void stopAudio() {

@@ -44,4 +44,5 @@
     <string name="xu_window_limit">已達到視窗上限（%1$d）。請先關閉一個視窗，或在設定中調整上限。</string>
     <string name="xu_wireless_pairing_failed">無法開啓無線配對：</string>
     <string name="xu_application">應用程式</string>
+    <string name="xu_guest_busy">Linux 應用程式仍在關閉，請稍後再試。</string>
 </resources>

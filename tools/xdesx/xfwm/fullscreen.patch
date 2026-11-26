@@ -33,3 +33,74 @@
                  break;
              case STICK_BUTTON:
                  clientToggleSticky (c, TRUE);
+--- a/src/frame.c
++++ b/src/frame.c
+@@ -390,6 +390,17 @@
+     g_object_unref (G_OBJECT (layout));
+ }
+
++static gboolean
++desktopAllowsButton (Client *c, int button)
++{
++    if (c->type & WINDOW_TYPE_DIALOG)
++        return button == CLOSE_BUTTON;
++    if (button == SHADE_BUTTON)
++        return (c->type & WINDOW_NORMAL) && CLIENT_CAN_MAXIMIZE_WINDOW (c)
++            && g_strcmp0 (c->class.res_class, "XdesxSettings") != 0;
++    return TRUE;
++}
++
+ static int
+ getButtonFromLetter (char chr, Client * c)
+ {
+@@ -440,7 +451,7 @@
+         default:
+             b = -1;
+     }
+-    return b;
++    return desktopAllowsButton (c, b) ? b : -1;
+ }
+
+ static char
+@@ -451,6 +462,7 @@
+     g_return_val_if_fail (c != NULL, 0);
+     TRACE ("client \"%s\" (0x%lx)", c->name, c->window);
+
++    if (!desktopAllowsButton (c, i)) return 0;
+     chr = 0;
+     switch (i)
+     {
+@@ -733,6 +745,33 @@
+     rect.width  = frameWidth (c);
+     rect.height = frameHeight (c);
+     XShapeCombineRectangles (display_info->dpy, screen_info->shape_win, ShapeBounding, 0, 0, &rect, 1, ShapeIntersect, Unsorted);
++    /* Clip the assembled frame, including the client at the thin lower edge. */
++    if (frame_pix && CLIENT_HAS_FRAME (c) && !FLAG_TEST_ALL (c->flags, CLIENT_FLAG_MAXIMIZED))
++    {
++        int w = frameWidth (c), h = frameHeight (c);
++        int radius = MIN (MIN (w / 2, h / 2), MIN (16, MAX (1, frameTop (c) / 5)));
++        XRectangle cuts[64];
++        int count = 0;
++        for (int y = 0; y < radius; y++)
++        {
++            int inset = 0;
++            int dy = 2 * (radius - y) - 1;
++            while (inset < radius)
++            {
++                int dx = 2 * (radius - inset) - 1;
++                if (dx * dx + dy * dy <= 4 * radius * radius) break;
++                inset++;
++            }
++            if (!inset) continue;
++            cuts[count++] = (XRectangle){0, y, inset, 1};
++            cuts[count++] = (XRectangle){w - inset, y, inset, 1};
++            cuts[count++] = (XRectangle){0, h - 1 - y, inset, 1};
++            cuts[count++] = (XRectangle){w - inset, h - 1 - y, inset, 1};
++        }
++        if (count)
++            XShapeCombineRectangles (display_info->dpy, screen_info->shape_win, ShapeBounding,
++                                     0, 0, cuts, count, ShapeSubtract, Unsorted);
++    }
+     XShapeCombineShape (display_info->dpy, c->frame, ShapeBounding, 0, 0, screen_info->shape_win, ShapeBounding, ShapeSet);
+
+     myDisplayErrorTrapPopIgnored (display_info);

@@ -29,6 +29,8 @@ typedef struct {
     GtkWidget *ubuntu_status,*ubuntu_action,*ubuntu_manage;
     GtkWidget *resolution_label,*count_label,*names_button,*preview_button,*mac_page;
     int notify_access,notify_ready,notify_names,notify_unread;
+    Window dpi_owner;
+    guint32 dpi_serial;
     Pixmap wallpaper;
     int cursor_event;
     int scale, render, return_sequence;
@@ -188,6 +190,7 @@ static void activate_window(GtkWidget *i,WnckWindow *w) {
 }
 #include "panel-tasks.h"
 #include "panel-style.h"
+#include "panel-dpi.h"
 static void refresh(Panel *p) {
     char *data=NULL;
     if (!g_file_get_contents("run/panel-state",&data,NULL,NULL)) return;
@@ -220,6 +223,7 @@ static void refresh(Panel *p) {
         }
         g_strfreev(parts);
         if ((scale!=p->scale || palette_changed || language_changed) && (scale==100 || scale==133 || scale==167 || scale==200)) {
+            if(p->scale!=scale)publish_dpi(p,scale);
             p->scale=scale;
             int icon=(24*scale+50)/100;
             gtk_widget_set_size_request(p->logo,icon,icon);gtk_widget_set_size_request(p->icons,94*scale/100,20*scale/100);
@@ -231,7 +235,7 @@ static void refresh(Panel *p) {
             gtk_widget_set_size_request(p->bell_art,MAX(16,22*scale/100),MAX(16,22*scale/100));
             desktop_cursor(p);
             schedule_tasks(p);
-            char font[80]; snprintf(font,sizeof(font),"Roboto,Noto Sans CJK SC Bold %d",(10*scale+50)/100);
+            const char *font="Source Han Sans CN Bold 10";
             xfconf_channel_set_string(xfconf_channel_get("xfwm4"),"/general/title_font",font);
         }
         if(language_changed){
@@ -273,6 +277,7 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     if(p->settings) gtk_widget_destroy(p->settings);
     Display *d=GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     g_signal_handlers_disconnect_by_data(gdk_screen_get_default(),p);
+    if(p->dpi_owner)XDestroyWindow(d,p->dpi_owner);
     Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     if(p->cursor_event) gdk_window_remove_filter(NULL,cursor_event,p);
