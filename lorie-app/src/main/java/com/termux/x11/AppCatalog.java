@@ -150,7 +150,7 @@ final class AppCatalog {
         });
     }
 
-    private List<App> scan() {
+    List<App> scan() {
         Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         ArrayList<App> out = new ArrayList<>();
         for (ResolveInfo ri : pm.queryIntentActivities(launcher, 0)) {
@@ -222,7 +222,7 @@ final class AppCatalog {
         Bitmap b = icons.get(key);
         if (b != null) return b;
         try {
-            Drawable d = a.inOtherProfile() ? otherProfileIcon(a) : pm.getActivityIcon(new ComponentName(a.packageName, a.activityName));
+            Drawable d = launcherDrawable(a);
             if (d == null) return null;
             b = Bitmap.createBitmap(iconSize, iconSize, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(b);
@@ -235,8 +235,9 @@ final class AppCatalog {
         }
     }
 
-    /** With the profile's badge, as the launcher shows it. */
-    private Drawable otherProfileIcon(App a) {
+    /** With the profile badge when the entry belongs to another user. */
+    Drawable launcherDrawable(App a) throws PackageManager.NameNotFoundException {
+        if (!a.inOtherProfile()) return pm.getActivityIcon(new ComponentName(a.packageName, a.activityName));
         LauncherApps la = context.getSystemService(LauncherApps.class);
         for (LauncherActivityInfo info : la.getActivityList(a.packageName, a.userHandle())) {
             if (info.getComponentName().getClassName().equals(a.activityName)) return info.getBadgedIcon(0);

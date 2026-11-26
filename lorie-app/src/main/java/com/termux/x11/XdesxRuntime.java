@@ -1,8 +1,6 @@
 package com.termux.x11;
 
 import android.content.Context;
-import android.content.pm.ResolveInfo;
-import android.content.Intent;
 import android.content.ComponentName;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
@@ -61,16 +59,21 @@ final class XdesxRuntime {
         }
         done.createNewFile();
     }
-    private String launcherIcon(ResolveInfo entry, ComponentName component) throws IOException {
+    private String launcherIcon(AppCatalog catalog, AppCatalog.App entry) throws IOException {
         android.content.pm.PackageManager pm=context.getPackageManager();
-        String pkg=component.getPackageName();
+        String pkg=entry.packageName;
         try {
-            long version=pm.getPackageInfo(pkg,0).lastUpdateTime;
-            String name=UUID.nameUUIDFromBytes(component.flattenToString().getBytes("UTF-8")).toString();
+            long version;
+            try { version=pm.getPackageInfo(pkg,0).lastUpdateTime; }
+            catch (android.content.pm.PackageManager.NameNotFoundException missingHere) {
+                if (!entry.inOtherProfile()) throw missingHere;
+                version=0;
+            }
+            String name=UUID.nameUUIDFromBytes(entry.component().getBytes("UTF-8")).toString();
             File target=path("cache/icons/"+name+"-"+version+".png");
             if (!target.isFile()) {
                 target.getParentFile().mkdirs();
-                android.graphics.drawable.Drawable icon=entry.loadIcon(pm);
+                android.graphics.drawable.Drawable icon=catalog.launcherDrawable(entry);
                 if (icon==null) return "applications-other";
                 android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(64,64,android.graphics.Bitmap.Config.ARGB_8888);
                 icon.setBounds(0,0,64,64);
@@ -92,17 +95,22 @@ final class XdesxRuntime {
         for(String dir:new String[]{"tmp","run","data/applications","cache","config"}) path(dir).mkdirs();
         String dir=prefix.getPath();
         StringBuilder menu=new StringBuilder();
-        List<ResolveInfo> entries=context.getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0);
-        entries.sort(new ResolveInfo.DisplayNameComparator(context.getPackageManager()));
-        for(ResolveInfo r:entries) {
-            if(r.activityInfo.packageName.equals(context.getPackageName())) continue;
-            ComponentName activity=new ComponentName(r.activityInfo.packageName,r.activityInfo.name);
-            String component=activity.flattenToString();
-            int i=apps.size(); apps.add(component);
-            String label=r.loadLabel(context.getPackageManager()).toString().replaceAll("[\\t\\r\\n]"," ");
-            String icon=launcherIcon(r,activity);
+        AppCatalog catalog=AppCatalog.get(context);
+        List<AppCatalog.App> entries=catalog.scan();
+        Set<String> profiledPackages=new HashSet<>();
+        for (AppCatalog.App app:entries) {
+            if (app.inOtherProfile()) profiledPackages.add(app.packageName);
+        }
+        for (AppCatalog.App app:entries) {
+            int i=apps.size();
+            apps.add(app.component());
+            String label=app.label.replaceAll("[\\t\\r\\n]", " ");
+            if (!app.inOtherProfile() && profiledPackages.contains(app.packageName))
+                label=context.getString(com.termux.x11.app.R.string.xdesx_original_app,label);
+            String icon=launcherIcon(catalog,app);
             text("titles/"+i,label);
-            text("titles/"+i+".class",activity.getPackageName());
+            // Preserve existing layout keys for originals. Each profile owns its X selection.
+            text("titles/"+i+".class",app.inOtherProfile()?app.packageInUser():app.packageName);
             if (icon.startsWith("/")) {
                 File raw=new File(icon+".argb");
                 if (!raw.isFile()) {
