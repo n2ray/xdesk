@@ -1,5 +1,7 @@
 package com.termux.x11;
 
+import android.content.Intent;
+
 import android.hardware.display.VirtualDisplay;
 import android.os.Binder;
 import android.os.Parcel;
@@ -1193,7 +1195,11 @@ public class InjectorService extends IInjector.Stub {
             VirtualDisplay d = appDisplays.get(displayId);
             desktopWindow = d != null && d.getDisplay().getName().startsWith("XDesX ");
         }
-        String flags = desktopWindow ? "0x18010000" : "0x10200000";
+        int launchFlags = desktopWindow
+                ? Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                    | Intent.FLAG_ACTIVITY_NO_ANIMATION | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                : Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED;
+        String flags = Integer.toString(launchFlags);
         String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
