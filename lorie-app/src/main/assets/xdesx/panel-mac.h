@@ -50,10 +50,11 @@ static void edit_mac(GtkButton *button,Panel *p) {
 }
 static void mac_settings(GtkWidget *page,Panel *p){
     GtkWidget *add=gtk_button_new_with_label(T("添加 Mac"));
+    gtk_widget_set_halign(add,GTK_ALIGN_START);
     g_signal_connect(add,"clicked",G_CALLBACK(edit_mac),p);
     gtk_box_pack_start(GTK_BOX(page),add,FALSE,FALSE,0);
-    GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL),*list=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);
-    gtk_container_add(GTK_CONTAINER(scroll),list);gtk_box_pack_start(GTK_BOX(page),scroll,TRUE,TRUE,0);
+    GtkWidget *list=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
+    gtk_box_pack_start(GTK_BOX(page),list,FALSE,FALSE,0);
     gchar *data=NULL;if(!g_file_get_contents("run/mac-hosts",&data,NULL,NULL)) return;
     gchar **rows=g_strsplit(data,"\n",-1);
     for(int i=0;rows[i];i++){
@@ -62,6 +63,7 @@ static void mac_settings(GtkWidget *page,Panel *p){
             gchar *label=g_strdup_printf("%s    ·    %s",*v[1]?v[1]:v[2],v[3]);
             GtkWidget *b=gtk_button_new_with_label(label);g_free(label);
             g_object_set_data_full(G_OBJECT(b),"device",g_strdup(rows[i]),g_free);
+            gtk_widget_set_halign(b,GTK_ALIGN_START);
             g_signal_connect(b,"clicked",G_CALLBACK(edit_mac),p);
             gtk_box_pack_start(GTK_BOX(list),b,FALSE,FALSE,0);
         }

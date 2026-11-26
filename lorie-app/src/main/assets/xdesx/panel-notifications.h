@@ -34,14 +34,12 @@ static GtkWidget *notification_label(const char *text){
     gtk_label_set_line_wrap_mode(GTK_LABEL(v),PANGO_WRAP_WORD_CHAR);return v;
 }
 static void notification_contents(Panel *p){
-    GtkWidget *old=gtk_bin_get_child(GTK_BIN(p->notification_popup));
-    if(old)gtk_widget_destroy(old);
-    GtkWidget *box=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);
-    gtk_container_set_border_width(GTK_CONTAINER(box),12);
-    gtk_container_add(GTK_CONTAINER(p->notification_popup),box);
-    GtkWidget *header=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
-    gtk_box_pack_start(GTK_BOX(box),header,FALSE,FALSE,0);
-    gtk_box_pack_start(GTK_BOX(header),notification_label(T("通知中心")),TRUE,TRUE,0);
+    GtkWidget *box=g_object_get_data(G_OBJECT(p->notification_popup),"items");
+    GtkWidget *header=g_object_get_data(G_OBJECT(p->notification_popup),"header");
+    GList *children=gtk_container_get_children(GTK_CONTAINER(box));
+    for(GList *l=children;l;l=l->next)gtk_widget_destroy(l->data);
+    g_list_free(children);
+    gtk_widget_set_visible(header,FALSE);
     if(!p->notify_ready){
         gtk_box_pack_start(GTK_BOX(box),notify_button(p->notify_access?T("重新连接通知服务"):T("在手机上授权通知访问"),
             p->notify_access?"notify-rebind":"notify-access"),FALSE,FALSE,0);
@@ -49,11 +47,7 @@ static void notification_contents(Panel *p){
         gchar *data=notification_rows();
         if(!data || !*data) gtk_box_pack_start(GTK_BOX(box),notification_label(data?T("暂无通知"):T("暂时无法读取通知")),FALSE,FALSE,0);
         else{
-            GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL),*items=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
-            gtk_widget_set_size_request(scroll,MIN(wnck_screen_get_width(p->screen)*3/4,320*p->scale/100),
-                MIN(wnck_screen_get_height(p->screen)/2,330*p->scale/100));
-            gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
-            gtk_container_add(GTK_CONTAINER(scroll),items);gtk_box_pack_start(GTK_BOX(box),scroll,TRUE,TRUE,0);
+            GtkWidget *items=box;
             gchar **rows=g_strsplit(data,"\n",-1),*group=NULL;
             gboolean clearable=FALSE;
             for(int i=0;rows[i];i++){
@@ -61,21 +55,30 @@ static void notification_contents(Panel *p){
                 if(g_strv_length(v)==6){
                     if(g_strcmp0(group,v[0])){
                         g_free(group);group=g_strdup(v[0]);
-                        gtk_box_pack_start(GTK_BOX(items),notification_label(v[1]),FALSE,FALSE,2);
+                        GtkWidget *app=notification_label(v[1]);
+                        gtk_style_context_add_class(gtk_widget_get_style_context(app),"card-title");
+                        gtk_box_pack_start(GTK_BOX(items),app,FALSE,FALSE,2);
                     }
                     GtkWidget *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
-                    gchar *text=*v[4] && *v[5]?g_strconcat(v[4],"\n",v[5],NULL):g_strdup(*v[4]?v[4]:*v[5]?v[5]:T("通知"));
-                    gtk_box_pack_start(GTK_BOX(row),notification_label(text),TRUE,TRUE,4);g_free(text);
+                    gtk_style_context_add_class(gtk_widget_get_style_context(row),"content-card");
+                    GtkWidget *message=gtk_box_new(GTK_ORIENTATION_VERTICAL,5);
+                    gtk_box_pack_start(GTK_BOX(row),message,TRUE,TRUE,0);
+                    GtkWidget *title=notification_label(*v[4]?v[4]:*v[5]?v[5]:T("通知"));
+                    gtk_style_context_add_class(gtk_widget_get_style_context(title),"card-title");
+                    gtk_box_pack_start(GTK_BOX(message),title,FALSE,FALSE,0);
+                    if(*v[4] && *v[5])
+                        gtk_box_pack_start(GTK_BOX(message),notification_label(v[5]),FALSE,FALSE,0);
                     if(!strcmp(v[3],"1")){
                         clearable=TRUE;gchar *op=g_strconcat("notify-",v[2],NULL);
                         GtkWidget *remove=notify_button("×",op);g_free(op);gtk_widget_set_tooltip_text(remove,T("清除此通知"));
+                        gtk_widget_set_valign(remove,GTK_ALIGN_START);
                         gtk_box_pack_end(GTK_BOX(row),remove,FALSE,FALSE,0);
                     }
                     gtk_box_pack_start(GTK_BOX(items),row,FALSE,FALSE,0);
                 }
                 g_strfreev(v);
             }
-            if(clearable)gtk_box_pack_end(GTK_BOX(header),notify_button(T("清除全部"),"notify-clear"),FALSE,FALSE,0);
+            gtk_widget_set_visible(header,clearable);
             g_free(group);g_strfreev(rows);
         }
         if(data && *data && p->notify_unread)action("notify-seen");
@@ -105,8 +108,26 @@ static void show_notifications(GtkWidget *button,Panel *p){
     gtk_widget_set_name(w,"xdesx-notifications");
     gtk_window_set_title(GTK_WINDOW(w),T("通知中心"));
     g_object_add_weak_pointer(G_OBJECT(w),(gpointer*)&p->notification_popup);
-    notification_refresh(p);
-    XfcePanelPlugin *plugin=XFCE_PANEL_PLUGIN(gtk_widget_get_ancestor(button,XFCE_TYPE_PANEL_PLUGIN));
-    xfce_panel_plugin_popup_window(plugin,GTK_WINDOW(w),button);
+    gtk_window_set_wmclass(GTK_WINDOW(w),"xdesx-notifications","XdesxNotifications");
+    int width=MIN(wnck_screen_get_width(p->screen)-24,390*p->scale/100);
+    int height=MIN(wnck_screen_get_height(p->screen)-70,480*p->scale/100);
+    gtk_window_set_default_size(GTK_WINDOW(w),width,height);
+    gtk_window_move(GTK_WINDOW(w),MAX(0,wnck_screen_get_width(p->screen)-width-12),40*p->scale/100);
+    GtkWidget *body=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);
+    gtk_container_set_border_width(GTK_CONTAINER(body),12*p->scale/100);
+    gtk_container_add(GTK_CONTAINER(w),body);
+    GtkWidget *clear=notify_button(T("清除全部"),"notify-clear");
+    gtk_widget_set_halign(clear,GTK_ALIGN_END);
+    gtk_box_pack_start(GTK_BOX(body),clear,FALSE,FALSE,0);
+    GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
+    gtk_box_pack_start(GTK_BOX(body),scroll,TRUE,TRUE,0);
+    GtkWidget *items=gtk_box_new(GTK_ORIENTATION_VERTICAL,10*p->scale/100);
+    gtk_container_add(GTK_CONTAINER(scroll),items);
+    g_object_set_data(G_OBJECT(w),"items",items);
+    g_object_set_data(G_OBJECT(w),"header",clear);
     g_signal_connect_after(w,"hide",G_CALLBACK(gtk_widget_destroy),NULL);
+    gtk_widget_show_all(w);
+    notification_refresh(p);
+    gtk_window_present(GTK_WINDOW(w));
 }
