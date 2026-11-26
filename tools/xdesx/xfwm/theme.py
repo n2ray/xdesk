@@ -28,10 +28,19 @@ def decorations(z,scale,dark=False):
     h=px(32)
     for state in ("active","inactive"):
         for name in ["title-"+str(i) for i in range(1,6)]+["top-left","top-right","left","right","bottom","bottom-left","bottom-right"]:
-            width=px(8) if "-" in name and not name.startswith("title") else 1
-            height=h if name.startswith(("title","top")) else 1 if "bottom" in name else 2
+            corner=name in ("top-left","top-right","bottom-left","bottom-right")
+            lower_corner=corner and name.startswith("bottom")
+            width=px(18) if corner else px(4) if name in ("left","right") else 1
+            height=h if name.startswith(("title","top")) else px(18) if lower_corner else px(4) if name=="bottom" else 2
             im=Image.new("RGBA",(width,height),paper)
             draw=ImageDraw.Draw(im)
+            # The L follows both frame edges. Leave the interior corner transparent
+            # so the client still receives clicks on its content and scrollbars.
+            if lower_corner:
+                grip=px(4)
+                left=grip if name=="bottom-left" else 0
+                right=width-1 if name=="bottom-left" else width-grip-1
+                draw.rectangle((left,0,right,height-grip-1),fill=(0,0,0,0))
             if height==h: draw.line([(0,0),(width,0)],fill=edge)
             if "left" in name: draw.line([(0,0),(0,height)],fill=edge)
             if "right" in name: draw.line([(width-1,0),(width-1,height)],fill=edge)
