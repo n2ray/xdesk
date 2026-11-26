@@ -43,7 +43,7 @@
 +desktopAllowsButton (Client *c, int button)
 +{
 +    if (c->type & WINDOW_TYPE_DIALOG)
-+        return button == CLOSE_BUTTON;
++        return button == CLOSE_BUTTON || button == TITLE_SEPARATOR;
 +    if (button == SHADE_BUTTON)
 +        return (c->type & WINDOW_NORMAL) && CLIENT_CAN_MAXIMIZE_WINDOW (c)
 +            && g_strcmp0 (c->class.res_class, "XdesxSettings") != 0;

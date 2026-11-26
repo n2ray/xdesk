@@ -41,9 +41,9 @@
             android:exported="false" android:allowEmbedded="true" android:resizeableActivity="true"
             android:taskAffinity=".XdesxMac" android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden"
-            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+            android:theme="@style/XdesxFullScreen" />
         <activity android:name="com.termux.x11.XdesxActivity" android:label="xdesx"
-            android:theme="@android:style/Theme.Material.NoActionBar" android:exported="true"
+            android:theme="@style/XdesxController" android:exported="true"
             android:launchMode="singleTask" android:taskAffinity=".Xdesx"
             android:windowSoftInputMode="stateAlwaysHidden"
             android:configChanges="orientation|screenSize|keyboardHidden|density|locale|layoutDirection|uiMode">

@@ -57,6 +57,11 @@ final class XdesxRuntime {
         try (InputStream in=context.getAssets().open("xdesx/session.sh")) {
             Files.copy(in,path("session.sh").toPath(),StandardCopyOption.REPLACE_EXISTING);
         }
+        File fonts=path("share/fonts");
+        fonts.mkdirs();
+        try (InputStream font=context.getResources().openRawResource(com.termux.x11.app.R.font.xdesx_sans)) {
+            Files.copy(font,new File(fonts,"SourceHanSansCN-Regular.otf").toPath(),StandardCopyOption.REPLACE_EXISTING);
+        }
         done.createNewFile();
     }
     private String launcherIcon(AppCatalog catalog, AppCatalog.App entry) throws IOException {

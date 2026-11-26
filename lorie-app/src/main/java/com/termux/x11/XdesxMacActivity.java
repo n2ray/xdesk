@@ -46,7 +46,7 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
     private TextView label(String text,int size,int color,boolean bold) {
         TextView v=new TextView(this);
         v.setText(text); v.setTextColor(dark()?0xffe8eaf0:color); v.setTextSize(size);
-        if(bold) v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
+        v.setTypeface(getResources().getFont(com.termux.x11.app.R.font.xdesx_sans),bold?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
         v.setSingleLine();v.setEllipsize(android.text.TextUtils.TruncateAt.END);
         return v;
     }
