@@ -21,6 +21,10 @@ allprojects {
         if (System.getenv('GITHUB_ACTIONS') == 'true') {
             maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
         }
+        exclusiveContent {
+            forRepository { maven { url "https://jitpack.io" } }
+            filter { includeModule("com.github.MuntashirAkon", "libadb-android") }
+        }
         mavenCentral()
         maven { url "https://jitpack.io" }
     }
