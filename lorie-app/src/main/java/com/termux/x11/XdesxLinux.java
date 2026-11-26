@@ -89,6 +89,7 @@ final class XdesxLinux implements AutoCloseable {
 
     private void refreshApps() throws IOException {
         String locale = apps.locale();
+        String theme = apps.iconTheme();
         List<String> rows = new ArrayList<>();
         keys.clear();
         for (Map.Entry<String,File> file : apps.files().entrySet()) {
@@ -97,7 +98,11 @@ final class XdesxLinux implements AutoCloseable {
             String key = BuiltinApps.SCOPE + "/" + e.id;
             String id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "");
             keys.put(id, key);
-            rows.add(BuiltinApps.name(e, locale).replaceAll("[\\t\\r\\n]", " ") + "\t" + id + "\n");
+            File icon = null;
+            try { icon = apps.menuIcon(e.get("Icon"), theme); }
+            catch (IOException ignored) { /* Keep the entry if the icon disappeared during a package update. */ }
+            rows.add(BuiltinApps.name(e, locale).replaceAll("[\\t\\r\\n]", " ") + "\t" + id + "\t"
+                    + (icon == null ? "" : icon.getPath()) + "\n");
         }
         java.util.Collections.sort(rows);
         publish("ubuntu-apps", TextUtils.join("", rows));

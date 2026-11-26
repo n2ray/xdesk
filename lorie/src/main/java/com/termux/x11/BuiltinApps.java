@@ -124,7 +124,7 @@ public final class BuiltinApps {
         return "en_US";
     }
 
-    private String iconTheme() {
+    String iconTheme() {
         try {
             String x = new String(Files.readAllBytes(new File(home, ".config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml").toPath()),
                 StandardCharsets.UTF_8);
@@ -187,6 +187,24 @@ public final class BuiltinApps {
         }
         File f = new File(root, "usr/share/pixmaps/" + icon + ".png");
         return f.isFile() ? f : null;
+    }
+
+    /** GTK can also load the legacy pixmap supplied by XTerm desktop entries. */
+    File menuIcon(String name, String theme) throws IOException {
+        if (name.isEmpty() || name.indexOf('\t') >= 0 || name.indexOf('\n') >= 0) return null;
+        File file = icon(name, theme);
+        if (file == null && !name.contains("/")) {
+            File dir = new File(root, "usr/share/pixmaps");
+            for (String suffix : new String[]{".xpm", "_48x48.xpm", ".svg"}) {
+                File candidate = new File(dir, name + suffix);
+                if (candidate.isFile()) { file = candidate; break; }
+            }
+        }
+        if (file == null) return null;
+        File resolved = file.getCanonicalFile();
+        if (!resolved.toPath().startsWith(root.getCanonicalFile().toPath()) &&
+                !resolved.toPath().startsWith(home.getCanonicalFile().toPath())) return null;
+        return resolved.length() <= MAX_ICON_BYTES ? resolved : null;
     }
 
     /** The catalog, as xdesk apps writes it: a header, then KEY, name, terminal (0/1), StartupWMClass, icon (base64 PNG). */

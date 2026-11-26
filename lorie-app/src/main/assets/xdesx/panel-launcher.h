@@ -106,8 +106,8 @@ static void main_menu(GtkWidget *button,Panel *p) {
     if(g_file_get_contents("run/ubuntu-apps",&data,NULL,NULL)){
         gchar **lines=g_strsplit(data,"\n",-1);
         for(int i=0;lines[i];i++){
-            gchar **f=g_strsplit(lines[i],"\t",2);
-            if(g_strv_length(f)==2){gchar *id=g_strconcat("linux-",f[1],NULL);app_tile(l,f[0],id,NULL,2);g_free(id);}
+            gchar **f=g_strsplit(lines[i],"\t",3);
+            if(f[0] && f[1] && *f[1]){gchar *id=g_strconcat("linux-",f[1],NULL);app_tile(l,f[0],id,f[2],2);g_free(id);}
             g_strfreev(f);
         }
         g_strfreev(lines);g_free(data);

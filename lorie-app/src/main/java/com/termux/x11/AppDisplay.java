@@ -64,6 +64,16 @@ final class AppDisplay {
             VirtualDisplay d = refreshRate > 0 ? createAtRate(dm, name, width, height, dpi, surface, refreshRate) : null;
             if (d == null) d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags(name));
             if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
+            if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName())) {
+                // Keep the guest in the orientation of its X window, independently of the handset.
+                try {
+                    Object wm = DensityOverride.windowManager();
+                    wm.getClass().getMethod("setIgnoreOrientationRequest", int.class, boolean.class)
+                            .invoke(wm, d.getDisplay().getDisplayId(), true);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    android.util.Log.w("XDesX", "Window orientation override unavailable", e);
+                }
+            }
             return d;
         } catch (InvocationTargetException e) {
             throw new IllegalStateException(String.valueOf(e.getCause()));
