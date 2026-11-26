@@ -36,7 +36,7 @@
     "426498361b2ec2eb16abf6a1f5672cbf36717728209ed5a21823fa9e4b957fb6"
   ],
   "glib": [
-    "https://packages-cf.termux.dev/apt/termux-main/pool/main/g/glib/glib_2.90.1_aarch64.deb",
+    "https://mirror.mwt.me/termux/main/pool/main/g/glib/glib_2.90.1_aarch64.deb",
     "132d8ce961d96a7252fd4bc2228bddd385b1b17b706a46caae6d541ae0e4b2c0"
   ],
   "gsettings-desktop-schemas": [
