@@ -286,7 +286,11 @@ public final class Touchpad {
             float weight = (float) -Math.expm1(-interval / 35.0);
             trackingSpeed += weight * (speed - trackingSpeed);
             // Leave headroom for the HDMI mouse seat's own acceleration.
-            float gain = tuning.pointerSpeed * (1f + 1.25f * trackingSpeed / (1f + trackingSpeed));
+            float excess = Math.max(0f, trackingSpeed - 1f);
+            float fast = excess / (1f + excess);
+            // Squaring the fast portion keeps the slope continuous at the start of a flick.
+            float gain = tuning.pointerSpeed * (1f + 1.25f * trackingSpeed / (1f + trackingSpeed)
+                    - 0.15f * fast * fast);
             if (rest.add(dxDp * gain, dyDp * gain)) out.move(rest.dx, rest.dy);
             return;
         }

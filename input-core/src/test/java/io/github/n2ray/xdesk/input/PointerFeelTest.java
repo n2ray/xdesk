@@ -47,6 +47,15 @@ public class PointerFeelTest {
         }
     }
 
+    @Test public void desktopFastSwipesGetAGentleTrim() {
+        for (float speed : new float[]{0.5f, 1f, 2f, 3f, 5f}) {
+            float previousGain = 1f + 1.25f * speed / (1f + speed);
+            float measuredGain = desktopGain(speed, 8);
+            if (speed <= 1f) assertEquals(previousGain, measuredGain, 0.006f);
+            else assertTrue(measuredGain < previousGain * 0.99f && measuredGain > previousGain * 0.94f);
+        }
+    }
+
     @Test public void desktopDragStartsAtTheRestingCursor() {
         Tuning t = new Tuning();
         t.desktopPad = true;
