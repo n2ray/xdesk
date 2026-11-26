@@ -32,7 +32,6 @@
     <string name="xu_refresh_the_linux_application_list">請刷新 Linux 應用程式列表</string>
     <string name="xu_restore_native_display">恢復外接螢幕原生顯示</string>
     <string name="xu_return_to_window">返回 X 視窗</string>
-    <string name="xu_return_to_window">返回視窗</string>
     <string name="xu_signing_in_on_the_external_display">正在外接顯示器上登入…</string>
     <string name="xu_start_shizuku_then_return_to_xdesx">請啓動 Shizuku，然後回到 xdesx</string>
     <string name="xu_switch_task">無法切換 %1$s 的任務</string>
