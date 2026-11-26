@@ -1109,6 +1109,7 @@ public class InjectorService extends IInjector.Stub {
             } else if (moved >= 0) {
                 xdesxTasks.fullscreen(window, -1, -1);
                 leaveXdesxFullscreen();
+                if (!pkg.equals(ownPackage) && TaskMover.deferDesktopMode()) settleDesktopCaption(window, pkg);
                 post(() -> injector.focus(desktopTarget>0?desktopTarget:android.view.Display.DEFAULT_DISPLAY));
             } else if (mouse != null) {
                 mouse.closeAll();
@@ -1185,7 +1186,7 @@ public class InjectorService extends IInjector.Stub {
             VirtualDisplay d = appDisplays.get(displayId);
             if (d != null && d.getDisplay().getName().startsWith("XDesX ")) {
                 configureAfterLaunch = TaskMover.deferDesktopMode();
-                windowMode = configureAfterLaunch ? "1" : "6";
+                windowMode = "6";
                 flags = "0x18010000";  // NEW_TASK | MULTIPLE_TASK | NO_ANIMATION
             }
         }
@@ -1193,9 +1194,17 @@ public class InjectorService extends IInjector.Stub {
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
         if (r[1].contains("Error")) return r[1].trim();
-        if (configureAfterLaunch && !TaskMover.configureDesktopTask(displayId, component.split("/", 2)[0]))
-            Log.w(TAG, "Desktop layout unavailable for " + component);
+        if (configureAfterLaunch) settleDesktopCaption(displayId, component.split("/", 2)[0]);
         return null;
+    }
+
+    private void settleDesktopCaption(int display, String pkg) {
+        worker.schedule(() -> {
+            synchronized (appDisplays) {
+                if (sessionOver || !appDisplays.containsKey(display) || display == xdesxFullscreenWindow) return;
+                TaskMover.configureDesktopTask(display, pkg);
+            }
+        }, 900, TimeUnit.MILLISECONDS);
     }
 
     /** How long one `dumpsys window windows` answer is shared: callers ask in bursts and each call is a process. */

@@ -122,14 +122,14 @@ final class TaskMover {
         try {
             Object atm = taskManager();
             Method roots = atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class);
-            for (int attempt = 0; attempt < 20; attempt++) {
-                for (Object info : (List<?>) roots.invoke(atm, display)) {
-                    if (belongsTo(info, pkg)) {
-                        setWindowMode(info, 6);
-                        return true;
-                    }
-                }
-                android.os.SystemClock.sleep(25);
+            for (Object info : (List<?>) roots.invoke(atm, display)) {
+                if (!belongsTo(info, pkg)) continue;
+                // HyperOS creates its decoration asynchronously after launch. Detach it while
+                // the task stays on its private display, then restore the app's window layout.
+                setWindowMode(info, 1);
+                android.os.SystemClock.sleep(180);
+                setWindowMode(info, 6);
+                return true;
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.w(TAG, "Configure desktop task on display " + display, e);
