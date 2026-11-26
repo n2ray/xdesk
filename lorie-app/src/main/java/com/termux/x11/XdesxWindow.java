@@ -128,9 +128,40 @@ final class XdesxWindow {
         reader=next;
         Handler handler=new Handler(frames.getLooper());
         if (old!=null) { old.setOnImageAvailableListener(null,null); handler.post(old::close); }
+        if (old == null && !mac()) handler.postDelayed(() -> probePortrait(handler, null, 0), 450);
         next.setOnImageAvailableListener(this::frame,handler);
         handler.post(() -> frame(next));
     }
+    // Only sample during startup. A second matching layout excludes transient launch bounds.
+    private synchronized void probePortrait(Handler handler, android.graphics.Rect previous, int attempt) {
+        if (stopped || nativeFullscreen || control == null || reader == null) return;
+        String pkg = component.split("/", 2)[0];
+        int w = reader.getWidth(), h = reader.getHeight();
+        android.content.SharedPreferences prefs = context.getSharedPreferences("portrait_windows", 0);
+        try {
+            android.graphics.Rect bounds = injector.xdesxPortraitBounds(display, pkg);
+            if (bounds != null && !(bounds.width() > 0 && bounds.width() < bounds.height()
+                    && bounds.left >= 2 && w - bounds.right >= 2
+                    && bounds.top == 0 && Math.abs(h - bounds.bottom) <= 1)) bounds = null;
+            // A restored portrait window already fits. Reapply its previously measured hint.
+            int rw = prefs.getInt(pkg + ".w", 0), rh = prefs.getInt(pkg + ".h", 0);
+            boolean restored = rw > 0 && rh > 0 && Math.abs(w - (double) h * rw / rh) <= 2;
+            if (bounds != null && bounds.equals(previous)) {
+                rw = bounds.width();
+                rh = bounds.height();
+                prefs.edit().putInt(pkg + ".w", rw).putInt(pkg + ".h", rh).apply();
+            } else if (!restored) {
+                android.graphics.Rect sample = bounds;
+                if (attempt < 7) handler.postDelayed(() -> probePortrait(handler, sample, attempt + 1), 400);
+                return;
+            }
+            byte[] hint = java.nio.ByteBuffer.allocate(8).putInt(rw).putInt(rh).array();
+            int sent = 0;
+            while (sent < hint.length) sent += Os.write(control.getFileDescriptor(), hint, sent, hint.length - sent);
+            Log.i("XDesX", "portrait window " + pkg + " aspect " + rw + "x" + rh);
+        } catch (Exception e) { if (!stopped) Log.w("XDesX", "portrait layout", e); }
+    }
+
     private boolean logged;
     private void frame(ImageReader src) {
         if (stopped) return;

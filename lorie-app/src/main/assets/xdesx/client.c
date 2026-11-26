@@ -161,7 +161,22 @@ int main(int argc, char **argv) {
                 if (!event(ctrl, e.type == KeyPress ? 4 : 5, e.xkey.keycode - 8, 0)) return 1;
         }
         if (poll(fds, 3, -1) < 0) { if (errno == EINTR) continue; return 1; }
-        if (fds[2].revents || (fds[0].revents & (POLLERR|POLLHUP))) return 0;
+        if (fds[2].revents & POLLIN) {
+            uint32_t aspect[2];
+            if (recv(ctrl, aspect, sizeof(aspect), MSG_WAITALL) != sizeof(aspect)) return 0;
+            int aw = ntohl(aspect[0]), ah = ntohl(aspect[1]);
+            if (aw > 0 && aw < ah && ah <= 32767) {
+                XSizeHints hints = {0};
+                hints.flags = PAspect;
+                hints.min_aspect.x = hints.max_aspect.x = aw;
+                hints.min_aspect.y = hints.max_aspect.y = ah;
+                XSetWMNormalHints(d, win, &hints);
+                int width = ((long)h * aw + ah / 2) / ah;
+                if (width > 0 && width != w) XResizeWindow(d, win, width, h);
+                XFlush(d);
+            }
+        }
+        if ((fds[2].revents & (POLLERR|POLLHUP|POLLNVAL)) || (fds[0].revents & (POLLERR|POLLHUP))) return 0;
         if (!(fds[1].revents & POLLIN)) continue;
         int frame = accept(listener, NULL, NULL);
         uint32_t header[2];
