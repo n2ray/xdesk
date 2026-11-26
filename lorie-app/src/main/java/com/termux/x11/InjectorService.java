@@ -1088,7 +1088,7 @@ public class InjectorService extends IInjector.Stub {
                     return -1;
                 }
             }
-            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task, pkg.equals(ownPackage) ? 1 : (enter ? 1 : 6));
+            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
             if (moved >= 0 && enter) {
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
@@ -1109,7 +1109,6 @@ public class InjectorService extends IInjector.Stub {
             } else if (moved >= 0) {
                 xdesxTasks.fullscreen(window, -1, -1);
                 leaveXdesxFullscreen();
-                if (!pkg.equals(ownPackage) && TaskMover.deferDesktopMode()) settleDesktopCaption(window, pkg);
                 post(() -> injector.focus(desktopTarget>0?desktopTarget:android.view.Display.DEFAULT_DISPLAY));
             } else if (mouse != null) {
                 mouse.closeAll();
@@ -1179,32 +1178,18 @@ public class InjectorService extends IInjector.Stub {
         if (at >= 0) component = component.substring(0, at);
         // A launcher reset can move a stale browser task here without a first frame.
         // A native desktop window requests a distinct task on its own virtual display.
-        String flags = "0x10200000";
-        String windowMode = "1";
-        boolean configureAfterLaunch = false;
+        boolean desktopWindow;
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(displayId);
-            if (d != null && d.getDisplay().getName().startsWith("XDesX ")) {
-                configureAfterLaunch = TaskMover.deferDesktopMode();
-                windowMode = "6";
-                flags = "0x18010000";  // NEW_TASK | MULTIPLE_TASK | NO_ANIMATION
-            }
+            desktopWindow = d != null && d.getDisplay().getName().startsWith("XDesX ");
         }
-        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", windowMode,
+        String flags = desktopWindow ? "0x18010000" : "0x10200000";
+        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
         if (r[1].contains("Error")) return r[1].trim();
-        if (configureAfterLaunch) settleDesktopCaption(displayId, component.split("/", 2)[0]);
+        if (desktopWindow) AppDisplay.followWindowOrientation(displayId);
         return null;
-    }
-
-    private void settleDesktopCaption(int display, String pkg) {
-        worker.schedule(() -> {
-            synchronized (appDisplays) {
-                if (sessionOver || !appDisplays.containsKey(display) || display == xdesxFullscreenWindow) return;
-                TaskMover.configureDesktopTask(display, pkg);
-            }
-        }, 900, TimeUnit.MILLISECONDS);
     }
 
     /** How long one `dumpsys window windows` answer is shared: callers ask in bursts and each call is a process. */

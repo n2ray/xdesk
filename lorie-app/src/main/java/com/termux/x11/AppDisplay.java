@@ -55,6 +55,21 @@ final class AppDisplay {
         return f;
     }
 
+    // Only the app's private display is configured. A fixed-orientation activity may still
+    // letterbox itself. Leave its normal fullscreen task and input coordinates intact.
+    static void followWindowOrientation(int display) {
+        if (display <= android.view.Display.DEFAULT_DISPLAY) return;
+        try {
+            Object wm = DensityOverride.windowManager();
+            wm.getClass().getMethod("setFixedToUserRotation", int.class, int.class)
+                    .invoke(wm, display, 2); // IWindowManager.FIXED_TO_USER_ROTATION_ENABLED
+            wm.getClass().getMethod("setIgnoreOrientationRequest", int.class, boolean.class)
+                    .invoke(wm, display, true);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            android.util.Log.i("XDesX", "Using default display orientation for " + display, e);
+        }
+    }
+
     /** Throws IllegalStateException with the reason, which Binder carries back to XDesk. */
     static VirtualDisplay create(String name, int width, int height, int dpi, Surface surface, float refreshRate) {
         try {
@@ -64,16 +79,6 @@ final class AppDisplay {
             VirtualDisplay d = refreshRate > 0 ? createAtRate(dm, name, width, height, dpi, surface, refreshRate) : null;
             if (d == null) d = dm.createVirtualDisplay(name, width, height, dpi, surface, flags(name));
             if (d == null) throw new IllegalStateException(ShellText.code(ShellText.NO_DISPLAY_MADE));
-            if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName())) {
-                // Keep the guest in the orientation of its X window, independently of the handset.
-                try {
-                    Object wm = DensityOverride.windowManager();
-                    wm.getClass().getMethod("setIgnoreOrientationRequest", int.class, boolean.class)
-                            .invoke(wm, d.getDisplay().getDisplayId(), true);
-                } catch (ReflectiveOperationException | RuntimeException e) {
-                    android.util.Log.w("XDesX", "Window orientation override unavailable", e);
-                }
-            }
             return d;
         } catch (InvocationTargetException e) {
             throw new IllegalStateException(String.valueOf(e.getCause()));

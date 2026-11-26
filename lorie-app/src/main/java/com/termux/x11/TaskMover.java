@@ -112,53 +112,14 @@ final class TaskMover {
         return r[0];
     }
 
-    static boolean deferDesktopMode() {
-        return "Xiaomi".equalsIgnoreCase(android.os.Build.MANUFACTURER);
-    }
-
-    // HyperOS attaches a second caption when launching directly in mode 6. Configure the
-    // already-created task instead; the app still receives the complete X client bounds.
-    static boolean configureDesktopTask(int display, String pkg) {
-        try {
-            Object atm = taskManager();
-            Method roots = atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class);
-            for (Object info : (List<?>) roots.invoke(atm, display)) {
-                if (!belongsTo(info, pkg)) continue;
-                // HyperOS creates its decoration asynchronously after launch. Detach it while
-                // the task stays on its private display, then restore the app's window layout.
-                setWindowMode(info, 1);
-                android.os.SystemClock.sleep(180);
-                setWindowMode(info, 6);
-                return true;
-            }
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            Log.w(TAG, "Configure desktop task on display " + display, e);
-        }
-        return false;
-    }
-
-    static int moveWindowTask(int source, int target, String pkg, int expected, int mode) {
+    static int moveWindowTask(int source, int target, String pkg, int expected) {
         try {
             Object atm=taskManager();
             List<?> tasks=(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm,source);
             for (Object info:tasks) {
                 int id=info.getClass().getField("taskId").getInt(info);
                 if ((expected>=0 && expected!=id) || !belongsTo(info,pkg)) continue;
-                int oldMode = (int) info.getClass().getMethod("getWindowingMode").invoke(info);
-                boolean afterMove = oldMode != mode && mode == 6 && deferDesktopMode();
-                if (oldMode != mode && !afterMove) setWindowMode(info, mode);
-                try {
-                    atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
-                } catch (ReflectiveOperationException e) {
-                    if (oldMode != mode && !afterMove) setWindowMode(info, oldMode);
-                    throw e;
-                }
-                if (afterMove) {
-                    try { setWindowMode(info, mode); }
-                    catch (ReflectiveOperationException | RuntimeException e) {
-                        Log.w(TAG, "Task moved but desktop layout unavailable", e);
-                    }
-                }
+                atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
                 return id;
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -173,16 +134,6 @@ final class TaskMover {
             if (c != null && c.getPackageName().equals(pkg)) return true;
         }
         return false;
-    }
-
-    private static void setWindowMode(Object taskInfo, int mode) throws ReflectiveOperationException {
-        Object token = taskInfo.getClass().getField("token").get(taskInfo);
-        Class<?> transaction = Class.forName("android.window.WindowContainerTransaction");
-        Object change = transaction.getConstructor().newInstance();
-        transaction.getMethod("setWindowingMode", Class.forName("android.window.WindowContainerToken"), int.class)
-                .invoke(change, token, mode);
-        Class<?> organizer = Class.forName("android.window.WindowOrganizer");
-        organizer.getMethod("applyTransaction", transaction).invoke(organizer.getConstructor().newInstance(), change);
     }
 
     /**
