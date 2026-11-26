@@ -129,16 +129,14 @@ final class TaskMover {
     }
 
     // Read Android's activity layout, so black pixels inside a video never count as bars.
-    static android.graphics.Rect portraitBounds(int display, String pkg) {
+    static android.graphics.Rect portraitBounds(int display, String pkg, int width, int height) {
         try {
             Object atm = taskManager();
             List<?> tasks = (List<?>) atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class).invoke(atm, display);
             for (Object task : tasks) {
                 ComponentName top = (ComponentName) task.getClass().getField("topActivity").get(task);
                 if (top == null || !pkg.equals(top.getPackageName()) || !visible(task)) continue;
-                Object compat = task.getClass().getField("appCompatTaskInfo").get(task);
-                if (compat == null || !(Boolean) compat.getClass().getMethod("isTopActivityLetterboxed").invoke(compat)) return null;
-                return (android.graphics.Rect) compat.getClass().getField("topActivityLetterboxBounds").get(compat);
+                return PortraitLayout.read(task, width, height);
             }
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             // Older systems may not expose activity-level bounds.

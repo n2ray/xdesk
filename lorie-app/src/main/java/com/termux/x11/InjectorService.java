@@ -1119,11 +1119,13 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public android.graphics.Rect xdesxPortraitBounds(int display, String pkg) {
+        android.graphics.Point size = new android.graphics.Point();
         synchronized (appDisplays) {
             VirtualDisplay vd = appDisplays.get(display);
             if (vd == null || !vd.getDisplay().getName().startsWith("XDesX ")) return null;
+            vd.getDisplay().getRealSize(size);
         }
-        return TaskMover.portraitBounds(display, pkg);
+        return TaskMover.portraitBounds(display, pkg, size.x, size.y);
     }
 
     private final XdesxTaskWatch xdesxTasks=new XdesxTaskWatch();

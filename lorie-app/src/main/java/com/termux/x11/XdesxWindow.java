@@ -140,12 +140,13 @@ final class XdesxWindow {
         android.content.SharedPreferences prefs = context.getSharedPreferences("portrait_windows", 0);
         try {
             android.graphics.Rect bounds = injector.xdesxPortraitBounds(display, pkg);
+            boolean knownUnboxed = bounds != null && bounds.isEmpty();
             if (bounds != null && !(bounds.width() > 0 && bounds.width() < bounds.height()
                     && bounds.left >= 2 && w - bounds.right >= 2
                     && bounds.top == 0 && Math.abs(h - bounds.bottom) <= 1)) bounds = null;
             // A restored portrait window already fits. Reapply its previously measured hint.
             int rw = prefs.getInt(pkg + ".w", 0), rh = prefs.getInt(pkg + ".h", 0);
-            boolean restored = rw > 0 && rh > 0 && Math.abs(w - (double) h * rw / rh) <= 2;
+            boolean restored = knownUnboxed && rw > 0 && rh > 0 && Math.abs(w - (double) h * rw / rh) <= 2;
             if (bounds != null && bounds.equals(previous)) {
                 rw = bounds.width();
                 rh = bounds.height();
