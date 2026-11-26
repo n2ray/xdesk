@@ -694,4 +694,5 @@
     <string name="xd_shizuku_restart_row">Stopped after a restart</string>
     <string name="xd_shizuku_restart_row_note">Start Shizuku again</string>
     <string name="xd_shizuku_back">Use wireless debugging instead ›</string>
+    <string name="hdmi_mouse_description">在外屏全屏 Chrome 中同步鼠标位置，让普通与无痕标签切换时箭头留在原处。</string>
 </resources>

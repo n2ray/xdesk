@@ -911,7 +911,7 @@ public class InjectorService extends IInjector.Stub {
     }
     @Override public void desktopMouse(int op,float x,float y) {
         synchronized(appDisplays) {
-            if (securePointer) {
+            if (securePointer && !nativeMouseObserved) {
                 post(() -> {
                     if (op==1) injector.moveBy(x,y);
                     else if (op==2) injector.button((int)x==1?1:(int)x==2?4:2,y!=0);
@@ -934,14 +934,39 @@ public class InjectorService extends IInjector.Stub {
     private FullscreenSecureWatch secureWatch;
     private boolean securePage, securePointer;
 
+    private boolean nativeMouseObserved, haveMousePosition;
+    private int observedX, observedY;
+
+    @Override public void observedMouse(int display, float x, float y, boolean active) {
+        synchronized (appDisplays) {
+            if (display != xdesxNativeDisplay || secureWatch == null) return;
+            boolean previouslyObserved = nativeMouseObserved;
+            nativeMouseObserved = active;
+            if (active && Float.isFinite(x) && Float.isFinite(y)) {
+                haveMousePosition = true;
+                observedX = Math.round(x);
+                observedY = Math.round(y);
+                if (securePointer) {
+                    pointer.moveTo(observedX, observedY);
+                    pointer.show(true);
+                }
+            } else haveMousePosition = false;
+            if (previouslyObserved != active && securePointer) fullscreenMouse.setGrabbed(!active);
+        }
+    }
+
     private void updateSecurePointer() {
         boolean enabled = securePage && !fullscreenPassthrough && fullscreenMouse != null;
         if (enabled == securePointer) return;
         securePointer = enabled;
-        fullscreenMouse.setGrabbed(enabled);
+        fullscreenMouse.setGrabbed(enabled && !nativeMouseObserved);
         post(() -> {
             injector.releaseAll();
-            pointer.show(enabled);
+            synchronized (appDisplays) {
+                if (enabled != securePointer) return;
+                if (enabled && nativeMouseObserved && haveMousePosition) pointer.moveTo(observedX, observedY);
+                pointer.show(enabled && (!nativeMouseObserved || haveMousePosition));
+            }
             Log.i(TAG, "protected fullscreen cursor " + (enabled ? "software" : "system"));
         });
     }
@@ -969,7 +994,7 @@ public class InjectorService extends IInjector.Stub {
             try { secureWatch.unregister(); } catch (RuntimeException | LinkageError ignored) {}
             secureWatch = null;
         }
-        securePage = securePointer = false;
+        securePage = securePointer = nativeMouseObserved = haveMousePosition = false;
     }
 
     private final EvdevReader.Sink fullscreenInput = new EvdevReader.Sink() {
