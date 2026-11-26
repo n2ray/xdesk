@@ -108,17 +108,26 @@ static void show_notifications(GtkWidget *button,Panel *p){
     gtk_widget_set_name(w,"xdesx-notifications");
     gtk_window_set_title(GTK_WINDOW(w),T("通知中心"));
     g_object_add_weak_pointer(G_OBJECT(w),(gpointer*)&p->notification_popup);
-    gtk_window_set_wmclass(GTK_WINDOW(w),"xdesx-notifications","XdesxNotifications");
-    int width=MIN(wnck_screen_get_width(p->screen)-24,390*p->scale/100);
-    int height=MIN(wnck_screen_get_height(p->screen)-70,480*p->scale/100);
-    gtk_window_set_default_size(GTK_WINDOW(w),width,height);
-    gtk_window_move(GTK_WINDOW(w),MAX(0,wnck_screen_get_width(p->screen)-width-12),40*p->scale/100);
+    GtkWidget *bar=gtk_widget_get_toplevel(button);
+    GdkWindow *bar_window=gtk_widget_get_window(bar);
+    GdkMonitor *monitor=gdk_display_get_monitor_at_window(gtk_widget_get_display(bar),bar_window);
+    GdkRectangle screen;
+    gdk_monitor_get_geometry(monitor,&screen);
+    int bar_y=0;
+    gdk_window_get_origin(bar_window,NULL,&bar_y);
+    int top=bar_y+gtk_widget_get_allocated_height(bar);
     GtkWidget *body=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);
+    gtk_widget_set_size_request(w,MIN(screen.width,400*p->scale/100),
+                                MAX(1,screen.y+screen.height-top));
     gtk_container_set_border_width(GTK_CONTAINER(body),12*p->scale/100);
     gtk_container_add(GTK_CONTAINER(w),body);
     GtkWidget *clear=notify_button(T("清除全部"),"notify-clear");
-    gtk_widget_set_halign(clear,GTK_ALIGN_END);
-    gtk_box_pack_start(GTK_BOX(body),clear,FALSE,FALSE,0);
+    GtkWidget *header=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
+    GtkWidget *title=notification_label(T("通知中心"));
+    gtk_style_context_add_class(gtk_widget_get_style_context(title),"page-title");
+    gtk_box_pack_start(GTK_BOX(header),title,TRUE,TRUE,0);
+    gtk_box_pack_end(GTK_BOX(header),clear,FALSE,FALSE,0);
+    gtk_box_pack_start(GTK_BOX(body),header,FALSE,FALSE,0);
     GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
     gtk_box_pack_start(GTK_BOX(body),scroll,TRUE,TRUE,0);
@@ -126,8 +135,9 @@ static void show_notifications(GtkWidget *button,Panel *p){
     gtk_container_add(GTK_CONTAINER(scroll),items);
     g_object_set_data(G_OBJECT(w),"items",items);
     g_object_set_data(G_OBJECT(w),"header",clear);
-    g_signal_connect_after(w,"hide",G_CALLBACK(gtk_widget_destroy),NULL);
-    gtk_widget_show_all(w);
+    gtk_widget_show_all(body);
     notification_refresh(p);
-    gtk_window_present(GTK_WINDOW(w));
+    XfcePanelPlugin *plugin=XFCE_PANEL_PLUGIN(gtk_widget_get_ancestor(button,XFCE_TYPE_PANEL_PLUGIN));
+    xfce_panel_plugin_popup_window(plugin,GTK_WINDOW(w),button);
+    g_signal_connect_after(w,"hide",G_CALLBACK(gtk_widget_destroy),NULL);
 }
