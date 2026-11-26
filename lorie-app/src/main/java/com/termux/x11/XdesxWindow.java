@@ -26,7 +26,7 @@ final class XdesxWindow {
     private ImageReader reader;
     private volatile int display = -1;
     private volatile boolean nativeFullscreen, minimized;
-    private int task=-1;
+    private int task=-1, densityTarget=-1;
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
     String label() { return mac()?"Mac":chrome()?"Chrome":"应用"; }
     boolean chrome() { return component.startsWith("com.android.chrome/"); }
@@ -34,12 +34,28 @@ final class XdesxWindow {
     synchronized boolean toggle(int external,android.graphics.Bitmap cursor,int hotspot,int width,int height) throws RemoteException {
         if (stopped || display<0) return false;
         boolean enter=!nativeFullscreen;
-        int moved=injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
-        if (moved<0) return false;
-        task=moved;
-        nativeFullscreen=enter;
-        Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
-        return true;
+        if (enter && !mac()) {
+            HdmiScale.enter(context,injector,external,dpi);
+            densityTarget=external;
+        }
+        boolean didMove=false;
+        try {
+            int moved=injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
+            if (moved<0) return false;
+            task=moved;
+            nativeFullscreen=enter;
+            didMove=true;
+            Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
+            return true;
+        } finally {
+            if (enter!=didMove) restoreDensity();
+        }
+    }
+    private synchronized void restoreDensity() {
+        if (densityTarget>0) {
+            HdmiScale.restore(context,injector,densityTarget);
+            densityTarget=-1;
+        }
     }
     XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable fs,Runnable f) {
         this.context=context; server=s; injector=i; key=k; component=c; requestFullscreen=fs; finished=f;
@@ -77,6 +93,7 @@ final class XdesxWindow {
         } catch (Exception e) { Log.e("XDesX","window "+component,e); }
         finally {
             stopped=true; control=null;
+            restoreDensity();
             if (mac()) XdesxMacActivity.closeWindow(key);
             if (display>=0) try { injector.releaseXdesxDisplay(display); } catch(Exception ignored) {}
             frames.quitSafely();

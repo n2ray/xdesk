@@ -895,6 +895,12 @@ public class InjectorService extends IInjector.Stub {
     private FullscreenDevices desktopDevices, fullscreenDevices;
     private DesktopMouse desktopPad;
     private int desktopTarget=-1;
+    @Override public int xdesxHdmiDensity(int display,String unique,int expected,int target) {
+        synchronized(appDisplays) {
+            if (display<=0 || appDisplays.containsKey(display)) return -1;
+            return DensityOverride.scoped(display,unique,expected,target);
+        }
+    }
     @Override public boolean routeXdesxDesktop(int id) {
         synchronized(appDisplays) {
             if(sessionOver || id<=0) return false;

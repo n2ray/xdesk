@@ -119,6 +119,7 @@ interface IInjector {
     // The privacy cover: the external screen's Android apps without sound while it hides them (CoverMute).
     oneway void muteApps(boolean on) = 52;
     android.graphics.Rect xdesxPortraitBounds(int display, String pkg) = 67;
+    int xdesxHdmiDensity(int display, String uniqueId, int expected, int target) = 68;
     boolean routeXdesxDesktop(int display) = 65;
     oneway void desktopMouse(int op,float x,float y) = 66;
     void releaseXdesxDisplay(int id) = 60;

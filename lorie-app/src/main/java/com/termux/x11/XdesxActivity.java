@@ -120,6 +120,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void routeDesktop() {
         if(injector==null || external<=0 || desktopNative) return;
         try {
+            if (fullWindow==null && !switching) HdmiScale.restore(this,injector,external);
             desktopNative=injector.routeXdesxDesktop(external);
             MainActivity.xdesxHardwareCursor(desktopNative);
             if(desktopNative && mouse.hasPointerCapture()) mouse.releasePointerCapture();
@@ -582,6 +583,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(mouse!=null) mouse.releasePointerCapture();
         for (XdesxWindow w:windows.values()) w.stop();
         if (injector!=null) {
+            HdmiScale.restore(this,injector,external);
             try { injector.shutdown(); } catch(RemoteException e) { Log.w("XDesX","shutdown",e); }
         }
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);

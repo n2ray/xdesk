@@ -36,6 +36,12 @@ final class DensityOverride {
     /** Returns null, or what went wrong. Never touches the phone's own screen. */
     synchronized String set(int display, int dpi) {
         if (display == Display.DEFAULT_DISPLAY) return ShellText.code(ShellText.PHONE_SCREEN);
+        String error = write(display,dpi);
+        if (error == null) ours.add(display);
+        return error;
+    }
+
+    private static String write(int display, int dpi) {
         String error = null;
         try {
             Object wm = windowManager();
@@ -44,8 +50,26 @@ final class DensityOverride {
             Log.i(TAG, "setForcedDisplayDensityForUser failed, trying wm: " + e);
             error = runWm(String.valueOf(dpi), "-d", String.valueOf(display));
         }
-        if (error == null) ours.add(display);
         return error;
+    }
+
+    // Compare before writing: another display or an intervening user change must win.
+    static int scoped(int display,String unique,int expected,int target) {
+        if (display<=0 || unique==null || !unique.equals(uniqueId(display))) return -1;
+        try {
+            Object wm=windowManager();
+            int current=(Integer)wm.getClass().getMethod("getBaseDisplayDensity",int.class).invoke(wm,display);
+            if (target<0 || current!=expected) return current;
+            if (target==0) {
+                String err=runWm("reset","-d",String.valueOf(display));
+                if (err!=null) return -1;
+                keepOwnDensity(display);
+            } else if (write(display,target)!=null) return -1;
+            return (Integer)wm.getClass().getMethod("getBaseDisplayDensity",int.class).invoke(wm,display);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG,"HDMI fullscreen density",e);
+            return -1;
+        }
     }
 
     /** Returns null, or what went wrong. @param force also when this process did not set it */
