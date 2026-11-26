@@ -1088,7 +1088,7 @@ public class InjectorService extends IInjector.Stub {
                     return -1;
                 }
             }
-            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
+            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task, pkg.equals(ownPackage) ? 1 : (enter ? 1 : 6));
             if (moved >= 0 && enter) {
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
@@ -1179,12 +1179,15 @@ public class InjectorService extends IInjector.Stub {
         // A launcher reset can move a stale browser task here without a first frame.
         // A native desktop window requests a distinct task on its own virtual display.
         String flags = "0x10200000";
+        String windowMode = "1";
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(displayId);
-            if (d != null && d.getDisplay().getName().startsWith("XDesX "))
+            if (d != null && d.getDisplay().getName().startsWith("XDesX ")) {
+                windowMode = "6"; // Android multi-window: the X window determines the app bounds.
                 flags = "0x18010000";  // NEW_TASK | MULTIPLE_TASK | NO_ANIMATION
+            }
         }
-        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", "1",
+        String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", windowMode,
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
         return r[1].contains("Error") ? r[1].trim() : null;

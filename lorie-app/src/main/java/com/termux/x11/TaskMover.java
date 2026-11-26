@@ -112,14 +112,21 @@ final class TaskMover {
         return r[0];
     }
 
-    static int moveWindowTask(int source, int target, String pkg, int expected) {
+    static int moveWindowTask(int source, int target, String pkg, int expected, int mode) {
         try {
             Object atm=taskManager();
             List<?> tasks=(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm,source);
             for (Object info:tasks) {
                 int id=info.getClass().getField("taskId").getInt(info);
                 if ((expected>=0 && expected!=id) || !belongsTo(info,pkg)) continue;
-                atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
+                int oldMode = (int) info.getClass().getMethod("getWindowingMode").invoke(info);
+                if (oldMode != mode) setWindowMode(info, mode);
+                try {
+                    atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
+                } catch (ReflectiveOperationException e) {
+                    if (oldMode != mode) setWindowMode(info, oldMode);
+                    throw e;
+                }
                 return id;
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -134,6 +141,16 @@ final class TaskMover {
             if (c != null && c.getPackageName().equals(pkg)) return true;
         }
         return false;
+    }
+
+    private static void setWindowMode(Object taskInfo, int mode) throws ReflectiveOperationException {
+        Object token = taskInfo.getClass().getField("token").get(taskInfo);
+        Class<?> transaction = Class.forName("android.window.WindowContainerTransaction");
+        Object change = transaction.getConstructor().newInstance();
+        transaction.getMethod("setWindowingMode", Class.forName("android.window.WindowContainerToken"), int.class)
+                .invoke(change, token, mode);
+        Class<?> organizer = Class.forName("android.window.WindowOrganizer");
+        organizer.getMethod("applyTransaction", transaction).invoke(organizer.getConstructor().newInstance(), change);
     }
 
     /**
