@@ -28,7 +28,7 @@ final class XdesxWindow {
     private volatile boolean nativeFullscreen, minimized;
     private int task=-1, densityTarget=-1;
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
-    String label() { return mac()?"Mac":chrome()?"Chrome":"应用"; }
+    String label() { return mac()?"Mac":chrome()?"Chrome":context.getString(com.termux.x11.app.R.string.xu_application); }
     boolean chrome() { return component.startsWith("com.android.chrome/"); }
     boolean fullscreen() { return nativeFullscreen; }
     synchronized boolean toggle(int external,android.graphics.Bitmap cursor,int hotspot,int width,int height) throws RemoteException {

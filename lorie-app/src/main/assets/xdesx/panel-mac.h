@@ -30,7 +30,7 @@ static void edit_mac(GtkButton *button,Panel *p) {
     for(;;){
         int response=gtk_dialog_run(GTK_DIALOG(d));
         if(response==GTK_RESPONSE_REJECT){
-            GtkWidget *confirm=gtk_message_dialog_new(GTK_WINDOW(d),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,T("移除此 Mac 及已保存的凭据？"));
+            GtkWidget *confirm=gtk_message_dialog_new(GTK_WINDOW(d),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"%s",T("移除此 Mac 及已保存的凭据？"));
             gtk_dialog_add_buttons(GTK_DIALOG(confirm),T("取消"),GTK_RESPONSE_CANCEL,T("移除"),GTK_RESPONSE_OK,NULL);
             int answer=gtk_dialog_run(GTK_DIALOG(confirm));gtk_widget_destroy(confirm);
             if(answer!=GTK_RESPONSE_OK)continue;

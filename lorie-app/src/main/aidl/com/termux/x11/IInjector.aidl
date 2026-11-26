@@ -127,5 +127,5 @@ interface IInjector {
     int moveXdesxTask(int window, int external, String pkg, int task, boolean enter, in Bitmap cursor, int hotspot, int width, int height) = 62;
     oneway void xdesxNativeInput(int op, float x, float y) = 63;
     oneway void xdesxPointer(int display, int width, int height, int op, int x, int y) = 61;
-    boolean setDesktopNight(boolean dark);
+    boolean setDesktopNight(boolean dark) = 69;
 }

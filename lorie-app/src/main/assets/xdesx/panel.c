@@ -140,8 +140,8 @@ static gboolean timeout_dialog(gpointer d) {
 static void selected(GtkWidget *i,gpointer unused) {
     const char *op=g_object_get_data(G_OBJECT(i),"action");
     if (!strcmp(op,"linux-install")) {
-        GtkWidget *d=gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(i)),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,T("下载 Ubuntu 应用环境？"));
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d),T("首次使用需要联网下载并校验 ARM64 镜像，再解压到本机。建议使用 Wi-Fi 并预留数 GB 空间。安装后即可从应用菜单启动 Linux 应用。"));
+        GtkWidget *d=gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(i)),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"%s",T("下载 Ubuntu 应用环境？"));
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d),"%s",T("首次使用需要联网下载并校验 ARM64 镜像，再解压到本机。建议使用 Wi-Fi 并预留数 GB 空间。安装后即可从应用菜单启动 Linux 应用。"));
         gtk_dialog_add_buttons(GTK_DIALOG(d),T("取消"),GTK_RESPONSE_CANCEL,T("下载并安装"),GTK_RESPONSE_OK,NULL);
         gboolean install=gtk_dialog_run(GTK_DIALOG(d))==GTK_RESPONSE_OK;
         gtk_widget_destroy(d);
@@ -149,8 +149,8 @@ static void selected(GtkWidget *i,gpointer unused) {
     }
     if (!action(op) || !g_str_has_prefix(op,"render-")) return;
     char *confirm=g_strdup_printf("confirm-%s",op+7);
-    GtkWidget *d=gtk_message_dialog_new(NULL,0,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,T("保留这个桌面渲染分辨率？"));
-    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d),T("15 秒后自动恢复原设置。"));
+    GtkWidget *d=gtk_message_dialog_new(NULL,0,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"%s",T("保留这个桌面渲染分辨率？"));
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d),"%s",T("15 秒后自动恢复原设置。"));
     gtk_dialog_add_button(GTK_DIALOG(d),T("保留"),GTK_RESPONSE_OK);
     guint timer=g_timeout_add_seconds(14,timeout_dialog,d);
     if (gtk_dialog_run(GTK_DIALOG(d))==GTK_RESPONSE_OK) action(confirm);

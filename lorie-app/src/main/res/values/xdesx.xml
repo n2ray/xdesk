@@ -44,4 +44,5 @@
     <string name="xu_wallpaper">Wallpaper · </string>
     <string name="xu_window_limit">Window limit reached (%1$d). Close a window or change the limit in Settings.</string>
     <string name="xu_wireless_pairing_failed">Wireless pairing failed: </string>
+    <string name="xu_application">Application</string>
 </resources>

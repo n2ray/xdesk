@@ -455,6 +455,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 panel.language=value; panel.saveOptions();
                 if(android.os.Build.VERSION.SDK_INT>=33) getSystemService(android.app.LocaleManager.class).setApplicationLocales(
                     android.os.LocaleList.forLanguageTags(new String[]{"","en","zh-Hans","zh-Hant"}[value]));
+                else {
+                    java.util.Locale locale=value==0?android.content.res.Resources.getSystem().getConfiguration().getLocales().get(0):
+                        java.util.Locale.forLanguageTag(new String[]{"","en","zh-CN","zh-TW"}[value]);
+                    // Android 11–12 have no per-app LocaleManager. Limit this override to our resources.
+                    for(Context c:new Context[]{this,getApplicationContext()}) {
+                        android.content.res.Resources resources=c.getResources();
+                        android.content.res.Configuration config=new android.content.res.Configuration(resources.getConfiguration());
+                        config.setLocale(locale);
+                        resources.updateConfiguration(config,resources.getDisplayMetrics());
+                    }
+                    controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
+                }
                 return;
             case "appearance":
                 if(value!=0 && injector!=null) try {if(!injector.setDesktopNight(value==2)) Log.w("XDesX","System night mode change was declined");} catch(RemoteException ex){error(ex.toString());}
