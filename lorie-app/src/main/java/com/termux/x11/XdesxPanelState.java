@@ -26,6 +26,7 @@ final class XdesxPanelState {
     int mouseSpeed,padSpeed,limit,opened,returnSequence;
     boolean reverse,remember;
     String layoutKey="default";
+    int language, appearance;
     int scale = 100, render = 100;
     private boolean closed;
 
@@ -34,6 +35,8 @@ final class XdesxPanelState {
         dir = new File(context.getFilesDir(), "xd/run");
         dir.mkdirs();
         prefs = context.getSharedPreferences("xdesx-panel", Context.MODE_PRIVATE);
+        language=prefs.getInt("language",0);
+        appearance=prefs.getInt("appearance",0);
         mouseSpeed=prefs.getInt("mouse",100);
         padSpeed=prefs.getInt("pad",100);
         limit=prefs.getInt("limit",3);
@@ -45,6 +48,7 @@ final class XdesxPanelState {
         events.addAction(Intent.ACTION_TIME_CHANGED);
         events.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         events.addAction(Intent.ACTION_LOCALE_CHANGED);
+        events.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
         context.registerReceiver(receiver, events);
         network.registerDefaultNetworkCallback(callback, main);
     }
@@ -56,7 +60,7 @@ final class XdesxPanelState {
         publish();
     }
     void saveOptions() {
-        prefs.edit().putInt("mouse",mouseSpeed).putInt("pad",padSpeed).putInt("limit",limit)
+        prefs.edit().putInt("language",language).putInt("appearance",appearance).putInt("mouse",mouseSpeed).putInt("pad",padSpeed).putInt("limit",limit)
             .putBoolean("reverse",reverse).putBoolean("remember",remember).apply();
         publish();
     }
@@ -92,10 +96,17 @@ final class XdesxPanelState {
     void publish() {
         if (closed) return;
         Date now = new Date();
-        String pattern = DateFormat.getBestDateTimePattern(Locale.getDefault(),"MMMdEEE");
-        String date = DateFormat.format(pattern, now).toString();
+        Locale locale = language==1 ? Locale.ENGLISH : language==2 ? Locale.SIMPLIFIED_CHINESE : language==3 ? Locale.TRADITIONAL_CHINESE : android.content.res.Resources.getSystem().getConfiguration().getLocales().get(0);
+        boolean traditional = locale.getScript().equals("Hant") || java.util.Arrays.asList("TW","HK","MO").contains(locale.getCountry());
+        int effectiveLanguage = locale.getLanguage().equals("zh") ? (traditional?3:2) : 1;
+        boolean dark = appearance==2 || (appearance==0 && (context.getResources().getConfiguration().uiMode & 48)==32);
+        String pattern = DateFormat.getBestDateTimePattern(locale,"MMMdEEE");
+        String date = new java.text.SimpleDateFormat(pattern,locale).format(now);
+        String tooltip=connection()+" · "+battery;
+        if(effectiveLanguage==1)tooltip=tooltip.replace("移动网络","Mobile network").replace("以太网","Ethernet").replace("网络","Network").replace("离线","Offline").replace("未验证","Unverified").replace("充电","Charging").replace("电量未知","Battery unavailable").replace("电量","Battery");
+        if(effectiveLanguage==3)tooltip=tooltip.replace("移动网络","行動網路").replace("以太网","乙太網路").replace("网络","網路").replace("离线","離線").replace("未验证","未驗證").replace("电","電");
         String state = scale+"\n"+render+"\n"+connection()+"     "+battery+"     "+date+"  "+
-            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+" "+returnSequence+"\n"+layoutKey;
+            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+" "+returnSequence+" "+language+" "+effectiveLanguage+" "+appearance+" "+(dark?1:0)+"\n"+layoutKey+"\n"+tooltip;
         if (state.equals(previous)) return;
         Path tmp = new File(dir,"panel-state.tmp").toPath();
         try {

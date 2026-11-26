@@ -55,11 +55,11 @@ final class XdesxMacProfiles implements SharedPreferences.OnSharedPreferenceChan
         String[] v=raw.split("\\t",-1);
         if(v.length!=7 || !v[0].matches("new|[0-9a-f]{8}") || v[2].trim().isEmpty() || v[3].trim().isEmpty() ||
             !v[4].matches("[012]") || !v[5].matches("[01]") || !v[6].matches("[01]"))
-            throw new IllegalArgumentException("请检查设备地址和账户");
+            throw new IllegalArgumentException(context.getString(com.termux.x11.app.R.string.xu_check_the_device_address_and_account));
         String id=v[0].equals("new")?null:v[0];
         if(id!=null){
             ScreenShareStore.Host old=ScreenShareStore.find(context,id);
-            if(old==null) throw new IllegalArgumentException("设备已移除");
+            if(old==null) throw new IllegalArgumentException(context.getString(com.termux.x11.app.R.string.xu_the_device_has_been_removed));
             if(!old.host.equals(v[2]) || !old.account.equals(v[3])) ScreenSharePasswords.forget(context,id);
         }
         ScreenShareStore.save(context,id,v[1].trim(),v[2].trim(),v[3].trim(),v[5].equals("1"),v[6].equals("1"),Integer.parseInt(v[4]));

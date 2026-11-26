@@ -126,21 +126,26 @@ final class XdesxRuntime {
                 }
                 text("titles/"+i+".icon",raw.getPath());
             } else path("titles/"+i+".icon").delete();
-            menu.append(i).append('\t').append(label).append('\t').append(icon).append("\tandroid\n");
+            menu.append(i).append('\t').append(label).append('\t').append(icon).append("\tandroid\t").append(app.component()).append('\n');
         }
         int mac=apps.size();
         apps.add(new ComponentName(context,XdesxMacActivity.class).flattenToString());
-        text("titles/"+mac,"Mac 屏幕共享");
+        text("titles/"+mac,context.getString(com.termux.x11.app.R.string.xu_mac_screen_sharing));
         text("titles/"+mac+".class","xdesx.mac");
         path("titles/"+mac+".icon").delete();
         menu.append(mac).append("\t连接 Mac\t\tmac\n");
         text("apps.tsv",menu.toString());
+        int scale=100;
+        List<String> state=path("run/panel-state").isFile()?Files.readAllLines(path("run/panel-state").toPath()):Collections.emptyList();
+        if(!state.isEmpty())scale=Integer.parseInt(state.get(0));
+        boolean dark=state.size()>3 && state.get(3).endsWith(" 1");
         text("config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
             "<channel name='xfwm4' version='1.0'><property name='general' type='empty'><property name='box_resize' type='bool' value='true'/>"+
+            "<property name='theme' type='string' value='Xdesx"+(dark?"Dark":"")+scale+"'/>"+
             "<property name='show_frame_shadow' type='bool' value='false'/><property name='show_dock_shadow' type='bool' value='false'/></property></channel>");
         try(InputStream in=context.getAssets().open("xdesx/panel.xml"); BufferedReader r=new BufferedReader(new InputStreamReader(in))) {
             StringBuilder xml=new StringBuilder(); String line; while((line=r.readLine())!=null) xml.append(line);
-            text("config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",xml.toString().replace("@SIZE@","36"));
+            text("config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",xml.toString().replace("@SIZE@",String.valueOf((36*scale+50)/100)));
         }
         text("fonts.conf","<fontconfig><dir>/system/fonts</dir><alias><family>sans-serif</family><prefer><family>Roboto</family><family>Noto Sans CJK SC</family></prefer></alias><cachedir>"+dir+"/cache/fonts</cachedir></fontconfig>");
         text("dbus.conf","<busconfig><type>session</type><listen>unix:path="+dir+"/run/bus</listen><auth>EXTERNAL</auth>"+
@@ -179,7 +184,7 @@ final class XdesxRuntime {
                         try {peer.getOutputStream().write(notifications.rows());} catch(IOException ignored) {}
                         continue;
                     }
-                    if(line!=null && line.matches("action (notify-(access|seen|clear|names|summary|rebind|[a-f0-9-]{36})|mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-cancel|linux-reset|linux-remove|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|scale-(100|133|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                    if(line!=null && line.matches("action (notify-(access|seen|clear|names|summary|rebind|[a-f0-9-]{36})|mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-cancel|linux-reset|linux-remove|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|exit-desktop|lang-[0-3]|appearance-[0-2]|scale-(100|133|167|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
                         menu.selected("action",line.substring(7)); continue;
                     }
                     if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;

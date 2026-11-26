@@ -46,7 +46,7 @@
             android:theme="@android:style/Theme.Material.NoActionBar" android:exported="true"
             android:launchMode="singleTask" android:taskAffinity=".Xdesx"
             android:windowSoftInputMode="stateAlwaysHidden"
-            android:configChanges="orientation|screenSize|keyboardHidden|density">
+            android:configChanges="orientation|screenSize|keyboardHidden|density|locale|layoutDirection|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

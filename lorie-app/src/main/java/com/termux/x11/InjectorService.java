@@ -1056,6 +1056,9 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    @Override public boolean setDesktopNight(boolean dark) {
+        return exec(2000,"/system/bin/cmd","uimode","night",dark?"yes":"no")[0]==null;
+    }
     @Override public void xdesxNativeInput(int op,float x,float y) {
         int display=xdesxNativeDisplay;
         if (display<0) return;

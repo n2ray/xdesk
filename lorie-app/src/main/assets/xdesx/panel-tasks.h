@@ -24,7 +24,7 @@ static gboolean task_context(GtkWidget *button,GdkEventButton *event,Panel *p) {
     if (XGetWindowProperty(d,wnck_window_get_xid(w),XInternAtom(d,"_XDESX_KEY",False),0,8,
             False,XA_STRING,&type,&format,&count,&remaining,&key)==Success && key && count==32) {
         char *op=g_strdup_printf("full-%.*s",32,key);
-        command(menu,"在外屏原生全屏打开",op);
+        command(menu,T("在外屏原生全屏打开"),op);
         g_free(op);
     }
     if (key) XFree(key);

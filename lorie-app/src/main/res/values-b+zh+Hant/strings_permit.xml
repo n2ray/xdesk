@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 統一的權限卡（PermitCard）：琥珀色、鑰匙、"需要打開「X」"、為甚麼、在哪、按鈕 -->
+    <string name="xd_permit_title">需要打開「%1$s」</string>
+    <string name="xd_permit_title_again">需要重新打開「%1$s」</string>
+    <string name="xd_permit_see_phone">需要打開「%1$s」，請在手機上看</string>
+    <string name="xd_permit_open">去開啓 ›</string>
+    <string name="xd_permit_open_phone">在手機上打開 ›</string>
+    <string name="xd_permit_done">已開啓</string>
+    <string name="xd_permit_not_now">以後再說</string>
+    <string name="xd_permit_details">去應用詳情頁 ›</string>
+
+    <string name="xd_permit_notify_access">通知使用權</string>
+    <string name="xd_permit_notify_access_why">XDesk 才能把手機的通知放到外屏上。內容只在內存里，不落盤、不外傳。</string>
+    <string name="xd_permit_list_path">在下一頁的列表裡找到 XDesk，打開開關</string>
+    <string name="xd_permit_restricted_link">開關是灰的？在應用詳情頁右上角 ⋮ 里點「允許受限制的設定」</string>
+    <string name="xd_permit_autostart">自啓動</string>
+    <string name="xd_permit_autostart_why">通知服務沒連上，多半是手機系統不讓 XDesk 自啓動，通知就進不來。開了還這樣，把通知使用權關掉再打開一次。</string>
+    <string name="xd_permit_autostart_path">在下一頁的列表裡打開 XDesk；也可以在 設定 › 應用 › XDesk 里找到</string>
+    <string name="xd_permit_rebind_why">系統還沒接上 XDesk 的通知服務。把 XDesk 的開關關掉再打開一次就好。</string>
+    <string name="xd_permit_dnd">勿擾權限</string>
+    <string name="xd_permit_dnd_why">外屏上的勿擾開關才能切換手機的勿擾，和系統快捷開關裡的一樣。</string>
+    <string name="xd_permit_post">通知</string>
+    <string name="xd_permit_post_why">配對碼可以直接在 XDesk 的通知里輸入，不用在兩個頁面之間來回切。</string>
+    <string name="xd_permit_post_desktop_why">桌面運行時通知欄里留一條，點它就回到 XDesk。不開也能用。</string>
+    <string name="xd_permit_post_path">不開也行：分屏或小窗打開 XDesk，在它的頁面里輸入</string>
+    <string name="xd_permit_overlay">顯示在其他應用上層</string>
+    <string name="xd_permit_overlay_cover_why">外屏鎖定時才能用時鐘遮住內容。</string>
+    <string name="xd_permit_overlay_dash_why">這塊屏上才能顯示啓動台。在那之前，請在手機上選擇應用。</string>
+    <string name="xd_permit_overlay_path">在下一頁打開「允許顯示在其他應用上層」</string>
+    <string name="xd_permit_run_command">運行 Termux 命令</string>
+    <string name="xd_permit_run_command_why">XDesk 才能替你啓動、結束 Termux 里的桌面，並列出 Termux 環境。</string>
+    <string name="xd_permit_run_command_path">下一步由系統詢問你是否允許</string>
+    <string name="xd_permit_run_command_denied_path">之前拒絕過：在應用詳情 › 權限 › 其他權限里允許「運行 Termux 命令」。也可以在 Termux 里自己運行 xdesk start</string>
+    <string name="xd_permit_camera">相機</string>
+    <string name="xd_permit_camera_why">用來掃 Mac 上 Sill 顯示的二維碼。不想開的話，可以返回改用地址添加 Mac。</string>
+    <string name="xd_permit_camera_path">下一步由系統詢問你是否允許</string>
+    <string name="xd_permit_camera_denied_path">之前拒絕過：在應用詳情 › 權限 里允許相機</string>
+    <string name="xd_permit_shizuku">Shizuku 授權</string>
+    <string name="xd_permit_write_secure">USB 網路共享用 NCM</string>
+    <string name="xd_permit_write_secure_path">在電腦上運行這條命令就設好了：\nadb shell settings put global tether_force_usb_functions 1</string>
+    <string name="xd_web_ncm_why">XDesk 自己沒有改這項系統設定的權限，可以在電腦上用 adb 直接把它設好。</string>
+    <string name="xd_permit_copy">複製命令</string>
+
+    <!-- 權限中心（0.7.0）：列表、說明頁、首次啓動清單、失效提醒 -->
+    <string name="xd_perm_title">權限</string>
+    <string name="xd_perm_home_ok">全部就緒</string>
+    <string name="xd_perm_home_need">%1$d 項需要處理</string>
+    <string name="xd_perm_need_suffix">項需要處理</string>
+    <string name="xd_perm_on_count">%1$d / %2$d 已開啓</string>
+    <string name="xd_perm_no_root">不需要 root，也不用無障礙</string>
+    <string name="xd_perm_group_required">必需</string>
+    <string name="xd_perm_group_recommended">推薦</string>
+    <string name="xd_perm_group_when">用到時再開</string>
+    <string name="xd_perm_on">已開啓</string>
+    <string name="xd_perm_off">未開啓</string>
+    <string name="xd_perm_unknown">不知道</string>
+    <string name="xd_perm_turn_on">去開啓</string>
+    <string name="xd_perm_turn_on_short">開啓</string>
+    <string name="xd_perm_open">打開</string>
+    <string name="xd_perm_activate">去激活</string>
+    <string name="xd_perm_show_shizuku">改用 Shizuku</string>
+    <string name="xd_perm_inline_need">需要「%1$s」 · 去開啓 ›</string>
+    <string name="xd_perm_detail_use">用來做甚麼</string>
+    <string name="xd_perm_detail_without">不開會怎樣</string>
+    <string name="xd_perm_detail_how">怎麼開</string>
+    <string name="xd_perm_onboard_title">開始之前</string>
+    <string name="xd_perm_onboard_intro">開這三項就能用。其他的用到時再問。</string>
+    <string name="xd_perm_onboard_skip">先進去，之後在 設定 › 權限 里開</string>
+    <string name="xd_perm_reminder_fix">處理 ›</string>
+    <string name="xd_perm_channel">權限提醒</string>
+    <string name="xd_perm_lost_notification">權限需要處理</string>
+    <string name="xd_perm_lost_many">%1$d 項權限需要處理</string>
+    <string name="xd_perm_lost_injector">注入服務斷開了，安卓應用的鍵鼠用不了</string>
+    <string name="xd_perm_lost_overlay">「顯示在其他應用上層」被關掉了，外屏的光標和隱私遮罩用不了</string>
+    <!-- ConnectFail.dc.html：安卓應用在外屏上時注入服務斷開了 -->
+    <string name="xd_injector_lost_title">注入服務斷開了</string>
+    <string name="xd_injector_lost_line">安卓應用的鍵鼠要靠它。打開無線調試後回到 XDesk，它會自己連上。</string>
+    <string name="xd_injector_lost_note">應用還在外屏上運行，只是暫時不能操作。</string>
+    <string name="xd_perm_copied">命令已複製</string>
+    <string name="xd_perm_no_page">這台手機上沒有這個設定頁</string>
+    <string name="xd_perm_run_sheet_default">Linux 桌面</string>
+    <string name="xd_perm_run_sheet_title">打開「%1$s」</string>
+    <string name="xd_perm_run_sheet_note">XDesk 要替你在 Termux 里啓動它。系統會問一次。</string>
+    <string name="xd_perm_run_sheet_allow">允許</string>
+    <string name="xd_perm_run_sheet_or">或者自己運行</string>
+    <string name="xd_perm_run_sheet_termux">在 Termux 里打開</string>
+
+    <string name="xd_perm_injector_name">注入服務</string>
+    <string name="xd_perm_injector_use">安卓應用的鍵鼠 · 無線調試</string>
+    <string name="xd_perm_injector_why">外接屏上的安卓應用靠它接收鍵鼠：無線調試配對，或者用 Shizuku。</string>
+    <string name="xd_perm_injector_without">安卓應用開了也沒有鍵鼠；Linux 桌面和投屏不受影響。</string>
+    <string name="xd_perm_injector_steps">點下面的「去激活」\n打開無線調試，輸入配對碼\n回來會自動連上；也可以用 Shizuku</string>
+
+    <string name="xd_perm_overlay_use">外屏的光標、啓動台、主頁和隱私遮罩</string>
+    <string name="xd_perm_overlay_why">外屏的啓動台和主頁\n離開 XDesk 時遮住外屏</string>
+    <string name="xd_perm_overlay_without">外屏沒有光標，也沒有啓動台，要在手機上選應用；隱私遮罩也遮不住。</string>
+    <string name="xd_perm_overlay_steps">點下面的「去開啓」\n打開「允許顯示在其他應用上層」\n返回 XDesk，會自動檢測</string>
+
+    <string name="xd_perm_notifications_use">配對碼在通知里直接輸</string>
+    <string name="xd_perm_notifications_why">配對碼直接顯示在 XDesk 的通知里，不用在兩個頁面之間來回切。</string>
+    <string name="xd_perm_notifications_without">仍然可以在 XDesk 的頁面里輸入配對碼。</string>
+    <string name="xd_perm_notifications_steps">點下面的「去開啓」\n允許 XDesk 發送通知\n之後配對碼會出現在通知里</string>
+
+    <string name="xd_perm_notify_access_use">手機通知放到外屏</string>
+    <string name="xd_perm_notify_access_without">外屏上沒有手機的通知；其他功能照常。通知內容不落盤、不外傳。</string>
+    <string name="xd_perm_notify_access_steps">點下面的「去開啓」\n在列表裡找到 XDesk，打開開關\n返回 XDesk 即生效</string>
+
+    <string name="xd_perm_termux_use">一鍵啓動 Linux 桌面</string>
+    <string name="xd_perm_termux_without">仍然可以在 Termux 里自己運行 xdesk start。</string>
+    <string name="xd_perm_termux_steps">點下面的「去開啓」\n系統會問一次是否允許\n允許後會自動繼續</string>
+
+    <string name="xd_perm_camera_use">掃碼添加 Mac，也可以輸地址</string>
+    <string name="xd_perm_camera_without">仍然可以返回，改用地址添加 Mac。</string>
+    <string name="xd_perm_camera_steps">點下面的「去開啓」\n允許相機\n回來就能掃碼</string>
+
+    <string name="xd_perm_dnd_use">外屏上的勿擾開關</string>
+    <string name="xd_perm_dnd_without">外屏的勿擾開關點了只會告訴你去哪裡開。</string>
+    <string name="xd_perm_dnd_steps">點下面的「去開啓」\n在列表裡找到 XDesk，打開開關\n返回 XDesk 即生效</string>
+
+    <string name="xd_perm_autostart_use">被系統關了，通知進不來</string>
+    <string name="xd_perm_autostart_without">系統關掉它以後，通知可能進不來，直到重新打開 XDesk。</string>
+    <string name="xd_perm_autostart_steps">點下面的「去打開」\n在列表裡打開 XDesk 的自啓動\n也可以在 設定 › 應用 › XDesk 里找到</string>
+
+    <string name="xd_perm_usb_debug_name">USB 調試</string>
+    <string name="xd_perm_usb_debug_use">Mac 接收端走 USB</string>
+    <string name="xd_perm_usb_debug_why">Mac 接收端才能通過 USB 線連到手機。</string>
+    <string name="xd_perm_usb_debug_without">Mac 仍然可以走 Wi-Fi。</string>
+    <string name="xd_perm_usb_debug_steps">點下面的「去開啓」\n打開「USB 調試」\n返回 XDesk</string>
+
+    <string name="xd_perm_ncm_use">網頁顯示走有線</string>
+    <string name="xd_perm_ncm_why">USB 線連電腦時，iPad 和 Mac 只認 NCM，安卓預設用 RNDIS。</string>
+    <string name="xd_perm_ncm_without">USB 網路共享仍然能用，但 iPad 或 Mac 可能連不上。</string>
+    <string name="xd_perm_ncm_steps">點下面的「複製命令」\n在電腦上用 adb 運行這條命令\n把 USB 線拔插一次</string>
+</resources>

@@ -35,16 +35,17 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
         ScreenShareSource.start(this);
         list=new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setBackgroundColor(0xfff3f5f4);
+        list.setBackgroundColor(dark()?0xff202124:0xfff3f5f4);
         list.setPadding(dp(24),dp(18),dp(24),dp(12));
         setContentView(list);
         getSharedPreferences("screenshare",MODE_PRIVATE).registerOnSharedPreferenceChangeListener(profilesChanged);
         render();
     }
+    private boolean dark(){return (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES;}
     private int dp(int n) { return Math.round(n*getResources().getDisplayMetrics().density); }
     private TextView label(String text,int size,int color,boolean bold) {
         TextView v=new TextView(this);
-        v.setText(text); v.setTextColor(color); v.setTextSize(size);
+        v.setText(text); v.setTextColor(dark()?0xffe8eaf0:color); v.setTextSize(size);
         if(bold) v.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));
         v.setSingleLine();v.setEllipsize(android.text.TextUtils.TruncateAt.END);
         return v;
@@ -55,9 +56,9 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
     }
     private void render() {
         list.removeAllViews();
-        list.addView(label("连接 Mac",24,0xff1c282c,true));
+        list.addView(label(getString(com.termux.x11.app.R.string.xu_connect_to_mac),24,0xff1c282c,true));
         if(loginPending) {
-            list.addView(label("正在外接显示器上登录…",15,0xff52686b,false));
+            list.addView(label(getString(com.termux.x11.app.R.string.xu_signing_in_on_the_external_display),15,0xff52686b,false));
             return;
         }
         GridView grid=new GridView(this);
@@ -75,7 +76,7 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
                 card.setOrientation(LinearLayout.VERTICAL);
                 card.setGravity(android.view.Gravity.CENTER);
                 card.setPadding(dp(8),0,dp(8),0);
-                card.setBackground(Style.rounded(XdesxMacActivity.this,0xffffffff,12));
+                card.setBackground(Style.rounded(XdesxMacActivity.this,dark()?0xff303136:0xffffffff,12));
                 card.setLayoutParams(new AbsListView.LayoutParams(-1,dp(138)));
                 if(h!=null) {
                     ImageView icon=new ImageView(XdesxMacActivity.this);
@@ -85,7 +86,7 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
                     TextView plus=label("+",36,0xff527881,false);
                     plus.setGravity(android.view.Gravity.CENTER);card.addView(plus,new LinearLayout.LayoutParams(-1,dp(64)));
                 }
-                card.addView(label(h==null?"添加 Mac":h.label(),16,0xff243236,true));
+                card.addView(label(h==null?getString(com.termux.x11.app.R.string.xu_add_a_mac):h.label(),16,0xff243236,true));
                 if(h!=null)card.addView(label(h.account+" @ "+h.host,12,0xff53696b,false));
                 return card;
             }
@@ -100,14 +101,14 @@ public final class XdesxMacActivity extends Activity implements ScreenShareSourc
         form.setOrientation(LinearLayout.VERTICAL);
         EditText address=new EditText(this),account=new EditText(this);
         address.setSingleLine(); account.setSingleLine();
-        address.setHint("Mac 地址"); account.setHint("Mac 账户名");
+        address.setHint(getString(com.termux.x11.app.R.string.xu_mac_address)); account.setHint(getString(com.termux.x11.app.R.string.xu_mac_username));
         form.addView(address); form.addView(account);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("添加 Mac").setView(form)
-            .setNegativeButton("取消",null).setPositiveButton("连接",null).create();
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(getString(com.termux.x11.app.R.string.xu_add_a_mac)).setView(form)
+            .setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel),null).setPositiveButton(getString(com.termux.x11.app.R.string.xu_connect),null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(-1).setOnClickListener(v -> {
             String hostname=address.getText().toString().trim(), user=account.getText().toString().trim();
-            if (hostname.isEmpty()) { address.setError("请输入地址"); return; }
-            if (user.isEmpty()) { account.setError("请输入账户名"); return; }
+            if (hostname.isEmpty()) { address.setError(getString(com.termux.x11.app.R.string.xu_enter_an_address)); return; }
+            if (user.isEmpty()) { account.setError(getString(com.termux.x11.app.R.string.xu_enter_a_username)); return; }
             String id=ScreenShareStore.save(this,null,hostname,hostname,user,false,false,ScreenShareSizing.NATIVE);
             dialog.dismiss(); open(id);
         }));

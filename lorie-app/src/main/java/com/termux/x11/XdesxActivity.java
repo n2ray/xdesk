@@ -55,7 +55,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 gamePassthrough = on && fullWindow != null;
                 if (toolbar != null) toolbar.gameMode(gamePassthrough);
                 if (gamePassthrough) Toast.makeText(XdesxActivity.this,
-                    "游戏直通 · Ctrl+Alt+G 或轻触手机退出", Toast.LENGTH_SHORT).show();
+                    getString(com.termux.x11.app.R.string.xu_game_input_hint), Toast.LENGTH_SHORT).show();
             });
         }
         @Override public void onCursor(int x, int y) {
@@ -74,7 +74,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Display d=displays.getDisplay(external);
         if (w==null || d==null || switching) return;
         if (fullWindow == null && !android.provider.Settings.canDrawOverlays(this)) {
-            new android.app.AlertDialog.Builder(this).setMessage("请允许 xdesx 在外屏显示返回窗口工具条。").setNegativeButton("取消",null).setPositiveButton("打开权限设置",(a,b)->startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())))).show();
+            new android.app.AlertDialog.Builder(this).setMessage(getString(com.termux.x11.app.R.string.xu_overlay_prompt)).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel),null).setPositiveButton(getString(com.termux.x11.app.R.string.xu_open_permissions),(a,b)->startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())))).show();
             return;
         }
         IInjector service = injector;
@@ -97,13 +97,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (isDestroyed()) return;
                 switching=false;
                 if (moved) fullWindow=w.fullscreen() && windows.containsValue(w)?w:null;
-                else error(w.label()+" 任务切换失败");
+                else error(getString(com.termux.x11.app.R.string.xu_switch_task,w.label()));
                 if (moved) {
                     closeToolbar();
                     if (fullWindow != null) {
                         Runnable exit = () -> { if (fullWindow == w) toggleWindow(w); };
                         toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, w.mac() ? null : () -> setGame(true), () -> {
-                            error("外屏工具条无法显示，正在返回窗口");
+                            error(getString(com.termux.x11.app.R.string.xu_toolbar_unavailable));
                             exit.run();
                         });
                     }
@@ -162,6 +162,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         public void onServiceDisconnected(ComponentName name) { injector = null; desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
     };
+    private android.widget.Button controls;
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        if(controls!=null) controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
+        if(panel!=null)panel.publish();
+    }
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -196,8 +202,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public boolean physicalKey(KeyEvent e) { return dispatchKeyEvent(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
-        android.widget.Button controls=new android.widget.Button(this);
-        controls.setText("桌面控制");controls.setAlpha(.72f);
+        controls=new android.widget.Button(this);
+        controls.setText(getString(com.termux.x11.app.R.string.xu_desktop_controls));controls.setAlpha(.72f);
         layout.addView(controls,new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.END));
         controls.setOnClickListener(v -> showDesktopControls());
         setContentView(layout);
@@ -257,14 +263,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void setup() {
         if(activation!=null) return;
         AppSession session=AppSession.get(this);
-        if(session.injectorReady()){openInjector();error("桌面控制已授权");return;}
+        if(session.injectorReady()){openInjector();error(getString(com.termux.x11.app.R.string.xu_desktop_controls_are_authorized));return;}
         activation=new ActivationPage(this,new SettingsUi(this),session.shell(),session.shizukuInstalled(),new ActivationPage.Actions(){
             public void openPairingSettings(){
                 beginWirelessPairing();
             }
             public void useShizuku(){
                 if(session.shizukuState()==AppSession.SHIZUKU_NO_PERMISSION) session.requestPermission();
-                else error("请启动 Shizuku，然后回到 xdesx");
+                else error(getString(com.termux.x11.app.R.string.xu_start_shizuku_then_return_to_xdesx));
             }
             public void cancelled(){activation=null;settingsHandler.removeCallbacks(checkSetup);}
         });
@@ -297,10 +303,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     : android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
             if (appEnabled) settings.putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, PairingService.CHANNEL);
-            new android.app.AlertDialog.Builder(this).setTitle("开启配对通知")
-                    .setMessage("允许 xdesx 发送配对通知后，就能留在系统配对码页面，下拉通知栏输入六位码。")
+            new android.app.AlertDialog.Builder(this).setTitle(getString(com.termux.x11.app.R.string.xu_enable_pairing_notifications))
+                    .setMessage(getString(com.termux.x11.app.R.string.xu_pairing_notifications_hint))
                     .setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton("打开通知设置", (dialog, which) -> startActivityForResult(settings, REQUEST_PAIRING_SETTINGS)).show();
+                    .setPositiveButton(getString(com.termux.x11.app.R.string.xu_open_notification_settings), (dialog, which) -> startActivityForResult(settings, REQUEST_PAIRING_SETTINGS)).show();
             return;
         }
         try {
@@ -308,7 +314,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
                     .putExtra(":settings:fragment_args_key", "toggle_adb_wireless"));
         } catch (RuntimeException e) {
-            error("无法开启无线配对：" + e.getLocalizedMessage());
+            error(getString(com.termux.x11.app.R.string.xu_wireless_pairing_failed) + e.getLocalizedMessage());
         }
     }
 
@@ -361,7 +367,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         ActivityOptions options=ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         try { startActivityForResult(pick,730,options.toBundle()); }
-        catch(RuntimeException unavailable) { error("没有可用的图片选择器"); }
+        catch(RuntimeException unavailable) { error(getString(com.termux.x11.app.R.string.xu_no_image_picker_is_available)); }
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
@@ -390,13 +396,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 File tmp=File.createTempFile("wallpaper",".jpg",dir);
                 try {
                     try(FileOutputStream out=new FileOutputStream(tmp)){
-                        if(!image.compress(android.graphics.Bitmap.CompressFormat.JPEG,92,out)) throw new IOException("图片保存失败");
+                        if(!image.compress(android.graphics.Bitmap.CompressFormat.JPEG,92,out)) throw new IOException(getString(com.termux.x11.app.R.string.xu_the_image_could_not_be_saved));
                     }
                     java.nio.file.Files.move(tmp.toPath(),new File(dir,"wallpaper.jpg").toPath(),java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                     java.nio.file.Files.write(new File(dir,"wallpaper-mode").toPath(),"fill".getBytes("UTF-8"));
                     java.nio.file.Files.write(new File(dir,"run/wallpaper-update").toPath(),new byte[]{1});
                 } finally { image.recycle(); tmp.delete(); }
-            } catch(IOException|RuntimeException e){error("壁纸 · "+e.getMessage());}
+            } catch(IOException|RuntimeException e){error(getString(com.termux.x11.app.R.string.xu_wallpaper)+e.getMessage());}
         },"xdesx-wallpaper").start();
     }
     private void readCursorShape() {
@@ -424,6 +430,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
             return;
         }
+        if(action.equals("exit-desktop")) {finish();return;}
         if(action.equals("cursor-image")) {readCursorShape();return;}
         if(action.equals("wallpaper-pick")) {chooseWallpaper(); return;}
         if (action.startsWith("linux-")) {
@@ -444,6 +451,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         String[] parts=action.split("-",2);
         int value=Integer.parseInt(parts[1]);
         switch(parts[0]) {
+            case "lang":
+                panel.language=value; panel.saveOptions();
+                if(android.os.Build.VERSION.SDK_INT>=33) getSystemService(android.app.LocaleManager.class).setApplicationLocales(
+                    android.os.LocaleList.forLanguageTags(new String[]{"","en","zh-Hans","zh-Hant"}[value]));
+                return;
+            case "appearance":
+                if(value!=0 && injector!=null) try {if(!injector.setDesktopNight(value==2)) Log.w("XDesX","System night mode change was declined");} catch(RemoteException ex){error(ex.toString());}
+                panel.appearance=value; panel.saveOptions(); return;
             case "mouse": panel.mouseSpeed=value; panel.saveOptions(); return;
             case "pad": panel.padSpeed=value; panel.saveOptions(); return;
             case "limit": panel.limit=value; panel.saveOptions(); return;
@@ -491,10 +506,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         if (app.endsWith("/"+XdesxMacActivity.class.getName())) {
             for (XdesxWindow existing:windows.values()) if (existing.mac()) {
-                error("Mac 共享窗口已打开"); return;
+                error(getString(com.termux.x11.app.R.string.xu_the_mac_sharing_window_is_already_open)); return;
             }
         }
-        if (windows.size()>=panel.limit) { error("已达 "+panel.limit+" 个窗口上限，请先关闭一个，或在全局设置中调整"); return; }
+        if (windows.size()>=panel.limit) { error(getString(com.termux.x11.app.R.string.xu_window_limit,panel.limit)); return; }
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),
             () -> runOnUiThread(() -> {
@@ -544,8 +559,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private void showDesktopControls() {
         new android.app.AlertDialog.Builder(this)
-            .setTitle("桌面控制")
-            .setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","连接与授权","手机键盘","结束桌面"}, (dialog,item) -> {
+            .setTitle(getString(com.termux.x11.app.R.string.xu_desktop_controls))
+            .setItems(new String[]{getString(com.termux.x11.app.R.string.xu_return_to_window),getString(com.termux.x11.app.R.string.xu_restore_native_display),getString(com.termux.x11.app.R.string.xu_connection_permissions),getString(com.termux.x11.app.R.string.xu_phone_keyboard),getString(com.termux.x11.app.R.string.xu_end_session)}, (dialog,item) -> {
                 switch (item) {
                     case 0:
                         if (fullWindow != null) toggleWindow(fullWindow);
@@ -559,14 +574,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                         break;
                     case 4: confirmEndDesktop(); break;
                 }
-            }).setNegativeButton("取消", null).show();
+            }).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null).show();
     }
     private void confirmEndDesktop() {
         new android.app.AlertDialog.Builder(this)
-            .setTitle("结束外屏桌面？")
-            .setMessage("所有桌面窗口都将关闭。请先保存正在进行的工作。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("结束桌面", (dialog, which) -> finish())
+            .setTitle(getString(com.termux.x11.app.R.string.xu_end_the_desktop_session))
+            .setMessage(getString(com.termux.x11.app.R.string.xu_all_desktop_windows_will_close_save_your_work_before_conti))
+            .setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null)
+            .setPositiveButton(getString(com.termux.x11.app.R.string.xu_end_session), (dialog, which) -> finish())
             .show();
     }
     @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}

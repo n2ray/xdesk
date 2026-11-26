@@ -19,40 +19,47 @@ def png(im):
     im.save(buf,format="PNG")
     return buf.getvalue()
 
-def decorations(z,scale):
+def decorations(z,scale,dark=False):
+    paper,edge,ink=("#25262a","#46474c","#eeeff2") if dark else (PAPER,EDGE,INK)
     factor=scale/100
     px=lambda v:max(1,round(v*factor))
-    folder=f"share/themes/Xdesx{scale}/xfwm4/"
+    folder=f"share/themes/Xdesx{'Dark' if dark else ''}{scale}/xfwm4/"
     def save(name,im): z.writestr(folder+name+".png",png(im))
     h=px(32)
     for state in ("active","inactive"):
         for name in ["title-"+str(i) for i in range(1,6)]+["top-left","top-right","left","right","bottom","bottom-left","bottom-right"]:
             width=px(6) if "left" in name or "right" in name else 2
             height=h if name.startswith(("title","top")) else px(5) if "bottom" in name else 2
-            im=Image.new("RGB",(width,height),PAPER)
+            im=Image.new("RGBA",(width,height),paper)
             draw=ImageDraw.Draw(im)
-            if height==h: draw.line([(0,0),(width,0)],fill=EDGE)
-            if "left" in name: draw.line([(0,0),(0,height)],fill=EDGE)
-            if "right" in name: draw.line([(width-1,0),(width-1,height)],fill=EDGE)
-            if "bottom" in name: draw.line([(0,height-1),(width,height-1)],fill=EDGE)
+            if height==h: draw.line([(0,0),(width,0)],fill=edge)
+            if "left" in name: draw.line([(0,0),(0,height)],fill=edge)
+            if "right" in name: draw.line([(width-1,0),(width-1,height)],fill=edge)
+            if "bottom" in name: draw.line([(0,height-1),(width,height-1)],fill=edge)
+            if name in ("top-left","top-right","bottom-left","bottom-right"):
+                radius=px(4)
+                for x in range(radius):
+                    for y in range(radius):
+                        if (radius-x-.5)**2+(radius-y-.5)**2>radius**2:
+                            im.putpixel((x if "left" in name else width-1-x,y if "top" in name else height-1-y),(0,0,0,0))
             save(name+"-"+state,im)
     for name,lines in LINES.items():
         for state in ("active","inactive","pressed","prelight"):
             w=px(28)
             bh=h-2*px(4)
-            im=Image.new("RGB",(w*4,bh*4),PAPER)
+            im=Image.new("RGB",(w*4,bh*4),paper)
             draw=ImageDraw.Draw(im)
             if state in ("pressed","prelight"):
                 pad=px(3)*4
-                draw.rounded_rectangle((pad,pad,w*4-pad,bh*4-pad),radius=px(5)*4,fill="#dedee0" if state=="pressed" else "#eaeaec")
+                draw.rounded_rectangle((pad,pad,w*4-pad,bh*4-pad),radius=px(5)*4,fill="#4c5056" if dark else "#dedee0" if state=="pressed" else "#eaeaec")
             for line in lines:
-                draw.line([((w/2+x*factor)*4,(bh/2+y*factor)*4) for x,y in line],fill=INK if state!="inactive" else "#727276",width=round(5.6*factor))
+                draw.line([((w/2+x*factor)*4,(bh/2+y*factor)*4) for x,y in line],fill=ink if state!="inactive" else "#727276",width=round(5.6*factor))
             save(name+"-"+state,im.resize((w,bh),Image.Resampling.LANCZOS))
-    z.writestr(folder+"themerc",f"active_text_color=#202023\ninactive_text_color=#6a6a70\nbutton_spacing={px(2)}\nframe_border_top={px(3)}\nshow_app_icon=true\nfull_width_title=true\ntitle_alignment=left\ntitle_horizontal_offset={px(6)}\ntitle_shadow_active=false\ntitle_shadow_inactive=false\n")
+    z.writestr(folder+"themerc",f"active_text_color={ink}\ninactive_text_color=#6a6a70\nbutton_spacing={px(2)}\nframe_border_top={px(3)}\nshow_app_icon=true\nfull_width_title=true\ntitle_alignment=left\ntitle_horizontal_offset={px(6)}\ntitle_shadow_active=false\ntitle_shadow_inactive=false\n")
 
 def cursor_images(kind):
     entries=[]
-    for size in (24,32,48):
+    for size in (24,32,40,48):
         im=Image.new("RGBA",(size*4,size*4))
         draw=ImageDraw.Draw(im)
         k=size/6
@@ -85,7 +92,8 @@ def cursor_images(kind):
     return result+b"".join(data for _,data in entries)
 
 def write(z):
-    for scale in (100,133,200): decorations(z,scale)
+    for scale in (100,133,167,200):
+        for dark in (False,True): decorations(z,scale,dark)
     for kind,names in {"arrow":"left_ptr default arrow top_left_arrow","text":"xterm text",
         "horizontal":"left_side right_side sb_h_double_arrow ew-resize w-resize e-resize",
         "vertical":"top_side bottom_side sb_v_double_arrow ns-resize n-resize s-resize",

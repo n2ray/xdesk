@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xd_mac_add">添加 Mac</string>
+    <string name="xd_mac_add_address">輸入地址</string>
+    <string name="xd_mac_repair_title">重新配對「%1$s」？</string>
+    <string name="xd_mac_repair_address">用保存的地址（%1$s）</string>
+    <string name="xd_mac_repair_note">Mac 換了身份時用</string>
+    <string name="xd_mac_add_note">Mac 上要有 Sill 0.6.1 或更新版本。經 Tailscale 連時用 Mac 的 100.x 地址</string>
+    <string name="xd_mac_scan">掃描二維碼</string>
+    <string name="xd_mac_scan_note">掃描 Mac 上 Sill 配對視窗裡的二維碼（配對 iPhone 或 iPad…）</string>
+    <string name="xd_mac_ask">讓 Mac 顯示配對碼</string>
+    <string name="xd_mac_ask_asking">正在讓 Mac 顯示配對碼…</string>
+    <string name="xd_mac_ask_shown">Mac 已顯示配對碼，輸入後點配對</string>
+    <string name="xd_mac_ask_locked">Mac 已鎖定，請先在 Mac 上解鎖</string>
+    <string name="xd_mac_ask_busy">Mac 正忙，稍後再試</string>
+    <string name="xd_mac_ask_denied">Mac 沒有顯示配對碼。請在 Mac 的 Sill 里選"配對 iPhone 或 iPad…"</string>
+    <string name="xd_mac_ask_failed">沒能連上 Mac 要配對碼</string>
+    <string name="xd_mac_bad_link">這不是 Sill 配對鏈接</string>
+    <string name="xd_mac_link_no_address">這個配對鏈接里沒有地址。請用地址添加 Mac，輸配對碼配對</string>
+    <string name="xd_mac_link_title">確認配對這台 Mac</string>
+    <string name="xd_mac_link_trust">只相信來自你自己 Mac 的配對鏈接</string>
+    <string name="xd_mac_link_failed">配對失敗：%1$s。Mac 的配對視窗可能已換新碼，請掃它最新的二維碼</string>
+    <string name="xd_mac_scan_unavailable">這裡用不了掃描</string>
+    <string name="xd_mac_scan_busy">已經在掃描了</string>
+    <string name="xd_mac_scan_title">掃描 Sill 配對碼</string>
+    <string name="xd_mac_scan_status">把 Mac 螢幕上的配對碼放進畫面</string>
+    <string name="xd_mac_scan_bad">這不是 Sill 配對碼</string>
+    <string name="xd_mac_scan_camera_error">打不開相機，請改用地址添加 Mac</string>
+    <string name="xd_mac_scan_no_camera">這台設備沒有相機，請改用地址添加 Mac</string>
+    <string name="xd_mac_scan_denied">沒有相機權限。請允許，或改用地址添加 Mac</string>
+    <string name="xd_mac_address_note">Mac 的地址；Sill 遠程訪問的端口不是 7455 時加上端口</string>
+    <string name="xd_mac_next">下一步</string>
+    <string name="xd_mac_code">配對碼</string>
+    <string name="xd_mac_code_note">在 Mac 上選 Sill › 配對 iPhone 或 iPad…，輸入它顯示的 12 位數字</string>
+    <string name="xd_mac_pair">配對</string>
+    <string name="xd_mac_bad_address">地址不對，寫成 100.64.0.1 或 mac.local:7455 這樣</string>
+    <string name="xd_mac_bad_code">配對碼是 12 位數字，請檢查有沒有輸錯</string>
+    <string name="xd_mac_pairing">正在和 Mac 配對…</string>
+    <string name="xd_mac_paired">已和 %1$s 配對</string>
+    <string name="xd_mac_wrong_code">配對碼不對，核對 Mac 上的數字後再試</string>
+    <string name="xd_mac_no_window">Mac 上沒有顯示配對碼。先在 Mac 的 Sill 里選"配對 iPhone 或 iPad…"</string>
+    <string name="xd_mac_busy">Mac 正在和別的設備配對，稍後再試</string>
+    <string name="xd_mac_pair_failed">配對失敗：%1$s</string>
+    <string name="xd_mac_fit">適配螢幕</string>
+    <string name="xd_mac_fit_note">串流時 Mac 視窗按這塊屏的大小</string>
+    <string name="xd_mac_phone_ime">實體鍵盤用手機輸入法打字</string>
+    <string name="xd_mac_phone_ime_note">跟隨全局：用輸入設定里的「鍵盤先交給手機輸入法」。關：手機上接的鍵盤用這台 Mac 自己的輸入法，候選框在 Mac 畫面里、緊挨著文字。開：由手機輸入法拼字，候選在手機上。手機的軟鍵盤始終用手機輸入法</string>
+    <string name="xd_mac_remove_note">要再連就得重新配對。也請在 Mac 上 Sill 的設備列表裡移除 XDesk</string>
+    <string name="xd_mac_remove_row_note">再連要重新配對</string>
+    <string name="xd_mac_screen">螢幕</string>
+    <string name="xd_mac_addresses">地址</string>
+    <string name="xd_mac_paired_address">配對地址</string>
+    <string name="xd_mac_addr_lan">局域網</string>
+    <string name="xd_mac_addr_vpn">VPN</string>
+    <string name="xd_mac_addr_vpn_tailscale">VPN（Tailscale）</string>
+    <string name="xd_mac_addr_internet">互聯網</string>
+    <string name="xd_mac_addr_remembered">以前用過的地址</string>
+    <string name="xd_mac_addr_last_worked">上次可用</string>
+    <string name="xd_mac_section_one">Mac「%1$s」</string>
+    <string name="xd_mac_desktop">%1$s 桌面</string>
+    <string name="xd_mac_display">%1$s 顯示器 %2$d</string>
+    <string name="xd_mac_offline">未連接</string>
+    <string name="xd_mac_locked_short">已鎖定</string>
+    <string name="xd_mac_not_paired">這台 Mac 已不在配對列表裡</string>
+    <string name="xd_mac_cannot_connect">連不上 %1$s。Mac 醒著嗎？Sill 在運行嗎？</string>
+    <string name="xd_mac_cannot_connect_because">連不上 %1$s：%2$s</string>
+    <string name="xd_mac_connecting">正在連接 %1$s…</string>
+    <string name="xd_mac_locked">%1$s 已鎖定，請在 Mac 上解鎖</string>
+    <string name="xd_mac_other_user">Mac 螢幕上是另一個用戶。請在 Mac 上登入你的帳號</string>
+    <string name="xd_mac_opening">正在打開…</string>
+    <string name="xd_mac_launch_failed">應用沒有打開視窗</string>
+    <string name="xd_mac_taken">另一台設備正在看這台 Mac。點這裡要回來</string>
+    <string name="xd_mac_waiting_picture">正在等 %1$s 送來畫面（它的螢幕可能在睡眠）。點這裡再試一次</string>
+    <string name="xd_mac_window_closed">這個視窗已在 Mac 上關閉</string>
+    <!-- The app's menu bar (MACMENU.md): the ≡ button, the bar overlay, the phone's list -->
+    <string name="xd_mac_menu">菜單</string>
+    <string name="xd_mac_menu_note">在手機上列出 Mac 的菜單欄</string>
+    <string name="xd_mac_menu_title">Mac 菜單</string>
+    <string name="xd_mac_menu_back">返回</string>
+    <string name="xd_mac_menu_loading">正在加載…</string>
+    <string name="xd_mac_menu_changed">菜單變了，再打開一次</string>
+    <string name="xd_mac_menu_no_answer">Mac 沒有回應</string>
+    <string name="xd_mac_menu_unavailable">請在手機的 XDesk 里打開 Mac 菜單</string>
+    <string name="xd_mac_menu_no_access">需要打開「輔助功能」：在 Mac 的 系統設定 › 隱私與安全性 › 輔助功能 里允許 Sill</string>
+    <!-- Quitting an app (Sill's menu protocol, MacClient.quitApp) -->
+    <string name="xd_mac_quitting">正在退出 %1$s…</string>
+    <string name="xd_mac_quit_save">%1$s 有未保存的內容，請在 Mac 上處理</string>
+    <string name="xd_mac_quit_no_access">需要打開「輔助功能」：在 Mac 的 系統設定 › 隱私與安全性 › 輔助功能 里允許 Sill，退出應用才可靠。這次 XDesk 先改發 ⌘Q</string>
+    <string name="xd_mac_quit_no_menus">這個應用沒有菜單欄，沒法從菜單退出</string>
+    <string name="xd_mac_quit_no_item">這個應用的菜單里沒有「退出」一項</string>
+    <string name="xd_mac_quit_no_answer">Mac 沒有回應菜單請求</string>
+    <string name="xd_mac_quit_failed">沒能退出 %1$s：%2$s</string>
+    <string name="xd_mac_unpaired">Mac 移除了 XDesk。請在 XDesk 設定 › 設備里打開這台 Mac，在那裡重新配對</string>
+    <string name="xd_mac_identity_changed">Mac 的身份變了。請移除後重新配對</string>
+    <string name="xd_mac_remote_off">Mac 上的遠程訪問已關閉</string>
+    <string name="xd_mac_quit">Mac 上的 Sill 已退出</string>
+    <!-- Picture and sound: Sill's settings for one Mac (MacStreamSettings) -->
+    <string name="xd_mac_stream">畫面和聲音</string>
+    <string name="xd_mac_stream_note">畫質、解析度、幀率、聲音</string>
+    <string name="xd_mac_stream_title">%1$s：畫面和聲音</string>
+    <string name="xd_mac_stream_now">當前</string>
+    <string name="xd_mac_stream_waiting">正在連接 Mac 讀取它的設定…</string>
+    <string name="xd_mac_stream_offline">未連接。這是 Mac 上次的設定，連接後才能更改</string>
+    <string name="xd_mac_stream_idle">已連接，沒有在串流</string>
+    <string name="xd_mac_stream_running">正在串流 %1$d×%2$d，%3$d fps，%4$d Mbps</string>
+    <string name="xd_mac_stream_on_virtual">來自 Sill 的虛擬顯示器</string>
+    <string name="xd_mac_rtt">網路往返</string>
+    <string name="xd_mac_rtt_ms">%1$d ms</string>
+    <string name="xd_mac_rtt_none">–</string>
+    <string name="xd_mac_rtt_slow">網路往返時間持續較高，畫面可能較慢；可嘗試降低畫質或解析度。</string>
+    <string name="xd_mac_software_encoder">Mac 的硬件編碼器忙碌或無響應，暫時使用軟體編碼，畫質或幀率可能受限</string>
+    <string name="xd_mac_link_behind">Mac 報告連接無法穩定承載當前畫質，可以降低畫質或解析度</string>
+    <string name="xd_mac_link_behind_home">連接無法穩定承載當前畫質。有在家的設備連接著，Mac 正在使用在家畫質</string>
+    <string name="xd_mac_link_behind_suggest">Mac 報告連接無法穩定承載當前畫質</string>
+    <string name="xd_mac_link_use">點這裡改用 %1$s</string>
+    <string name="xd_mac_away">Mac 把這個連接算作不在家：這裡的畫質和解析度設定的是它的外出畫質</string>
+    <string name="xd_mac_picture">畫面（Mac 的設定，所有設備共用）</string>
+    <string name="xd_mac_quality">畫質</string>
+    <string name="xd_mac_quality_note">120 fps 時碼率翻倍</string>
+    <string name="xd_mac_quality_fast_note">極高和極限需要 USB 線或很快的 Wi‑Fi；畫面跟不上就降一檔</string>
+    <string name="xd_mac_quality_custom">自定義</string>
+    <string-array name="xd_mac_quality_names">
+        <item>低</item>
+        <item>節省</item>
+        <item>均衡</item>
+        <item>高</item>
+        <item>專業</item>
+        <item>極高</item>
+        <item>極限</item>
+    </string-array>
+    <string name="xd_mac_scale">解析度</string>
+    <string name="xd_mac_scale_note">Retina 的像素在兩個方向上都是兩倍</string>
+    <string name="xd_mac_scale_retina">Retina</string>
+    <string name="xd_mac_scale_standard">標準</string>
+    <string name="xd_mac_fps">幀率上限</string>
+    <string name="xd_mac_fps_note">Mac 發給任何設備的最高幀率。每台設備仍按自己螢幕的幀率，不超過它</string>
+    <string name="xd_mac_fps_value">%1$d fps</string>
+    <string name="xd_mac_speed">優先編碼速度</string>
+    <string name="xd_mac_speed_note">延遲更低，畫面可能變軟</string>
+    <string name="xd_mac_virtual">虛擬顯示器</string>
+    <string name="xd_mac_virtual_note">串流時用一塊看不見的顯示器</string>
+    <string name="xd_mac_virtual_unavailable">這台 Mac 用不了虛擬顯示器</string>
+    <string name="xd_mac_this_device">這台設備</string>
+    <string name="xd_mac_cap">請求的幀率</string>
+    <string name="xd_mac_cap_note">幀率低一些，網路和兩邊設備的負擔都小。Mac 按所有已連接設備里請求的最高幀率發送，不超過它的上限</string>
+    <string name="xd_mac_cap_screen">跟隨螢幕</string>
+    <string name="xd_mac_sound">聲音</string>
+    <string name="xd_mac_send_audio">Mac 發送聲音（測試版）</string>
+    <string name="xd_mac_send_audio_note">Mac 自己也繼續播放</string>
+    <string name="xd_mac_send_audio_update">更新 Mac 上的 Sill 才能使用聲音</string>
+    <string name="xd_mac_play_sound">在這裡播放 Mac 的聲音（實驗）</string>
+    <string name="xd_mac_play_sound_note">走 XDesk 的聲音輸出</string>
+    <string name="xd_mac_play_sound_unsupported">這台手機沒有 AAC‑ELD 解碼器</string>
+    <string name="xd_mac_mute">靜音這台設備</string>
+    <string name="xd_mac_mute_note">不影響 Mac</string>
+    <string name="xd_mac_sound_muted_headphones">耳機已斷開，這台設備的 Mac 聲音已靜音</string>
+    <string name="xd_mac_stream_about">關於這些設定</string>
+    <!-- Quick quality modes (AutoQuality) and auto quality: XDesk's own, on top of the Mac's settings -->
+    <string name="xd_mac_mode">快速畫質</string>
+    <string name="xd_mac_mode_custom_now">當前：自定義（在 Mac 上或手動設的）</string>
+    <string name="xd_mac_mode_note">清晰、平衡、流暢三檔一鍵切換。改動的是 Mac 的設定，對連接它的所有設備生效；Mac 在外接屏上時，Ctrl+Alt+Q 可循環切換</string>
+    <string-array name="xd_mac_mode_names">
+        <item>清晰</item>
+        <item>均衡</item>
+        <item>流暢</item>
+    </string-array>
+    <string name="xd_mac_mode_flash">畫質：%1$s</string>
+    <string name="xd_mac_auto">網路變差時自動降低畫質</string>
+    <string name="xd_mac_auto_note">帶不動時降一檔，穩定後升回</string>
+    <string name="xd_mac_smooth">平滑播放</string>
+    <string name="xd_mac_smooth_note">均勻顯示，最多晚 50 毫秒</string>
+    <string name="xd_mac_auto_lowered">網路變差，畫質已切到%1$s</string>
+    <string name="xd_mac_auto_lowered_generic">網路變差，畫質已自動降低</string>
+    <string name="xd_mac_auto_raised">網路已恢復，畫質切回%1$s</string>
+    <string name="xd_mac_stream_kept">“畫面”和“Mac 發送聲音”是 Mac 自己的設定：對連接它的所有設備生效，由 Mac 上的 Sill 保存，Mac 的菜單也能改</string>
+    <string name="xd_mac_stream_kept_session">“畫面”和“Mac 發送聲音”是 Mac 自己的設定：對連接它的所有設備生效，到 Mac 上的 Sill 主機程序退出為止</string>
+    <string name="xd_mac_on">開</string>
+    <string name="xd_mac_off">關</string>
+    <string name="xd_mac_set_waiting">正在等待 Mac…</string>
+    <string name="xd_mac_set_refused">Mac 沒有接受這個設定</string>
+    <string name="xd_mac_set_timeout">Mac 沒有確認這個設定，請再試一次</string>
+    <string name="xd_mac_set_failed">設定沒能發出去</string>
+</resources>

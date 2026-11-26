@@ -9,20 +9,20 @@ static GtkWidget *mac_field(GtkGrid *grid,int row,const char *name,const char *v
 static void edit_mac(GtkButton *button,Panel *p) {
     const char *row=g_object_get_data(G_OBJECT(button),"device");
     gchar **v=g_strsplit(row?row:"new\t\t\t\t0\t0\t0","\t",-1);
-    GtkWidget *d=gtk_dialog_new_with_buttons(row?"设备设置":"添加 Mac",GTK_WINDOW(p->settings),GTK_DIALOG_MODAL,
-        "取消",GTK_RESPONSE_CANCEL,"保存",GTK_RESPONSE_OK,NULL);
-    if(row) gtk_dialog_add_button(GTK_DIALOG(d),"移除设备",GTK_RESPONSE_REJECT);
+    GtkWidget *d=gtk_dialog_new_with_buttons(row?T("设备设置"):T("添加 Mac"),GTK_WINDOW(p->settings),GTK_DIALOG_MODAL,
+        T("取消"),GTK_RESPONSE_CANCEL,T("保存"),GTK_RESPONSE_OK,NULL);
+    if(row) gtk_dialog_add_button(GTK_DIALOG(d),T("移除设备"),GTK_RESPONSE_REJECT);
     GtkGrid *grid=GTK_GRID(gtk_grid_new());
     gtk_grid_set_row_spacing(grid,10);gtk_grid_set_column_spacing(grid,12);
     gtk_container_set_border_width(GTK_CONTAINER(grid),18);
     gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(d))),GTK_WIDGET(grid));
-    GtkWidget *name=mac_field(grid,0,"设备名称",v[1]),*host=mac_field(grid,1,"Mac 地址",v[2]),*account=mac_field(grid,2,"账户",v[3]);
+    GtkWidget *name=mac_field(grid,0,T("设备名称"),v[1]),*host=mac_field(grid,1,T("Mac 地址"),v[2]),*account=mac_field(grid,2,T("账户"),v[3]);
     GtkWidget *scale=gtk_combo_box_text_new();
-    const char *tiers[]={"原生","1.33×","2×"};
+    const char *tiers[]={T("原生"),"1.33×","2×"};
     for(int i=0;i<3;i++) gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scale),tiers[i]);
     gtk_combo_box_set_active(GTK_COMBO_BOX(scale),CLAMP(atoi(v[4]),0,2));
-    gtk_grid_attach(grid,gtk_label_new("共享桌面缩放"),0,3,1,1);gtk_grid_attach(grid,scale,1,3,1,1);
-    GtkWidget *fixed=gtk_check_button_new_with_label("固定 1080p"),*measure=gtk_check_button_new_with_label("记录性能数据");
+    gtk_grid_attach(grid,gtk_label_new(T("共享桌面缩放")),0,3,1,1);gtk_grid_attach(grid,scale,1,3,1,1);
+    GtkWidget *fixed=gtk_check_button_new_with_label(T("固定 1080p")),*measure=gtk_check_button_new_with_label(T("记录性能数据"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fixed),atoi(v[5]));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(measure),atoi(v[6]));
     gtk_grid_attach(grid,fixed,1,4,1,1);gtk_grid_attach(grid,measure,1,5,1,1);
@@ -30,8 +30,8 @@ static void edit_mac(GtkButton *button,Panel *p) {
     for(;;){
         int response=gtk_dialog_run(GTK_DIALOG(d));
         if(response==GTK_RESPONSE_REJECT){
-            GtkWidget *confirm=gtk_message_dialog_new(GTK_WINDOW(d),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,"移除此 Mac 及已保存的凭据？");
-            gtk_dialog_add_buttons(GTK_DIALOG(confirm),"取消",GTK_RESPONSE_CANCEL,"移除",GTK_RESPONSE_OK,NULL);
+            GtkWidget *confirm=gtk_message_dialog_new(GTK_WINDOW(d),GTK_DIALOG_MODAL,GTK_MESSAGE_QUESTION,GTK_BUTTONS_NONE,T("移除此 Mac 及已保存的凭据？"));
+            gtk_dialog_add_buttons(GTK_DIALOG(confirm),T("取消"),GTK_RESPONSE_CANCEL,T("移除"),GTK_RESPONSE_OK,NULL);
             int answer=gtk_dialog_run(GTK_DIALOG(confirm));gtk_widget_destroy(confirm);
             if(answer!=GTK_RESPONSE_OK)continue;
             gchar *op=g_strconcat("mac-remove-",v[0],NULL);action(op);g_free(op);
@@ -49,7 +49,7 @@ static void edit_mac(GtkButton *button,Panel *p) {
     gtk_widget_destroy(d);g_strfreev(v);
 }
 static void mac_settings(GtkWidget *page,Panel *p){
-    GtkWidget *add=gtk_button_new_with_label("添加 Mac");
+    GtkWidget *add=gtk_button_new_with_label(T("添加 Mac"));
     g_signal_connect(add,"clicked",G_CALLBACK(edit_mac),p);
     gtk_box_pack_start(GTK_BOX(page),add,FALSE,FALSE,0);
     GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL),*list=gtk_box_new(GTK_ORIENTATION_VERTICAL,4);

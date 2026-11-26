@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 
 /** The guest supplies application processes. The X socket, WM and panel belong to xdesx. */
 final class XdesxLinux implements AutoCloseable {
+    private final Context context;
     private final BuiltinLinux linux;
     private final BuiltinApps apps;
     private final File desktop;
@@ -33,6 +34,7 @@ final class XdesxLinux implements AutoCloseable {
     private AudioPlayer audio;
 
     XdesxLinux(Context context, Consumer<String> error) throws IOException {
+        this.context=context.getApplicationContext();
         this.error = error;
         audioRoute = AudioRoute.get(context.getApplicationContext());
         desktop = new File(context.getFilesDir(), "xd").getCanonicalFile();
@@ -70,11 +72,11 @@ final class XdesxLinux implements AutoCloseable {
             boolean installed = linux.installed();
             BuiltinLinux.State state = linux.state();
             boolean installing = state == BuiltinLinux.State.INSTALLING || state == BuiltinLinux.State.STOPPING;
-            String status = installed ? "已安装" : "未安装";
+            String status = installed ? context.getString(com.termux.x11.app.R.string.xu_installed) : context.getString(com.termux.x11.app.R.string.xu_not_installed);
             if (installing && linux.progress() != null) status = linux.progress();
             else if (!installed && linux.error() != null) status = linux.error();
             boolean cancelled = linux.downloadCancelled();
-            if (cancelled) status = installing ? "正在取消下载…" : "下载已取消，可继续下载";
+            if (cancelled) status = installing ? context.getString(com.termux.x11.app.R.string.xu_canceling_download) : context.getString(com.termux.x11.app.R.string.xu_download_paused_you_can_resume_it_at_any_time);
             String phase = linux.canCancelDownload() ? "busy-download" : installing ? "busy"
                     : installed ? "ready" : cancelled ? "paused" : "available";
             publish("ubuntu-state", phase + "\n" + status);
@@ -116,7 +118,7 @@ final class XdesxLinux implements AutoCloseable {
                 if (!linux.installed()) linux.install();
                 return;
             }
-            if (!linux.installed()) throw new IOException("请先在全局设置中安装 Ubuntu 核心");
+            if (!linux.installed()) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_install_ubuntu_in_settings_first));
             if (verb.equals("reset") || verb.equals("remove")) {
                 if (linux.state() == BuiltinLinux.State.INSTALLING || linux.state() == BuiltinLinux.State.STOPPING) return;
                 stopAudio();
@@ -126,7 +128,7 @@ final class XdesxLinux implements AutoCloseable {
             }
             if (verb.equals("refresh")) { refreshApps(); return; }
             String key = keys.get(verb);
-            if (key == null) throw new IOException("请刷新 Linux 应用列表");
+            if (key == null) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_refresh_the_linux_application_list));
             startSession();
             String result = apps.launch(key, "", TextUtils.join("\n", linux.xdesxCommand(desktop, "xdesk-launch")));
             if (result.startsWith("!")) throw new IOException(result.substring(1));
@@ -143,7 +145,7 @@ final class XdesxLinux implements AutoCloseable {
     }
 
     private synchronized void launchSession() throws IOException {
-        if (closed) throw new IOException("桌面已关闭");
+        if (closed) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_the_desktop_session_has_ended));
         if (session != null && session.isAlive()) return;
         if (video != null) video.destroy();
         File tmp = new File(desktop, "linux-tmp");

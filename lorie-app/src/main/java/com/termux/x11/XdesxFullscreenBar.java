@@ -31,10 +31,10 @@ final class XdesxFullscreenBar {
         height = Math.round(38 * scale / 100f);
         this.failure = failure;
         bar = new LinearLayout(dc);
-        addAction(dc, scale, "返回窗口", exit);
-        if (play != null) addAction(dc, scale, "游戏直通", play);
+        addAction(dc, scale, dc.getString(com.termux.x11.app.R.string.xu_return_to_window), exit);
+        if (play != null) addAction(dc, scale, dc.getString(com.termux.x11.app.R.string.xu_direct_game_input), play);
         GradientDrawable background = new GradientDrawable();
-        background.setColor(0xfff7f7f8);
+        background.setColor((dc.getResources().getConfiguration().uiMode & 48)==32 ? 0xff25262a : 0xfff7f7f8);
         background.setCornerRadius(height / 4f);
         bar.setBackground(background);
         edge = new android.view.View(dc);
@@ -57,7 +57,7 @@ final class XdesxFullscreenBar {
         Button button = new Button(dc);
         button.setText(label);
         button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 15 * scale / 100f);
-        button.setTextColor(0xff19191b);
+        button.setTextColor((dc.getResources().getConfiguration().uiMode & 48)==32 ? 0xfff4f4f6 : 0xff19191b);
         button.setGravity(Gravity.CENTER);
         button.setPadding(height / 2, 0, height / 2, 0);
         button.setBackgroundColor(0x00000000);
