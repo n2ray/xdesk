@@ -911,6 +911,14 @@ public class InjectorService extends IInjector.Stub {
     }
     @Override public void desktopMouse(int op,float x,float y) {
         synchronized(appDisplays) {
+            if (securePointer) {
+                post(() -> {
+                    if (op==1) injector.moveBy(x,y);
+                    else if (op==2) injector.button((int)x==1?1:(int)x==2?4:2,y!=0);
+                    else if (op==3) injector.scroll(-y,x);
+                });
+                return;
+            }
             if(desktopPad!=null) try {desktopPad.input(op,x,y);}
             catch(java.io.IOException e){Log.w(TAG,"desktop touchpad report",e);}
         }
@@ -922,6 +930,47 @@ public class InjectorService extends IInjector.Stub {
         desktopDevices=null;desktopTarget=-1;
     }
     private volatile boolean padPointerVisible;
+    // The watcher and its owner are scoped to one move of one Chrome task onto HDMI.
+    private FullscreenSecureWatch secureWatch;
+    private boolean securePage, securePointer;
+
+    private void updateSecurePointer() {
+        boolean enabled = securePage && !fullscreenPassthrough && fullscreenMouse != null;
+        if (enabled == securePointer) return;
+        securePointer = enabled;
+        fullscreenMouse.setGrabbed(enabled);
+        post(() -> {
+            injector.releaseAll();
+            pointer.show(enabled);
+            Log.i(TAG, "protected fullscreen cursor " + (enabled ? "software" : "system"));
+        });
+    }
+
+    private void watchChromeCursor(String pkg, int display, EvdevReader owner) {
+        if (desktopDevices == null || !"com.android.chrome".equals(pkg)
+                || !"Xiaomi".equalsIgnoreCase(android.os.Build.MANUFACTURER)) return;
+        try {
+            secureWatch = new FullscreenSecureWatch(display, pkg, secure -> post(() -> {
+                synchronized (appDisplays) {
+                    if (fullscreenMouse != owner || secureWatch == null) return;
+                    securePage = secure;
+                    updateSecurePointer();
+                }
+            }));
+            secureWatch.start();
+        } catch (RuntimeException | LinkageError e) {
+            stopSecureWatch();
+            Log.w(TAG, "protected fullscreen cursor unavailable", e);
+        }
+    }
+
+    private void stopSecureWatch() {
+        if (secureWatch != null) {
+            try { secureWatch.unregister(); } catch (RuntimeException | LinkageError ignored) {}
+            secureWatch = null;
+        }
+        securePage = securePointer = false;
+    }
 
     private final EvdevReader.Sink fullscreenInput = new EvdevReader.Sink() {
         public void onMove(int dx, int dy) { physical.onMove(dx, dy); }
@@ -959,6 +1008,7 @@ public class InjectorService extends IInjector.Stub {
     private void fullscreenGame(boolean on) {
         if (fullscreenGamePackage == null || fullscreenMouse == null || fullscreenPassthrough == on) return;
         fullscreenPassthrough = on;
+        updateSecurePointer();
         xdesxTasks.gameFrontChanged(on ? checkGameFront : null);
         fullscreenMouse.setGameMode(on);
         if (desktopDevices==null && fullscreenDevices == null) fullscreenMouse.setGrabbed(!on);
@@ -966,7 +1016,7 @@ public class InjectorService extends IInjector.Stub {
         post(() -> {
             if (target != xdesxNativeDisplay || fullscreenPassthrough != on) return;
             injector.releaseAll();
-            pointer.show(!on && ((desktopDevices==null && fullscreenDevices == null) || padPointerVisible));
+            pointer.show(!on && ((desktopDevices==null && fullscreenDevices == null) || padPointerVisible || securePointer));
             if (on) injector.focus(target);
             IInjectorListener l = listener;
             if (l != null) l.onGameMode(on);
@@ -975,6 +1025,7 @@ public class InjectorService extends IInjector.Stub {
 
     private void leaveXdesxFullscreen() {
         int external = xdesxNativeDisplay;
+        stopSecureWatch();
         if (fullscreenDevices != null) {
             fullscreenDevices.close();
             fullscreenDevices = null;
@@ -1054,6 +1105,7 @@ public class InjectorService extends IInjector.Stub {
                 mouse.setHotkeyEnabled(fullscreenGamePackage != null);
                 fullscreenMouse = mouse;
                 fullscreenMouse.start();
+                watchChromeCursor(pkg,external,mouse);
             } else if (moved >= 0) {
                 xdesxTasks.fullscreen(window, -1, -1);
                 leaveXdesxFullscreen();

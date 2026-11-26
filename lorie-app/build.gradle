@@ -121,6 +121,7 @@ tasks.named('preBuild').configure { dependsOn nativeDesktop }
 tasks.matching { it.name == 'assembleDebug' }.configureEach { dependsOn ':shell-loader:buildCompanionPackage' }
 
 dependencies {
+    compileOnly project(':shell-loader:stub')
     implementation project(':lorie')
     // The gesture engine, shared with the receiver
     implementation project(':input-core')
