@@ -576,7 +576,8 @@ final class BuiltinLinux {
         new File(rootfs, "home/xdesk").mkdirs();  // the binding's place, in a system from before too
         cmd.add("-b"); cmd.add(home.getPath() + ":/home/xdesk");
         if (desktop != null) {
-            cmd.add("-b"); cmd.add(new File(desktop, "linux-tmp").getPath() + ":/tmp");
+            // APT stages absolute links to guest archives here before calling dpkg --recursive.
+            cmd.add("-B"); cmd.add(new File(desktop, "linux-tmp").getPath() + ":/tmp");
             cmd.add("-b"); cmd.add(new File(desktop, "tmp/.X11-unix").getPath() + ":/tmp/.X11-unix");
         }
         cmd.add("-w"); cmd.add("/root");
