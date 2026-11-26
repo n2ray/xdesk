@@ -475,7 +475,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
             return;
         }
-        if(action.equals("exit-desktop")) {finish();return;}
+        if(action.equals("exit-desktop")) {endDesktop();return;}
         if(action.equals("cursor-image")) {readCursorShape();return;}
         if(action.equals("wallpaper-pick")) {chooseWallpaper(); return;}
         if (action.startsWith("linux-")) {
@@ -532,7 +532,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     public void onDisplayAdded(int id) { place(); }
     public void onDisplayChanged(int id) { }
-    public void onDisplayRemoved(int id) { if (external == id) finish(); }
+    public void onDisplayRemoved(int id) { if (external == id) endDesktop(); }
     private void error(String s) {
         Log.e("XDesX",s);
         runOnUiThread(() -> Toast.makeText(this,s,Toast.LENGTH_LONG).show());
@@ -620,12 +620,21 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 }
             }).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null).show();
     }
+    private void endDesktop() {
+        if (isFinishing()) return;
+        // The HDMI surface and phone controller belong to separate Android tasks.
+        for (MainActivity screen : new java.util.ArrayList<>(MainActivity.getInstances())) {
+            if (screen.getIntent().getBooleanExtra("xdesx_quiet", false))
+                screen.finishAndRemoveTask();
+        }
+        finishAndRemoveTask();
+    }
     private void confirmEndDesktop() {
         new android.app.AlertDialog.Builder(this)
             .setTitle(getString(com.termux.x11.app.R.string.xu_end_the_desktop_session))
             .setMessage(getString(com.termux.x11.app.R.string.xu_all_desktop_windows_will_close_save_your_work_before_conti))
             .setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null)
-            .setPositiveButton(getString(com.termux.x11.app.R.string.xu_end_session), (dialog, which) -> finish())
+            .setPositiveButton(getString(com.termux.x11.app.R.string.xu_end_session), (dialog, which) -> endDesktop())
             .show();
     }
     @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}

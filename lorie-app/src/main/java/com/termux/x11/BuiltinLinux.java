@@ -575,6 +575,16 @@ final class BuiltinLinux {
         // The home XDesk keeps (a reset leaves it) is the user xdesk's; root's own /root is the system's
         new File(rootfs, "home/xdesk").mkdirs();  // the binding's place, in a system from before too
         cmd.add("-b"); cmd.add(home.getPath() + ":/home/xdesk");
+        File shared = XdesxFiles.sharedRoot(c);
+        if (shared != null) {
+            new File(rootfs, "mnt/xdesx").mkdirs();
+            cmd.add("-b"); cmd.add(shared.getPath() + ":/mnt/xdesx");
+            try {
+                android.system.Os.symlink("/mnt/xdesx", new File(home, "xdesx").getPath());
+            } catch (android.system.ErrnoException e) {
+                if (e.errno != android.system.OsConstants.EEXIST) Log.w(TAG, "Home shortcut", e);
+            }
+        }
         if (desktop != null) {
             // APT stages absolute links to guest archives here before calling dpkg --recursive.
             cmd.add("-B"); cmd.add(new File(desktop, "linux-tmp").getPath() + ":/tmp");

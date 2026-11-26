@@ -185,6 +185,8 @@ static void settings_contents(Panel *p) {
     p->mac_page=settings_card(page(p,"mac",T("Mac 屏幕共享")));
     mac_settings(p->mac_page,p);
     view=settings_card(page(p,"linux","Ubuntu / Linux"));
+    GtkWidget *shared_hint=notification_label(T("共享文件：Ubuntu 在 /mnt/xdesx 保存，安卓在系统文件选择器中打开 xdesx。卸载前请另存需要保留的文件。"));
+    gtk_box_pack_start(GTK_BOX(view),shared_hint,FALSE,FALSE,0);
     p->ubuntu_status=gtk_label_new(NULL);
     gtk_label_set_line_wrap(GTK_LABEL(p->ubuntu_status),TRUE);
     gtk_box_pack_start(GTK_BOX(view),p->ubuntu_status,FALSE,FALSE,0);

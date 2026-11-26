@@ -2,6 +2,7 @@
 static int ui_language=2;
 static const char *T(const char *source) {
     static const struct { const char *source,*en,*hant; } catalog[]={
+        {"共享文件：Ubuntu 在 /mnt/xdesx 保存，安卓在系统文件选择器中打开 xdesx。卸载前请另存需要保留的文件。", "Shared files: save to /mnt/xdesx in Ubuntu and open xdesx in the Android file picker. Copy files you want to keep before uninstalling.", "共享檔案：Ubuntu 儲存到 /mnt/xdesx，Android 在系統檔案選擇器中開啟 xdesx。解除安裝前請另存需要保留的檔案。"},
         {"15 秒后自动恢复原设置。", "The previous resolution will be restored in 15 seconds.", "15 秒後自動恢復原設定。"},
         {"Mac 地址", "Mac address", "Mac 地址"},
         {"Mac 屏幕共享", "Mac Screen Sharing", "Mac 螢幕共享"},

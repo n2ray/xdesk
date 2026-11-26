@@ -33,6 +33,11 @@
         android:theme="@style/LorieAppTheme"
         android:hardwareAccelerated="true"
         android:appCategory="game">
+        <provider android:name="com.termux.x11.XdesxFiles"
+            android:authorities="${applicationId}.files" android:exported="true"
+            android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
         <provider android:name="com.termux.x11.AndroidFrameProbe"
             android:authorities="${applicationId}.androidframe"
             android:exported="true" android:permission="android.permission.DUMP" />
