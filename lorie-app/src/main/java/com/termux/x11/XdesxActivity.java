@@ -67,7 +67,6 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private void closeToolbar() {
         XdesxFullscreenBar bar = toolbar;
         toolbar = null;
-        HdmiMouseObserver.route(null, -1);
         gamePassthrough = false;
         if (bar != null) bar.close();
     }
@@ -102,7 +101,6 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (moved) {
                     closeToolbar();
                     if (fullWindow != null) {
-                        if (w.chrome() && desktopNative) HdmiMouseObserver.route(service, target);
                         Runnable exit = () -> { if (fullWindow == w) toggleWindow(w); };
                         toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, w.mac() ? null : () -> setGame(true), () -> {
                             error("外屏工具条无法显示，正在返回窗口");
