@@ -112,6 +112,31 @@ final class TaskMover {
         return r[0];
     }
 
+    static boolean deferDesktopMode() {
+        return "Xiaomi".equalsIgnoreCase(android.os.Build.MANUFACTURER);
+    }
+
+    // HyperOS attaches a second caption when launching directly in mode 6. Configure the
+    // already-created task instead; the app still receives the complete X client bounds.
+    static boolean configureDesktopTask(int display, String pkg) {
+        try {
+            Object atm = taskManager();
+            Method roots = atm.getClass().getMethod("getAllRootTaskInfosOnDisplay", int.class);
+            for (int attempt = 0; attempt < 20; attempt++) {
+                for (Object info : (List<?>) roots.invoke(atm, display)) {
+                    if (belongsTo(info, pkg)) {
+                        setWindowMode(info, 6);
+                        return true;
+                    }
+                }
+                android.os.SystemClock.sleep(25);
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "Configure desktop task on display " + display, e);
+        }
+        return false;
+    }
+
     static int moveWindowTask(int source, int target, String pkg, int expected, int mode) {
         try {
             Object atm=taskManager();
@@ -120,12 +145,19 @@ final class TaskMover {
                 int id=info.getClass().getField("taskId").getInt(info);
                 if ((expected>=0 && expected!=id) || !belongsTo(info,pkg)) continue;
                 int oldMode = (int) info.getClass().getMethod("getWindowingMode").invoke(info);
-                if (oldMode != mode) setWindowMode(info, mode);
+                boolean afterMove = oldMode != mode && mode == 6 && deferDesktopMode();
+                if (oldMode != mode && !afterMove) setWindowMode(info, mode);
                 try {
                     atm.getClass().getMethod("moveRootTaskToDisplay",int.class,int.class).invoke(atm,id,target);
                 } catch (ReflectiveOperationException e) {
-                    if (oldMode != mode) setWindowMode(info, oldMode);
+                    if (oldMode != mode && !afterMove) setWindowMode(info, oldMode);
                     throw e;
+                }
+                if (afterMove) {
+                    try { setWindowMode(info, mode); }
+                    catch (ReflectiveOperationException | RuntimeException e) {
+                        Log.w(TAG, "Task moved but desktop layout unavailable", e);
+                    }
                 }
                 return id;
             }

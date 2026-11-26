@@ -1180,17 +1180,22 @@ public class InjectorService extends IInjector.Stub {
         // A native desktop window requests a distinct task on its own virtual display.
         String flags = "0x10200000";
         String windowMode = "1";
+        boolean configureAfterLaunch = false;
         synchronized (appDisplays) {
             VirtualDisplay d = appDisplays.get(displayId);
             if (d != null && d.getDisplay().getName().startsWith("XDesX ")) {
-                windowMode = "6"; // Android multi-window: the X window determines the app bounds.
+                configureAfterLaunch = TaskMover.deferDesktopMode();
+                windowMode = configureAfterLaunch ? "1" : "6";
                 flags = "0x18010000";  // NEW_TASK | MULTIPLE_TASK | NO_ANIMATION
             }
         }
         String[] r = exec(AM_TIMEOUT_MS, "/system/bin/am", "start", "--user", user, "--display", String.valueOf(displayId), "--windowingMode", windowMode,
             "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-f", flags, "-n", component);
         if (r[0] != null) return r[0];
-        return r[1].contains("Error") ? r[1].trim() : null;
+        if (r[1].contains("Error")) return r[1].trim();
+        if (configureAfterLaunch && !TaskMover.configureDesktopTask(displayId, component.split("/", 2)[0]))
+            Log.w(TAG, "Desktop layout unavailable for " + component);
+        return null;
     }
 
     /** How long one `dumpsys window windows` answer is shared: callers ask in bursts and each call is a process. */
