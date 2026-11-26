@@ -22,8 +22,13 @@ public class PointerFeelTest {
     }
 
     private static float desktopGain(float dpPerMs, int interval) {
+        return desktopGain(dpPerMs, interval, false);
+    }
+
+    private static float desktopGain(float dpPerMs, int interval, boolean systemPointer) {
         Tuning t = new Tuning();
         t.desktopPad = true;
+        t.systemPointerAcceleration = systemPointer;
         Recorder rec = new Recorder();
         Touchpad pad = new Touchpad(t, new FakeScheduler(), rec);
         Touches e = new Touches();
@@ -34,6 +39,12 @@ public class PointerFeelTest {
             if (ms == 400) initial = rec.moveX;
         }
         return (rec.moveX - initial) / (400 * dpPerMs);
+    }
+
+    @Test public void hdmiPointerReportsConstantGainAcrossSpeedsAndReportRates() {
+        for (float speed : new float[]{0.25f, 0.5f, 1f, 2f, 5f})
+            for (int interval : new int[]{8, 16})
+                assertEquals(1f, desktopGain(speed, interval, true), 0.001f);
     }
 
     @Test public void desktopGainProgressesThroughMidrangeAcrossReportRates() {

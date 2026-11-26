@@ -279,6 +279,11 @@ public final class Touchpad {
     }
 
     private void moveCursor(float dxDp, float dyDp, long interval) {
+        if (tuning.systemPointerAcceleration) {
+            // Relative HID counts at constant gain; Android owns the HDMI pointer curve.
+            if (rest.add(dxDp * tuning.pointerSpeed, dyDp * tuning.pointerSpeed)) out.move(rest.dx, rest.dy);
+            return;
+        }
         if (tuning.desktopPad) {
             // Gain in output counts per dp. Slow corrections stay precise on high-density phones.
             float speed = (float) Math.hypot(dxDp, dyDp) / interval;

@@ -25,19 +25,21 @@ final class TouchpadView extends View {
     private final float density;
     private final Tuning tuning;
     private final Touchpad pad;
+    private final java.util.function.BooleanSupplier systemPointerRoute;
     private final Touches touches = new Touches();
     private boolean used;
 
     TouchpadView(Context c, final GestureOutput output) {
-        this(c, output, false);
+        this(c, output, null);
     }
 
-    TouchpadView(Context c, final GestureOutput output, boolean desktopPad) {
+    TouchpadView(Context c, final GestureOutput output, java.util.function.BooleanSupplier systemPointerRoute) {
         super(c);
         density = c.getResources().getDisplayMetrics().density;
         tuning = MotionTouches.tuning(this);
-        tuning.desktopPad = desktopPad;
-        if (desktopPad) tuning.longPressMs = Math.max(600, tuning.longPressMs);
+        this.systemPointerRoute = systemPointerRoute;
+        tuning.desktopPad = systemPointerRoute != null;
+        if (tuning.desktopPad) tuning.longPressMs = Math.max(600, tuning.longPressMs);
         // Vibrations are the view's, the rest goes on as it is
         pad = new Touchpad(tuning, MotionTouches.scheduler(this), new GestureOutput() {
             @Override public void move(int dx, int dy) { output.move(dx, dy); }
@@ -90,6 +92,7 @@ final class TouchpadView extends View {
             used = true;
             invalidate();
         }
+        tuning.systemPointerAcceleration = systemPointerRoute != null && systemPointerRoute.getAsBoolean();
         pad.onTouch(MotionTouches.fill(touches, e));
         return true;
     }

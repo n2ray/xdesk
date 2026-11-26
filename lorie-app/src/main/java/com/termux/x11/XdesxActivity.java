@@ -174,7 +174,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             }
             public void button(int b,boolean down) { if (!padInput(2,b,down?1:0)) input.button(b,down); }
             public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!padInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
-        }, true));
+        }, () -> desktopNative && injector != null && fullWindow == null));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
                 if (fullWindow==null) input.text(s);

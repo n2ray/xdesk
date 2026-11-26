@@ -22,6 +22,7 @@ public final class Tuning {
     public float pointerSpeed = 1;
     /** Desktop pad reports logical movement; Android may accelerate the virtual mouse again. */
     public boolean desktopPad;
+    public boolean systemPointerAcceleration;
     /** Finger travel per wheel step: shorter is faster scrolling. */
     public float scrollStepDp = SCROLL_STEP_DP;
     /** Content follows the fingers (§3.1). Off is the old wheel direction. */
