@@ -198,7 +198,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         android.widget.Button controls=new android.widget.Button(this);
         controls.setText("桌面控制");controls.setAlpha(.72f);
         layout.addView(controls,new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.END));
-        controls.setOnClickListener(v->onBackPressed());
+        controls.setOnClickListener(v -> showDesktopControls());
         setContentView(layout);
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
@@ -538,9 +538,35 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         return super.dispatchKeyEvent(e);
     }
     @Override public void onBackPressed() {
-        if (fullWindow!=null) { toggleWindow(fullWindow); return; }
-        new android.app.AlertDialog.Builder(this).setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","结束桌面","连接与授权","手机键盘","取消"},
-            (dialog,item) -> { if(item==0) { panel.returnSequence++; panel.publish(); } if(item==1) panelAction("recover"); if(item==2) finish(); if(item==3) setup(); if(item==4){mouse.requestFocus();getWindow().getInsetsController().show(WindowInsets.Type.ime());} }).show();
+        // Dialogs consume Back themselves. At the touchpad root keep the desktop session alive.
+        getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+    }
+    private void showDesktopControls() {
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("桌面控制")
+            .setItems(new String[]{"返回 X 窗口","恢复外屏原生显示","连接与授权","手机键盘","结束桌面"}, (dialog,item) -> {
+                switch (item) {
+                    case 0:
+                        if (fullWindow != null) toggleWindow(fullWindow);
+                        else { panel.returnSequence++; panel.publish(); }
+                        break;
+                    case 1: panelAction("recover"); break;
+                    case 2: setup(); break;
+                    case 3:
+                        mouse.requestFocus();
+                        getWindow().getInsetsController().show(WindowInsets.Type.ime());
+                        break;
+                    case 4: confirmEndDesktop(); break;
+                }
+            }).setNegativeButton("取消", null).show();
+    }
+    private void confirmEndDesktop() {
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("结束外屏桌面？")
+            .setMessage("所有桌面窗口都将关闭。请先保存正在进行的工作。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("结束桌面", (dialog, which) -> finish())
+            .show();
     }
     @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}
     @Override protected void onDestroy() {
