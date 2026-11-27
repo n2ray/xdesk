@@ -596,6 +596,8 @@ public class LorieView extends SurfaceView implements InputStub {
 
     @Override
     public boolean dispatchKeyEventPreIme(KeyEvent event) {
+        if (activity.getIntent().getBooleanExtra("xdesx_quiet",false))
+            return false; // The associated Android IME gets the first chance to compose Linux text.
         if (imeBuggyKeys.contains(event.getKeyCode())) {
             // IME does not handle/send events for some keys correctly correctly.
             // So we should send key release manually in the case if IME will not send it...

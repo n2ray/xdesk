@@ -148,16 +148,65 @@ final class DesktopInput implements InputSink {
         return ScreenShareInput.hardwareCharacterKeysym(device.getKeyCharacterMap().get(code, meta & selectors));
     }
 
-    void capturedKey(String device, int scan, int value, boolean useAndroidLayout) {
+    private final HashMap<Integer,KeyEvent> composingKeys = new HashMap<>();
+
+    private int heldMeta() {
+        int meta=capsLock ? KeyEvent.META_CAPS_LOCK_ON : 0;
+        for (int scan:captured.keySet()) meta |= InputInjector.metaOf(scan);
+        for (int scan:composingKeys.keySet()) meta |= InputInjector.metaOf(scan);
+        return meta;
+    }
+
+    // Keep desktop accelerators in X. Text, candidate selection and editing go through
+    // the HDMI window's normal pre-IME / IME / unhandled-key dispatch sequence.
+    private boolean linuxImeKey(InputDevice device,int scan,int value,boolean linux) {
+        KeyEvent held=composingKeys.get(scan);
+        long now=android.os.SystemClock.uptimeMillis();
+        if (held!=null) {
+            if (value==1) return true;
+            KeyEvent next=KeyEvent.changeTimeRepeat(held,now,value==2?held.getRepeatCount()+1:0);
+            if (value==0) {
+                composingKeys.remove(scan);
+                next=KeyEvent.changeAction(next,KeyEvent.ACTION_UP);
+            } else composingKeys.put(scan,next);
+            if (linux || value==0) dispatchImeKey(next);
+            return true;
+        }
+        if (!linux || value!=1 || device==null) return false;
+        Integer code=InputInjector.KEYS.get(scan);
+        if (code==null) return false;
+        int meta=heldMeta() | InputInjector.metaOf(scan);
+        boolean imeSwitch=code==KeyEvent.KEYCODE_SPACE && (meta & KeyEvent.META_CTRL_ON)!=0;
+        if ((meta & (KeyEvent.META_META_ON | KeyEvent.META_ALT_LEFT_ON))!=0 ||
+                (!imeSwitch && (meta & KeyEvent.META_CTRL_ON)!=0) || scan==58) return false;
+        if (Build.VERSION.SDK_INT>=33 && scan!=43) {
+            int mapped=device.getKeyCodeForKeyLocation(code);
+            if (mapped!=KeyEvent.KEYCODE_UNKNOWN) code=mapped;
+        }
+        KeyEvent down=new KeyEvent(now,now,KeyEvent.ACTION_DOWN,code,0,meta,device.getId(),
+                scan,0,InputDevice.SOURCE_KEYBOARD);
+        if (!dispatchImeKey(down)) return false;
+        composingKeys.put(scan,down);
+        return true;
+    }
+    private boolean dispatchImeKey(KeyEvent event) {
+        MainActivity host=MainActivity.getInstance("");
+        if (host==null || host.getLorieView()!=capturedView || !capturedView.hasWindowFocus()) return false;
+        host.getWindow().injectInputEvent(event);
+        return true;
+    }
+    void capturedKey(String device, int scan, int value, boolean useAndroidLayout, boolean linux) {
         LorieView v = view();
         if (v != capturedView) {
             resetCapturedKeys();
             capturedView = v;
         }
-        if (v == null || value == 2) return; // XKB owns repeat, including its configured rate and delay.
+        if (v == null) return;
+        InputDevice physical=value==1 ? keyboard(device) : null;
+        if (linuxImeKey(physical,scan,value,linux) || value == 2) return; // XKB owns repeat, including its configured rate and delay.
         if (value == 1 && !captured.containsKey(scan)) {
             if (scan == 58) capsLock = !capsLock;
-            InputDevice physical = keyboard(device);
+
             if (physical != null) keyboardIds.put(scan, physical.getId());
             else keyboardIds.remove(scan);
             int sym = useAndroidLayout ? layoutSymbol(physical, scan) : 0;
@@ -173,6 +222,9 @@ final class DesktopInput implements InputSink {
     }
 
     void resetCapturedKeys() {
+        if (capturedView!=null)
+            for (KeyEvent held:composingKeys.values()) dispatchImeKey(KeyEvent.changeAction(held,KeyEvent.ACTION_UP));
+        composingKeys.clear();
         if (capturedView != null && capturedView.connected()) {
             for (Map.Entry<Integer,Integer> press : captured.entrySet()) {
                 if (press.getValue() != 0) capturedView.sendLayoutKey(press.getValue(), false);

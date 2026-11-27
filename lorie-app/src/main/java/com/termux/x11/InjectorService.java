@@ -984,6 +984,7 @@ public class InjectorService extends IInjector.Stub {
     private FullscreenDevices desktopDevices, fullscreenDevices;
     private DesktopMouse desktopPad;
     private int desktopTarget=-1;
+    private final ImePlacement desktopIme=new ImePlacement();
     @Override public int xdesxHdmiDensity(int display,String unique,int expected,int target) {
         synchronized(appDisplays) {
             if (display<=0 || appDisplays.containsKey(display)) return -1;
@@ -998,6 +999,7 @@ public class InjectorService extends IInjector.Stub {
                 desktopDevices=new FullscreenDevices(id);
                 desktopPad=new DesktopMouse();
                 desktopTarget=id;
+                desktopIme.place(id,true);
                 return true;
             } catch(Exception | LinkageError e) {
                 closeDesktopRoute();
@@ -1024,6 +1026,7 @@ public class InjectorService extends IInjector.Stub {
         if(desktopPad!=null) try {desktopPad.close();} catch(java.io.IOException ignored) {}
         desktopPad=null;
         if(desktopDevices!=null) desktopDevices.close();
+        desktopIme.restoreAll();
         desktopDevices=null;desktopTarget=-1;
     }
     private volatile boolean padPointerVisible;

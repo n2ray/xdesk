@@ -140,7 +140,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public void key(String device,int scan,int value){runOnUiThread(()->{
                 if(desktopKeys!=this || DesktopInput.view()==null)return;
                 XdesxWindow focused=XdesxWindow.focused();
-                input.capturedKey(device,scan,value,focused==null || focused.mac());
+                input.capturedKey(device,scan,value,focused==null || focused.mac(),focused==null);
             });}
         }:null;
         if(injector!=null)try {injector.macKeyboard(desktopKeys);}
