@@ -15,7 +15,7 @@ case "$1" in
 --watch-appearance)
     # xprop emits the initial value and subsequent X property notifications.
     # Keep the bridge on the same session bus and user account as the guest apps.
-    LC_ALL=C xprop -root -spy _XDESX_PREFER_DARK | while IFS= read -r property; do
+    LC_ALL=C stdbuf -oL xprop -root -spy -f _XDESX_PREFER_DARK 32c _XDESX_PREFER_DARK | while IFS= read -r property; do
         case "$property" in
             *"= 1") scheme=prefer-dark ;;
             *"= 0") scheme=prefer-light ;;

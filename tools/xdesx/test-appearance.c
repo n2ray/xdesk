@@ -24,6 +24,8 @@ int main(int argc,char **argv) {
             g_object_get(settings,"gtk-theme-name",&theme,"gtk-xft-dpi",&dpi,NULL);
             matched=!g_strcmp0(theme,panel.dark?"Adwaita-dark":"Adwaita") &&
                     !g_strcmp0(scheme,panel.dark?"prefer-dark":"prefer-light") && dpi==128*1024;
+            if (!matched && g_get_monotonic_time()+20000>=until)
+                g_printerr("Observed theme=%s scheme=%s dpi=%d\n",theme,scheme,dpi);
             g_free(theme);g_free(scheme);
             if(!matched) g_usleep(10000);
         }
