@@ -520,6 +520,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         panel.appearance=value;panel.saveOptions();
     }
     private void panelAction(String action) {
+        if(action.startsWith("caret ")) {
+            LorieView view=DesktopInput.view();
+            String[] fields=action.split(" ");
+            if(view!=null) view.setDesktopCaret(Integer.parseInt(fields[1]),Integer.parseInt(fields[2]),Integer.parseInt(fields[3]));
+            return;
+        }
         if(action.startsWith("notify-")) {notifications.action(action.substring(7));return;}
         if(action.startsWith("mac-")) {
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}

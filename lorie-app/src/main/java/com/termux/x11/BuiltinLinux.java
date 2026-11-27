@@ -562,6 +562,11 @@ final class BuiltinLinux {
         writeAsset("xdesk-asuser");
         writeAsset("xdesk-session");
         writeAsset("xdesk-launch");
+        writeAsset("xdesx-immodules.cache");
+        File module=new File(rootfs,"usr/local/lib/xdesx/im-vte-anchor.so");
+        module.getParentFile().mkdirs();
+        java.nio.file.Files.copy(new File(desktop,"guest/im-vte-anchor.so").toPath(),module.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
     private List<String> containerCmd(File desktop, String script, String... env) {

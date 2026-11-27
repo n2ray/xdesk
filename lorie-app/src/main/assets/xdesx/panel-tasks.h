@@ -49,6 +49,7 @@ static void highlight_task(GtkWidget *button,gpointer active) {
     else gtk_style_context_remove_class(style,"active");
 }
 static void active_task_changed(WnckScreen *screen,WnckWindow *previous,Panel *p) {
+    queue_anchor(p);
     update_fullscreen(p);
     gtk_container_foreach(GTK_CONTAINER(p->tasks),highlight_task,wnck_screen_get_active_window(screen));
 }
@@ -124,6 +125,7 @@ static void watch_task(WnckScreen *s,WnckWindow *w,Panel *p) {
     g_signal_connect_swapped(w,"name-changed",G_CALLBACK(schedule_tasks),p);
     g_signal_connect_swapped(w,"icon-changed",G_CALLBACK(schedule_tasks),p);
     g_signal_connect_swapped(w,"class-changed",G_CALLBACK(schedule_tasks),p);
+    g_signal_connect(w,"geometry-changed",G_CALLBACK(anchor_geometry),p);
     g_signal_connect(w,"state-changed",G_CALLBACK(task_state),p);
     schedule_tasks(p);
 }

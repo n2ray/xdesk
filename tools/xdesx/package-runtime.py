@@ -91,6 +91,12 @@ includes = ["include", "include/gtk-3.0", "include/glib-2.0", "lib/glib-2.0/incl
             "include/cairo", "include/pango-1.0", "include/harfbuzz", "include/gdk-pixbuf-2.0",
             "include/atk-1.0", "include/xfce4", "include/xfce4/libxfce4panel-2.0",
             "include/xfce4/xfconf-0", "include/libwnck-3.0", "include/freetype2"]
+# Compile a GTK 3 module for the arm64 Ubuntu guest. Resolve its public GTK/X11
+# symbols in the loading GTK process; do not link Bionic or any Android libraries.
+anchor = work/"im-vte-anchor.so"
+subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-fPIC","-fno-stack-protector",
+    *["-I"+str(prefix/i) for i in includes],"-c",HERE/"vte-anchor.c","-o",work/"anchor.o"],check=True)
+subprocess.run([BIN/"ld.lld","-shared","-z","noexecstack","-o",anchor,work/"anchor.o"],check=True)
 panel=native/"libxdpanel.so"
 subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-fPIC","-shared",
     *["-I"+str(prefix/i) for i in includes],assets/"panel.c","-L"+str(prefix/"lib"),
@@ -105,6 +111,7 @@ with zipfile.ZipFile(assets/"runtime.zip","w",zipfile.ZIP_DEFLATED) as z:
                     "etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml","etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml","share/licenses/**/*","share/doc/*/copyright"]:
         for p in prefix.glob(pattern):
             if p.is_file(): z.writestr(str(p.relative_to(prefix)),p.read_bytes().replace(PREFIX,RELOCATED))
+    z.write(anchor,"guest/im-vte-anchor.so")
     theme.write(z)
     z.write(ROOT/"tools/xdesx/art/settings.png","share/xdesx/settings.png")
     z.write(HERE/"art/power.png","share/xdesx/power.png")

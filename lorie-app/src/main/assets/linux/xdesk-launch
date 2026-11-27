@@ -43,6 +43,12 @@ case "$1" in
     else
         set -- sh -c "exec $cmd"
     fi
+    if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+        case "$term:$cmd" in
+            1:*|*:xfce4-terminal|*:xfce4-terminal\ *|*:/usr/bin/xfce4-terminal|*:/usr/bin/xfce4-terminal\ *)
+                export GTK_IM_MODULE=xdesx GTK_IM_MODULE_FILE=/usr/local/bin/xdesx-immodules.cache ;;
+        esac
+    fi
     setsid "$@" </dev/null >"$D/$id.log" 2>&1 &
     echo $! >"$D/$id.pid.new" && mv "$D/$id.pid.new" "$D/$id.pid"
     ;;

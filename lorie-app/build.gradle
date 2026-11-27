@@ -110,7 +110,8 @@ androidComponents {
 
 // All standalone APKs contain the Bionic runtime, including builds made outside CI.
 def nativeDesktop = tasks.register('packageXdesxRuntime', Exec) {
-    inputs.files(rootProject.file('tools/xdesx/package-runtime.py'), rootProject.file('tools/xdesx/packages.lock.json'),
+    inputs.files(rootProject.file('tools/xdesx/package-runtime.py'), rootProject.file('tools/xdesx/packages.lock.json'), rootProject.file('tools/xdesx/vte-anchor.c'),
+        file('src/main/assets/xdesx/panel-anchor.h'),
         file('src/main/assets/xdesx/client.c'), file('src/main/assets/xdesx/panel.c'), file('src/main/assets/xdesx/xdesx.desktop'))
     inputs.files(fileTree('src/main/assets/xdesx') { include '*.h' })
     inputs.dir(rootProject.file('tools/xdesx/xfwm'))

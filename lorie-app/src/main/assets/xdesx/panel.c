@@ -35,6 +35,9 @@ typedef struct {
     int cursor_event;
     int scale, render, return_sequence;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
+    Atom anchor_atom;
+    int anchor_x,anchor_y,anchor_h;
+    guint anchor_idle;
     guint tasks_idle;
     guint reveal_timer, hide_timer;
 } Panel;
@@ -188,6 +191,7 @@ static void activate_window(GtkWidget *i,WnckWindow *w) {
     if (ws) wnck_workspace_activate(ws,gtk_get_current_event_time());
     wnck_window_activate(w,gtk_get_current_event_time());
 }
+#include "panel-anchor.h"
 #include "panel-tasks.h"
 #include "panel-style.h"
 #include "panel-dpi.h"
@@ -290,6 +294,8 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     if(p->cursor_event) gdk_window_remove_filter(NULL,cursor_event,p);
+    gdk_window_remove_filter(NULL,anchor_event,p);
+    if (p->anchor_idle) g_source_remove(p->anchor_idle);
     if (p->tasks_idle) g_source_remove(p->tasks_idle);
     for (GList *l=wnck_screen_get_windows(p->screen);l;l=l->next)
         g_signal_handlers_disconnect_by_data(l->data,p);
@@ -333,6 +339,9 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_container_add(GTK_CONTAINER(plugin),bar);
     xfce_panel_plugin_set_expand(plugin,TRUE);
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
+    p->anchor_atom=XInternAtom(GDK_DISPLAY_XDISPLAY(gdk_display_get_default()),"_XDESX_INSERTION_RECT",False);
+    gdk_window_add_filter(NULL,anchor_event,p);
+    queue_anchor(p);
     g_signal_connect(p->screen,"active-window-changed",G_CALLBACK(active_task_changed),p);
     g_signal_connect(p->screen,"window-opened",G_CALLBACK(watch_task),p);
     g_signal_connect(p->screen,"window-closed",G_CALLBACK(task_list_changed),p);

@@ -80,6 +80,29 @@ public class LorieView extends SurfaceView implements InputStub {
     private float inputSourceWidth = 0.f, inputSourceHeight = 0.f;
     private boolean dimensionsFrozen = false;
     boolean commitedText = false;
+    private int caretX,caretY,caretHeight,imeSelection=1;
+    private boolean monitorCaret;
+    public void setDesktopCaret(int x,int y,int height) {
+        if (caretHeight==0 && height>0 && getDisplay()!=null)
+            android.util.Log.i("XDesX","Linux insertion marker available on display "+getDisplay().getDisplayId());
+        caretX=x; caretY=y; caretHeight=height;
+        if (monitorCaret && hasWindowFocus()) reportCaret();
+    }
+    private void reportCaret() {
+        CursorAnchorInfo.Builder b=new CursorAnchorInfo.Builder()
+                .setComposingText(-1,null).setSelectionRange(imeSelection,imeSelection);
+        Matrix sourceToView=new Matrix();
+        if (caretHeight>0 && inputViewport.width()>0 && inputViewport.height()>0 &&
+                inputSourceWidth>0 && inputSourceHeight>0 && getInputTransform().invert(sourceToView)) {
+            int[] offset=new int[2];
+            getLocationOnScreen(offset);
+            sourceToView.postTranslate(offset[0],offset[1]);
+            b.setMatrix(sourceToView);
+            b.setInsertionMarkerLocation(caretX,caretY,caretY+caretHeight,caretY+caretHeight,
+                    CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION);
+        }
+        mIMM.updateCursorAnchorInfo(this,b.build());
+    }
     private final InputConnection mConnection = new BaseInputConnection(this, false) {
         private CharSequence currentComposingText = null;
 
@@ -134,6 +157,7 @@ public class LorieView extends SurfaceView implements InputStub {
                 mIMM.updateSelection(LorieView.this, -1, -1, -1, -1);
                 currentPos = 1;
             }
+            imeSelection=currentPos;
             mIMM.updateSelection(LorieView.this, currentPos, currentPos, -1, -1);
         }
 
@@ -283,10 +307,9 @@ public class LorieView extends SurfaceView implements InputStub {
 
         @Override
         public boolean requestCursorUpdates(int cursorUpdateMode) {
-            mIMM.updateCursorAnchorInfo(LorieView.this, new CursorAnchorInfo.Builder()
-                    .setComposingText(-1, null)
-                    .setSelectionRange(currentPos, currentPos)
-                    .build());
+            imeSelection=currentPos;
+            monitorCaret=(cursorUpdateMode & InputConnection.CURSOR_UPDATE_MONITOR)!=0;
+            if (monitorCaret || (cursorUpdateMode & InputConnection.CURSOR_UPDATE_IMMEDIATE)!=0) reportCaret();
             return true;
         }
 
@@ -431,6 +454,7 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     private void updateInputTransform() {
+        if (caretHeight>0 && monitorCaret && hasWindowFocus()) reportCaret();
         if (mCallback != null)
             mCallback.inputTransformChanged(p.x, p.y, getInputTransform());
     }
