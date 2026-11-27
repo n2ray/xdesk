@@ -33,6 +33,18 @@ final class AvcReceiver {
     /** The last packet's index, to see a packet missing between pictures too (-1: none yet). */
     private long lastIndex = -1;
     int gaps, reordered;
+    private volatile int epoch, wirePackets, verifiedPackets;
+    private volatile boolean keySeen;
+
+    String progress() {
+        return "epoch="+epoch+" rtp="+wirePackets+" verified="+verifiedPackets+" keyframe="+keySeen;
+    }
+
+    private void keyframeReceived() {
+        if (keySeen) return;
+        keySeen=true;
+        Log.i("XDeskScreenShare","STREAM first keyframe "+progress());
+    }
     private static final long REORDER_NS = 12_000_000L;
     private static final int MAX_PENDING = 96;
     private final TreeMap<Long, RunnablePacket> pending = new TreeMap<>();
@@ -53,6 +65,8 @@ final class AvcReceiver {
         stream = new SrtpStream(seed);
     }
     synchronized void restart(byte[] key,KeyframeFeedback next)throws Exception {
+        epoch++; wirePackets=0; verifiedPackets=0; keySeen=false;
+        Log.i("XDeskScreenShare","STREAM start epoch="+epoch);
         pending.clear();gapSince=0;
         stream=new SrtpStream(key); reports=new MediaClock.Reports(key);
         feedback=next;parts.clear();stamp=-1;lastIndex=-1;haveSsrc=false;
@@ -73,8 +87,12 @@ final class AvcReceiver {
             reports.accept(p, n, clock.video);
             return;
         }
+        if (n < 22 || (p[0]&0xc0)!=0x80) return;
+        if (++wirePackets==1) Log.i("XDeskScreenShare","STREAM first candidate RTP epoch="+epoch);
         SrtpStream.Payload payload = stream.open(p, n);
-        if (payload == null || suspended) return;
+        if (payload == null) return;
+        if (++verifiedPackets==1) Log.i("XDeskScreenShare","STREAM first authenticated RTP epoch="+epoch);
+        if (suspended) return;
         long index = payload.index;
         if (index <= lastIndex) return;
         if (lastIndex >= 0 && index != lastIndex + 1) {
@@ -169,7 +187,7 @@ final class AvcReceiver {
             boolean complete = h.assemble(parts.values());
             parts.clear();
             if (!complete) { lost++; wantKeyframe = true; return; }
-            if (h.key) { idrs++; wantKeyframe = false; }
+            if (h.key) { keyframeReceived(); idrs++; wantKeyframe = false; }
             if (h.slice && !wantKeyframe) {
                 sink.frame(Arrays.copyOf(h.bytes(), h.size()), firstNs, h.key ? 1 : 0,
                         clock.presentAt(mediaSsrc, (int) stamp, System.nanoTime()));
@@ -196,7 +214,7 @@ final class AvcReceiver {
         for(byte[] u:units){
             int t=u[0]&31;
             if(t==7){sps=u;continue;}if(t==8){pps=u;continue;}
-            if(t==5){idr=true;idrs++;wantKeyframe=false;}
+            if(t==5){keyframeReceived();idr=true;idrs++;wantKeyframe=false;}
             pic.write(b(0,0,0,1));pic.write(u);
         }
         if(pic.size()>0 && sps!=null && pps!=null && (frames>0||idr)){

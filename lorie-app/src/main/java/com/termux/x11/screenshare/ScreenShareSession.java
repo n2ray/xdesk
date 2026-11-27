@@ -435,20 +435,19 @@ public final class ScreenShareSession {
                 synchronized (ScreenShareSession.this) {
                     if (firstFrameTimer != this || codec != c || closed || pictureHidden || pictureSeen || my != attempt) return;
                     if (anyPicture && retries++ < 2) {
-                        boolean renew = retries == 2;
+                        Log.i(TAG,"Waiting for picture "+(receiver==null?"disconnected":receiver.progress()));
                         send(d -> {
                             synchronized (ScreenShareSession.this) {
                                 if (pictureHidden || pictureSeen || codec != c || receiver == null) return;
                             }
-                            if (renew) d.resumeMedia(receiver);
-                            else d.showPicture(receiver);
+                            d.showPicture(receiver);
                         });
-                        ui.postDelayed(this, 1300);
+                        ui.postDelayed(this, 3000);
                         return;
                     }
                     firstFrameTimer = null;
                     if (anyPicture && lastRenderedSize != null && lastRenderedSize != sizing) {
-                        Log.w(TAG, "No frame after resize; restoring last rendered mode " + lastRenderedSize);
+                        Log.w(TAG, "No frame after resize "+(receiver==null?"disconnected":receiver.progress())+"; restoring last rendered mode " + lastRenderedSize);
                         changeMode(lastRenderedSize);
                         return;
                     }
