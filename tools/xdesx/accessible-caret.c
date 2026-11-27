@@ -52,6 +52,7 @@ static void clear_anchor(void) {
 
 static gboolean report(AtspiAccessible *source) {
     Window win = property(root, active_atom, XA_WINDOW);
+    if (trace && win) g_printerr("active PID %lu\n", property(win, pid_atom, XA_CARDINAL));
     if (!win || !belongs(atspi_accessible_get_process_id(source, NULL), property(win, pid_atom, XA_CARDINAL)))
         return FALSE;
     AtspiText *text = atspi_accessible_get_text_iface(source);
@@ -62,6 +63,7 @@ static gboolean report(AtspiAccessible *source) {
     if (offset >= 0 && offset <= length) {
         for (int index = offset; index >= 0; --index) {
             AtspiRect *r = atspi_text_get_character_extents(text, index, ATSPI_COORD_TYPE_SCREEN, NULL);
+            if (trace && r) g_printerr("offset=%d index=%d rect=%d,%d %dx%d\n", offset,index,r->x,r->y,r->width,r->height);
             if (r && r->height > 0 && r->height <= 8192 && r->x >= -32768 && r->x <= 32767 &&
                 r->y >= -32768 && r->y <= 32767) {
                 Window child;

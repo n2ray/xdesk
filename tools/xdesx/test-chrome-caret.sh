@@ -34,6 +34,7 @@ move_caret() {
             if [ -n "$x" ] && [ "$x" != "$previous" ]; then echo "$x"; return; fi
         done
     done
+    echo "No measurable movement from x=$previous; property: $(xprop -id "$window" _XDESX_ACCESSIBLE_INSERTION_RECT)" >&2
     return 1
 }
 xdotool key ctrl+l
