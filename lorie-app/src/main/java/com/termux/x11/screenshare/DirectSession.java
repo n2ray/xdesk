@@ -28,7 +28,7 @@ final class DirectSession implements Closeable {
     private ControlReader incoming;
     java.util.function.Consumer<CursorUpdates.Shape> cursorChanged;
     /** The frame buffer (= the video) in pixels, and the desktop in points: equal at 1x, half for HiDPI. */
-    final int width,height,pointsW,pointsH;
+    int width,height,pointsW,pointsH;
     /** The codec this connection asks for (ScreenShareSession); configuringMedia: past the login, the media is next. */
     boolean hevc;
     volatile boolean configuringMedia;
@@ -143,6 +143,19 @@ final class DirectSession implements Closeable {
     }
 
     // These controls run on ScreenShareSession's serial input executor.
+    void resize(ScreenShareSizing size,AvcReceiver receiver)throws Exception {
+        width=size.videoW;height=size.videoH;pointsW=size.desktopW;pointsH=size.desktopH;
+        records.send(displayConfig());
+        byte[] key=random(46);
+        try {
+            synchronized(receiver) {
+                sendMediaConfiguration(key);
+                receiver.restart(key,feedback);
+            }
+            requestFullUpdate();
+        } finally {Arrays.fill(key,(byte)0);}
+    }
+
     void hidePicture(AvcReceiver receiver) {
         // The same-size display reconfiguration stops audio as well as video on M4.
         if (receiver != null) receiver.hide();

@@ -2,6 +2,7 @@
 static int ui_language=2;
 static const char *T(const char *source) {
     static const struct { const char *source,*en,*hant; } catalog[]={
+        {"跟随桌面","Match desktop","跟隨桌面"},
         {"下次连接使用 1920×1080 原生桌面，窗口保持 16∶9。","Use a native 1920×1080 desktop on the next connection. The window keeps a 16∶9 aspect ratio.","下次連線使用 1920×1080 原生桌面，視窗維持 16∶9。"},
         {"下次连接时调整 Mac 桌面的文字和控件大小。","Changes the size of Mac text and controls on the next connection.","下次連線時調整 Mac 桌面的文字與控制項大小。"},
         {"在 Mac 上打开「系统设置 → 通用 → 共享」。", "On your Mac, open System Settings → General → Sharing.", "在 Mac 上開啟「系統設定 → 一般 → 共享」。"},

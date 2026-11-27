@@ -62,7 +62,7 @@ final class XdesxMacProfiles implements SharedPreferences.OnSharedPreferenceChan
         String raw=new String(Base64.decode(command.substring(9),Base64.DEFAULT),StandardCharsets.UTF_8);
         String[] v=raw.split("\\t",-1);
         if(v.length!=7 || !v[0].matches("new|[0-9a-f]{8}") || v[2].trim().isEmpty() || v[3].trim().isEmpty() ||
-            !v[4].matches("[012]") || !v[5].matches("[01]") || !v[6].matches("[01]"))
+            !v[4].matches("[0123]") || !v[5].matches("[01]") || !v[6].matches("[01]"))
             throw new IllegalArgumentException(context.getString(com.termux.x11.app.R.string.xu_check_the_device_address_and_account));
         String id=v[0].equals("new")?null:v[0];
         if(id!=null){

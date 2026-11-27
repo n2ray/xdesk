@@ -79,10 +79,19 @@ public final class ScreenShareSizing {
     /** For a screen of screenW×screenH (0×0: not known, a 1920×1080 one is assumed). */
     public static ScreenShareSizing of(int tier, int screenW, int screenH) {
         if (tier < NATIVE || tier > LARGE) tier = NATIVE;
+        return scaled(tier,screenW,screenH,FACTOR[tier]);
+    }
+
+    public static ScreenShareSizing window(int preference,int w,int h,int desktopPercent) {
+        double factor=preference==0?desktopPercent/100.0:preference==1?4.0/3:preference==2?2:1;
+        return scaled(preference,w,h,Math.max(1,Math.min(2,factor)));
+    }
+
+    private static ScreenShareSizing scaled(int tier,int screenW,int screenH,double factor) {
         int sw = screenW > 0 && screenH > 0 ? screenW : 1920, sh = screenW > 0 && screenH > 0 ? screenH : 1080;
-        boolean hidpi = tier == LARGE;
+        boolean hidpi = factor >= 2;
         // What the tier asks: the desktop the screen's size over the factor; the frame buffer twice it for HiDPI
-        double desk = 1.0 / FACTOR[tier];
+        double desk = 1.0 / factor;
         double video = hidpi ? 2 * desk : desk;   // as a share of the screen: 1, 0.75, 1
         double vw = sw * video, vh = sh * video;
         // The one factor every limit agrees to

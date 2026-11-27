@@ -53,15 +53,17 @@ public final class ScreenShareSession {
         /** The first picture since attach(), this long after it (or after the connect, for the first). */
         void firstFrame(long ms);
         default void cursorChanged(CursorUpdates.Shape shape) {}
+        default void modeChanged() {}
     }
 
     private static final java.util.Map<String,ScreenShareSession> active=new java.util.HashMap<>();
 
     public final ScreenShareStore.Host host;
     /** The video and the frame buffer, in pixels: what the decoder, the surface and the pointer's coordinates use. */
-    public final int width, height;
+    public volatile int width, height;
     /** 桌面缩放: the screen, the Mac's desktop (points) and the video this session asked for. */
-    public final ScreenShareSizing sizing;
+    public volatile ScreenShareSizing sizing;
+    private ScreenShareSizing pendingSize;
     /** The picture's size as the decoder found it in the stream (0 until then): the Mac may give another than asked. */
     public volatile int actualW, actualH;
     private final Context context;
@@ -187,6 +189,22 @@ public final class ScreenShareSession {
     }
 
     // --- the picture ---
+
+    /** Called on the UI thread once the content bounds settle. Keep the authenticated session. */
+    void fitWindow(ScreenShareSizing next){
+        if(closed || host.fixed1080)return;
+        pendingSize=next;
+        if(direct==null || receiver==null)return;
+        if(width==next.videoW && height==next.videoH && sizing.desktopW==next.desktopW && sizing.desktopH==next.desktopH)return;
+        sizing=next;width=next.videoW;height=next.videoH;
+        send(d->{
+            if(sizing!=next)return;
+            AvcReceiver r=receiver;
+            if(r!=null)d.resize(next,r);
+        });
+        if(surface!=null && shown!=null){shown.modeChanged();attach(surface,shown);}
+        Log.i(TAG,"WINDOW_MODE "+next);
+    }
 
     /** A screen shows the Mac: decode into this Surface from the next IDR on. */
     public synchronized void attach(Surface surface, PictureListener l) {
@@ -560,6 +578,7 @@ public final class ScreenShareSession {
                     first = !announced;
                     announced = true;
                 }
+                ui.post(()->{if(!closed && pendingSize!=null)fitWindow(pendingSize);});
                 if (first) ui.post(() -> listener.connected(this));
                 // A decoder attached while this connected waits for its first picture from now on; HEVC that already
                 // failed (its decoder, before the connection was up) ends this one at once

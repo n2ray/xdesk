@@ -234,6 +234,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private int pointerX = -1, pointerY = -1;
     private ScreenShareSession session;
     private boolean sampling;
+    private Runnable resizeMode,fitPicture;
 
     public static boolean isShowing(String hostId) {
         ScreenShareActivity a = viewers.get(hostId);
@@ -417,24 +418,34 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         // AOC given 2560x1508) and PanelFit is not on; the whole window is then mapped onto the whole mode, so the
         // picture is drawn that much narrower here and comes out right there (nx2android's external_aspect, owner
         // 22 November). With PanelFit the window is the panel's size and the factor is 1: never corrected twice.
-        frame.addOnLayoutChangeListener((v, l, t, r, bottom, ol, ot, or, ob) -> {
-            int bw = r - l, bh = bottom - t;
-            if (bw < 2 || bh < 2) return;
-            int[] p = ScreenShareSizing.output(getDisplay());
-            double factor = p != null ? ((double) p[0] / p[1]) / ((double) bw / bh) : 1;
-            if (!(factor >= 0.25 && factor <= 4)) factor = 1;
-            double cw = width / factor;
-            double k = Math.min(bw / cw, (double) bh / height);
-            int w = (int) Math.floor(cw * k), hh = (int) Math.floor(height * k);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, hh, Gravity.CENTER);
-            if (view.getWidth() != w || view.getHeight() != hh) {
-                Log.i(ScreenShareSession.TAG, "PICTURE in " + bw + "x" + bh + " (mode " + (p != null ? p[0] + "x" + p[1] : "?")
-                    + ", factor " + String.format(java.util.Locale.ROOT, "%.4f", factor) + "): " + w + "x" + hh
-                    + " at " + (bw - w) / 2 + "," + (bh - hh) / 2);
-                view.post(() -> view.setLayoutParams(lp));
+        boolean desktop=getIntent().getBooleanExtra("xdesx_input",false);
+        fitPicture=()->{
+            int bw=frame.getWidth(),bh=frame.getHeight();
+            if(bw<2 || bh<2)return;
+            int[] output=ScreenShareSizing.output(getDisplay());
+            double factor=!desktop && output!=null ? ((double)output[0]/output[1])/((double)bw/bh):1;
+            if(factor<0.25 || factor>4)factor=1;
+            double cw=s.width/factor;
+            double k=Math.min(bw/cw,(double)bh/s.height);
+            int w=Math.max(1,(int)Math.round(cw*k)),h=Math.max(1,(int)Math.round(s.height*k));
+            FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)view.getLayoutParams();
+            if(lp.width!=w || lp.height!=h)view.setLayoutParams(new FrameLayout.LayoutParams(w,h,Gravity.CENTER));
+        };
+        resizeMode=()->{
+            if(isFinishing() || isDestroyed() || frame.getWidth()<64 || frame.getHeight()<64)return;
+            int scale=((com.termux.x11.XdesxApp)getApplication()).desktopScale();
+            ScreenShareSizing next=ScreenShareSizing.window(s.host.scale,frame.getWidth(),frame.getHeight(),scale);
+            s.fitWindow(next);
+            view.getHolder().setFixedSize(s.width,s.height);
+            fitPicture.run();
+        };
+        frame.addOnLayoutChangeListener((v,l,t,r,bottom,ol,ot,or,ob)->{
+            fitPicture.run();
+            if(desktop && !s.host.fixed1080){
+                ui.removeCallbacks(resizeMode);ui.postDelayed(resizeMode,450);
             }
         });
-        view.getHolder().setFixedSize(width, height);
+        view.getHolder().setFixedSize(width,height);
         view.getHolder().addCallback(this);
         // The Mac's own pointer size: its desktop is drawn this many screen pixels per Mac point (twice as many
         // with 大字's HiDPI, a third more with 适度放大), the picture as large as it fits
@@ -469,11 +480,19 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     @Override protected void onDestroy() {
         ui.removeCallbacks(showStage);
+        if(resizeMode!=null)ui.removeCallbacks(resizeMode);
         if (devices != null) devices.unregisterInputDeviceListener(deviceListener);
         sampling = false;
         if (session != null && viewers.get(hostId)==this) session.detach();
         if(hostId!=null)viewers.remove(hostId,this);
         super.onDestroy();
+    }
+
+    @Override public void modeChanged(){
+        if(view!=null && session!=null && fitPicture!=null){
+            view.getHolder().setFixedSize(session.width,session.height);
+            fitPicture.run();
+        }
     }
 
     @Override public void firstFrame(long ms) {

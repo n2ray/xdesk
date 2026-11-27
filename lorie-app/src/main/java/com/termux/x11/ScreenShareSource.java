@@ -198,12 +198,15 @@ final class ScreenShareSource implements ContentSource {
         int displayId = (Integer) p[1];
         // 桌面缩放: worked out afresh at each connection from the screen it shows on, as it is driven now (its mode,
         // its rotation), and this Mac's tier; another screen, a turn or a new mode counts from the next connection
-        if (p[2] instanceof WindowResult) {
-            Display external=TargetDisplay.real(context.getSystemService(DisplayManager.class));
-            if (external!=null) displayId=external.getDisplayId();
-        }
-        ScreenShareSizing z = h.fixed1080 ? ScreenShareSizing.fixed1080()
-            : sizing(context, displayId, h.scale);
+        ScreenShareSizing z;
+        if(h.fixed1080)z=ScreenShareSizing.fixed1080();
+        else if(p[2] instanceof WindowResult){
+            Display window=context.getSystemService(DisplayManager.class).getDisplay(displayId);
+            if(window==null){Arrays.fill(password,(char)0);((Result)p[2]).failed((String)p[0],context.getString(R.string.xd_ss_cancelled));return;}
+            android.graphics.Point size=new android.graphics.Point();
+            window.getRealSize(size);
+            z=ScreenShareSizing.window(h.scale,size.x,size.y,((XdesxApp)context).desktopScale());
+        } else z=sizing(context,displayId,h.scale);
         ScreenShareSession.start(context, h, password, z, sessions);
         show(hostId, displayId, (String) p[0], (Result) p[2]);
         notifyChanged();

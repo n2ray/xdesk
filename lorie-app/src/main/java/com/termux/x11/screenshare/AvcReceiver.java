@@ -13,9 +13,9 @@ import static com.termux.x11.screenshare.DirectSession.*;
 
 final class AvcReceiver {
     interface Sink {void frame(byte[] data,long ns,int flags,long dueNs)throws Exception;}
-    private final SrtpStream stream;
+    private SrtpStream stream;
     private final MediaClock clock;
-    private final MediaClock.Reports reports;
+    private MediaClock.Reports reports;
     private int mediaSsrc;
     volatile boolean suspended;
     final TreeMap<Long,byte[]> parts=new TreeMap<>();
@@ -37,6 +37,12 @@ final class AvcReceiver {
         this.clock = clock;
         reports = new MediaClock.Reports(seed);
         stream = new SrtpStream(seed);
+    }
+    synchronized void restart(byte[] key,KeyframeFeedback next)throws Exception {
+        stream=new SrtpStream(key); reports=new MediaClock.Reports(key);
+        feedback=next;parts.clear();stamp=-1;lastIndex=-1;haveSsrc=false;
+        nextRecovery=nextKeyframeAsk=0;sps=pps=null;seenTypes=0;wantKeyframe=true;
+        if(hevc!=null)hevc=new HevcPicture();
     }
     synchronized void hide() {
         suspended = true;

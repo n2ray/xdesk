@@ -18,9 +18,9 @@ static void edit_mac(GtkButton *button,Panel *p) {
     gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(d))),GTK_WIDGET(grid));
     GtkWidget *name=mac_field(grid,0,T("设备名称"),v[1]),*host=mac_field(grid,1,T("Mac 地址"),v[2]),*account=mac_field(grid,2,T("账户"),v[3]);
     GtkWidget *scale=gtk_combo_box_text_new();
-    const char *tiers[]={T("原生"),"1.33×","2×"};
-    for(int i=0;i<3;i++) gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scale),tiers[i]);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(scale),CLAMP(atoi(v[4]),0,2));
+    const char *tiers[]={T("跟随桌面"),"1.33×","2×","1×"};
+    for(int i=0;i<4;i++) gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(scale),tiers[i]);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(scale),CLAMP(atoi(v[4]),0,3));
     gtk_grid_attach(grid,gtk_label_new(T("共享桌面缩放")),0,3,1,1);gtk_grid_attach(grid,scale,1,3,1,1);
     GtkWidget *fixed=gtk_check_button_new_with_label(T("固定 1080p")),*measure=gtk_check_button_new_with_label(T("记录性能数据"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fixed),atoi(v[5]));
