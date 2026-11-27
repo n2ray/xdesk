@@ -28,7 +28,12 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
     - name: Fetch submodules
-      run: git submodule update --init --recursive --jobs 8 --depth 1
+      run: |
+        if ! git submodule update --init --recursive --jobs 8 --depth 1; then
+          # The gitlink still pins the exact upstream object when freedesktop's Pixman host is unavailable.
+          git config submodule.app/src/main/cpp/pixman.url https://github.com/NoMercy-CI-Mirrors/pixman.git
+          git submodule update --init --recursive --jobs 8 --depth 1
+        fi
     # Protocol v3 service paired with the built-in image.
     - uses: actions/checkout@v7
       with:
