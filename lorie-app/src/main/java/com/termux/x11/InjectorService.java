@@ -529,7 +529,10 @@ public class InjectorService extends IInjector.Stub {
         linked = true;
         try {
             l.asBinder().linkToDeath(() -> {
-                synchronized(appDisplays) { closeDesktopRoute(); }
+                synchronized(appDisplays) {
+                    if (xdesxFullscreenWindow>=0) closeXdesxFullscreen();
+                    closeDesktopRoute();
+                }
                 boolean wasOver = sessionOver;
                 if (!wasOver) {
                     String left = audio.clear(false);
@@ -1125,7 +1128,21 @@ public class InjectorService extends IInjector.Stub {
         });
     }
 
+    private int ownedFullscreenTask=-1, ownedFullscreenUser=-1;
+    private String ownedFullscreenPackage;
+    private HdmiLaunch hdmiLaunch;
+    private void closeXdesxFullscreen() {
+        if (hdmiLaunch!=null) {
+            hdmiLaunch.activeTask();
+            hdmiLaunch.closeExcept(-1);
+        } else TaskMover.closeOwnedTask(ownedFullscreenTask,ownedFullscreenUser,ownedFullscreenPackage);
+        leaveXdesxFullscreen();
+    }
+
     private void leaveXdesxFullscreen() {
+        ownedFullscreenTask=ownedFullscreenUser=-1;
+        ownedFullscreenPackage=null;
+        hdmiLaunch=null;
         int external = xdesxNativeDisplay;
         stopSecureWatch();
         if (fullscreenDevices != null) {
@@ -1183,10 +1200,20 @@ public class InjectorService extends IInjector.Stub {
     }
 
     @Override public int moveXdesxTask(int window, int external, String pkg, int task, boolean enter, android.graphics.Bitmap cursor,int hotspot,int width,int height) {
+        return transitionXdesxTask(window,external,pkg,task,enter,cursor,hotspot,width,height,null);
+    }
+
+    @Override public int startXdesxFullscreen(int window,int external,String component,android.graphics.Bitmap cursor,int hotspot,int width,int height) {
+        return transitionXdesxTask(window,external,component.split("/",2)[0],-1,true,cursor,hotspot,width,height,component);
+    }
+
+    private int transitionXdesxTask(int window,int external,String pkg,int task,boolean enter,android.graphics.Bitmap cursor,
+                                    int hotspot,int width,int height,String launch) {
         synchronized (appDisplays) {
             VirtualDisplay d=appDisplays.get(window);
             if (sessionOver || d==null || external<=0 || appDisplays.containsKey(external) ||
                 !d.getDisplay().getName().startsWith("XDesX "+pkg+"/")) return -1;
+            if (launch!=null && !("XDesX "+launch).equals(d.getDisplay().getName())) return -1;
             if (enter ? xdesxFullscreenWindow >= 0 : xdesxFullscreenWindow != window) return -1;
             if (enter && desktopDevices==null) {
                 try { fullscreenDevices = new FullscreenDevices(external); }
@@ -1205,7 +1232,13 @@ public class InjectorService extends IInjector.Stub {
                     return -1;
                 }
             }
-            int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
+            HdmiLaunch direct=launch==null ? null : HdmiLaunch.start(launch,external);
+            int moved;
+            if (launch!=null) moved=direct==null?-1:direct.activeTask();
+            else if (!enter && hdmiLaunch!=null) {
+                int active=hdmiLaunch.activeTask();
+                moved=active<0?-1:TaskMover.moveWindowTask(external,window,pkg,active);
+            } else moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
             if (moved >= 0 && enter) {
                 restorePhoneIme();
                 if (xdesxEditor != window) releaseWindowInput(xdesxEditor);
@@ -1213,7 +1246,11 @@ public class InjectorService extends IInjector.Stub {
                 if (desktopDevices!=null) desktopDevices.keyboardEditor(-1);
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
-                xdesxTasks.fullscreen(window, external, moved);
+                hdmiLaunch=direct;
+                ownedFullscreenTask=moved;
+                ownedFullscreenUser=TaskMover.taskUser(moved,external);
+                ownedFullscreenPackage=pkg;
+                xdesxTasks.fullscreen(window, external, moved,direct);
                 boolean nativeDevices = fullscreenDevices != null || desktopDevices!=null;
                 if (!pkg.equals(ownPackage)) imes.place(external, true);
                 post(() -> {
@@ -1228,13 +1265,15 @@ public class InjectorService extends IInjector.Stub {
                 fullscreenMouse.start();
                 watchChromeCursor(pkg,external,mouse);
             } else if (moved >= 0) {
-                xdesxTasks.fullscreen(window, -1, -1);
+                if (hdmiLaunch!=null) hdmiLaunch.closeExcept(moved);
+                xdesxTasks.fullscreen(window, -1, -1,null);
                 leaveXdesxFullscreen();
                 if (pkg.equals(ownPackage))
                     post(() -> injector.focus(desktopTarget>0?desktopTarget:android.view.Display.DEFAULT_DISPLAY));
                 else
                     xdesxWindowFocus(window, true);
             } else if (mouse != null) {
+                if (direct!=null) direct.closeExcept(-1);
                 mouse.closeAll();
                 if (fullscreenDevices != null) { fullscreenDevices.close(); fullscreenDevices = null; }
             }
@@ -1252,7 +1291,8 @@ public class InjectorService extends IInjector.Stub {
         return TaskMover.portraitBounds(display, pkg, size.x, size.y);
     }
 
-    private final XdesxTaskWatch xdesxTasks=new XdesxTaskWatch();
+    private final XdesxWindowRecents windowRecents=new XdesxWindowRecents();
+    private final XdesxTaskWatch xdesxTasks=new XdesxTaskWatch(windowRecents);
     @Override public void watchXdesxWindow(int display,IXdesxWindowListener callback) {
         synchronized (appDisplays) {
             VirtualDisplay d=appDisplays.get(display);
@@ -1305,8 +1345,9 @@ public class InjectorService extends IInjector.Stub {
 
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
-            if (id == xdesxFullscreenWindow) leaveXdesxFullscreen();
+            if (id == xdesxFullscreenWindow) closeXdesxFullscreen();
             releaseWindowInput(id);
+            windowRecents.close(id);
             xdesxTasks.remove(id);
             VirtualDisplay d = appDisplays.remove(id);
             if (d != null) {
@@ -1329,11 +1370,12 @@ public class InjectorService extends IInjector.Stub {
 
     private void releaseDisplays() {
         synchronized (appDisplays) {
-            if (xdesxFullscreenWindow >= 0) leaveXdesxFullscreen();
+            if (xdesxFullscreenWindow >= 0) closeXdesxFullscreen();
             closeDesktopRoute();
             xdesxTasks.clear();
             xdesxEditor = -1;
             for (VirtualDisplay d : appDisplays.values()) {
+                windowRecents.close(d.getDisplay().getDisplayId());
                 releaseWindowInput(d.getDisplay().getDisplayId());
                 imes.place(d.getDisplay().getDisplayId(), false);
                 d.release();
@@ -1380,6 +1422,7 @@ public class InjectorService extends IInjector.Stub {
             VirtualDisplay d = appDisplays.get(displayId);
             desktopWindow = d != null && d.getDisplay().getName().startsWith("XDesX ");
         }
+        if (desktopWindow) windowRecents.begin(displayId, component.split("/",2)[0], user);
         int launchFlags = desktopWindow
                 ? Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_NO_ANIMATION | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS

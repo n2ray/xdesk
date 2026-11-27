@@ -134,4 +134,5 @@ interface IInjector {
     String desktopNightMode(String mode) = 69;
     boolean selectDesktopIme(String id) = 74;
     oneway void refreshWindowKeyboard() = 75;
+    int startXdesxFullscreen(int window, int external, String component, in Bitmap cursor, int hotspot, int width, int height) = 76;
 }

@@ -47,4 +47,5 @@
     <string name="xu_guest_busy">Linux is still closing. Try again in a moment.</string>
     <string name="xu_ime_phone_target">Tap the text field on the external display to type with the phone keyboard.</string>
     <string name="xu_ime_external_target">Input method returned to the external display.</string>
+    <string name="xu_linux_fullscreen_no_window">Could not identify the Ubuntu application window. You can still enter full screen from its title bar.</string>
 </resources>

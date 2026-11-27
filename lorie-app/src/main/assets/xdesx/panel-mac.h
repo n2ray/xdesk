@@ -59,9 +59,26 @@ static GtkWidget *mac_label(const char *text,const char *style) {
     if(style)gtk_style_context_add_class(gtk_widget_get_style_context(label),style);
     return label;
 }
-static void connect_card(GtkFlowBox *box,GtkFlowBoxChild *child,gpointer unused) {
+static void connect_card(GtkFlowBox *box,GtkFlowBoxChild *child,Panel *p) {
     const char *session=g_object_get_data(G_OBJECT(child),"session");
-    if(session)launch_window(session,GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child),"fixed-1080")));
+    if(session) {
+        launch_window(session,GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child),"fixed-1080")),p->mac_open_full);
+        if(p->mac_open_full) gtk_widget_destroy(p->mac_manager);
+    }
+}
+static void fullscreen_card(GtkButton *button,GtkWidget *child) {
+    launch_window(g_object_get_data(G_OBJECT(child),"session"),
+                  GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child),"fixed-1080")),TRUE);
+    gtk_widget_destroy(gtk_widget_get_ancestor(GTK_WIDGET(button),GTK_TYPE_POPOVER));
+}
+static gboolean mac_card_menu(GtkWidget *child,GdkEventButton *e,gpointer unused) {
+    if(e->button!=3)return FALSE;
+    GtkWidget *menu=gtk_popover_new(child), *button=gtk_button_new_with_label(T("直接在外屏全屏打开"));
+    gtk_container_add(GTK_CONTAINER(menu),button);
+    g_signal_connect(button,"clicked",G_CALLBACK(fullscreen_card),child);
+    g_signal_connect(menu,"closed",G_CALLBACK(gtk_widget_destroy),NULL);
+    gtk_widget_show_all(menu);
+    return TRUE;
 }
 /* Cap the content width on wide monitors. Let the flow box receive the full available
  * width inside these margins so GTK can wrap equal-width cards as the window resizes. */
@@ -101,7 +118,7 @@ static void refresh_mac_settings(Panel *p) {
     GList *old=gtk_container_get_children(GTK_CONTAINER(page));
     for(GList *it=old;it;it=it->next)gtk_widget_destroy(it->data);
     g_list_free(old);
-    gtk_box_pack_start(GTK_BOX(page),mac_label(T("共享桌面"),"page-title"),FALSE,FALSE,2);
+    gtk_box_pack_start(GTK_BOX(page),mac_label(p->mac_open_full?T("选择要全屏连接的 Mac"):T("共享桌面"),"page-title"),FALSE,FALSE,2);
     GtkWidget *grid=gtk_flow_box_new();
     gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(grid),1);
     gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(grid),3);
@@ -109,7 +126,7 @@ static void refresh_mac_settings(Panel *p) {
     gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(grid),12);
     gtk_flow_box_set_activate_on_single_click(GTK_FLOW_BOX(grid),FALSE);
     gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(grid),GTK_SELECTION_SINGLE);
-    g_signal_connect(grid,"child-activated",G_CALLBACK(connect_card),NULL);
+    g_signal_connect(grid,"child-activated",G_CALLBACK(connect_card),p);
     gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(grid),TRUE);
     gtk_widget_set_halign(grid,GTK_ALIGN_FILL);
     gtk_box_pack_start(GTK_BOX(page),grid,FALSE,FALSE,0);
@@ -141,6 +158,7 @@ static void refresh_mac_settings(Panel *p) {
             gtk_container_add(GTK_CONTAINER(card),edit);
             g_object_set_data(G_OBJECT(child),"fixed-1080",GINT_TO_POINTER(atoi(v[5])));
             g_object_set_data_full(G_OBJECT(child),"session",g_strconcat("mac-",v[0],NULL),g_free);
+            g_signal_connect(child,"button-press-event",G_CALLBACK(mac_card_menu),NULL);
             gtk_widget_set_tooltip_text(child,T("双击连接，或选中后按 Enter。"));
             gtk_container_add(GTK_CONTAINER(child),card);
             gtk_container_add(GTK_CONTAINER(grid),child);
@@ -169,7 +187,9 @@ static void refresh_mac_settings(Panel *p) {
     gtk_widget_show_all(page);
 }
 static void mac_manager_closed(GtkWidget *w,Panel *p){p->mac_manager=NULL;p->mac_page=NULL;}
-static void mac_manager_open(Panel *p){
+static void mac_manager_open(Panel *p,gboolean fullscreen){
+    gboolean changed=p->mac_open_full!=fullscreen;
+    p->mac_open_full=fullscreen;
     if(!p->mac_manager){
         p->mac_manager=gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_set_title(GTK_WINDOW(p->mac_manager),T("共享桌面"));
@@ -190,5 +210,6 @@ static void mac_manager_open(Panel *p){
         refresh_mac_settings(p);
         gtk_widget_show_all(p->mac_manager);
     }
+    else if(changed) refresh_mac_settings(p);
     gtk_window_present(GTK_WINDOW(p->mac_manager));
 }

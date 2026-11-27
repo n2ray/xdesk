@@ -112,6 +112,50 @@ final class TaskMover {
         return r[0];
     }
 
+    static List<?> recentTasks(Object atm,int user) throws ReflectiveOperationException {
+        Object slice=atm.getClass().getMethod("getRecentTasks",int.class,int.class,int.class)
+                .invoke(atm,1000,android.app.ActivityManager.RECENT_WITH_EXCLUDED,user);
+        return (List<?>)slice.getClass().getMethod("getList").invoke(slice);
+    }
+
+    static boolean hasBasePackage(Object info,String pkg) throws ReflectiveOperationException {
+        ComponentName base=(ComponentName)info.getClass().getField("baseActivity").get(info);
+        if (base!=null) return pkg.equals(base.getPackageName());
+        android.content.Intent intent=(android.content.Intent)info.getClass().getField("baseIntent").get(info);
+        return intent!=null && intent.getComponent()!=null && pkg.equals(intent.getComponent().getPackageName());
+    }
+
+    static int taskUser(int task,int display) {
+        try {
+            Object atm=taskManager();
+            for (Object info:(List<?>)atm.getClass().getMethod("getAllRootTaskInfosOnDisplay",int.class).invoke(atm,display)) {
+                if(info.getClass().getField("taskId").getInt(info)==task) return info.getClass().getField("userId").getInt(info);
+            }
+        } catch(ReflectiveOperationException | RuntimeException e) { Log.w(TAG,"identify fullscreen task user",e); }
+        return -1;
+    }
+
+    /** A private-display task we moved or a verified new HDMI launch. Never remove other tasks of the package. */
+    static void closeOwnedTask(int id,int user,String pkg) {
+        if (id<0 || user<0 || pkg==null) return;
+        try {
+            Object atm=taskManager();
+            for(Object info:(List<?>)atm.getClass().getMethod("getAllRootTaskInfos").invoke(atm)) {
+                if(info.getClass().getField("taskId").getInt(info)!=id || info.getClass().getField("userId").getInt(info)!=user) continue;
+                if (hasBasePackage(info,pkg)) atm.getClass().getMethod("removeTask",int.class).invoke(atm,id);
+                return;
+            }
+            // A launcher trampoline may already have finished its last activity, leaving only a recent card.
+            for(Object info:recentTasks(atm,user)) {
+                if (info.getClass().getField("taskId").getInt(info)==id && info.getClass().getField("userId").getInt(info)==user
+                        && hasBasePackage(info,pkg)) {
+                    atm.getClass().getMethod("removeTask",int.class).invoke(atm,id);
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) { Log.w(TAG,"close owned task "+id,e); }
+    }
+
     static int moveWindowTask(int source, int target, String pkg, int expected) {
         try {
             Object atm=taskManager();

@@ -31,6 +31,8 @@ static const char *T(const char *source) {
         {"保存", "Save", "保存"},
         {"保留", "Keep", "保留"},
         {"保留这个桌面渲染分辨率？", "Keep this resolution?", "保留這個桌面算繪解析度？"},
+        {"直接在外屏全屏打开", "Open Directly in Full Screen on External Display", "直接在外接螢幕以全螢幕開啟"},
+        {"选择要全屏连接的 Mac", "Choose a Mac to Open in Full Screen", "選擇要以全螢幕連線的 Mac"},
         {"全局设置", "Settings", "系統設定"},
         {"全部", "All", "全部"},
         {"共享桌面缩放", "Remote desktop scale", "共享桌面縮放"},

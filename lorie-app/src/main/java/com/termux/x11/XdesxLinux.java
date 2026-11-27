@@ -28,7 +28,8 @@ final class XdesxLinux implements AutoCloseable {
     private final Map<String,String> keys = new HashMap<>();
     private final Consumer<String> error;
     private final BuiltinLinux.Listener listener = this::changed;
-    private boolean closed, listed;
+    private volatile boolean closed;
+    private boolean listed;
     private Process session, video;
     private final AudioRoute audioRoute;
     private AudioPlayer audio;
@@ -155,15 +156,35 @@ final class XdesxLinux implements AutoCloseable {
                 return;
             }
             if (verb.equals("refresh")) { refreshApps(); return; }
-            String key = keys.get(verb);
+            boolean fullscreen = verb.startsWith("full-");
+            String key = keys.get(fullscreen ? verb.substring(5) : verb);
             if (key == null) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_refresh_the_linux_application_list));
             long start=android.os.SystemClock.elapsedRealtime();
             boolean cold=startSession();
             long ready=android.os.SystemClock.elapsedRealtime();
-            String result = apps.launch(key, "", TextUtils.join("\n", linux.xdesxCommand(desktop, "xdesk-launch")));
+            String startupId = fullscreen ? "xdesx-"+UUID.randomUUID() : "";
+            String result = apps.launch(key, startupId, TextUtils.join("\n", linux.xdesxCommand(desktop, "xdesk-launch")));
             Log.i("XDesX","Linux app launch guest="+(cold?"cold":"warm")+" prepareMs="+(ready-start)
                     +" launchToPidMs="+(android.os.SystemClock.elapsedRealtime()-ready));
             if (result.startsWith("!")) throw new IOException(result.substring(1));
+            if (fullscreen) {
+                BuiltinApps.Entry entry=apps.entry(key);
+                String wmClass=entry==null?"":entry.get("StartupWMClass");
+                if (wmClass.isEmpty() && entry!=null) wmClass=entry.id.replaceFirst("\\.desktop$","");
+                ProcessBuilder helper=new ProcessBuilder(new File(desktop,"bin/xdesx-window").getPath(),
+                        "--linux-fullscreen",startupId,result,wmClass).directory(desktop);
+                helper.environment().put("DISPLAY",":19");
+                helper.environment().put("TMPDIR",new File(desktop,"tmp").getPath());
+                helper.environment().put("LD_LIBRARY_PATH",new File(desktop,"lib").getPath());
+                helper.environment().remove("LD_PRELOAD");
+                Process matcher=helper.start();
+                new Thread(() -> {
+                    try {
+                        if (matcher.waitFor()!=0 && !closed)
+                            error.accept(context.getString(com.termux.x11.app.R.string.xu_linux_fullscreen_no_window));
+                    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                },"xdesx-linux-fullscreen").start();
+            }
         });
     }
 

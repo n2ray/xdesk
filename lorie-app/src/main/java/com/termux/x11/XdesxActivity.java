@@ -78,13 +78,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private void toggleWindow(XdesxWindow w) {
         Display d=displays.getDisplay(external);
-        if (w==null || d==null || switching) return;
+        if (w==null) return;
+        if (d==null || switching || (fullWindow!=null && fullWindow!=w)) {
+            w.cancelInitialFullscreen();
+            return;
+        }
         if (fullWindow == null && !android.provider.Settings.canDrawOverlays(this)) {
+            w.cancelInitialFullscreen();
             new android.app.AlertDialog.Builder(this).setMessage(getString(com.termux.x11.app.R.string.xu_overlay_prompt)).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel),null).setPositiveButton(getString(com.termux.x11.app.R.string.xu_open_permissions),(a,b)->startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,android.net.Uri.parse("package:"+getPackageName())))).show();
             return;
         }
         IInjector service = injector;
-        if (service == null) return;
+        if (service == null) { w.cancelInitialFullscreen(); return; }
         releasePhoneKeys(-1);
         mouse.releaseMouse();
         if (w.mac()) ScreenShareActivity.releaseInput(w.fullscreen()?external:w.displayId());
@@ -107,7 +112,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (isDestroyed()) return;
                 switching=false;
                 if (moved) fullWindow=w.fullscreen() && windows.containsValue(w)?w:null;
-                else error(getString(com.termux.x11.app.R.string.xu_switch_task,w.label()));
+                else {
+                    w.cancelInitialFullscreen();
+                    error(getString(com.termux.x11.app.R.string.xu_switch_task,w.label()));
+                }
                 if (moved) {
                     closeToolbar();
                     if (fullWindow != null) {
@@ -641,7 +649,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         if (windows.size()>=panel.limit) { error(getString(com.termux.x11.app.R.string.xu_window_limit,panel.limit)); return; }
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
-            () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),
+            () -> runOnUiThread(() -> {
+                XdesxWindow requested=windows.get(key);
+                if (fullWindow==null || (requested!=null && requested.awaitingHdmi())) toggleWindow(requested);
+            }),
             () -> runOnUiThread(() -> {
                 if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); syncDesktopKeys(); }
                 panel.opened=windows.size(); panel.publish();

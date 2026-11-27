@@ -35,6 +35,7 @@ typedef struct {
     Pixmap wallpaper;
     int cursor_event;
     int scale, render, return_sequence;
+    gboolean mac_open_full;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
     Atom anchor_atom, accessible_anchor_atom;
     int anchor_x,anchor_y,anchor_h;
@@ -171,13 +172,16 @@ static void command(GtkWidget *menu,const char *name,const char *value) {
     g_object_set_data_full(G_OBJECT(i),"action",g_strdup(value),g_free);
     g_signal_connect(i,"activate",G_CALLBACK(selected),NULL);
 }
-static void launch_window(const char *id,gboolean fixed1080) {
+static void launch_window(const char *id,gboolean fixed1080,gboolean fullscreen) {
     char *title=g_build_filename(g_get_home_dir(),"titles",id,NULL);
-    char *argv[]={"xdesx-window",(char*)id,title,fixed1080?"--fixed-1080":NULL,NULL};
+    char *argv[6]={"xdesx-window",(char*)id,title,NULL,NULL,NULL};
+    int n=3;
+    if(fixed1080) argv[n++]="--fixed-1080";
+    if(fullscreen) argv[n++]="--fullscreen";
     g_spawn_async(NULL,argv,NULL,G_SPAWN_SEARCH_PATH,NULL,NULL,NULL,NULL);
     g_free(title);
 }
-static void launch(GtkMenuItem *i,gpointer data){launch_window(data,FALSE);}
+static void launch(GtkMenuItem *i,gpointer data){launch_window(data,FALSE,FALSE);}
 #include "panel-wallpaper.h"
 #include "panel-cursor.h"
 #include "panel-notifications.h"

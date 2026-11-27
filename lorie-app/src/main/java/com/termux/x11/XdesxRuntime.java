@@ -202,18 +202,24 @@ final class XdesxRuntime {
                         try {peer.getOutputStream().write(notifications.rows());} catch(IOException ignored) {}
                         continue;
                     }
-                    if(line!=null && line.matches("action (caret -?[0-9]{1,6} -?[0-9]{1,6} [0-9]{1,4}|notify-(access|seen|clear|names|summary|rebind|[a-f0-9-]{36})|mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-cancel|linux-reset|linux-remove|linux-refresh|linux-[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|ime-picker|ime-set-[0-9a-f]{32}|exit-desktop|lang-[0-3]|appearance-[0-2]|scale-(100|133|167|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
+                    if(line!=null && line.matches("action (caret -?[0-9]{1,6} -?[0-9]{1,6} [0-9]{1,4}|notify-(access|seen|clear|names|summary|rebind|[a-f0-9-]{36})|mac-save-[A-Za-z0-9+/=]{1,4096}|mac-remove-[0-9a-f]{8}|cursor-image|wallpaper-pick|linux-install|linux-cancel|linux-reset|linux-remove|linux-refresh|linux-(full-)?[0-9a-f]{32}|recover|(mouse|pad)-(75|100|150)|(reverse|remember)-(0|1)|limit-(2|3|4|6)|ime-picker|ime-set-[0-9a-f]{32}|exit-desktop|lang-[0-3]|appearance-[0-2]|scale-(100|133|167|200)|render-(50|75|100)|confirm-(50|75|100)|full-[0-9a-f]{32})")) {
                         menu.selected("action",line.substring(7)); continue;
                     }
-                    if(line!=null && line.matches("[0-9a-f]{32} mac-[0-9a-f]{8}")){
-                        String host=line.substring(37);
-                        if(com.termux.x11.screenshare.ScreenShareStore.find(context,host)!=null)
-                            menu.selected(line.substring(0,32),new ComponentName(context,XdesxMacActivity.class).flattenToString()+"#"+host);
-                        continue;
+                    if(line==null || !line.matches("[0-9a-f]{32} (hdmi:)?(mac-[0-9a-f]{8}|[0-9]{1,6})")) continue;
+                    String id=line.substring(33);
+                    boolean fullscreen=id.startsWith("hdmi:");
+                    if(fullscreen) id=id.substring(5);
+                    String target;
+                    if(id.startsWith("mac-")) {
+                        String host=id.substring(4);
+                        if(com.termux.x11.screenshare.ScreenShareStore.find(context,host)==null) continue;
+                        target=new ComponentName(context,XdesxMacActivity.class).flattenToString()+"#"+host;
+                    } else {
+                        int i=Integer.parseInt(id);
+                        if(i>=apps.size()) continue;
+                        target=apps.get(i);
                     }
-                    if(line==null || !line.matches("[0-9a-f]{32} [0-9]{1,6}")) continue;
-                    int i=Integer.parseInt(line.substring(33));
-                    if(i<apps.size()) menu.selected(line.substring(0,32),apps.get(i));
+                    menu.selected(line.substring(0,32),(fullscreen?"hdmi:":"")+target);
                 }
             }
         } finally { close(); }

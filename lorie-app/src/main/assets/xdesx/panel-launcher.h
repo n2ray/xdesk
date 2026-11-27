@@ -41,12 +41,28 @@ static void toggle_favorite(GtkButton *button,GtkWidget *tile) {
     gtk_widget_destroy(gtk_widget_get_ancestor(GTK_WIDGET(button),GTK_TYPE_POPOVER));
     filter_apps(NULL,l);
 }
+static void open_full_tile(GtkButton *button,GtkWidget *tile) {
+    Launcher *l=g_object_get_data(G_OBJECT(tile),"launcher");
+    const char *id=g_object_get_data(G_OBJECT(tile),"app-id");
+    if(!strcmp(id,"mac-manager")) mac_manager_open(l->panel,TRUE);
+    else if(g_str_has_prefix(id,"linux-")) {
+        gchar *op=g_strconcat("linux-full-",id+6,NULL);
+        action(op);
+        g_free(op);
+    } else launch_window(id,FALSE,TRUE);
+    gtk_widget_hide(l->popup);
+}
 static gboolean favorite_menu(GtkWidget *tile,GdkEventButton *event,Launcher *l) {
     if(event->button!=3)return FALSE;
     GtkWidget *menu=gtk_popover_new(tile);
     const char *key=g_object_get_data(G_OBJECT(tile),"favorite-key");
     GtkWidget *b=gtk_button_new_with_label(g_key_file_has_key(l->favorites,"apps",key,NULL)?T("移除收藏"):T("添加到收藏"));
-    gtk_container_add(GTK_CONTAINER(menu),b);
+    GtkWidget *box=gtk_box_new(GTK_ORIENTATION_VERTICAL,2);
+    GtkWidget *full=gtk_button_new_with_label(T("直接在外屏全屏打开"));
+    gtk_box_pack_start(GTK_BOX(box),full,FALSE,FALSE,0);
+    gtk_box_pack_start(GTK_BOX(box),b,FALSE,FALSE,0);
+    gtk_container_add(GTK_CONTAINER(menu),box);
+    g_signal_connect(full,"clicked",G_CALLBACK(open_full_tile),tile);
     g_signal_connect(b,"clicked",G_CALLBACK(toggle_favorite),tile);
     g_signal_connect(menu,"closed",G_CALLBACK(gtk_widget_destroy),NULL);
     gtk_widget_show_all(menu);
@@ -59,7 +75,7 @@ static void launcher_free(gpointer data) {
 }
 static void open_tile(GtkButton *button,Launcher *l) {
     const char *id=g_object_get_data(G_OBJECT(button),"app-id");
-    if(!strcmp(id,"mac-manager"))mac_manager_open(l->panel);
+    if(!strcmp(id,"mac-manager"))mac_manager_open(l->panel,FALSE);
     else if(g_str_has_prefix(id,"linux-")) action(id);
     else launch(NULL,(gpointer)id);
     gtk_widget_hide(l->popup);

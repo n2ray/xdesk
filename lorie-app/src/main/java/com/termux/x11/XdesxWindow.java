@@ -31,6 +31,14 @@ final class XdesxWindow {
     private volatile int display = -1;
     private volatile boolean nativeFullscreen, minimized;
     private int task=-1, densityTarget=-1;
+    private volatile boolean hdmiFirst;
+    boolean awaitingHdmi() { return hdmiFirst; }
+    void cancelInitialFullscreen() {
+        if (!hdmiFirst) return;
+        hdmiFirst=false;
+        if (mac()) XdesxMacActivity.openOnDisplay(key,display);
+        else stop();
+    }
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
     String label() { return mac()?"Mac":chrome()?"Chrome":context.getString(com.termux.x11.app.R.string.xu_application); }
     boolean chrome() { return component.startsWith("com.android.chrome/"); }
@@ -44,7 +52,7 @@ final class XdesxWindow {
         }
         // GFN queries the display associated with its original UI process again
         // after migration when choosing the streaming profile for a new game.
-        boolean syncGameMode=component.startsWith("com.nvidia.geforcenow/") && reader!=null;
+        boolean syncGameMode=!hdmiFirst && component.startsWith("com.nvidia.geforcenow/") && reader!=null;
         boolean didMove=false;
         try {
             if (syncGameMode) {
@@ -52,11 +60,18 @@ final class XdesxWindow {
                 injector.resizeVirtualDisplay(display,sourceWidth,sourceHeight,dpi,reader.getSurface());
                 Log.i("XDesX","GFN source mode "+display+" "+sourceWidth+"x"+sourceHeight+" enter="+enter);
             }
-            int moved=injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
+            boolean launch=enter && hdmiFirst && !mac();
+            int moved=launch?injector.startXdesxFullscreen(display,external,component,cursor,hotspot,width,height):
+                    injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
             if (moved<0) return false;
             task=moved;
             nativeFullscreen=enter;
             didMove=true;
+            if (hdmiFirst) {
+                hdmiFirst=false;
+                if (mac()) XdesxMacActivity.openOnDisplay(key,external);
+                else watchTask();
+            }
             Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
             return true;
         } finally {
@@ -76,6 +91,8 @@ final class XdesxWindow {
     }
     XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable fs,Runnable f) {
         this.context=context; server=s; injector=i; key=k;
+        hdmiFirst=c.startsWith("hdmi:");
+        if (hdmiFirst) c=c.substring(5);
         int marker=c.indexOf('#');
         component=marker<0?c:c.substring(0,marker);
         hostId=marker<0?null:c.substring(marker+1); requestFullscreen=fs; finished=f;
@@ -99,7 +116,7 @@ final class XdesxWindow {
             while (!stopped) {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
                 if (op==8 && !mac()) setMinimized(x!=0);
-                if (op==7) requestFullscreen.run();
+                if (op==7 || (op==10 && !nativeFullscreen)) requestFullscreen.run();
                 if (op==1) resize(x,y);
                 if (display<0) continue;
                 synchronized (injector) {
@@ -172,16 +189,16 @@ final class XdesxWindow {
                     android.content.Intent intent=new android.content.Intent(context,XdesxMacActivity.class);
                     intent.putExtra("host",hostId).putExtra("window",key).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
                         android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    if (hdmiFirst) {
+                        XdesxMacActivity.prepareFullscreen(key,requestFullscreen);
+                        intent.putExtra("hdmi_first",true);
+                    }
                     context.startActivity(intent,options.toBundle());
-                } else {
+                } else if (!hdmiFirst) {
                     String failure=injector.startApp(component,display);
                     if (failure!=null) throw new IOException(failure);
                 }
-                injector.watchXdesxWindow(display,new IXdesxWindowListener.Stub() {
-                    public void taskEnded(int fullscreenTask) {
-                        synchronized (XdesxWindow.this) { if (nativeFullscreen ? task == fullscreenTask : fullscreenTask < 0) stop(); }
-                    }
-                });
+                if (!hdmiFirst || mac()) watchTask();
             } else {
                 injector.resizeVirtualDisplay(display,w,h,dpi,minimized?null:next.getSurface());
                 Log.i("XDesX","committed resize "+w+"x"+h);
@@ -194,6 +211,14 @@ final class XdesxWindow {
         if (old == null && !mac()) handler.postDelayed(() -> probePortrait(handler, null, 0), 450);
         next.setOnImageAvailableListener(this::frame,handler);
         handler.post(() -> frame(next));
+        if (old==null && hdmiFirst && !mac()) requestFullscreen.run();
+    }
+    private void watchTask() throws RemoteException {
+        injector.watchXdesxWindow(display,new IXdesxWindowListener.Stub() {
+            public void taskEnded(int fullscreenTask) {
+                synchronized (XdesxWindow.this) { if (nativeFullscreen ? task==fullscreenTask : fullscreenTask<0) stop(); }
+            }
+        });
     }
     // Only sample during startup. A second matching layout excludes transient launch bounds.
     private synchronized void probePortrait(Handler handler, android.graphics.Rect previous, int attempt) {

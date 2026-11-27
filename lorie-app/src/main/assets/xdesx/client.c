@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -40,15 +41,110 @@ static void window_icon(Display *d, Window w, const char *title_file) {
     }
     fclose(image);
 }
+// A Linux launch may map a new window or be handed to an existing process via D-Bus.
+// Only match a normal application window carrying this launch's ID/PID; for applications
+// that expose neither, allow the active window of an explicitly matching WM_CLASS.
+static unsigned char *property(Display *d, Window w, Atom key, Atom type, int format, unsigned long *n) {
+    unsigned long rest;
+    int actual_format;
+    Atom actual_type;
+    unsigned char *data=NULL;
+    *n=0;
+    if (XGetWindowProperty(d,w,key,0,4096,False,type,&actual_type,&actual_format,n,&rest,&data)!=Success
+            || actual_format!=format || !*n) {
+        if(data) XFree(data);
+        *n=0;
+        return NULL;
+    }
+    return data;
+}
+static unsigned long first_property(Display *d, Window w, Atom key, Atom type) {
+    unsigned long n;
+    unsigned long *words=(unsigned long*)property(d,w,key,type,32,&n);
+    unsigned long value=words?words[0]:0;
+    if(words) XFree(words);
+    return value;
+}
+static int match_startup(Display *d, Window w, Atom startup, const char *id) {
+    unsigned long n;
+    unsigned char *s=property(d,w,startup,AnyPropertyType,8,&n);
+    int match=s && n==strlen(id) && !memcmp(s,id,n);
+    if(s) XFree(s);
+    return match;
+}
+static int tolerate_closed_window(Display *d,XErrorEvent *e) {
+    return 0; // A window may disappear between enumeration and reading its properties.
+}
+static int fullscreen_linux(const char *id, const char *pid_text, const char *wmclass) {
+    unsigned long pid=strtoul(pid_text,NULL,10);
+    if(!*id || !pid) return 2;
+    Display *d=XOpenDisplay(NULL);
+    if(!d) return 1;
+    XSetErrorHandler(tolerate_closed_window);
+    Window root=DefaultRootWindow(d);
+    Atom clients=XInternAtom(d,"_NET_CLIENT_LIST_STACKING",False), active=XInternAtom(d,"_NET_ACTIVE_WINDOW",False);
+    Atom startup=XInternAtom(d,"_NET_STARTUP_ID",False), owner=XInternAtom(d,"WM_CLIENT_LEADER",False);
+    Atom pid_atom=XInternAtom(d,"_NET_WM_PID",False), type=XInternAtom(d,"_NET_WM_WINDOW_TYPE",False);
+    Atom normal=XInternAtom(d,"_NET_WM_WINDOW_TYPE_NORMAL",False), state=XInternAtom(d,"_NET_WM_STATE",False);
+    Atom full=XInternAtom(d,"_NET_WM_STATE_FULLSCREEN",False);
+    Window target=None;
+    for(int pass=0;pass<80 && !target;pass++) {
+        unsigned long count;
+        Window *list=(Window*)property(d,root,clients,XA_WINDOW,32,&count);
+        Window top=first_property(d,root,active,XA_WINDOW), fallback=None;
+        for(unsigned long i=count;i>0;i--) {
+            Window w=list[i-1], transient;
+            Atom kind=first_property(d,w,type,XA_ATOM);
+            if((kind && kind!=normal) || XGetTransientForHint(d,w,&transient)) continue;
+            if(match_startup(d,w,startup,id) || first_property(d,w,pid_atom,XA_CARDINAL)==pid) { target=w; break; }
+            Window leader=first_property(d,w,owner,XA_WINDOW);
+            if(leader && match_startup(d,leader,startup,id)) { target=w; break; }
+            if(w==top && pass>=12 && *wmclass) {
+                XClassHint hint={0};
+                if(XGetClassHint(d,w,&hint)) {
+                    if((hint.res_name && !strcasecmp(hint.res_name,wmclass)) ||
+                            (hint.res_class && !strcasecmp(hint.res_class,wmclass))) fallback=w;
+                    if(hint.res_name) XFree(hint.res_name);
+                    if(hint.res_class) XFree(hint.res_class);
+                }
+            }
+        }
+        if(list) XFree(list);
+        if(!target) target=fallback;
+        if(!target) usleep(200000);
+    }
+    if(target) {
+        XEvent message={0};
+        message.xclient=(XClientMessageEvent){.type=ClientMessage,.window=target,.message_type=state,.format=32};
+        message.xclient.data.l[0]=1; // _NET_WM_STATE_ADD, also idempotent for an existing window
+        message.xclient.data.l[1]=full;
+        message.xclient.data.l[3]=2;
+        XSendEvent(d,root,False,SubstructureNotifyMask|SubstructureRedirectMask,&message);
+        message.xclient.message_type=active;
+        message.xclient.data.l[0]=2;
+        message.xclient.data.l[1]=CurrentTime;
+        message.xclient.data.l[3]=0;
+        XSendEvent(d,root,False,SubstructureNotifyMask|SubstructureRedirectMask,&message);
+    }
+    XCloseDisplay(d);
+    return target?0:1;
+}
+
 int main(int argc, char **argv) {
+    if(argc==5 && !strcmp(argv[1],"--linux-fullscreen")) return fullscreen_linux(argv[2],argv[3],argv[4]);
     if (argc == 2 && strcmp(argv[1], "--check-display") == 0) {
         Display *probe = XOpenDisplay(NULL);
         if (!probe) return 1;
         XCloseDisplay(probe);
         return 0;
     }
-    int fixed1080=argc==4 && !strcmp(argv[3],"--fixed-1080") && !strncmp(argv[1],"mac-",4);
-    if (argc != 3 && !fixed1080) return 2;
+    if (argc < 3 || argc > 5) return 2;
+    int fixed1080=0, fullscreen=0;
+    for (int i=3; i<argc; i++) {
+        if (!strcmp(argv[i],"--fixed-1080") && !strncmp(argv[1],"mac-",4)) fixed1080=1;
+        else if (!strcmp(argv[i],"--fullscreen")) fullscreen=1;
+        else return 2;
+    }
     const char *menu = getenv("XDESX_MENU"), *tmp = getenv("TMPDIR");
     unsigned char random[16];
     char key[33], path[108], request[160];
@@ -82,6 +178,7 @@ int main(int argc, char **argv) {
         } else {
             XEvent msg = {0};
             msg.xclient = (XClientMessageEvent){.type=ClientMessage,.window=owner,.message_type=activate,.format=32};
+            msg.xclient.data.l[0]=fullscreen;
             XSendEvent(d,owner,False,NoEventMask,&msg);
         }
         XUngrabServer(d);
@@ -95,7 +192,7 @@ int main(int argc, char **argv) {
     int notify=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
     memset(addr.sun_path,0,sizeof(addr.sun_path));
     strcpy(addr.sun_path+1,menu);
-    int size=snprintf(request,sizeof(request),"%s %s\n",key,argv[1]);
+    int size=snprintf(request,sizeof(request),"%s %s%s\n",key,fullscreen?"hdmi:":"",argv[1]);
     if (notify<0 || connect(notify,(void*)&addr,offsetof(struct sockaddr_un,sun_path)+1+strlen(menu)) ||
             write(notify,request,size)!=size) { unlink(path); return 1; }
     close(notify);
@@ -149,6 +246,7 @@ int main(int argc, char **argv) {
                 (e.xfocus.mode==NotifyNormal || e.xfocus.mode==NotifyWhileGrabbed) &&
                 e.xfocus.detail!=NotifyInferior && !event(ctrl,9,e.type==FocusIn,0)) return 1;
             if (e.type==ClientMessage && e.xclient.message_type==activate) {
+                if (e.xclient.data.l[0]==1 && !event(ctrl,10,0,0)) return 1;
                 XEvent msg = {0};
                 msg.xclient = (XClientMessageEvent){.type=ClientMessage,.window=win,
                     .message_type=XInternAtom(d,"_NET_ACTIVE_WINDOW",False),.format=32};
