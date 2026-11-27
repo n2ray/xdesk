@@ -261,6 +261,15 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             else {phoneMode=false; phoneViewport.setVisibility(View.GONE); place();}
         }
     }
+    private boolean scrollPhoneScreen(float x,float y,float dx,float dy) {
+        if (fullWindow!=null) return false; // The native app handles its own touch scrolling.
+        if (switching || external!=phoneDisplay || external<0) return true;
+        input.warpTo(x/Math.max(1,phoneScreen.getWidth()-1),y/Math.max(1,phoneScreen.getHeight()-1));
+        float step=io.github.n2ray.xdesk.input.Tuning.SCROLL_STEP_DP*getResources().getDisplayMetrics().density;
+        float sign=panel!=null && panel.reverse?1:-1;
+        input.scrollFine(sign*dy/step,sign*dx/step,0);
+        return true;
+    }
     private void touchPhoneScreen(int action,float x,float y) {
         if (action==MotionEvent.ACTION_CANCEL && screenPressed) {
             input.button(1,false);
@@ -349,7 +358,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         android.widget.LinearLayout column=new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.addView(column,new android.widget.FrameLayout.LayoutParams(-1,-1));
-        phoneViewport=new PhoneDesktopViewport(this,this::touchPhoneScreen);
+        phoneViewport=new PhoneDesktopViewport(this,this::touchPhoneScreen,this::scrollPhoneScreen);
         phoneScreen=phoneViewport.screen;
         phoneViewport.setVisibility(View.GONE);
         column.addView(phoneViewport,new android.widget.LinearLayout.LayoutParams(-1,0));

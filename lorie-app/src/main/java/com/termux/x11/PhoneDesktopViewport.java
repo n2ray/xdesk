@@ -10,15 +10,20 @@ import android.widget.FrameLayout;
 /** Magnify the phone's view of the desktop without resizing its virtual display. */
 final class PhoneDesktopViewport extends FrameLayout {
     interface Touch { void send(int action, float x, float y); }
+    interface Scroll { boolean at(float x,float y,float dx,float dy); }
+    private final Scroll scroll;
+    private boolean scrolling;
+    private float lastX,lastY;
     final SurfaceView screen;
     private final Touch touch;
     private final int slop;
     private float zoom=1, left, top, centerX, centerY, span, downX, downY;
     private boolean navigating, pressed, pending;
 
-    PhoneDesktopViewport(Context context, Touch touch) {
+    PhoneDesktopViewport(Context context, Touch touch, Scroll scroll) {
         super(context);
         this.touch=touch;
+        this.scroll=scroll;
         slop=ViewConfiguration.get(context).getScaledTouchSlop();
         screen=new SurfaceView(context);
         screen.setPivotX(0);
@@ -70,7 +75,7 @@ final class PhoneDesktopViewport extends FrameLayout {
     private void cancelPress() {
         removeCallbacks(beginPress);
         if (pressed) send(MotionEvent.ACTION_CANCEL,downX,downY);
-        pending=pressed=false;
+        pending=pressed=scrolling=false;
     }
 
     private void trackPair(MotionEvent e, boolean update) {
@@ -90,10 +95,10 @@ final class PhoneDesktopViewport extends FrameLayout {
         float x=e.getX(), y=e.getY();
         if (action==MotionEvent.ACTION_DOWN) {
             cancelPress();
-            downX=x;
-            downY=y;
+            lastX=downX=x;
+            lastY=downY=y;
             pending=true;
-            postDelayed(beginPress,ViewConfiguration.getTapTimeout());
+            postDelayed(beginPress,ViewConfiguration.getLongPressTimeout());
             navigating=false;
         } else if (action==MotionEvent.ACTION_POINTER_DOWN) {
             cancelPress();
@@ -102,13 +107,26 @@ final class PhoneDesktopViewport extends FrameLayout {
             else span=0;
         } else if (navigating) {
             if (action==MotionEvent.ACTION_MOVE && e.getPointerCount()==2) trackPair(e,true);
-            if (action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL) navigating=false;
+            if (action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL) {
+                navigating=false;
+                if (zoom<1.02f) transform(1,0,0);
+            }
         } else if (action==MotionEvent.ACTION_CANCEL) {
             cancelPress();
         } else if (action==MotionEvent.ACTION_MOVE || action==MotionEvent.ACTION_UP) {
-            if (pending && (action==MotionEvent.ACTION_UP || Math.hypot(x-downX,y-downY)>slop)) {
-                beginPress();
+            if (action==MotionEvent.ACTION_MOVE &&
+                    (scrolling || (pending && Math.hypot(x-downX,y-downY)>slop))) {
+                if (scroll.at((downX-left)/zoom,(downY-top)/zoom,(x-lastX)/zoom,(y-lastY)/zoom)) {
+                    removeCallbacks(beginPress);
+                    pending=false;
+                    scrolling=true;
+                } else if (pending) {
+                    beginPress();
+                }
+                lastX=x;
+                lastY=y;
             }
+            if (action==MotionEvent.ACTION_UP && pending) beginPress();
             if (pressed) send(action,x,y);
             if (action==MotionEvent.ACTION_UP) pressed=false;
         }
