@@ -36,7 +36,7 @@ jobs:
     - name: Verify Ubuntu Chrome caret on X11
       run: |
         sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends openbox xdotool x11-utils at-spi2-core libatspi2.0-dev libx11-dev
+        sudo apt-get install -y --no-install-recommends openbox xdotool x11-utils at-spi2-core libatspi2.0-dev libx11-dev libgtk-3-dev
         cc -std=c11 -Wall -Wextra -Werror -O2 tools/xdesx/accessible-caret.c $(pkg-config --cflags --libs atspi-2 x11 gobject-2.0) -o /tmp/xdesx-accessible-caret
         timeout 90 dbus-run-session -- xvfb-run -a sh tools/xdesx/test-chrome-caret.sh
 

@@ -7,10 +7,13 @@ openbox >"$tmp/wm.log" 2>&1 &
 wm=$!
 /tmp/xdesx-accessible-caret >"$tmp/bridge.log" 2>&1 &
 bridge=$!
+cc -fPIC -shared tools/xdesx/vte-anchor.c $(pkg-config --cflags --libs gtk+-3.0 x11) -o "$tmp/im-anchor.so"
+sed "s|/usr/local/lib/xdesx/im-vte-anchor.so|$tmp/im-anchor.so|" lorie-app/src/main/assets/linux/xdesx-immodules.cache >"$tmp/gtk.cache"
+export GTK_IM_MODULE=xdesx GTK_IM_MODULE_FILE="$tmp/gtk.cache"
 chrome=
 trap 'kill "$bridge" "$wm" ${chrome:+"$chrome"} 2>/dev/null || :; cat "$tmp/bridge.log"' EXIT
 echo '<title>xdesx-caret-check</title><input autofocus value="abcdefghijklm">' >"$tmp/editor.html"
-google-chrome --user-data-dir="$tmp/profile" --ozone-platform=x11 --no-first-run \
+google-chrome --user-data-dir="$tmp/profile" --ozone-platform=x11 --gtk-version=3 --no-first-run \
     --no-default-browser-check --force-renderer-accessibility "file://$tmp/editor.html" >"$tmp/chrome.log" 2>&1 &
 chrome=$!
 window=
@@ -22,7 +25,7 @@ done
 if [ -z "$window" ]; then tail -30 "$tmp/chrome.log"; exit 1; fi
 xdotool windowactivate --sync "$window"
 read_position() {
-    xprop -id "$window" _XDESX_ACCESSIBLE_INSERTION_RECT | sed -n 's/^.*(INTEGER) = \([0-9][0-9]*\), [0-9][0-9]*, [1-9][0-9]*$/\1/p'
+    xprop -id "$window" _XDESX_INSERTION_RECT _XDESX_ACCESSIBLE_INSERTION_RECT | sed -n 's/^.*(INTEGER) = \([0-9][0-9]*\), [0-9][0-9]*, [1-9][0-9]*$/\1/p' | head -1
 }
 move_caret() {
     previous=$1

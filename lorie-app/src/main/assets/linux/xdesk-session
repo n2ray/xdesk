@@ -95,8 +95,8 @@ else
     sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
 fi
 if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
-    echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --force-renderer-accessibility"' >>/etc/chromium.d/xdesk
-    echo 'export CHROME_FLAGS="$CHROME_FLAGS --force-renderer-accessibility"' >>/etc/xdesk/chrome.sh
+    echo 'export GTK_IM_MODULE=xdesx CHROMIUM_FLAGS="$CHROMIUM_FLAGS --gtk-version=3 --force-renderer-accessibility"'  >>/etc/chromium.d/xdesk
+    echo 'export GTK_IM_MODULE=xdesx CHROME_FLAGS="$CHROME_FLAGS --gtk-version=3 --force-renderer-accessibility"'  >>/etc/xdesk/chrome.sh
 fi
 fi
 
