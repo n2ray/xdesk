@@ -39,6 +39,13 @@ jobs:
         sudo apt-get install -y --no-install-recommends openbox xdotool x11-utils at-spi2-core libatspi2.0-dev libx11-dev libgtk-3-dev
         cc -std=c11 -Wall -Wextra -Werror -O2 tools/xdesx/accessible-caret.c $(pkg-config --cflags --libs atspi-2 x11 gobject-2.0) -o /tmp/xdesx-accessible-caret
         timeout 90 dbus-run-session -- xvfb-run -a sh tools/xdesx/test-chrome-caret.sh
+    - name: Verify live Ubuntu appearance on X11
+      run: |
+        cc -std=c11 -Wall -Wextra -Werror tools/xdesx/test-appearance.c $(pkg-config --cflags --libs gtk+-3.0 x11) -o /tmp/xdesx-test-appearance
+        timeout 30 dbus-run-session -- xvfb-run -a sh -ec '
+          sh lorie-app/src/main/assets/linux/xdesk-launch --watch-appearance &
+          exec /tmp/xdesx-test-appearance
+        '
 
   release:
     needs: [guest-caret, chrome-caret-test]

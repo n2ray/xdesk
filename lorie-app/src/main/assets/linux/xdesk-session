@@ -135,11 +135,13 @@ fi
 # EOF on the controller pipe (including Android process death) ends the Burrow process tree.
 if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
     exec dbus-run-session -- sh -c '
+        /bin/sh /usr/local/bin/xdesk-launch --watch-appearance &
+        appearance=$!
         /bin/sh /usr/local/bin/xdesk-launch --serve &
         server=$!
         /usr/local/bin/xdesx-accessible-caret >/tmp/xdesx-caret.log 2>&1 &
         bridge=$!
-        trap "kill $server $bridge 2>/dev/null || :" EXIT
+        trap "kill $server $bridge $appearance 2>/dev/null || :" EXIT
         read -r stop || :
     '
 fi

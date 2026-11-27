@@ -266,7 +266,7 @@ static void refresh(Panel *p) {
         }
         g_strfreev(parts);
         if ((scale!=p->scale || palette_changed || language_changed) && (scale==100 || scale==133 || scale==167 || scale==200)) {
-            if(p->scale!=scale)publish_dpi(p,scale);
+            if(p->scale!=scale || palette_changed || !p->dpi_owner)publish_desktop_settings(p,scale);
             p->scale=scale;
             int icon=(24*scale+50)/100;
             gtk_widget_set_size_request(p->ime_art,24*scale/100,20*scale/100);gtk_widget_set_size_request(p->logo,icon,icon);gtk_widget_set_size_request(p->icons,94*scale/100,20*scale/100);
