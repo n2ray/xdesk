@@ -529,7 +529,9 @@ public class InjectorService extends IInjector.Stub {
         linked = true;
         try {
             l.asBinder().linkToDeath(() -> {
+                boolean desktopSession;
                 synchronized(appDisplays) {
+                    desktopSession=desktopTarget>=0 || xdesxFullscreenWindow>=0 || !returnedHdmiLaunches.isEmpty();
                     if (xdesxFullscreenWindow>=0) closeXdesxFullscreen();
                     closeReturnedHdmiLaunches();
                     closeDesktopRoute();
@@ -541,7 +543,7 @@ public class InjectorService extends IInjector.Stub {
                     // Move first: this way apps do not have to reconfigure on a display they are leaving
                     synchronized (appDisplays) {
                         VirtualDisplay d=appDisplays.get(displayId);
-                        if (displayId>=0 && ownPackage!=null && (d==null || !d.getDisplay().getName().startsWith("XDesX ")))
+                        if (!desktopSession && displayId>=0 && ownPackage!=null && (d==null || !d.getDisplay().getName().startsWith("XDesX ")))
                             TaskMover.moveAllToPhone(displayId,ownPackage);
                     }
                     output.stop();
