@@ -103,7 +103,7 @@ static void leave_fullscreen(GtkButton *button, Panel *p) {
 static void remove_fullscreen_bar(Panel *p) {
     cancel_timer(&p->reveal_timer);
     cancel_timer(&p->hide_timer);
-    if (p->fullscreen_bar) gtk_widget_destroy(p->fullscreen_bar);
+    if (p->fullscreen_bar) { gtk_widget_destroy(p->fullscreen_bar); action("x-fullscreen-off"); }
     p->fullscreen_bar = p->fullscreen_reveal = NULL;
 }
 static void update_fullscreen(Panel *p) {
@@ -117,6 +117,7 @@ static void update_fullscreen(Panel *p) {
     int width = MAX(100, 136 * p->scale / 100);
     GtkWidget *bar = gtk_window_new(GTK_WINDOW_POPUP);
     p->fullscreen_bar = bar;
+    action("x-fullscreen-on");
     gtk_window_set_accept_focus(GTK_WINDOW(bar), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(bar), FALSE);
     gtk_window_move(GTK_WINDOW(bar), (gdk_screen_get_width(screen) - width) / 2, 0);

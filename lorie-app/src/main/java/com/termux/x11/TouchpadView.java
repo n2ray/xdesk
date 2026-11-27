@@ -56,6 +56,12 @@ final class TouchpadView extends View {
         hints = new String[]{c.getString(R.string.xd_pad_hint_move), c.getString(R.string.xd_pad_hint_drag), c.getString(R.string.xd_pad_hint_two)};
     }
 
+    void desktopAppearance(boolean dark) {
+        setBackgroundColor(dark ? 0xff222326 : 0xfff2f3f6);
+        hint.setColor(dark ? 0xffaeb1ba : 0xff5b606b);
+        invalidate();
+    }
+
     /** INPUT.md §13: a light tick for clicks, the long press as before, a firmer one for three- and four-finger gestures. */
     static void haptic(View v, int kind) {
         int h = kind == Input.FEEDBACK_LONG_PRESS ? HapticFeedbackConstants.LONG_PRESS

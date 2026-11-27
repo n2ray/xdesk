@@ -1,0 +1,7 @@
+<resources>
+    <string name="xu_pad_keyboard">Keyboard</string>
+    <string name="xu_pad_more">More</string>
+    <string name="xu_pad_dim">Dim phone screen</string>
+    <string name="xu_pad_never">Never</string>
+    <string name="xu_pad_minutes">%1$d min</string>
+</resources>

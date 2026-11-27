@@ -1,0 +1,7 @@
+<resources>
+    <string name="xu_pad_keyboard">键盘</string>
+    <string name="xu_pad_more">更多</string>
+    <string name="xu_pad_dim">手机屏幕变暗</string>
+    <string name="xu_pad_never">永不</string>
+    <string name="xu_pad_minutes">%1$d 分钟</string>
+</resources>

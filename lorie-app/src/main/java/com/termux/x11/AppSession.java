@@ -127,6 +127,7 @@ final class AppSession {
     /** 像平板 / 像电脑, per package (INPUT.md §4): kept in InputModes, which the Router reads. */
     private final InputModes touchModes;
     private Listener listener;
+    private final List<Runnable> sourceObservers = new ArrayList<>();
     private boolean active, forwarding, started;
     /** Counts start and stop, so that work from a session that has ended since does nothing, see current. */
     private volatile int generation;
@@ -481,8 +482,13 @@ final class AppSession {
     private void sourceChanged() {
         ui.post(() -> {
             if (listener != null) listener.onInjectorSourceChanged();
+            for (Runnable observer : new ArrayList<>(sourceObservers)) observer.run();
         });
     }
+
+    // A display controller can observe activation without replacing the app-session owner.
+    void addSourceObserver(Runnable observer) { sourceObservers.add(observer); }
+    void removeSourceObserver(Runnable observer) { sourceObservers.remove(observer); }
 
     void setListener(Listener l) {
         listener = l;
@@ -661,13 +667,15 @@ final class AppSession {
         if (!installed()) return false;
         // Was on Shizuku before: it is remembered, or the built-in server is not paired, so nothing else could have
         // given the injector that was on
-        if (!sourcePrefs.getBoolean(PREF_ON_SHIZUKU, false) && shell.isPaired()) return false;
+        if (!previouslyUsedShizuku() && shell.isPaired()) return false;
         try {
             return !Shizuku.pingBinder();
         } catch (RuntimeException e) {
             return true;
         }
     }
+
+    boolean previouslyUsedShizuku() { return sourcePrefs.getBoolean(PREF_ON_SHIZUKU, false); }
 
     /** XDesk came to the front: with Shizuku there is nothing to do, otherwise start the built-in server if it can be. */
     void activateIfPaired() {
@@ -869,6 +877,7 @@ final class AppSession {
                     .version(ShellActivation.installVersion(context));
             }
             Shizuku.bindUserService(wirelessArgs, c);
+            sourcePrefs.edit().putBoolean(PREF_ON_SHIZUKU, true).apply();
             return true;
         }
         return null;

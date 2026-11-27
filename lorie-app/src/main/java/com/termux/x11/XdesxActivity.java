@@ -116,6 +116,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     w.cancelInitialFullscreen();
                     error(getString(com.termux.x11.app.R.string.xu_switch_task,w.label()));
                 }
+                refreshPhoneControls();
                 if (moved) {
                     closeToolbar();
                     if (fullWindow != null) {
@@ -229,10 +230,48 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         public void onServiceDisconnected(ComponentName name) { injector = null; syncDesktopKeys(); desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
     };
-    private android.widget.Button controls;
+    private XdesxPhoneControls controls;
+    private TouchpadView pad;
+    private View blankScreen;
+    private boolean xFullscreen, phoneResumed, touching, waking;
+    private int idleMinutes;
+    private float previousBrightness;
+
+    private void refreshPhoneControls() {
+        if (controls != null) controls.update(panel, fullWindow != null || xFullscreen, idleMinutes);
+        if (pad != null && panel != null) pad.desktopAppearance(panel.isDark());
+    }
+
+    private void armPhoneTimeout() {
+        settingsHandler.removeCallbacks(dimPhone);
+        if (phoneResumed && external >= 0 && !touching && !phoneImeVisible && idleMinutes > 0 &&
+                blankScreen.getVisibility() != View.VISIBLE)
+            settingsHandler.postDelayed(dimPhone, idleMinutes * 60000L);
+    }
+
+    private final Runnable dimPhone = new Runnable() {
+        public void run() {
+            if (!phoneResumed || touching || phoneImeVisible || external < 0) return;
+            if (activation != null || controls.showing()) { armPhoneTimeout(); return; }
+            WindowManager.LayoutParams attrs = getWindow().getAttributes();
+            previousBrightness = attrs.screenBrightness;
+            blankScreen.setVisibility(View.VISIBLE);
+            attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF;
+            getWindow().setAttributes(attrs);
+        }
+    };
+
+    private void wakePhone() {
+        if (blankScreen == null || blankScreen.getVisibility() != View.VISIBLE) return;
+        WindowManager.LayoutParams attrs = getWindow().getAttributes();
+        attrs.screenBrightness = previousBrightness;
+        getWindow().setAttributes(attrs);
+        blankScreen.setVisibility(View.GONE);
+    }
+
     @Override public void onConfigurationChanged(android.content.res.Configuration config) {
         super.onConfigurationChanged(config);
-        if(controls!=null) controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
+        refreshPhoneControls();
         if(panel!=null)panel.publish();
     }
     @Override public void onCreate(Bundle saved) {
@@ -241,7 +280,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
-        layout.addView(new TouchpadView(this, new GestureOutput() {
+        android.widget.LinearLayout column=new android.widget.LinearLayout(this);
+        column.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layout.addView(column,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        pad=new TouchpadView(this, new GestureOutput() {
             public void move(int x,int y) {
                 int speed=panel==null?100:panel.padSpeed;
                 float dx=x*speed/100f, dy=y*speed/100f;
@@ -249,7 +291,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             }
             public void button(int b,boolean down) { if (!padInput(2,b,down?1:0)) input.button(b,down); }
             public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!padInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
-        }, () -> desktopNative && injector != null && fullWindow == null));
+        }, () -> desktopNative && injector != null && fullWindow == null);
+        column.addView(pad,new android.widget.LinearLayout.LayoutParams(-1,0,1));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
                 if (switching || gamePassthrough) return;
@@ -281,14 +324,36 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public boolean physicalKey(KeyEvent e) { return routePhoneKey(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
-        controls=new android.widget.Button(this);
-        controls.setText(getString(com.termux.x11.app.R.string.xu_desktop_controls));controls.setAlpha(.72f);
-        layout.addView(controls,new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.END));
-        controls.setOnClickListener(v -> showDesktopControls());
+        idleMinutes=getSharedPreferences("xdesx-phone",MODE_PRIVATE).getInt("idle-minutes",5);
+        panel=new XdesxPanelState(this);
+        controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
+            public void keyboard(){showPhoneKeyboard();}
+            public void exitFullscreen(){
+                if(fullWindow!=null) toggleWindow(fullWindow);
+                else if(xFullscreen){panel.returnSequence++; panel.publish();}
+            }
+            public void recover(){panelAction("recover");}
+            public void permissions(){setup();}
+            public void endSession(){confirmEndDesktop();}
+            public void menuDismissed(){armPhoneTimeout();}
+            public void idleMinutes(int value){
+                idleMinutes=value;
+                getSharedPreferences("xdesx-phone",MODE_PRIVATE).edit().putInt("idle-minutes",value).apply();
+                refreshPhoneControls();
+                armPhoneTimeout();
+            }
+        });
+        refreshPhoneControls();
+        blankScreen=new View(this);
+        blankScreen.setBackgroundColor(android.graphics.Color.BLACK);
+        blankScreen.setVisibility(View.GONE);
+        layout.addView(blankScreen,new android.widget.FrameLayout.LayoutParams(-1,-1));
         layout.setOnApplyWindowInsetsListener((v,insets) -> {
             boolean visible=insets.isVisible(WindowInsets.Type.ime());
             if (phoneImeVisible!=visible) {
                 phoneImeVisible=visible;
+                if(visible) wakePhone();
+                armPhoneTimeout();
                 syncDesktopKeys();
             }
             return v.onApplyWindowInsets(insets);
@@ -299,16 +364,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         devices=getSystemService(InputManager.class);
         devices.registerInputDeviceListener(this,settingsHandler);
         for (int id:devices.getInputDeviceIds()) if (externalKeyboard(id)) keyboards.add(id);
-        AppSession.get(this).activateIfPaired();
-        openInjector();
-        if (injector == null && !connecting) mouse.postDelayed(() -> {
-            if (isFinishing() || isDestroyed() || injector != null || connecting) return;
-            // Wireless activation can finish between onCreate and this delayed check.
-            if (AppSession.get(this).injectorReady()) openInjector();
-            else setup();
-        }, 1500);
+        AppSession session=AppSession.get(this);
+        session.addSourceObserver(activationChanged);
+        session.activateIfPaired();
+        shizukuArrivalDeadline=SystemClock.uptimeMillis()+10000;
+        settingsHandler.post(activationChanged);
         try {macProfiles=new XdesxMacProfiles(this);} catch(IOException e){error(e.toString());}
-        panel=new XdesxPanelState(this);
         place();
         try { linux = new XdesxLinux(this, this::error); }
         catch (IOException e) { error(e.toString()); }
@@ -343,6 +404,38 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(focused) capture(); else { leavingGameTouch=false; releasePhoneKeys(-1); if(mouse!=null) mouse.releaseMouse(); }
     }
     private ActivationPage activation;
+    private boolean offerStartupSetup=true;
+    private long shizukuArrivalDeadline;
+    private final Runnable activationChanged=this::refreshActivation;
+    private void refreshActivation() {
+        settingsHandler.removeCallbacks(activationChanged);
+        if (isFinishing() || isDestroyed() || injector!=null || connecting) return;
+        AppSession session=AppSession.get(this);
+        if (session.injectorReady()) {
+            offerStartupSetup=false;
+            if (activation!=null) {
+                activation.close();
+                activation=null;
+                settingsHandler.removeCallbacks(checkSetup);
+            }
+            openInjector();
+            return;
+        }
+        ShellActivation shell=session.shell();
+        if (!offerStartupSetup || shell.isStarting() || shell.isPairing()) return;
+        // Shizuku publishes its binder asynchronously. If it never arrives, first-time
+        // users still need a way to pair. Shell recovery reports its own terminal state.
+        boolean binderPending=session.shizukuArriving();
+        if (binderPending && SystemClock.uptimeMillis()<shizukuArrivalDeadline) {
+            settingsHandler.postAtTime(activationChanged,shizukuArrivalDeadline);
+            return;
+        }
+        offerStartupSetup=false;
+        if (binderPending && session.previouslyUsedShizuku() && !shell.isPaired()) {
+            error(getString(com.termux.x11.app.R.string.xu_start_shizuku_then_return_to_xdesx));
+        } else if (!shell.isPaired()) setup();
+        else if (shell.problem()!=null) error(ShellText.localize(this,shell.problem()));
+    }
     private final Runnable checkSetup=new Runnable() {
         public void run() {
             if(activation==null || isDestroyed() || isFinishing()) return;
@@ -354,6 +447,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
     };
     private void setup() {
+        offerStartupSetup=false;
         if(activation!=null) return;
         AppSession session=AppSession.get(this);
         if(session.injectorReady()){openInjector();error(getString(com.termux.x11.app.R.string.xu_desktop_controls_are_authorized));return;}
@@ -420,6 +514,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         Display d=TargetDisplay.real(displays);
         if (d==null || external==d.getDisplayId()) return;
         external=d.getDisplayId();
+        armPhoneTimeout();
         routeDesktop();
         Context app=getApplicationContext();
         MainActivity.displayAllowed=id -> TargetDisplay.allowsDesktop(app,id);
@@ -531,9 +626,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     prefs.edit().remove("previous-system-night").apply();
             }
         } catch(RemoteException e){Log.w("XDesX","system appearance",e);}
-        panel.appearance=value;panel.saveOptions();
+        panel.appearance=value;panel.saveOptions();refreshPhoneControls();
     }
     private void panelAction(String action) {
+        if(action.equals("x-fullscreen-on") || action.equals("x-fullscreen-off")) {
+            xFullscreen=action.equals("x-fullscreen-on");
+            refreshPhoneControls();
+            return;
+        }
         if(action.startsWith("caret ")) {
             LorieView view=DesktopInput.view();
             String[] fields=action.split(" ");
@@ -599,7 +699,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             case "lang":
                 panel.language=value; panel.saveOptions();
                 ((XdesxApp)getApplication()).refreshLanguage();
-                controls.setText(com.termux.x11.app.R.string.xu_desktop_controls);
+                refreshPhoneControls();
                 return;
             case "appearance":
                 setAppearance(value); return;
@@ -655,7 +755,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (fullWindow==null || (requested!=null && requested.awaitingHdmi())) toggleWindow(requested);
             }),
             () -> runOnUiThread(() -> {
-                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); syncDesktopKeys(); capture(); }
+                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); refreshPhoneControls(); syncDesktopKeys(); capture(); }
                 panel.opened=windows.size(); panel.publish();
             }));
         w.density(Math.round(160*panel.scale/100f));
@@ -671,6 +771,19 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         if (e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+            int phase=e.getActionMasked();
+            if(phase==MotionEvent.ACTION_DOWN){
+                touching=true;
+                settingsHandler.removeCallbacks(dimPhone);
+                waking=blankScreen!=null && blankScreen.getVisibility()==View.VISIBLE;
+                if(waking) wakePhone();
+            }
+            boolean consumeWake=waking;
+            if(phase==MotionEvent.ACTION_UP || phase==MotionEvent.ACTION_CANCEL){
+                touching=false; waking=false;
+                armPhoneTimeout();
+            }
+            if(consumeWake) return true;
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN && gamePassthrough) {
                 leavingGameTouch = true;
                 setGame(false);
@@ -721,6 +834,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
     }
     @Override protected void onPause() {
+        phoneResumed=false; touching=false; waking=false;
+        settingsHandler.removeCallbacks(dimPhone);
+        wakePhone();
         leavingGameTouch=false;
         releasePhoneKeys(-1);
         super.onPause();
@@ -728,24 +844,6 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     @Override public void onBackPressed() {
         // Dialogs consume Back themselves. At the touchpad root keep the desktop session alive.
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
-    }
-    private void showDesktopControls() {
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(getString(com.termux.x11.app.R.string.xu_desktop_controls))
-            .setItems(new String[]{getString(com.termux.x11.app.R.string.xu_return_to_window),getString(com.termux.x11.app.R.string.xu_restore_native_display),getString(com.termux.x11.app.R.string.xu_connection_permissions),getString(com.termux.x11.app.R.string.xu_phone_keyboard),getString(com.termux.x11.app.R.string.xu_end_session)}, (dialog,item) -> {
-                switch (item) {
-                    case 0:
-                        if (fullWindow != null) toggleWindow(fullWindow);
-                        else { panel.returnSequence++; panel.publish(); }
-                        break;
-                    case 1: panelAction("recover"); break;
-                    case 2: setup(); break;
-                    case 3:
-                        showPhoneKeyboard();
-                        break;
-                    case 4: confirmEndDesktop(); break;
-                }
-            }).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null).show();
     }
     private void showPhoneKeyboard() {
         XdesxWindow target=phoneInputTarget();
@@ -772,19 +870,16 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         finishAndRemoveTask();
     }
     private void confirmEndDesktop() {
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(getString(com.termux.x11.app.R.string.xu_end_the_desktop_session))
-            .setMessage(getString(com.termux.x11.app.R.string.xu_all_desktop_windows_will_close_save_your_work_before_conti))
-            .setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null)
-            .setPositiveButton(getString(com.termux.x11.app.R.string.xu_end_session), (dialog, which) -> endDesktop())
-            .show();
+        controls.confirmEnd(this::endDesktop);
     }
-    @Override protected void onResume(){super.onResume();if(notifications!=null)notifications.refresh();}
+    @Override protected void onResume(){super.onResume();phoneResumed=true;armPhoneTimeout();if(notifications!=null)notifications.refresh();}
     @Override protected void onDestroy() {
         ((XdesxApp)getApplication()).observeDesktop(null);
         desktopKeys=null;
         input.resetCapturedKeys();
         settingsHandler.removeCallbacks(revertRender);
+        settingsHandler.removeCallbacks(dimPhone);
+        controls.close();
         closeToolbar();
         if(notifications!=null) notifications.close();
         if(macProfiles!=null) macProfiles.close();
@@ -801,6 +896,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             try { injector.shutdown(); } catch(RemoteException e) { Log.w("XDesX","shutdown",e); }
         }
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);
+        AppSession.get(this).removeSourceObserver(activationChanged);
+        settingsHandler.removeCallbacks(activationChanged);
         settingsHandler.removeCallbacks(checkSetup);if(activation!=null) activation.close();
         super.onDestroy();
     }
