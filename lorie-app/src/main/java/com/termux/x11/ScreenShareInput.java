@@ -26,7 +26,7 @@ public final class ScreenShareInput implements InputSink {
 
     /** This Mac's session now, or null (not connected yet, or ended): its input then goes nowhere. */
     private ScreenShareSession session() {
-        ScreenShareSession s = ScreenShareSession.current();
+        ScreenShareSession s = ScreenShareSession.forHost(hostId);
         if (s == null || !s.host.id.equals(hostId)) return null;
         if (x < 0) {
             x = s.width / 2;

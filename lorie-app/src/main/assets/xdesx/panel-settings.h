@@ -123,13 +123,6 @@ static void update_setting_values(Panel *p) {
     text=g_strdup_printf(T("已打开 %d 个应用窗口"),p->opened);
     gtk_label_set_text(GTK_LABEL(p->count_label),text);g_free(text);
 }
-static void refresh_mac_settings(Panel *p) {
-    GList *children=gtk_container_get_children(GTK_CONTAINER(p->mac_page));
-    for(GList *c=children;c;c=c->next) gtk_widget_destroy(c->data);
-    g_list_free(children);
-    mac_settings(p->mac_page,p);
-    gtk_widget_show_all(p->mac_page);
-}
 static void confirm_linux(GtkButton *button,Panel *p) {
     gboolean removing=!strcmp(g_object_get_data(G_OBJECT(button),"action"),"linux-remove");
     GtkWidget *dialog=gtk_message_dialog_new(GTK_WINDOW(p->settings),GTK_DIALOG_MODAL|GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -182,8 +175,6 @@ static void settings_contents(Panel *p) {
     gtk_box_pack_start(GTK_BOX(view),names,FALSE,FALSE,0);gtk_box_pack_start(GTK_BOX(view),preview,FALSE,FALSE,0);
     GtkWidget *access=notify_button(T("手机通知访问设置"),"notify-access");
     gtk_widget_set_halign(access,GTK_ALIGN_START);gtk_box_pack_start(GTK_BOX(view),access,FALSE,FALSE,0);
-    p->mac_page=settings_card(page(p,"mac",T("Mac 屏幕共享")));
-    mac_settings(p->mac_page,p);
     view=settings_card(page(p,"linux","Ubuntu / Linux"));
     GtkWidget *shared_hint=notification_label(T("共享文件：Ubuntu 在 /mnt/xdesx 保存，安卓在系统文件选择器中打开 xdesx。卸载前请另存需要保留的文件。"));
     gtk_box_pack_start(GTK_BOX(view),shared_hint,FALSE,FALSE,0);

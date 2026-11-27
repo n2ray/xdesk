@@ -20,7 +20,7 @@ typedef struct {
     GtkWidget *tasks, *task_scroll, *separator, *status, *logo, *icons, *settings, *stack;
     int mouse,pad,limit,reverse,remember,opened,battery,charging;
     char network[64],profile[64],options[96];
-    char *mac_id;
+    GtkWidget *mac_manager;
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
@@ -302,7 +302,7 @@ static void state_changed(GFileMonitor *m,GFile *file,GFile *other,GFileMonitorE
         int previous=p->notify_names;notification_refresh(p);
         if(p->settings && previous!=p->notify_names)update_setting_values(p);
     }
-    if (p->settings && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts")))
+    if (p->mac_manager && (!g_strcmp0(name,"mac-hosts") || !g_strcmp0(target,"mac-hosts")))
         refresh_mac_settings(p);
     if (p->settings && (!g_strcmp0(name,"ubuntu-state") || !g_strcmp0(target,"ubuntu-state")))
         update_ubuntu_controls(p);
@@ -326,7 +326,8 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     if (p->tasks_idle) g_source_remove(p->tasks_idle);
     for (GList *l=wnck_screen_get_windows(p->screen);l;l=l->next)
         g_signal_handlers_disconnect_by_data(l->data,p);
-    stop_tracking(p);g_free(p->mac_id);
+    if(p->mac_manager)gtk_widget_destroy(p->mac_manager);
+    stop_tracking(p);
     g_signal_handlers_disconnect_by_data(p->screen,p);
     g_clear_object(&p->monitor);
     gtk_style_context_remove_provider_for_screen(gdk_screen_get_default(),GTK_STYLE_PROVIDER(p->css));

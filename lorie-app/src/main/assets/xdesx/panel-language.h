@@ -2,6 +2,12 @@
 static int ui_language=2;
 static const char *T(const char *source) {
     static const struct { const char *source,*en,*hant; } catalog[]={
+        {"共享桌面", "Screen Sharing", "螢幕共享"},
+        {"双击连接，或选中后按 Enter。", "Double-click to connect, or select and press Enter.", "按兩下以連線，或選取後按 Enter。"},
+        {"在 Mac 上开启屏幕共享", "Set up Screen Sharing on your Mac", "在 Mac 上開啟螢幕共享"},
+        {"打开「系统设置 → 通用 → 共享」，开启「屏幕共享」，在详情中允许你的 Mac 账户访问。", "Open System Settings → General → Sharing. Turn on Screen Sharing and allow your Mac account in its details.", "開啟「系統設定 → 一般 → 共享」，開啟「螢幕共享」，並在詳細資訊允許你的 Mac 帳號取用。"},
+        {"添加 Mac 的网络地址和账户，然后双击设备连接。高性能共享需要 Apple 芯片和 macOS Sonoma 14 或更新版本。建议使用低延迟有线网络。每台 Mac 同时支持一个高性能会话。", "Add the Mac’s network address and account, then double-click its card. High Performance requires Apple silicon and macOS Sonoma 14 or later. A low-latency wired connection is recommended. Each Mac supports one High Performance session at a time.", "加入 Mac 的網路位址與帳號，再按兩下裝置連線。高效能共享需要 Apple 晶片與 macOS Sonoma 14 或以上版本。建議使用低延遲有線網路。每台 Mac 同時支援一個高效能連線。"},
+
         {"共享文件：Ubuntu 在 /mnt/xdesx 保存，安卓在系统文件选择器中打开 xdesx。卸载前请另存需要保留的文件。", "Shared files: save to /mnt/xdesx in Ubuntu and open xdesx in the Android file picker. Copy files you want to keep before uninstalling.", "共享檔案：Ubuntu 儲存到 /mnt/xdesx，Android 在系統檔案選擇器中開啟 xdesx。解除安裝前請另存需要保留的檔案。"},
         {"系统输入法选项…", "System input options…", "系統輸入法選項…"},
         {"切换安卓输入法", "Switch Android input method", "切換 Android 輸入法"},

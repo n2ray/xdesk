@@ -19,7 +19,7 @@ final class DirectSession implements Closeable {
     final InetAddress host;
     final SecureRandom rng=new SecureRandom();
     final Socket control=new Socket();
-    final DatagramSocket video, audio;
+    final MacMediaPort video, audio;
     private final AudioReceiver soundReceiver;
     final MediaClock clock = new MediaClock();
     DataInputStream in;
@@ -65,9 +65,8 @@ final class DirectSession implements Closeable {
     }
     DirectSession(android.content.Context context,String h,int w,int sizeY,int dw,int dh)throws Exception {
         assets=context.getAssets();width=w;height=sizeY;pointsW=dw;pointsH=dh; host=InetAddress.getByName(h);
-        audio=new DatagramSocket(5900);
-        try {video=new DatagramSocket(5901);}catch(Exception e){audio.close();throw e;}
-        video.setReceiveBufferSize(4<<20); video.setSoTimeout(300);
+        audio=MacMediaPort.open(5900,host);
+        try {video=MacMediaPort.open(5901,host);}catch(Exception e){audio.close();throw e;}
         soundReceiver = new AudioReceiver(context, audio, host, clock);
     }
     public void close(){probes.shutdownNow();audio.close();soundReceiver.close();video.close();try{control.close();}catch(IOException ignored){}}

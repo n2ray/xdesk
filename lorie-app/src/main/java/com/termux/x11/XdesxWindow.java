@@ -22,7 +22,7 @@ final class XdesxWindow {
     private final android.content.Context context;
     private final ICmdEntryInterface server;
     private final IInjector injector;
-    private final String key, component;
+    private final String key, component, hostId;
     private final Runnable finished, requestFullscreen;
     private final HandlerThread frames = new HandlerThread("xdesx-frames");
     private volatile ParcelFileDescriptor control;
@@ -62,7 +62,10 @@ final class XdesxWindow {
         }
     }
     XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable fs,Runnable f) {
-        this.context=context; server=s; injector=i; key=k; component=c; requestFullscreen=fs; finished=f;
+        this.context=context; server=s; injector=i; key=k;
+        int marker=c.indexOf('#');
+        component=marker<0?c:c.substring(0,marker);
+        hostId=marker<0?null:c.substring(marker+1); requestFullscreen=fs; finished=f;
     }
     void start() {
         frames.start();
@@ -150,7 +153,7 @@ final class XdesxWindow {
                     android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
                     options.setLaunchDisplayId(display);
                     android.content.Intent intent=new android.content.Intent(context,XdesxMacActivity.class);
-                    intent.putExtra("window",key).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
+                    intent.putExtra("host",hostId).putExtra("window",key).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK |
                         android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
                     context.startActivity(intent,options.toBundle());
                 } else {

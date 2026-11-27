@@ -36,7 +36,7 @@ final class AudioReceiver {
     private static final int REORDER_MS = 60, MAX_GAP = 12, MAX_PENDING = 32;
     private static final String TAG = "XDeskShareAudio";
     private final Context context;
-    private final DatagramSocket socket;
+    private final MacMediaPort socket;
     private final InetAddress host;
     private final MediaClock clock;
     private MediaClock.Reports reports;
@@ -44,7 +44,7 @@ final class AudioReceiver {
     private volatile boolean closed;
     private Thread worker;
 
-    AudioReceiver(Context context, DatagramSocket socket, InetAddress host, MediaClock clock) {
+    AudioReceiver(Context context, MacMediaPort socket, InetAddress host, MediaClock clock) {
         this.clock = clock;
         this.context = context;
         this.socket = socket;
@@ -82,7 +82,8 @@ final class AudioReceiver {
         AudioTrack track = null;
         long frames = 0, written = 0, lost = 0, late = 0;
         try {
-            socket.setSoTimeout(10);
+            java.util.concurrent.ArrayBlockingQueue<byte[]> incomingAudio=new java.util.concurrent.ArrayBlockingQueue<>(256);
+            socket.receiver=(buffer,length,time)->incomingAudio.offer(java.util.Arrays.copyOf(buffer,length));
             MediaFormat format = MediaFormat.createAudioFormat("audio/mp4a-latm", RATE, CHANNELS);
             format.setByteBuffer("csd-0", ByteBuffer.wrap(CONFIG));
             decoder = MediaCodec.createDecoderByType("audio/mp4a-latm");
@@ -101,8 +102,8 @@ final class AudioReceiver {
             AudioRoute route = AudioRoute.forScreenSharing(context);
             track.setPreferredDevice(route.screenSharingDevice());
             boolean playing = false;
-            byte[] storage = new byte[65535];
-            DatagramPacket packet = new DatagramPacket(storage, storage.length);
+
+
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             SrtpStream current = null;
             TreeMap<Long, byte[]> pending = new TreeMap<>();
@@ -112,17 +113,16 @@ final class AudioReceiver {
             long nextTiming = 0;
             long nextRoute = 0, nextReport = SystemClock.elapsedRealtime()+10000;
             while (!closed) {
-                packet.setLength(storage.length);
-                boolean received = true;
-                try { socket.receive(packet); } catch (SocketTimeoutException idle) { received = false; }
+                byte[] storage=incomingAudio.poll(10,java.util.concurrent.TimeUnit.MILLISECONDS);
+                boolean received=storage!=null;
                 SrtpStream key = incoming;
-                if (received && key != null && host.equals(packet.getAddress()) && packet.getLength() >= 2
+                if (received && key != null && storage.length >= 2
                         && (storage[1] & 255) == 200) {
-                    reports.accept(storage, packet.getLength(), clock.audio);
+                    reports.accept(storage, storage.length, clock.audio);
                 }
-                if (received && key != null && host.equals(packet.getAddress())
-                        && packet.getLength() >= 23 && (storage[1] & 127) == 101) {
-                    SrtpStream.Payload au = key.open(storage, packet.getLength());
+                if (received && key != null
+                        && storage.length >= 23 && (storage[1] & 127) == 101) {
+                    SrtpStream.Payload au = key.open(storage, storage.length);
                     if (au != null) {
                         if (key != current) {
                             current = key;
@@ -207,6 +207,8 @@ final class AudioReceiver {
                     nextReport = now + 10000;
                 }
             }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         } catch (IOException | GeneralSecurityException | RuntimeException failure) {
             if (!closed) Log.w(TAG,"Audio playback stopped",failure);
         } finally {

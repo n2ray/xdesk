@@ -118,8 +118,7 @@ public class DesktopService extends Service {
         ending = true;
         final android.content.Context app = context.getApplicationContext();
         // Ending XDesk is a Mac Screen Sharing connection's end too (it otherwise outlives the screen)
-        com.termux.x11.screenshare.ScreenShareSession ss = com.termux.x11.screenshare.ScreenShareSession.current();
-        if (ss != null) ss.close();
+        com.termux.x11.screenshare.ScreenShareSession.closeAll();
         AppSession apps = AppSession.get(app);
         if (apps.hasAppOnDisplay() && !apps.hasInjector()) {
             android.widget.Toast.makeText(app, app.getString(R.string.xd_service_not_moved), android.widget.Toast.LENGTH_LONG).show();

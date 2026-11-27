@@ -33,8 +33,7 @@ import java.util.concurrent.Executors;
  * The connection is the user's: it lasts from their connect until they disconnect (or XDesk ends, or the network
  * drops), whatever is on the screen meanwhile. The picture is separate: a screen showing the Mac attaches a Surface
  * (a hardware decoder is made for it, starting at the next IDR, which it asks the Mac for); taken off the screen it
- * detaches and releases the video decoder while audio continues. Only one connection at a time: the media
- * ports are fixed (5900/5901 UDP), so a new one closes the old one first.
+ * detaches and releases the video decoder while audio continues. MacMediaPort routes the fixed audio and video ports by source address.
  *
  * Ported from the tested prototype (n2ray/xdesk-mac-screen-sharing 2abc482, phone-probe/Viewer.java).
  */
@@ -56,7 +55,7 @@ public final class ScreenShareSession {
         default void cursorChanged(CursorUpdates.Shape shape) {}
     }
 
-    private static ScreenShareSession current;
+    private static final java.util.Map<String,ScreenShareSession> active=new java.util.HashMap<>();
 
     public final ScreenShareStore.Host host;
     /** The video and the frame buffer, in pixels: what the decoder, the surface and the pointer's coordinates use. */
@@ -137,14 +136,19 @@ public final class ScreenShareSession {
         listener = l;
     }
 
-    public static synchronized ScreenShareSession current() {
-        return current;
+    public static synchronized ScreenShareSession forHost(String id) {
+        return active.get(id);
+    }
+    public static void closeAll() {
+        java.util.List<ScreenShareSession> sessions;
+        synchronized(ScreenShareSession.class){sessions=new java.util.ArrayList<>(active.values());}
+        for(ScreenShareSession s:sessions)s.close();
     }
 
     /** Connects; the password is cleared once the authentication used it. */
     public static synchronized ScreenShareSession start(Context c, ScreenShareStore.Host h, char[] password,
                                                         ScreenShareSizing z, Listener l) {
-        if (current != null) current.close();
+        if (active.containsKey(h.id)) { Arrays.fill(password,(char)0); return active.get(h.id); }
         ScreenShareSession s = new ScreenShareSession(c, h, z, l);
         // Chosen before the connection and any attach: the decoder made for a screen is of this codec
         String test = testCodec;
@@ -154,7 +158,7 @@ public final class ScreenShareSession {
         if (s.hevc) s.retryPassword = password.clone();
         Log.i(TAG, "CODEC " + (s.hevc ? "hevc " + hevcDecoder : "avc (no hardware HEVC decoder for "
             + s.width + "x" + s.height + (test != null ? ", test " + test : "") + ")"));
-        current = s;
+        active.put(h.id,s);
         Thread t = new Thread(() -> s.run(password), "screen-sharing");
         t.start();
         return s;
@@ -178,7 +182,7 @@ public final class ScreenShareSession {
         detach();
         clearRetryPassword();
         synchronized (ScreenShareSession.class) {
-            if (current == this) current = null;
+            active.remove(host.id,this);
         }
     }
 
@@ -524,7 +528,7 @@ public final class ScreenShareSession {
             d.cursorChanged.accept(null);
             d.hevc = hevc;
             if (host.measure && my == 1) calibrate(d.host);
-            try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video, d.host)) {
+            try (AvcReceiver.Reader reader = new AvcReceiver.Reader(d.video)) {
                 byte[] seed;
                 try {
                     seed = d.start(host.account, password, v -> stage = v);

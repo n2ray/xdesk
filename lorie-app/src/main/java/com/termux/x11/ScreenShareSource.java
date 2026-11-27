@@ -52,6 +52,7 @@ final class ScreenShareSource implements ContentSource {
         }
         @Override public void ended(ScreenShareSession s, String reason) {
             String id = s.host.id;
+            if(ScreenShareSession.forHost(id)!=null)return;
             if (reason != null) Toast.makeText(context, context.getString(R.string.xd_ss_ended, s.host.label(), reason),
                 Toast.LENGTH_LONG).show();
             ScreenShareInput in = inputs.get(id);
@@ -103,13 +104,13 @@ final class ScreenShareSource implements ContentSource {
 
     /** Connected (or connecting) to this Mac, whether or not it is on a screen now. */
     boolean running(String hostId) {
-        ScreenShareSession s = ScreenShareSession.current();
+        ScreenShareSession s = ScreenShareSession.forHost(hostId);
         return s != null && s.host.id.equals(hostId) && s.alive();
     }
 
     /** The user's disconnect: the device's Disconnect, the entry closed, the Mac removed. */
     void disconnect(String hostId) {
-        ScreenShareSession s = ScreenShareSession.current();
+        ScreenShareSession s = ScreenShareSession.forHost(hostId);
         if (s != null && s.host.id.equals(hostId)) s.close();
         else ScreenShareActivity.finishFor(hostId);
     }
@@ -169,6 +170,7 @@ final class ScreenShareSource implements ContentSource {
             Display hdmi=TargetDisplay.real(context.getSystemService(DisplayManager.class));
             if (hdmi==null) { loginCancelled(id); return; }
             int target=hdmi.getDisplayId();
+            i.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
             i.putExtra(ScreenShareLoginActivity.EXTRA_DISPLAY,target);
             ActivityOptions options=ActivityOptions.makeBasic();
             options.setLaunchDisplayId(target);

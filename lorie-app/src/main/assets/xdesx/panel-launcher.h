@@ -59,7 +59,8 @@ static void launcher_free(gpointer data) {
 }
 static void open_tile(GtkButton *button,Launcher *l) {
     const char *id=g_object_get_data(G_OBJECT(button),"app-id");
-    if(g_str_has_prefix(id,"linux-")) action(id);
+    if(!strcmp(id,"mac-manager"))mac_manager_open(l->panel);
+    else if(g_str_has_prefix(id,"linux-")) action(id);
     else launch(NULL,(gpointer)id);
     gtk_widget_hide(l->popup);
 }
@@ -166,8 +167,7 @@ static void main_menu(GtkWidget *button,Panel *p) {
             gchar **f=g_strsplit(lines[i],"\t",5);
             if(g_strv_length(f)>=4){
                 gboolean mac=!strcmp(f[3],"mac");
-                if(mac){g_free(p->mac_id);p->mac_id=g_strdup(f[0]);}
-                app_tile(l,mac?T("连接 Mac"):f[1],f[0],f[2],mac?3:1,mac?"xdesx.mac":f[4]?f[4]:f[1]);
+                app_tile(l,mac?T("共享桌面"):f[1],mac?"mac-manager":f[0],f[2],mac?3:1,mac?"xdesx.mac":f[4]?f[4]:f[1]);
             }
             g_strfreev(f);
         }

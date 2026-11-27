@@ -42,17 +42,18 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
     }
     @Override public void onActivityDestroyed(Activity screen){screens.remove(screen);}
     @Override public void onActivityCreated(Activity screen,Bundle state){}
-    private Activity visibleDesktop, externalLogin;
+    private Activity visibleDesktop;
+    private final java.util.Set<Activity> externalLogins=new java.util.HashSet<>();
     private Runnable desktopChanged;
     void observeDesktop(Runnable listener) {desktopChanged=listener;}
     boolean desktopVisible(int display) {
-        return externalLogin==null && visibleDesktop!=null && visibleDesktop.getDisplay()!=null &&
+        return externalLogins.isEmpty() && visibleDesktop!=null && visibleDesktop.getDisplay()!=null &&
             visibleDesktop.getDisplay().getDisplayId()==display;
     }
     @Override public void onActivityStarted(Activity screen){
         if(screen instanceof com.termux.x11.screenshare.ScreenShareLoginActivity &&
                 screen.getIntent().hasExtra(com.termux.x11.screenshare.ScreenShareLoginActivity.EXTRA_DISPLAY)) {
-            externalLogin=screen;
+            externalLogins.add(screen);
             if(desktopChanged!=null)desktopChanged.run();
         }
         if(screen instanceof MainActivity && screen.getIntent().getBooleanExtra("xdesx_quiet",false)){
@@ -63,8 +64,7 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
     @Override public void onActivityResumed(Activity screen){}
     @Override public void onActivityPaused(Activity screen){}
     @Override public void onActivityStopped(Activity screen){
-        if(externalLogin==screen){
-            externalLogin=null;
+        if(externalLogins.remove(screen)){
             if(desktopChanged!=null)desktopChanged.run();
         }
         if(visibleDesktop==screen){

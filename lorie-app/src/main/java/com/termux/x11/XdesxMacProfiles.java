@@ -31,7 +31,15 @@ final class XdesxMacProfiles implements SharedPreferences.OnSharedPreferenceChan
     private String field(String s){return s==null?"":s.replaceAll("[\\t\\r\\n]"," ");}
     private void publish() throws IOException {
         StringBuilder rows=new StringBuilder();
+        File titles=new File(directory.getParentFile(),"titles");
+        titles.mkdirs();
         for(ScreenShareStore.Host h:ScreenShareStore.all(context)){
+            if(!h.id.matches("[0-9a-f]{8}"))continue;
+            String title="mac-"+h.id;
+            Files.write(new File(titles,title).toPath(),field(h.label()).getBytes(StandardCharsets.UTF_8));
+            Files.write(new File(titles,title+".class").toPath(),("xdesx.mac."+h.id).getBytes(StandardCharsets.UTF_8));
+            File icon=new File(directory.getParentFile(),"cache/imac-v1.png.argb");
+            Files.write(new File(titles,title+".icon").toPath(),icon.getAbsolutePath().getBytes(StandardCharsets.UTF_8));
             rows.append(h.id).append('\t').append(field(h.name)).append('\t').append(field(h.host)).append('\t')
                 .append(field(h.account)).append('\t').append(h.scale).append('\t').append(h.fixed1080?1:0)
                 .append('\t').append(h.measure?1:0).append('\n');

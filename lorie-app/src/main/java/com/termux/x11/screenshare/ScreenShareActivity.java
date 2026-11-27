@@ -28,7 +28,11 @@ import com.termux.x11.app.R;
 public final class ScreenShareActivity extends Activity implements SurfaceHolder.Callback, ScreenShareSession.PictureListener {
     public static final String EXTRA_HOST = "host";
 
-    private static volatile ScreenShareActivity showing;
+    private static final java.util.concurrent.ConcurrentMap<String,ScreenShareActivity> viewers=new java.util.concurrent.ConcurrentHashMap<>();
+    private static ScreenShareActivity onDisplay(int display){
+        for(ScreenShareActivity a:viewers.values()) if(a.acceptsInput(display))return a;
+        return null;
+    }
     private volatile boolean resumed;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -40,7 +44,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     // X gives coordinates in this virtual display. Use the same Mac input session as HDMI.
     public static boolean windowPointer(int display, int op, int x, int y) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = onDisplay(display);
         if (a == null || !a.acceptsInput(display)) return false;
         a.ui.post(() -> {
             if (!a.acceptsInput(display) || a.view.getWidth() < 1 || a.view.getHeight() < 1) return;
@@ -74,7 +78,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     // Socket events arrive on the proxy thread. Serialize them with HDMI and touchpad events,
     // and recheck the display after posting in case the activity moved during a fullscreen switch.
     private static boolean toViewer(int display, RemoteInput event) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = onDisplay(display);
         if (a == null || !a.acceptsInput(display)) return false;
         a.runOnUiThread(() -> {
             if (a.acceptsInput(display)) event.send(a.desktopInput);
@@ -95,7 +99,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     public static void releaseInput(int display) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = onDisplay(display);
         if (a == null || !a.acceptsInput(display)) return;
         a.runOnUiThread(() -> {
             if (a.acceptsInput(display)) a.releaseDesktopInput();
@@ -123,7 +127,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     private int windowButtons;
     private boolean acceptsInput(int display) {
-        return resumed && showing == this && desktopInput != null && getDisplay() != null
+        return resumed && viewers.get(hostId) == this && desktopInput != null && getDisplay() != null
                 && getDisplay().getDisplayId() == display;
     }
     @Override protected void onResume() { super.onResume(); resumed = true; }
@@ -143,7 +147,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     /** The phone controller and the viewer share the main thread and the authenticated input session. */
     public static boolean fullscreenPad(int display, int op, float x, float y, PadControls controls) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = onDisplay(display);
         if (a == null || !a.acceptsInput(display) || a.view.getWidth() < 1) return false;
         a.phonePointer = true;
         if (op == 1) a.desktopInput.move(Math.round(x), Math.round(y));
@@ -199,7 +203,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
     /** Physical key delivered to the phone controller while a Mac viewer owns its target display. UI thread. */
     public static boolean sendPhysical(int display, android.view.KeyEvent e) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = onDisplay(display);
         return a != null && a.acceptsInput(display) && a.physicalKey(e);
     }
 
@@ -232,7 +236,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private boolean sampling;
 
     public static boolean isShowing(String hostId) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = viewers.get(hostId);
         return a != null && hostId.equals(a.hostId) && !a.isFinishing();
     }
 
@@ -242,7 +246,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             new Handler(Looper.getMainLooper()).post(() -> pointerAt(hostId, x, y));
             return;
         }
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = viewers.get(hostId);
         if (a == null || !hostId.equals(a.hostId) || a.isFinishing()) {
             logArrow("no screen for " + hostId + " (showing " + (a != null ? a.hostId : "none") + ")");
             return;
@@ -359,7 +363,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     }
 
     public static void finishFor(String hostId) {
-        ScreenShareActivity a = showing;
+        ScreenShareActivity a = viewers.get(hostId);
         if (a != null && hostId.equals(a.hostId)) a.finish();
     }
 
@@ -386,7 +390,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         hostId = getIntent().getStringExtra(EXTRA_HOST);
-        ScreenShareSession s = ScreenShareSession.current();
+        ScreenShareSession s = ScreenShareSession.forHost(hostId);
         if (hostId == null || s == null || !s.host.id.equals(hostId) || !s.alive()) {
             finish();
             return;
@@ -397,8 +401,8 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             devices = getSystemService(android.hardware.input.InputManager.class);
             if (devices != null) devices.registerInputDeviceListener(deviceListener, ui);
         }
-        if (showing != null && showing != this) showing.finish();
-        showing = this;
+        ScreenShareActivity previous=viewers.put(hostId,this);
+        if(previous!=null && previous!=this)previous.finish();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -460,15 +464,15 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     @Override public void surfaceDestroyed(SurfaceHolder h) {
         sampling = false;
-        if (session != null) session.detach();
+        if (session != null && viewers.get(hostId)==this) session.detach();
     }
 
     @Override protected void onDestroy() {
         ui.removeCallbacks(showStage);
         if (devices != null) devices.unregisterInputDeviceListener(deviceListener);
         sampling = false;
-        if (session != null) session.detach();
-        if (showing == this) showing = null;
+        if (session != null && viewers.get(hostId)==this) session.detach();
+        if(hostId!=null)viewers.remove(hostId,this);
         super.onDestroy();
     }
 

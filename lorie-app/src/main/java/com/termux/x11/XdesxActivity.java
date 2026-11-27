@@ -639,11 +639,6 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             } else error("X server or shell input service unavailable");
             return;
         }
-        if (app.endsWith("/"+XdesxMacActivity.class.getName())) {
-            for (XdesxWindow existing:windows.values()) if (existing.mac()) {
-                error(getString(com.termux.x11.app.R.string.xu_the_mac_sharing_window_is_already_open)); return;
-            }
-        }
         if (windows.size()>=panel.limit) { error(getString(com.termux.x11.app.R.string.xu_window_limit,panel.limit)); return; }
         XdesxWindow w = new XdesxWindow(getApplicationContext(),MainActivity.verifiedServer,injector,key,app,
             () -> runOnUiThread(() -> { if(fullWindow==null) toggleWindow(windows.get(key)); }),

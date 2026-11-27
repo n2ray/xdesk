@@ -10,14 +10,14 @@ import javax.crypto.spec.*;
 /** Reduced-size RTCP FIR, protected with the negotiated viewer-to-host SRTCP key. */
 final class KeyframeFeedback {
     private final int sender;
-    private final DatagramSocket socket;
+    private final MacMediaPort socket;
     private final InetAddress host;
     private final SecretKeySpec key;
     private final Mac mac;
     private final byte[] salt;
     private int index;
 
-    KeyframeFeedback(byte[] seed, int sender, DatagramSocket socket, InetAddress host) throws Exception {
+    KeyframeFeedback(byte[] seed, int sender, MacMediaPort socket, InetAddress host) throws Exception {
         this.sender = sender;
         this.socket = socket;
         this.host = host;

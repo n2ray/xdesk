@@ -27,9 +27,10 @@ public final class ScreenShareLoginActivity extends Activity {
     public static volatile Outcome outcome;
 
     public static final String EXTRA_DISPLAY="external_display";
-    private static ScreenShareLoginActivity current;
+    private static final java.util.Map<String,ScreenShareLoginActivity> dialogs=new java.util.HashMap<>();
     public static void closeFor(String id) {
-        if(current!=null && current.host!=null && id.equals(current.host.id)) current.finish();
+        ScreenShareLoginActivity login=dialogs.get(id);
+        if(login!=null)login.finish();
     }
     private android.hardware.display.DisplayManager displayManager;
     private final android.hardware.display.DisplayManager.DisplayListener displayListener=new android.hardware.display.DisplayManager.DisplayListener(){
@@ -46,7 +47,7 @@ public final class ScreenShareLoginActivity extends Activity {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         host = ScreenShareStore.find(this, getIntent().getStringExtra(EXTRA_HOST));
-        current=this;
+        if(host!=null)dialogs.put(host.id,this);
         if(getIntent().hasExtra(EXTRA_DISPLAY) &&
                 (getDisplay()==null || getDisplay().getDisplayId()==android.view.Display.DEFAULT_DISPLAY ||
                 getDisplay().getDisplayId()!=getIntent().getIntExtra(EXTRA_DISPLAY,-1))) {
@@ -109,7 +110,7 @@ public final class ScreenShareLoginActivity extends Activity {
 
     @Override protected void onDestroy() {
         if(displayManager!=null)displayManager.unregisterDisplayListener(displayListener);
-        if(current==this) current=null;
+        if(host!=null) dialogs.remove(host.id,this);
         if (!done && !isChangingConfigurations() && host != null) {
             Outcome out = outcome;
             if (out != null) out.cancelled(host.id);

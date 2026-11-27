@@ -176,29 +176,21 @@ final class AvcReceiver {
     }
     static final class Reader implements AutoCloseable {
         final ArrayBlockingQueue<Incoming> packets=new ArrayBlockingQueue<>(4096);
-        final Thread worker;
+        final MacMediaPort port;
         volatile boolean closed;
         volatile int overflows;
-        Reader(DatagramSocket socket,InetAddress macHost){
-            worker=new Thread(()->{
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY);
-                byte[] buf=new byte[65536];DatagramPacket p=new DatagramPacket(buf,buf.length);
-                while(!closed){
-                    try{
-                        p.setLength(buf.length);socket.receive(p);long ns=System.nanoTime();
-                        if(p.getAddress().equals(macHost)&&p.getLength()>=22
-                                && !packets.offer(new Incoming(Arrays.copyOf(buf,p.getLength()),ns)))overflows++;
-                    }catch(SocketTimeoutException idle){}catch(IOException e){break;}
-                }
-                closed=true;
-            },"screen-sharing-udp");worker.start();
+        Reader(MacMediaPort port){
+            this.port=port;
+            port.receiver=(buffer,length,time)->{
+                if(length>=22 && !packets.offer(new Incoming(Arrays.copyOf(buffer,length),time)))overflows++;
+            };
         }
-        public void close(){closed=true;}
+        public void close(){closed=true;port.receiver=null;}
     }
     void run(Reader reader,int seconds,Sink sink)throws Exception{
         long end=System.nanoTime()+15_000_000_000L;
         boolean started=false;
-        while(!reader.closed && (suspended || System.nanoTime()<end)){
+        while(!reader.closed && reader.port.available() && (suspended || System.nanoTime()<end)){
             if (suspended) end = Long.MAX_VALUE;
             Incoming p=reader.packets.poll(150,TimeUnit.MILLISECONDS);
             if(p==null)continue;
