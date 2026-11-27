@@ -42,8 +42,16 @@ final class XdesxWindow {
             HdmiScale.enter(context,injector,external,dpi);
             densityTarget=external;
         }
+        // GFN queries the display associated with its original UI process again
+        // after migration when choosing the streaming profile for a new game.
+        boolean syncGameMode=component.startsWith("com.nvidia.geforcenow/") && reader!=null;
         boolean didMove=false;
         try {
+            if (syncGameMode) {
+                int sourceWidth=enter?width:reader.getWidth(), sourceHeight=enter?height:reader.getHeight();
+                injector.resizeVirtualDisplay(display,sourceWidth,sourceHeight,dpi,reader.getSurface());
+                Log.i("XDesX","GFN source mode "+display+" "+sourceWidth+"x"+sourceHeight+" enter="+enter);
+            }
             int moved=injector.moveXdesxTask(display,external,component.split("/",2)[0],task,enter,cursor,hotspot,width,height);
             if (moved<0) return false;
             task=moved;
@@ -52,7 +60,12 @@ final class XdesxWindow {
             Log.i("XDesX","task "+task+" "+display+" <-> "+external+" fullscreen="+enter);
             return true;
         } finally {
-            if (enter!=didMove) restoreDensity();
+            try {
+                if (syncGameMode && !didMove)
+                    injector.resizeVirtualDisplay(display,enter?reader.getWidth():width,enter?reader.getHeight():height,dpi,reader.getSurface());
+            } finally {
+                if (enter!=didMove) restoreDensity();
+            }
         }
     }
     private synchronized void restoreDensity() {
@@ -80,6 +93,9 @@ final class XdesxWindow {
         try (ParcelFileDescriptor fd=server.xdesxSocket(key);
              DataInputStream in=new DataInputStream(new ParcelFileDescriptor.AutoCloseInputStream(fd))) {
             control=fd;
+            String pkg=component.split("/",2)[0];
+            android.content.SharedPreferences ratios=context.getSharedPreferences("portrait_windows",0);
+            sendAspect(mac()?0:ratios.getInt(pkg+".w",0),mac()?0:ratios.getInt(pkg+".h",0));
             while (!stopped) {
                 int op=in.readInt(), x=in.readInt(), y=in.readInt();
                 if (op==8 && !mac()) setMinimized(x!=0);
@@ -148,6 +164,7 @@ final class XdesxWindow {
         ImageReader next=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3,HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE);
         try {
             if (display<0) {
+                Log.i("XDesX","first mapped content "+component+" "+w+"x"+h);
                 display=injector.createVirtualDisplay("XDesX "+component,w,h,dpi,next.getSurface(),0);
                 if (mac()) {
                     android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
@@ -202,11 +219,15 @@ final class XdesxWindow {
                 if (attempt < 7) handler.postDelayed(() -> probePortrait(handler, sample, attempt + 1), 400);
                 return;
             }
-            byte[] hint = java.nio.ByteBuffer.allocate(8).putInt(rw).putInt(rh).array();
-            int sent = 0;
-            while (sent < hint.length) sent += Os.write(control.getFileDescriptor(), hint, sent, hint.length - sent);
+            sendAspect(rw,rh);
             Log.i("XDesX", "portrait window " + pkg + " aspect " + rw + "x" + rh);
         } catch (Exception e) { if (!stopped) Log.w("XDesX", "portrait layout", e); }
+    }
+
+    private void sendAspect(int width,int height) throws android.system.ErrnoException, java.io.InterruptedIOException {
+        byte[] hint=java.nio.ByteBuffer.allocate(8).putInt(width).putInt(height).array();
+        int sent=0;
+        while(sent<hint.length)sent+=Os.write(control.getFileDescriptor(),hint,sent,hint.length-sent);
     }
 
     private boolean logged;

@@ -46,12 +46,10 @@ static void watch_window(WnckScreen *screen,WnckWindow *w,Panel *p) {
     char *line=NULL; int maximized=0;
     if (p->remember && g_file_get_contents(t->file,&line,NULL,NULL) &&
         sscanf(line,"%d %d %d %d %d",&t->x,&t->y,&t->w,&t->h,&maximized)==5) {
-        int width=wnck_screen_get_width(screen),height=wnck_screen_get_height(screen);
-        int top=36*p->scale/100;
-        t->w=CLAMP(t->w,120,width); t->h=CLAMP(t->h,100,MAX(100,height-top));
-        t->x=CLAMP(t->x,0,MAX(0,width-t->w)); t->y=CLAMP(t->y,top,MAX(top,height-t->h));
-        wnck_window_set_geometry(w,WNCK_WINDOW_GRAVITY_STATIC,WNCK_WINDOW_CHANGE_X|WNCK_WINDOW_CHANGE_Y|WNCK_WINDOW_CHANGE_WIDTH|WNCK_WINDOW_CHANGE_HEIGHT,t->x,t->y,t->w,t->h);
-        if (maximized) wnck_window_maximize(w);
+        // The window manager restores the frame before mapping. Keep the saved
+        // normal bounds when tracking a window that was first mapped maximized.
+        if (!wnck_window_is_maximized(w))
+            wnck_window_get_geometry(w,&t->x,&t->y,&t->w,&t->h);
     }
     g_free(line);
     g_object_set_data_full(G_OBJECT(w),"xdesx-position",t,free_position);

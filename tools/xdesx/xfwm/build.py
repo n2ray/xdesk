@@ -16,6 +16,7 @@ subprocess.run(["tar", "-xjf", archive, "-C", work], check=True)
 src = work / "xfwm4-4.20.0"
 with (here / "fullscreen.patch").open() as patch:
     subprocess.run(["patch", "-p1"], cwd=src, stdin=patch, check=True)
+(src/"src/xdesx-placement.h").write_bytes((here/"placement.h").read_bytes())
 features = "COMPOSITOR EPOXY LIBSTARTUP_NOTIFICATION PRESENT_EXTENSION RANDR RENDER XI2 XRES XSYNC LIBX11"
 headers = "ERRNO FCNTL INTTYPES MATH MEMORY SIGNAL STDARG STDINT STDIO STDLIB STRINGS STRING SYS_STAT SYS_TIME SYS_TYPES SYS_WAIT TIME UNISTD WCHAR"
 defines = ["HAVE_" + f for f in features.split()] + ["HAVE_" + h + "_H" for h in headers.split()]

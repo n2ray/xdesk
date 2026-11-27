@@ -120,11 +120,16 @@ int main(int argc, char **argv) {
     Atom wm_state=XInternAtom(d,"WM_STATE",False);
     int minimized=0;
     XSelectInput(d, win, FocusChangeMask | PropertyChangeMask | StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
-    if(fixed1080){
+    uint32_t initial_aspect[2];
+    if(recv(ctrl,initial_aspect,sizeof(initial_aspect),MSG_WAITALL)!=sizeof(initial_aspect))return 1;
+    int aw=fixed1080?16:(int)ntohl(initial_aspect[0]);
+    int ah=fixed1080?9:(int)ntohl(initial_aspect[1]);
+    if(aw>0 && ah>0 && aw<=32767 && ah<=32767){
         XSizeHints hints={0};
-        hints.flags=PAspect|PResizeInc;
-        hints.min_aspect.x=hints.max_aspect.x=hints.width_inc=16;
-        hints.min_aspect.y=hints.max_aspect.y=hints.height_inc=9;
+        hints.flags=PAspect;
+        if(fixed1080){hints.flags|=PResizeInc;hints.width_inc=16;hints.height_inc=9;}
+        hints.min_aspect.x=hints.max_aspect.x=aw;
+        hints.min_aspect.y=hints.max_aspect.y=ah;
         XSetWMNormalHints(d,win,&hints);
     }
     XMapWindow(d, win);
@@ -133,7 +138,7 @@ int main(int argc, char **argv) {
     GC gc = XCreateGC(d, win, 0, NULL);
     Pixmap backing = 0;
     int bw = 0, bh = 0;
-    if (!event(ctrl, 1, w, h)) return 1;
+    int mapped=0;
     struct pollfd fds[] = {{ConnectionNumber(d), POLLIN, 0}, {listener, POLLIN, 0}, {ctrl, POLLIN, 0}};
     for (;;) {
         while (XPending(d)) {
@@ -164,7 +169,13 @@ int main(int argc, char **argv) {
                 }
                 if(data) XFree(data);
             }
-            if (e.type == ConfigureNotify && (w != e.xconfigure.width || h != e.xconfigure.height)) {
+            if (!mapped && e.type==MapNotify) {
+                XWindowAttributes attr;
+                if (!XGetWindowAttributes(d,win,&attr)) return 1;
+                w=attr.width;h=attr.height;mapped=1;
+                if (!event(ctrl,1,w,h)) return 1;
+            }
+            if (mapped && e.type == ConfigureNotify && (w != e.xconfigure.width || h != e.xconfigure.height)) {
                 w = e.xconfigure.width; h = e.xconfigure.height;
                 if (!event(ctrl, 1, w, h)) return 1;
             }
