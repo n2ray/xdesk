@@ -227,10 +227,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private boolean phoneMode, leavePhoneRequested;
     private int phoneDisplay = -1;
     private boolean screenPressed;
+    private int savedCutoutMode;
+    private void phoneCutout(boolean use) {
+        WindowManager.LayoutParams attrs=getWindow().getAttributes();
+        if (use) savedCutoutMode=attrs.layoutInDisplayCutoutMode;
+        attrs.layoutInDisplayCutoutMode=use ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS : savedCutoutMode;
+        getWindow().setAttributes(attrs);
+    }
     private void startPhoneDesktop() {
         if (external >= 0 || phoneMode || TargetDisplay.real(displays)!=null) return;
         if (injector==null) { setup(); return; }
         phoneMode=true;
+        phoneCutout(true);
         wakePhone();
         armPhoneTimeout();
         sizePhoneScreen();
@@ -256,7 +264,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         } catch (RuntimeException | RemoteException e) {
             error(e.toString());
             if (phoneDisplay>=0) endDesktop();
-            else {phoneMode=false; phoneScreen.setVisibility(View.GONE); place();}
+            else {phoneMode=false; phoneCutout(false); phoneScreen.setVisibility(View.GONE); place();}
         }
     }
     private boolean touchPhoneScreen(MotionEvent event) {
@@ -652,6 +660,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         mouse.releaseMouse();
         mouse.releasePointerCapture();
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+        if (phoneMode) phoneCutout(false);
         phoneMode=false;
         external=-1;
         desktopNative=false;
