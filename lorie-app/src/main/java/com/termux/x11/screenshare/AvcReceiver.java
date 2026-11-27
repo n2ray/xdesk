@@ -32,13 +32,28 @@ final class AvcReceiver {
     volatile HevcPicture hevc;
     /** The last packet's index, to see a packet missing between pictures too (-1: none yet). */
     private long lastIndex = -1;
-    int gaps;
+    int gaps, reordered;
+    private static final long REORDER_NS = 12_000_000L;
+    private static final int MAX_PENDING = 96;
+    private final TreeMap<Long, RunnablePacket> pending = new TreeMap<>();
+    private long gapSince;
+    private interface RunnablePacket { void deliver() throws Exception; }
+
+    private synchronized void drainPending(long now) throws Exception {
+        while (!pending.isEmpty()) {
+            long next = pending.firstKey();
+            if (next > lastIndex + 1 && pending.size() < MAX_PENDING && now - gapSince < REORDER_NS) break;
+            pending.pollFirstEntry().getValue().deliver();
+        }
+        if (pending.isEmpty()) gapSince = 0;
+    }
     AvcReceiver(byte[] seed, MediaClock clock)throws Exception{
         this.clock = clock;
         reports = new MediaClock.Reports(seed);
         stream = new SrtpStream(seed);
     }
     synchronized void restart(byte[] key,KeyframeFeedback next)throws Exception {
+        pending.clear();gapSince=0;
         stream=new SrtpStream(key); reports=new MediaClock.Reports(key);
         feedback=next;parts.clear();stamp=-1;lastIndex=-1;haveSsrc=false;
         nextRecovery=nextKeyframeAsk=0;sps=pps=null;seenTypes=0;wantKeyframe=true;
@@ -46,6 +61,7 @@ final class AvcReceiver {
     }
     synchronized void hide() {
         suspended = true;
+        pending.clear();gapSince=0;
         parts.clear();
         stamp = -1;
         lastIndex = -1;
@@ -59,6 +75,19 @@ final class AvcReceiver {
         }
         SrtpStream.Payload payload = stream.open(p, n);
         if (payload == null || suspended) return;
+        long index = payload.index;
+        if (index <= lastIndex) return;
+        if (lastIndex >= 0 && index != lastIndex + 1) {
+            if (pending.isEmpty()) gapSince = ns;
+            pending.putIfAbsent(index, () -> deliver(p, ns, payload, sink));
+        } else {
+            if (!pending.isEmpty()) reordered++;
+            deliver(p, ns, payload, sink);
+        }
+        drainPending(ns);
+    }
+
+    private void deliver(byte[] p,long ns,SrtpStream.Payload payload,Sink sink)throws Exception {
         long index = payload.index;
         byte[] pay = payload.data;
         // XDesk: a packet missing (over Tailscale or a busy Wi-Fi UDP loses some) breaks every picture after it until
@@ -198,14 +227,18 @@ final class AvcReceiver {
         boolean started=false;
         while(!reader.closed && reader.port.available() && (suspended || System.nanoTime()<end)){
             if (suspended) end = Long.MAX_VALUE;
-            Incoming p=reader.packets.poll(150,TimeUnit.MILLISECONDS);
-            if(p==null)continue;
+            long waitNs;
+            synchronized(this) {
+                waitNs=pending.isEmpty()?150_000_000L:Math.max(0,REORDER_NS-(System.nanoTime()-gapSince));
+            }
+            Incoming p=reader.packets.poll(waitNs,TimeUnit.NANOSECONDS);
+            if(p==null){drainPending(System.nanoTime());continue;}
             packet(p.data,p.data.length,p.time,sink);
             if(!started&&haveSsrc){end=seconds>0?p.time+seconds*1_000_000_000L:Long.MAX_VALUE;started=true;}
         }
         if(!parts.isEmpty())flush(sink);
         Log.i("XDeskScreenShare","DIRECT access_units="+frames+" accepted="+accepted+" incomplete="+lost+" unauthenticated="+stream.rejected
-                +" queue_drops="+reader.overflows+" descriptions="+meta+" sps="+(sps!=null)+" pps="+(pps!=null)+" idrs="+idrs+" firs="+firs+" gaps="+gaps);
+                +" queue_drops="+reader.overflows+" descriptions="+meta+" sps="+(sps!=null)+" pps="+(pps!=null)+" idrs="+idrs+" firs="+firs+" gaps="+gaps+" reordered="+reordered);
         if(frames==0)throw new IOException("no decodable direct AVC frames");
     }
 }

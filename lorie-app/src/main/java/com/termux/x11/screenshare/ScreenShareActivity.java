@@ -441,7 +441,8 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         };
         frame.addOnLayoutChangeListener((v,l,t,r,bottom,ol,ot,or,ob)->{
             fitPicture.run();
-            if(desktop && !s.host.fixed1080){
+            boolean boundsChanged=(r-l)!=(or-ol) || (bottom-t)!=(ob-ot);
+            if(boundsChanged && desktop && !s.host.fixed1080){
                 ui.removeCallbacks(resizeMode);ui.postDelayed(resizeMode,450);
             }
         });
