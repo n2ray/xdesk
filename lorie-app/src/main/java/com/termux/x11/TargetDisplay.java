@@ -13,7 +13,7 @@ import android.view.Display;
  * The car's display is the one CarActivity is on, as it reports itself: Android Auto makes a virtual display just for it
  * and its id changes on every connection.
  */
-final class TargetDisplay {
+public final class TargetDisplay {
     /** Display.TYPE_EXTERNAL, TYPE_WIFI and TYPE_OVERLAY, hidden. */
     private static final int TYPE_EXTERNAL = 2, TYPE_WIFI = 3, TYPE_OVERLAY = 4;
 
@@ -26,7 +26,7 @@ final class TargetDisplay {
     }
 
     /** The first real external display, or null. */
-    static Display real(DisplayManager dm) {
+    public static Display real(DisplayManager dm) {
         int wireless = WirelessDisplay.displayId();
         if (wireless != Display.INVALID_DISPLAY) {
             Display d = dm.getDisplay(wireless);
