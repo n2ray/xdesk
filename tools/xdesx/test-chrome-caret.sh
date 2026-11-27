@@ -4,7 +4,7 @@ set -eu
 tmp=$(mktemp -d)
 openbox >"$tmp/wm.log" 2>&1 &
 wm=$!
-python3 lorie-app/src/main/assets/linux/xdesx-accessible-caret >"$tmp/bridge.log" 2>&1 &
+/tmp/xdesx-accessible-caret >"$tmp/bridge.log" 2>&1 &
 bridge=$!
 chrome=
 trap 'kill "$bridge" "$wm" ${chrome:+"$chrome"} 2>/dev/null || :; cat "$tmp/bridge.log"' EXIT
