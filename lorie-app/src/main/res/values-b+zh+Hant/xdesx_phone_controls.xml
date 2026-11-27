@@ -5,4 +5,5 @@
     <string name="xu_pad_never">永不</string>
     <string name="xu_pad_minutes">%1$d 分鐘</string>
     <string name="xu_phone_desktop">在手機上使用桌面</string>
+    <string name="xu_leave_phone_desktop">退出手機桌面</string>
 </resources>

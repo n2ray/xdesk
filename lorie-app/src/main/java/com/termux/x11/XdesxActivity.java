@@ -135,6 +135,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     capture();
                 }
                 else if (mouse.hasPointerCapture()) mouse.releasePointerCapture();
+                if (moved && phoneMode && (leavePhoneRequested || TargetDisplay.real(displays)!=null)) place();
+                if (!moved) leavePhoneRequested=false;
             });
         },"xdesx-fullscreen").start();
     }
@@ -222,7 +224,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private int external = -1;
     private SurfaceView phoneScreen;
-    private boolean phoneMode;
+    private boolean phoneMode, leavePhoneRequested;
     private int phoneDisplay = -1;
     private boolean screenPressed;
     private void startPhoneDesktop() {
@@ -248,6 +250,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 place();
             } else {
                 injector.resizeVirtualDisplay(phoneDisplay,width,height,160,surface);
+                place();
                 applyDisplay();
             }
         } catch (RuntimeException | RemoteException e) {
@@ -288,7 +291,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if (next==null || isDestroyed()) return;
             try {
                 next.attach(fullscreenEvents,getPackageName());
-                injector=next; routeDesktop(); syncDesktopKeys();
+                injector=next; place(); routeDesktop(); syncDesktopKeys();
             } catch(RemoteException e) { error(e.toString()); }
         }
         public void onServiceDisconnected(ComponentName name) { injector = null; syncDesktopKeys(); desktopNative=false;MainActivity.xdesxHardwareCursor(false);capture(); }
@@ -406,7 +409,11 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         panel=new XdesxPanelState(this);
         controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
             public boolean canStartPhoneDesktop(){return external<0 && !phoneMode && displays!=null && TargetDisplay.real(displays)==null;}
-            public void startPhoneDesktop(){XdesxActivity.this.startPhoneDesktop();}
+            public boolean usingPhoneDesktop(){return phoneMode;}
+            public void startPhoneDesktop(){
+                if (phoneMode) {leavePhoneRequested=true; place();}
+                else XdesxActivity.this.startPhoneDesktop();
+            }
             public void keyboard(){showPhoneKeyboard();}
             public void exitFullscreen(){
                 if(fullWindow!=null) toggleWindow(fullWindow);
@@ -597,7 +604,24 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         connecting=shizuku!=null;
     }
     private void place() {
-        Display d=phoneMode ? displays.getDisplay(phoneDisplay) : TargetDisplay.real(displays);
+        if (isFinishing() || isDestroyed()) return;
+        Display wired=TargetDisplay.real(displays);
+        if ((phoneMode || phoneDisplay>=0) && (wired!=null || leavePhoneRequested)) {
+            if (switching) return;
+            if (fullWindow!=null) {toggleWindow(fullWindow);return;}
+            if (phoneDisplay>=0 && wired!=null) {
+                MainActivity host=MainActivity.getInstance("");
+                if (host==null || injector==null) return;
+                try {
+                    if (!injector.movePhoneDesktop(phoneDisplay,wired.getDisplayId(),host.getTaskId())) {
+                        Log.w("XDesX","Could not move phone desktop to "+wired.getDisplayId());
+                        return;
+                    }
+                } catch(RemoteException e){error(e.toString());return;}
+            }
+            hidePhoneDesktop(wired!=null);
+        }
+        Display d=phoneMode ? displays.getDisplay(phoneDisplay) : wired;
         if (d==null || external==d.getDisplayId()) return;
         external=d.getDisplayId();
         armPhoneTimeout();
@@ -614,12 +638,36 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         opts.setLaunchDisplayId(external);
         startActivity(new Intent(this,MainActivity.class).putExtra("xdesx_quiet",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_NO_ANIMATION),opts.toBundle());
         mouse.postDelayed(() -> {
-            if(isDestroyed() || isFinishing() || external<0) return;
+            if(isDestroyed() || isFinishing() || external!=d.getDisplayId()) return;
             ActivityOptions phone=ActivityOptions.makeBasic();
             phone.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
             startActivity(new Intent(this,XdesxActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),phone.toBundle());
             capture();
         },400);
+    }
+    private void hidePhoneDesktop(boolean moved) {
+        leavePhoneRequested=false;
+        releasePhoneKeys(-1);
+        if (screenPressed) { input.button(1,false); screenPressed=false; }
+        mouse.releaseMouse();
+        mouse.releasePointerCapture();
+        getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+        phoneMode=false;
+        external=-1;
+        desktopNative=false;
+        syncDesktopKeys();
+        MainActivity.xdesxHardwareCursor(false);
+        try {
+            if (injector!=null) injector.routeXdesxDesktop(-1);
+            phoneScreen.setVisibility(View.GONE);
+            if (moved && phoneDisplay>=0 && injector!=null) {
+                int old=phoneDisplay;
+                phoneDisplay=-1;
+                ((XdesxApp)getApplication()).phoneDesktopId=-1;
+                injector.releaseXdesxDisplay(old);
+            }
+        } catch(RemoteException e){error(e.toString());}
+        armPhoneTimeout();
     }
     private void applyDisplay() {
         Display d=displays.getDisplay(external);
@@ -907,7 +955,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private boolean routePhoneKey(KeyEvent e) {
         int scan=e.getScanCode(), action=e.getAction();
-        if (scan<=0 || e.getKeyCode()==KeyEvent.KEYCODE_BACK || XDeskActivity.mediaKey(e.getKeyCode()) ||
+        if (external<0 || scan<=0 || e.getKeyCode()==KeyEvent.KEYCODE_BACK || XDeskActivity.mediaKey(e.getKeyCode()) ||
                 (action!=KeyEvent.ACTION_DOWN && action!=KeyEvent.ACTION_UP)) return false;
         long id=((long)e.getDeviceId()<<32) | (scan & 0xffffffffL);
         if (action==KeyEvent.ACTION_UP) {

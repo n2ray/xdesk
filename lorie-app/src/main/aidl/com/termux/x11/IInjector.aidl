@@ -135,4 +135,5 @@ interface IInjector {
     boolean selectDesktopIme(String id) = 74;
     oneway void refreshWindowKeyboard() = 75;
     int startXdesxFullscreen(int window, int external, String component, in Bitmap cursor, int hotspot, int width, int height) = 76;
+    boolean movePhoneDesktop(int source, int target, int task) = 77;
 }

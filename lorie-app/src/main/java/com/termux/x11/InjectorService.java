@@ -1003,10 +1003,21 @@ public class InjectorService extends IInjector.Stub {
             return DensityOverride.scoped(display,unique,expected,target);
         }
     }
+    @Override public boolean movePhoneDesktop(int source,int target,int task) {
+        synchronized(appDisplays) {
+            VirtualDisplay phone=appDisplays.get(source);
+            if (sessionOver || phone==null || !AppDisplay.PHONE_DESKTOP.equals(phone.getDisplay().getName())
+                    || target<=0 || appDisplays.containsKey(target) || task<0 || xdesxFullscreenWindow>=0) return false;
+            return TaskMover.moveWindowTask(source,target,ownPackage,task)==task;
+        }
+    }
+
     @Override public boolean routeXdesxDesktop(int id) {
         synchronized(appDisplays) {
-            if(sessionOver || id<=0) return false;
-            if(desktopDevices!=null) return desktopTarget==id;
+            if(sessionOver || xdesxFullscreenWindow>=0) return false;
+            if(desktopDevices!=null && desktopTarget!=id) closeDesktopRoute();
+            if(id<=0) return false;
+            if(desktopDevices!=null) return true;
             try {
                 desktopDevices=new FullscreenDevices(id);
                 desktopPad=new DesktopMouse();
