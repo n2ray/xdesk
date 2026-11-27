@@ -563,6 +563,7 @@ final class BuiltinLinux {
         writeAsset("xdesk-session");
         writeAsset("xdesk-launch");
         writeAsset("xdesx-immodules.cache");
+        writeAsset("xdesx-accessible-caret");
         File module=new File(rootfs,"usr/local/lib/xdesx/im-vte-anchor.so");
         module.getParentFile().mkdirs();
         java.nio.file.Files.copy(new File(desktop,"guest/im-vte-anchor.so").toPath(),module.toPath(),

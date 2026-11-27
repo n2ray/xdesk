@@ -13,7 +13,13 @@ fi
 getent passwd xdesk >/dev/null 2>&1 || export HOME=/home/xdesk
 export XDG_RUNTIME_DIR=/tmp/runtime-xdesk
 export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
-export NO_AT_BRIDGE=1
+if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+    unset NO_AT_BRIDGE
+    export GTK_IM_MODULE_FILE=/usr/local/bin/xdesx-immodules.cache
+    export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+else
+    export NO_AT_BRIDGE=1
+fi
 # D-Bus needs a machine id; the image has none of its own
 # The system files below are written once, as root; the --user pass has their environment already (exec keeps it)
 if [ "$1" != --user ]; then
@@ -88,6 +94,10 @@ EOF
 else
     sed 's/CHROMIUM_FLAGS/CHROME_FLAGS/g' /etc/chromium.d/xdesk >/etc/xdesk/chrome.sh
 fi
+if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+    echo 'export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --force-renderer-accessibility"' >>/etc/chromium.d/xdesk
+    echo 'export CHROME_FLAGS="$CHROME_FLAGS --force-renderer-accessibility"' >>/etc/xdesk/chrome.sh
+fi
 fi
 
 # From here on as xdesk: the sound server, the launcher's server, the desktop. The environment so far goes with it
@@ -127,7 +137,9 @@ if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
     exec dbus-run-session -- sh -c '
         /bin/sh /usr/local/bin/xdesk-launch --serve &
         server=$!
-        trap "kill $server 2>/dev/null || :" EXIT
+        /usr/local/bin/xdesx-accessible-caret >/tmp/xdesx-caret.log 2>&1 &
+        bridge=$!
+        trap "kill $server $bridge 2>/dev/null || :" EXIT
         read -r stop || :
     '
 fi

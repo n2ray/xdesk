@@ -1,0 +1,164 @@
+#!/usr/bin/python3
+"""Forward the focused Linux editor's AT-SPI character geometry to the X panel."""
+import ctypes as c
+from pathlib import Path
+
+ptr, integer, xid = c.c_void_p, c.c_int, c.c_ulong
+spi = c.CDLL("libatspi.so.0")
+x11 = c.CDLL("libX11.so.6")
+glib = c.CDLL("libglib-2.0.so.0")
+gobject = c.CDLL("libgobject-2.0.so.0")
+
+
+def bind(lib, name, result, *args):
+    fn = getattr(lib, name)
+    fn.restype, fn.argtypes = result, args
+    return fn
+
+
+class Event(c.Structure):
+    _fields_ = [("kind", c.c_char_p), ("source", ptr), ("detail1", integer)]
+
+
+class Rect(c.Structure):
+    _fields_ = [(key, integer) for key in ("x", "y", "width", "height")]
+
+
+init = bind(spi, "atspi_init", integer)
+event_main = bind(spi, "atspi_event_main", None)
+text_iface = bind(spi, "atspi_accessible_get_text_iface", ptr, ptr)
+caret = bind(spi, "atspi_text_get_caret_offset", integer, ptr, ptr)
+count = bind(spi, "atspi_text_get_character_count", integer, ptr, ptr)
+extents = bind(spi, "atspi_text_get_character_extents", c.POINTER(Rect), ptr, integer, integer, ptr)
+process = bind(spi, "atspi_accessible_get_process_id", c.c_uint, ptr, ptr)
+unref = bind(gobject, "g_object_unref", None, ptr)
+free = bind(glib, "g_free", None, ptr)
+callback_type = c.CFUNCTYPE(None, c.POINTER(Event), ptr)
+listener_new = bind(spi, "atspi_event_listener_new", ptr, callback_type, ptr, ptr)
+register = bind(spi, "atspi_event_listener_register", integer, ptr, c.c_char_p, ptr)
+display = bind(x11, "XOpenDisplay", ptr, c.c_char_p)(None)
+if not display or init() != 0:
+    raise SystemExit("X display or AT-SPI unavailable")
+root = bind(x11, "XDefaultRootWindow", xid, ptr)(display)
+atom = bind(x11, "XInternAtom", xid, ptr, c.c_char_p, integer)
+active_atom, pid_atom, anchor = (atom(display, s, 0) for s in
+                                (b"_NET_ACTIVE_WINDOW", b"_NET_WM_PID", b"_XDESX_ACCESSIBLE_INSERTION_RECT"))
+get_property = bind(x11, "XGetWindowProperty", integer, ptr, xid, xid, c.c_long, c.c_long,
+                    integer, xid, c.POINTER(xid), c.POINTER(integer), c.POINTER(xid),
+                    c.POINTER(xid), c.POINTER(ptr))
+xfree = bind(x11, "XFree", integer, ptr)
+translate = bind(x11, "XTranslateCoordinates", integer, ptr, xid, xid, integer, integer,
+                 c.POINTER(integer), c.POINTER(integer), c.POINTER(xid))
+change = bind(x11, "XChangeProperty", integer, ptr, xid, xid, xid, integer, integer, ptr, integer)
+delete = bind(x11, "XDeleteProperty", integer, ptr, xid, xid)
+flush = bind(x11, "XFlush", integer, ptr)
+# Windows may be destroyed between the active-window lookup and the property write.
+error_type = c.CFUNCTYPE(integer, ptr, ptr)
+ignore_x_error = error_type(lambda *_: 0)
+bind(x11, "XSetErrorHandler", ptr, error_type)(ignore_x_error)
+owner = 0
+editor = None
+ref = bind(gobject, "g_object_ref", ptr, ptr)
+
+
+def prop(win, key, expected):
+    typ, fmt, n, tail, data = xid(), integer(), xid(), xid(), ptr()
+    get_property(display, win, key, 0, 1, 0, expected, c.byref(typ), c.byref(fmt),
+                 c.byref(n), c.byref(tail), c.byref(data))
+    try:
+        if typ.value == expected and fmt.value == 32 and n.value == 1 and data:
+            return c.cast(data, c.POINTER(xid))[0]
+        return 0
+    finally:
+        if data:
+            xfree(data)
+
+
+def belongs(pid, window_pid):
+    # Chromium can export a document from a renderer process.
+    while pid > 1 and window_pid:
+        if pid == window_pid:
+            return True
+        try:
+            pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return False
+
+
+def clear():
+    global owner, editor
+    if owner:
+        delete(display, owner, anchor)
+        flush(display)
+        owner = 0
+    if editor:
+        unref(editor)
+        editor = None
+
+
+def report(source):
+    win = prop(root, active_atom, 33)  # XA_WINDOW
+    if not win or not belongs(process(source, None), prop(win, pid_atom, 6)):
+        return False
+    text = text_iface(source)
+    if not text:
+        return False
+    try:
+        offset, length = caret(text, None), count(text, None)
+        if not 0 <= offset <= length:
+            return False
+        # Ask for the insertion offset itself first. Some providers expose only
+        # characters, so the trailing edge is the best available end position.
+        for index in dict.fromkeys((offset, max(0, min(offset, length - 1)))):
+            rect = extents(text, index, 0, None)  # screen coordinates
+            if not rect:
+                continue
+            try:
+                r = rect.contents
+                if not 0 < r.height <= 8192 or abs(r.x) > 65535 or abs(r.y) > 65535:
+                    continue
+                x, y, child = integer(), integer(), xid()
+                if not translate(display, root, win, r.x + (r.width if index != offset else 0),
+                                 r.y, c.byref(x), c.byref(y), c.byref(child)):
+                    continue
+                if x.value < 0 or y.value < 0:
+                    continue
+                global owner, editor
+                if owner != win or editor != source:
+                    clear()
+                    owner, editor = win, ref(source)
+                pos = (c.c_long * 3)(x.value, y.value, r.height)
+                change(display, win, anchor, 19, 32, 0, pos, 3)  # XA_INTEGER
+                flush(display)
+                return True
+            finally:
+                free(rect)
+    finally:
+        unref(text)
+    return False
+
+
+@callback_type
+def on_event(pointer, unused):
+    e = pointer.contents
+    try:
+        if e.kind.startswith(b"object:state-changed:focused"):
+            if e.detail1:
+                clear()
+                report(e.source)
+            elif editor == e.source:
+                clear()
+        elif not report(e.source) and editor == e.source:
+            clear()
+    finally:
+        release_event(event_type(), pointer)
+
+
+event_type = bind(spi, "atspi_event_get_type", c.c_size_t)
+release_event = bind(gobject, "g_boxed_free", None, c.c_size_t, ptr)
+listener = listener_new(on_event, None, None)
+for kind in (b"object:state-changed:focused", b"object:text-caret-moved"):
+    if not register(listener, kind, None):
+        raise SystemExit("Cannot subscribe to AT-SPI focus/caret events")
+event_main()

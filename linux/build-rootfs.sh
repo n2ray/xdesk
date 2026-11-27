@@ -45,7 +45,7 @@ fi
 apt-get update
 # Greybird and elementary-xfce: the theme and icons XFCE's own settings name (without them it falls back to bare GTK)
 if [ "${XDESX_APPS_ONLY:-0}" = 1 ]; then
-    apt-get install -y --no-install-recommends xterm mousepad
+    apt-get install -y --no-install-recommends xterm mousepad python3-minimal
 else
     apt-get install -y --no-install-recommends /tmp/debs/xfwm4_*_arm64.deb xfce4 xfce4-terminal xfce4-notifyd xfce4-taskmanager mousepad ristretto thunar greybird-gtk-theme elementary-xfce-icon-theme tango-icon-theme
 fi

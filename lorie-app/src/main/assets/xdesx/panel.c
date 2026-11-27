@@ -35,7 +35,7 @@ typedef struct {
     int cursor_event;
     int scale, render, return_sequence;
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
-    Atom anchor_atom;
+    Atom anchor_atom, accessible_anchor_atom;
     int anchor_x,anchor_y,anchor_h;
     guint anchor_idle;
     guint tasks_idle;
@@ -339,6 +339,7 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_container_add(GTK_CONTAINER(plugin),bar);
     xfce_panel_plugin_set_expand(plugin,TRUE);
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
+    p->accessible_anchor_atom=XInternAtom(GDK_DISPLAY_XDISPLAY(gdk_display_get_default()),"_XDESX_ACCESSIBLE_INSERTION_RECT",False);
     p->anchor_atom=XInternAtom(GDK_DISPLAY_XDISPLAY(gdk_display_get_default()),"_XDESX_INSERTION_RECT",False);
     gdk_window_add_filter(NULL,anchor_event,p);
     queue_anchor(p);

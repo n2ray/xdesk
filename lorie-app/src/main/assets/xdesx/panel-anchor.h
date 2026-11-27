@@ -11,13 +11,16 @@ static gboolean publish_anchor(gpointer data) {
         Window id=wnck_window_get_xid(w), child;
         Atom type; int format; unsigned long n, remaining; unsigned char *bytes=NULL;
         gdk_x11_display_error_trap_push(gd);
-        if (XGetWindowProperty(d,id,p->anchor_atom,0,3,False,XA_INTEGER,&type,&format,&n,&remaining,&bytes)==Success &&
-                type==XA_INTEGER && format==32 && n==3 && !remaining) {
-            long *a=(long *)bytes;
-            if (a[2]>0 && a[2]<=8192 && XTranslateCoordinates(d,id,DefaultRootWindow(d),a[0],a[1],&x,&y,&child))
-                h=a[2];
+        Atom sources[]={p->anchor_atom,p->accessible_anchor_atom};
+        for (unsigned i=0;i<G_N_ELEMENTS(sources) && !h;++i) {
+            if (XGetWindowProperty(d,id,sources[i],0,3,False,XA_INTEGER,&type,&format,&n,&remaining,&bytes)==Success &&
+                    type==XA_INTEGER && format==32 && n==3 && !remaining) {
+                long *a=(long *)bytes;
+                if (a[2]>0 && a[2]<=8192 && XTranslateCoordinates(d,id,DefaultRootWindow(d),a[0],a[1],&x,&y,&child))
+                    h=a[2];
+            }
+            if (bytes) { XFree(bytes); bytes=NULL; }
         }
-        if (bytes) XFree(bytes);
         if (gdk_x11_display_error_trap_pop(gd)) h=0;
     }
     if (!h) x=y=0;
@@ -36,7 +39,7 @@ static void anchor_geometry(WnckWindow *w,Panel *p) {
 }
 static GdkFilterReturn anchor_event(GdkXEvent *raw,GdkEvent *unused,gpointer data) {
     XEvent *e=raw; Panel *p=data;
-    if (e->type==PropertyNotify && e->xproperty.atom==p->anchor_atom) {
+    if (e->type==PropertyNotify && (e->xproperty.atom==p->anchor_atom || e->xproperty.atom==p->accessible_anchor_atom)) {
         WnckWindow *w=wnck_screen_get_active_window(p->screen);
         if (w && e->xproperty.window==wnck_window_get_xid(w)) queue_anchor(p);
     }
