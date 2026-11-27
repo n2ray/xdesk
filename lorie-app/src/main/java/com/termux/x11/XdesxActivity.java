@@ -623,6 +623,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (d==null) return;
         android.graphics.Point px=new android.graphics.Point();
         d.getRealSize(px);
+        // VirtualDisplay.resize posts a display notification asynchronously. Its old dimensions
+        // can still be visible here, especially on rotation. The surface is already laid out.
+        if (phoneMode && phoneScreen.getWidth()>0 && phoneScreen.getHeight()>0)
+            px.set(phoneScreen.getWidth(),phoneScreen.getHeight());
         Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
         int w=Math.max(1,Math.round(px.x*panel.render/100f)), h=Math.max(1,Math.round(px.y*panel.render/100f));
         prefs.displayResolutionMode.put("custom");
