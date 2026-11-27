@@ -531,6 +531,7 @@ public class InjectorService extends IInjector.Stub {
             l.asBinder().linkToDeath(() -> {
                 synchronized(appDisplays) {
                     if (xdesxFullscreenWindow>=0) closeXdesxFullscreen();
+                    closeReturnedHdmiLaunches();
                     closeDesktopRoute();
                 }
                 boolean wasOver = sessionOver;
@@ -830,8 +831,12 @@ public class InjectorService extends IInjector.Stub {
             }
             int id = d.getDisplay().getDisplayId();
             appDisplays.put(id, d);
-            if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName()))
+            if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName())) {
+                String component = name.substring("XDesX ".length());
+                int profile = component.lastIndexOf('@');
+                windowRecents.begin(id, component.split("/", 2)[0], profile < 0 ? "current" : component.substring(profile + 1));
                 imes.windowKeyboard(id,ImePlacement.hasPhysicalKeyboard());
+            }
             Log.i(TAG, "display " + id + " made, " + width + "x" + height + " " + dpi + " dpi");
             return id;
         }
@@ -1131,6 +1136,14 @@ public class InjectorService extends IInjector.Stub {
     private int ownedFullscreenTask=-1, ownedFullscreenUser=-1;
     private String ownedFullscreenPackage;
     private HdmiLaunch hdmiLaunch;
+    // The activity can finish on its private display and leave a detached recent entry afterwards.
+    private final HashMap<Integer,HdmiLaunch> returnedHdmiLaunches=new HashMap<>();
+
+    private void closeReturnedHdmiLaunches() {
+        for (HdmiLaunch returned:returnedHdmiLaunches.values()) returned.closeExcept(-1);
+        returnedHdmiLaunches.clear();
+    }
+
     private void closeXdesxFullscreen() {
         if (hdmiLaunch!=null) {
             hdmiLaunch.activeTask();
@@ -1265,7 +1278,10 @@ public class InjectorService extends IInjector.Stub {
                 fullscreenMouse.start();
                 watchChromeCursor(pkg,external,mouse);
             } else if (moved >= 0) {
-                if (hdmiLaunch!=null) hdmiLaunch.closeExcept(moved);
+                if (hdmiLaunch!=null) {
+                    hdmiLaunch.closeExcept(moved);
+                    returnedHdmiLaunches.put(window,hdmiLaunch);
+                }
                 xdesxTasks.fullscreen(window, -1, -1,null);
                 leaveXdesxFullscreen();
                 if (pkg.equals(ownPackage))
@@ -1346,6 +1362,8 @@ public class InjectorService extends IInjector.Stub {
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
             if (id == xdesxFullscreenWindow) closeXdesxFullscreen();
+            HdmiLaunch returned=returnedHdmiLaunches.remove(id);
+            if (returned!=null) returned.closeExcept(-1);
             releaseWindowInput(id);
             windowRecents.close(id);
             xdesxTasks.remove(id);
@@ -1371,6 +1389,7 @@ public class InjectorService extends IInjector.Stub {
     private void releaseDisplays() {
         synchronized (appDisplays) {
             if (xdesxFullscreenWindow >= 0) closeXdesxFullscreen();
+            closeReturnedHdmiLaunches();
             closeDesktopRoute();
             xdesxTasks.clear();
             xdesxEditor = -1;
@@ -1422,7 +1441,6 @@ public class InjectorService extends IInjector.Stub {
             VirtualDisplay d = appDisplays.get(displayId);
             desktopWindow = d != null && d.getDisplay().getName().startsWith("XDesX ");
         }
-        if (desktopWindow) windowRecents.begin(displayId, component.split("/",2)[0], user);
         int launchFlags = desktopWindow
                 ? Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_NO_ANIMATION | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS

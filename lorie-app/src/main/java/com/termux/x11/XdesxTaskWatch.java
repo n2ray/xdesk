@@ -35,6 +35,7 @@ final class XdesxTaskWatch {
 
     synchronized void add(int display,IXdesxWindowListener callback) {
         windows.put(display,callback);
+        if (display==nativeWindow && direct!=null) handler.post(check);
         if (listener!=null) return;
         try {
             atm=TaskMover.taskManager();
@@ -108,6 +109,7 @@ final class XdesxTaskWatch {
         if (windows.isEmpty()) clear();
     }
     synchronized void clear() {
+        fullscreen(-1,-1,-1,null);
         windows.clear();
         handler.removeCallbacks(check);
         if (listener==null) return;
