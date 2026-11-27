@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run under dbus-run-session and Xvfb. Exercise the same fallback the guest uses.
 set -eu
-export XDESX_CARET_TRACE=1
+export XDESX_CARET_TRACE=1 ACCESSIBILITY_ENABLED=1
 tmp=$(mktemp -d)
 openbox >"$tmp/wm.log" 2>&1 &
 wm=$!

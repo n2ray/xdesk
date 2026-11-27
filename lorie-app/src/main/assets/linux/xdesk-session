@@ -16,7 +16,7 @@ export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
 if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
     unset NO_AT_BRIDGE
     export GTK_IM_MODULE_FILE=/usr/local/bin/xdesx-immodules.cache
-    export QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
+    export ACCESSIBILITY_ENABLED=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1
 else
     export NO_AT_BRIDGE=1
 fi
