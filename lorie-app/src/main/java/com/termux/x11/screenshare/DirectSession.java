@@ -31,6 +31,7 @@ final class DirectSession implements Closeable {
     int width,height,pointsW,pointsH;
     /** The codec this connection asks for (ScreenShareSession); configuringMedia: past the login, the media is next. */
     boolean hevc;
+    private final int maxDisplayWidth, maxDisplayHeight;
     volatile boolean configuringMedia;
     Cipher pointerCipher;
     KeyframeFeedback feedback;
@@ -56,15 +57,29 @@ final class DirectSession implements Closeable {
         byte[] d=Arrays.copyOf(asset("display"),12+156+28);
         ByteBuffer buf=ByteBuffer.wrap(d);buf.putShort(2,(short)(d.length-4));
         buf.putShort(12,(short)(d.length-12));buf.putShort(12+154,(short)1);
-        buf.putInt(12+138,width);buf.putInt(12+142,height);
+        buf.putInt(12+138,maxDisplayWidth);buf.putInt(12+142,maxDisplayHeight);
         // The template's 344×194 mm panel in this picture's proportions (same area), so no pixel is taken as oblong
         double area=344.0*194.0, ratio=(double)width/height;
         buf.putFloat(12+0x82,(float)Math.sqrt(area*ratio));buf.putFloat(12+0x86,(float)Math.sqrt(area/ratio));
         buf.position(12+156);buf.putInt(width).putInt(height).putInt(pointsW).putInt(pointsH);
         return d;
     }
-    DirectSession(android.content.Context context,String h,int w,int sizeY,int dw,int dh)throws Exception {
+    DirectSession(android.content.Context context,String h,int w,int sizeY,int dw,int dh,boolean dynamic)throws Exception {
         assets=context.getAssets();width=w;height=sizeY;pointsW=dw;pointsH=dh; host=InetAddress.getByName(h);
+        int maxW=w,maxH=sizeY;
+        if(dynamic) {
+            // These fields describe the panel created at login, not just its first mode.
+            // Use the HDMI orientation rather than that of the initial X window.
+            android.hardware.display.DisplayManager dm=context.getSystemService(android.hardware.display.DisplayManager.class);
+            android.view.Display display=com.termux.x11.TargetDisplay.real(dm);
+            android.graphics.Point out=new android.graphics.Point();
+            if(display!=null)display.getRealSize(out);
+            boolean portrait=out.y>out.x;
+            maxW=Math.max(w,portrait?ScreenShareSizing.MAC_SHORT:ScreenShareSizing.MAC_LONG);
+            maxH=Math.max(sizeY,portrait?ScreenShareSizing.MAC_LONG:ScreenShareSizing.MAC_SHORT);
+        }
+        maxDisplayWidth=maxW;maxDisplayHeight=maxH;
+        Log.i("XDeskScreenShare","Virtual display limit "+maxW+"x"+maxH+" initial "+w+"x"+sizeY);
         audio=MacMediaPort.open(5900,host);
         try {video=MacMediaPort.open(5901,host);}catch(Exception e){audio.close();throw e;}
         soundReceiver = new AudioReceiver(context, audio, host, clock);

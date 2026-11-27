@@ -566,7 +566,7 @@ public final class ScreenShareSession {
     private void connect(char[] password) throws Exception {
         final int my = ++attempt;
         mediaFailed = false;
-        try (DirectSession d = new DirectSession(context, host.host, width, height, sizing.desktopW, sizing.desktopH)) {
+        try (DirectSession d = new DirectSession(context, host.host, width, height, sizing.desktopW, sizing.desktopH, !host.fixed1080)) {
             if (closed) return;
             d.cursorChanged = shape -> ui.post(() -> {
                 if (closed || my != attempt) return;
