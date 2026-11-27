@@ -191,13 +191,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public void onInputDeviceAdded(int id) {
         if (externalKeyboard(id) && keyboards.add(id) && injector!=null) {
-            try { injector.xdesxRestorePhoneIme(); }
+            try { injector.xdesxRestorePhoneIme(); injector.refreshWindowKeyboard(); }
             catch (RemoteException e) { Log.w("XDesX","restore external IME",e); }
         }
     }
-    @Override public void onInputDeviceRemoved(int id) { keyboards.remove(id); releasePhoneKeys(id); }
+    @Override public void onInputDeviceRemoved(int id) {
+        if (keyboards.remove(id) && injector!=null) {
+            try { injector.refreshWindowKeyboard(); } catch(RemoteException e) { Log.w("XDesX","keyboard removal",e); }
+        }
+        releasePhoneKeys(id);
+    }
     @Override public void onInputDeviceChanged(int id) {
-        if (externalKeyboard(id)) onInputDeviceAdded(id); else keyboards.remove(id);
+        if (externalKeyboard(id)) onInputDeviceAdded(id); else onInputDeviceRemoved(id);
     }
     private int external = -1;
     private IInjector injector;

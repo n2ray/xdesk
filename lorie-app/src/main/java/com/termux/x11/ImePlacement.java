@@ -40,8 +40,15 @@ final class ImePlacement {
 
     /** Keep the focused editor as Android's IME client. Only move where its IME is drawn. */
     synchronized boolean target(int display, boolean phone) {
+        return apply(display, phone ? 1 : LOCAL);
+    }
+
+    synchronized boolean windowKeyboard(int display, boolean hardware) {
+        return apply(display, hardware ? LOCAL : 2); // DISPLAY_IME_POLICY_HIDE until the phone keyboard is requested
+    }
+
+    private boolean apply(int display, int desired) {
         if (display <= android.view.Display.DEFAULT_DISPLAY) return false;
-        int desired = phone ? 1 : LOCAL; // DISPLAY_IME_POLICY_FALLBACK_DISPLAY
         try {
             Object wm = DensityOverride.windowManager();
             int current = get(wm, display);

@@ -828,7 +828,7 @@ public class InjectorService extends IInjector.Stub {
             int id = d.getDisplay().getDisplayId();
             appDisplays.put(id, d);
             if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName()))
-                imes.place(id, true);
+                imes.windowKeyboard(id,ImePlacement.hasPhysicalKeyboard());
             Log.i(TAG, "display " + id + " made, " + width + "x" + height + " " + dpi + " dpi");
             return id;
         }
@@ -911,7 +911,9 @@ public class InjectorService extends IInjector.Stub {
 
     private boolean restorePhoneIme() {
         if (phoneImeDisplay < 0) return true;
-        if (!imes.target(phoneImeDisplay,false)) return false;
+        boolean restored=phoneImeDisplay==xdesxNativeDisplay ? imes.target(phoneImeDisplay,false) :
+                imes.windowKeyboard(phoneImeDisplay,ImePlacement.hasPhysicalKeyboard());
+        if (!restored) return false;
         phoneImeDisplay = -1;
         return true;
     }
@@ -1208,6 +1210,7 @@ public class InjectorService extends IInjector.Stub {
                 restorePhoneIme();
                 if (xdesxEditor != window) releaseWindowInput(xdesxEditor);
                 releaseWindowInput(window);
+                if (desktopDevices!=null) desktopDevices.keyboardEditor(-1);
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
                 xdesxTasks.fullscreen(window, external, moved);
@@ -1259,6 +1262,20 @@ public class InjectorService extends IInjector.Stub {
 
     // Guarded by appDisplays; ignore a late FocusOut from the previous X window.
     private int xdesxEditor = -1;
+    @Override public void refreshWindowKeyboard() {
+        post(() -> {
+            synchronized (appDisplays) {
+                boolean hardware=ImePlacement.hasPhysicalKeyboard();
+                for (VirtualDisplay vd:appDisplays.values()) {
+                    android.view.Display display=vd.getDisplay();
+                    if (display!=null && display.getDisplayId()!=phoneImeDisplay && display.getName().startsWith("XDesX ")
+                            && !display.getName().endsWith("/"+XdesxMacActivity.class.getName()))
+                        imes.windowKeyboard(display.getDisplayId(),hardware);
+                }
+            }
+        });
+    }
+
     @Override public void xdesxWindowFocus(int id, boolean focused) {
         post(() -> {
             synchronized (appDisplays) {
@@ -1269,9 +1286,14 @@ public class InjectorService extends IInjector.Stub {
                         releaseWindowInput(xdesxEditor);
                         Log.i(TAG, "X editor focus: display " + id);
                     }
+                    if (desktopDevices!=null) {
+                        boolean mac=appDisplays.get(id).getDisplay().getName().endsWith("/"+XdesxMacActivity.class.getName());
+                        desktopDevices.keyboardEditor(mac?-1:id);
+                    }
                     xdesxEditor = id;
                     injector.focus(id);
                 } else if (xdesxEditor == id) {
+                    if (desktopDevices!=null) desktopDevices.keyboardEditor(-1);
                     xdesxEditor = -1;
                     restorePhoneIme();
                     releaseWindowInput(id);
@@ -1291,6 +1313,7 @@ public class InjectorService extends IInjector.Stub {
                 if (phoneImeDisplay == id) phoneImeDisplay = -1;
                 imes.place(id, false);
                 if (xdesxEditor == id) {
+                    if (desktopDevices!=null) desktopDevices.keyboardEditor(-1);
                     xdesxEditor = -1;
                     post(() -> {
                         synchronized (appDisplays) {

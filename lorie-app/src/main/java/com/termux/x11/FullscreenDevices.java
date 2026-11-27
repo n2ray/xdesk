@@ -29,6 +29,8 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
     private final Method add, remove;
     private final String target;
     private boolean closed;
+    private String editorDisplay;
+    private final Map<String,String> assigned = new HashMap<>();
 
     FullscreenDevices(int displayId) throws Exception {
         Context context = AppDisplay.shellContext();
@@ -69,6 +71,19 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
         return routes;
     }
 
+    synchronized void keyboardEditor(int id) {
+        if (closed) return;
+        Display editor=id>0?displays.getDisplay(id):null;
+        try {
+            String next=editor==null?null:(String)uniqueId.invoke(editor);
+            if (java.util.Objects.equals(next,editorDisplay)) return;
+            editorDisplay=next;
+            for (int device:inputs.getInputDeviceIds()) route(device);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w("XDesX","window keyboard association",e);
+        }
+    }
+
     private synchronized void route(int id) throws ReflectiveOperationException {
         if (closed) return;
         InputDevice d = inputs.getInputDevice(id);
@@ -76,12 +91,21 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
             !(d.supportsSource(InputDevice.SOURCE_MOUSE) || d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE) ||
               d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC)) return;
         String descriptor = d.getDescriptor();
-        if (descriptor == null || previous.containsKey(descriptor) || target.equals(initial.get(descriptor))) return;
-        int beforeId = (int) associatedId.invoke(d);
-        Display before = displays.getDisplay(beforeId >= 0 ? beforeId : Display.DEFAULT_DISPLAY);
-        if (before != null) returnDisplay.put(descriptor, (String) uniqueId.invoke(before));
-        add.invoke(service, descriptor, target);
-        previous.put(descriptor, initial.get(descriptor));
+        if (descriptor == null || UhidKeyboard.NAME.equals(d.getName())) return;
+        // A composite mouse/keyboard must keep its pointer on HDMI.
+        boolean keyboard = d.getKeyboardType()==InputDevice.KEYBOARD_TYPE_ALPHABETIC &&
+                !d.supportsSource(InputDevice.SOURCE_MOUSE) && !d.supportsSource(InputDevice.SOURCE_MOUSE_RELATIVE) &&
+                !d.supportsSource(InputDevice.SOURCE_TOUCHPAD);
+        String destination = keyboard && editorDisplay!=null ? editorDisplay : target;
+        if (destination.equals(assigned.getOrDefault(descriptor,initial.get(descriptor)))) return;
+        if (!previous.containsKey(descriptor)) {
+            int beforeId = (int) associatedId.invoke(d);
+            Display before = displays.getDisplay(beforeId >= 0 ? beforeId : Display.DEFAULT_DISPLAY);
+            if (before != null) returnDisplay.put(descriptor, (String) uniqueId.invoke(before));
+        }
+        add.invoke(service, descriptor, destination);
+        if (!previous.containsKey(descriptor)) previous.put(descriptor, initial.get(descriptor));
+        assigned.put(descriptor,destination);
     }
 
     public void onInputDeviceAdded(int id) { onInputDeviceChanged(id); }
@@ -118,7 +142,7 @@ final class FullscreenDevices implements InputManager.InputDeviceListener, Displ
         Map<String,String> current=null;
         try { current=associations(); } catch(RuntimeException e) { Log.w("XDesX","read routes on exit",e); }
         for (Map.Entry<String,String> old : previous.entrySet()) {
-            if(current!=null && !target.equals(current.get(old.getKey()))) continue;
+            if(current!=null && !java.util.Objects.equals(assigned.get(old.getKey()),current.get(old.getKey()))) continue;
             try {
                 if (old.getValue() == null) {
                     // Some InputReader versions retain the last viewport after removing the mapping.
