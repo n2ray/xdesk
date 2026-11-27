@@ -32,8 +32,9 @@ jobs:
         if ! git submodule update --init --recursive --jobs 8 --depth 1; then
           # The gitlink still pins the exact upstream object when freedesktop's Pixman host is unavailable.
           git config submodule.app/src/main/cpp/pixman.url https://github.com/NoMercy-CI-Mirrors/pixman.git
-          git submodule update --init --recursive --jobs 8 --depth 1
+          git submodule update --init --checkout --force --recursive --jobs 8 --depth 1
         fi
+        test -f lorie/src/main/cpp/xorgproto/include/X11/Xpoll.h.in
     # Protocol v3 service paired with the built-in image.
     - uses: actions/checkout@v7
       with:
