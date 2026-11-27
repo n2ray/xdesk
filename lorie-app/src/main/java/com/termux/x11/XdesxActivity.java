@@ -165,7 +165,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         try {
             if (fullWindow==null && !switching) HdmiScale.restore(this,injector,external);
             desktopNative=injector.routeXdesxDesktop(external);
-            MainActivity.xdesxHardwareCursor(desktopNative);
+            MainActivity.xdesxHardwareCursor(desktopNative && !phoneMode);
             if(desktopNative && mouse.hasPointerCapture()) mouse.releasePointerCapture();
         } catch(RemoteException e){error(e.toString());}
     }
@@ -184,6 +184,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
 
     private boolean nativeInput(int op,float x,float y) {
         if (switching || gamePassthrough) return true;
+        // Both halves of the phone must operate the same X pointer. The HDMI mouse seat
+        // owns its own absolute position and would jump on the first touchpad click.
+        if (phoneMode && fullWindow==null && op>=1 && op<=3) return false;
         if(desktopNative && op>=1 && op<=3 && injector!=null) {
             try {injector.desktopMouse(op,x,y);} catch(RemoteException e){error(e.toString());}
             return true;
@@ -366,7 +369,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             }
             public void button(int b,boolean down) { if (!padInput(2,b,down?1:0)) input.button(b,down); }
             public void scroll(int phase,float x,float y) { float sign=panel!=null && panel.reverse?-1:1; if (!padInput(3,x*sign,y*sign)) input.scrollFine(y*sign,x*sign,phase); }
-        }, () -> desktopNative && injector != null && fullWindow == null);
+        }, () -> !phoneMode && desktopNative && injector != null && fullWindow == null);
         column.addView(pad,new android.widget.LinearLayout.LayoutParams(-1,0,1));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
