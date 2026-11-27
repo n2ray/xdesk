@@ -143,9 +143,12 @@ final class DirectSession implements Closeable {
     }
 
     // These controls run on ScreenShareSession's serial input executor.
-    void resize(ScreenShareSizing size,AvcReceiver receiver)throws Exception {
+    void resizeDisplay(ScreenShareSizing size)throws Exception {
         width=size.videoW;height=size.videoH;pointsW=size.desktopW;pointsH=size.desktopH;
         records.send(displayConfig());
+    }
+
+    void resumeMedia(AvcReceiver receiver)throws Exception {
         byte[] key=random(46);
         try {
             synchronized(receiver) {

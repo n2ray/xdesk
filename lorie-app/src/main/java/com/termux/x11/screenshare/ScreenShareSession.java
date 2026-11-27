@@ -64,6 +64,7 @@ public final class ScreenShareSession {
     /** 桌面缩放: the screen, the Mac's desktop (points) and the video this session asked for. */
     public volatile ScreenShareSizing sizing;
     private ScreenShareSizing pendingSize, lastRenderedSize;
+    private volatile int modeGeneration;
     /** The picture's size as the decoder found it in the stream (0 until then): the Mac may give another than asked. */
     public volatile int actualW, actualH;
     private final Context context;
@@ -201,10 +202,15 @@ public final class ScreenShareSession {
 
     private void changeMode(ScreenShareSizing next){
         sizing=next;width=next.videoW;height=next.videoH;
+        int generation=++modeGeneration;
         send(d->{
-            if(sizing!=next)return;
-            AvcReceiver r=receiver;
-            if(r!=null)d.resize(next,r);
+            if(modeGeneration!=generation)return;
+            d.resizeDisplay(next);
+            // The Mac replaces its virtual display asynchronously. Give its media endpoints
+            // time to restart before offering the new keys, without blocking keyboard input.
+            ui.postDelayed(()->send(current->{
+                if(current==d && generation==modeGeneration && receiver!=null)current.resumeMedia(receiver);
+            }),500);
         });
         if(surface!=null && shown!=null){shown.modeChanged();attach(surface,shown);}
         Log.i(TAG,"WINDOW_MODE "+next);
@@ -429,7 +435,14 @@ public final class ScreenShareSession {
                 synchronized (ScreenShareSession.this) {
                     if (firstFrameTimer != this || codec != c || closed || pictureHidden || pictureSeen || my != attempt) return;
                     if (anyPicture && retries++ < 2) {
-                        send(d -> { if (!pictureHidden) d.showPicture(receiver); });
+                        boolean renew = retries == 2;
+                        send(d -> {
+                            synchronized (ScreenShareSession.this) {
+                                if (pictureHidden || pictureSeen || codec != c || receiver == null) return;
+                            }
+                            if (renew) d.resumeMedia(receiver);
+                            else d.showPicture(receiver);
+                        });
                         ui.postDelayed(this, 1300);
                         return;
                     }
