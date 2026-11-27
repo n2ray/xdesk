@@ -229,7 +229,11 @@ int main(int argc, char **argv) {
         hints.min_aspect.y=hints.max_aspect.y=ah;
         XSetWMNormalHints(d,win,&hints);
     }
-    XMapWindow(d, win);
+    // Reserve the X identity, but let xfwm4 place the window only when first shown.
+    int awaiting_return=fullscreen;
+    if (awaiting_return) {
+        if (!event(ctrl,1,w,h)) return 1;
+    } else XMapWindow(d, win);
     XFlush(d);
     xcb_connection_t *conn = XGetXCBConnection(d);
     GC gc = XCreateGC(d, win, 0, NULL);
@@ -303,6 +307,14 @@ int main(int argc, char **argv) {
             uint32_t aspect[2];
             if (recv(ctrl, aspect, sizeof(aspect), MSG_WAITALL) != sizeof(aspect)) return 0;
             int aw = ntohl(aspect[0]), ah = ntohl(aspect[1]);
+            if (aw == -1 && ah == 0) {
+                if (awaiting_return) {
+                    awaiting_return=0;
+                    XMapWindow(d,win);
+                    XFlush(d);
+                }
+                continue;
+            }
             if (aw > 0 && aw < ah && ah <= 32767) {
                 XSizeHints hints = {0};
                 hints.flags = PAspect;

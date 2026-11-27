@@ -33,10 +33,18 @@ final class XdesxWindow {
     private int task=-1, densityTarget=-1;
     private volatile boolean hdmiFirst;
     boolean awaitingHdmi() { return hdmiFirst; }
+    private boolean awaitingMap;
+    private synchronized void showReturnWindow() {
+        if (!awaitingMap || stopped) return;
+        try {
+            sendAspect(-1,0); // Reveal the previously unmapped X window.
+            awaitingMap=false;
+        } catch (Exception e) { Log.w("XDesX","show return window",e); stop(); }
+    }
     void cancelInitialFullscreen() {
         if (!hdmiFirst) return;
         hdmiFirst=false;
-        if (mac()) XdesxMacActivity.openOnDisplay(key,display);
+        if (mac()) { showReturnWindow(); XdesxMacActivity.openOnDisplay(key,display); }
         else stop();
     }
     boolean mac() { return component.endsWith("/"+XdesxMacActivity.class.getName()); }
@@ -67,6 +75,7 @@ final class XdesxWindow {
             task=moved;
             nativeFullscreen=enter;
             didMove=true;
+            if (!enter) showReturnWindow();
             if (hdmiFirst) {
                 hdmiFirst=false;
                 if (mac()) XdesxMacActivity.openOnDisplay(key,external);
@@ -92,6 +101,7 @@ final class XdesxWindow {
     XdesxWindow(android.content.Context context,ICmdEntryInterface s,IInjector i,String k,String c,Runnable fs,Runnable f) {
         this.context=context; server=s; injector=i; key=k;
         hdmiFirst=c.startsWith("hdmi:");
+        awaitingMap=hdmiFirst;
         if (hdmiFirst) c=c.substring(5);
         int marker=c.indexOf('#');
         component=marker<0?c:c.substring(0,marker);
@@ -181,7 +191,7 @@ final class XdesxWindow {
         ImageReader next=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3,HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE);
         try {
             if (display<0) {
-                Log.i("XDesX","first mapped content "+component+" "+w+"x"+h);
+                Log.i("XDesX",(hdmiFirst?"reserved return window ":"first mapped content ")+component+" "+w+"x"+h);
                 display=injector.createVirtualDisplay("XDesX "+component,w,h,dpi,next.getSurface(),0);
                 if (mac()) {
                     android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
@@ -249,7 +259,7 @@ final class XdesxWindow {
         } catch (Exception e) { if (!stopped) Log.w("XDesX", "portrait layout", e); }
     }
 
-    private void sendAspect(int width,int height) throws android.system.ErrnoException, java.io.InterruptedIOException {
+    private synchronized void sendAspect(int width,int height) throws android.system.ErrnoException, java.io.InterruptedIOException {
         byte[] hint=java.nio.ByteBuffer.allocate(8).putInt(width).putInt(height).array();
         int sent=0;
         while(sent<hint.length)sent+=Os.write(control.getFileDescriptor(),hint,sent,hint.length-sent);
