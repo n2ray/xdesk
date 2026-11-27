@@ -50,7 +50,10 @@ final class AppDisplay {
         }
         if (name.startsWith("XDesX ")) f |= FLAG_DESTROY_CONTENT_ON_REMOVAL;
         if (name.startsWith("XDesX ") && Build.VERSION.SDK_INT >= 34) {
-            f |= (1 << 14) | (1 << 16); // OWN_FOCUS and STEAL_TOP_FOCUS_DISABLED
+            f |= 1 << 14; // OWN_FOCUS
+            // A click in an Android editor must be able to make this display the IME target.
+            // The Mac viewer forwards raw input; keep its display from taking top focus.
+            if (name.endsWith("/" + XdesxMacActivity.class.getName())) f |= 1 << 16;
         }
         return f;
     }

@@ -80,10 +80,15 @@ final class XdesxWindow {
                 if (op==1) resize(x,y);
                 if (display<0 || nativeFullscreen) continue;
                 synchronized (injector) {
-                    if (op==4 || op==5) {
+                    if (op==9 && !mac()) {
+                        injector.xdesxWindowFocus(display,x!=0);
+                    } else if (op==4 || op==5) {
                         injector.setDisplay(display,reader.getWidth(),reader.getHeight());
                         injector.key(x,op==4);
                     } else if (op==6 || (op>=17 && op<=23) || (op>=33 && op<=39)) {
+                        // An already-active X window may have lost Android editor focus to the
+                        // phone keyboard or panel. Reassert it on a real click, never on hover.
+                        if (op==17 && !mac()) injector.xdesxWindowFocus(display,true);
                         if (!mac() || !com.termux.x11.screenshare.ScreenShareActivity.windowPointer(display,op,x,y))
                             injector.xdesxPointer(display,reader.getWidth(),reader.getHeight(),op,x,y);
                     }

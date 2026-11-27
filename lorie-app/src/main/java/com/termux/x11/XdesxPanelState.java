@@ -51,6 +51,26 @@ final class XdesxPanelState {
         events.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
         context.registerReceiver(receiver, events);
         network.registerDefaultNetworkCallback(callback, main);
+        context.getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor(
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD), false, imeObserver);
+        refreshIme();
+    }
+    private String imeName = "";
+    private final android.database.ContentObserver imeObserver = new android.database.ContentObserver(main) {
+        @Override public void onChange(boolean selfChange) { refreshIme(); publish(); }
+    };
+    private void refreshIme() {
+        String id = android.provider.Settings.Secure.getString(context.getContentResolver(),
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD);
+        imeName = "";
+        android.view.inputmethod.InputMethodManager manager =
+                context.getSystemService(android.view.inputmethod.InputMethodManager.class);
+        for (android.view.inputmethod.InputMethodInfo info : manager.getEnabledInputMethodList()) {
+            if (info.getId().equals(id)) {
+                imeName = info.loadLabel(context.getPackageManager()).toString().replace('\n', ' ').replace('\r', ' ');
+                break;
+            }
+        }
     }
     void screen(Display d) {
         profile = ScreenProfiles.wiredKey(d);
@@ -106,7 +126,7 @@ final class XdesxPanelState {
         if(effectiveLanguage==1)tooltip=tooltip.replace("移动网络","Mobile network").replace("以太网","Ethernet").replace("网络","Network").replace("离线","Offline").replace("未验证","Unverified").replace("充电","Charging").replace("电量未知","Battery unavailable").replace("电量","Battery");
         if(effectiveLanguage==3)tooltip=tooltip.replace("移动网络","行動網路").replace("以太网","乙太網路").replace("网络","網路").replace("离线","離線").replace("未验证","未驗證").replace("电","電");
         String state = scale+"\n"+render+"\n"+connection()+"     "+battery+"     "+date+"  "+
-            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+" "+returnSequence+" "+language+" "+effectiveLanguage+" "+appearance+" "+(dark?1:0)+"\n"+layoutKey+"\n"+tooltip;
+            DateFormat.getTimeFormat(context).format(now)+"\n"+mouseSpeed+" "+padSpeed+" "+limit+" "+(reverse?1:0)+" "+(remember?1:0)+" "+opened+" "+returnSequence+" "+language+" "+effectiveLanguage+" "+appearance+" "+(dark?1:0)+"\n"+layoutKey+"\n"+tooltip+"\n"+imeName;
         if (state.equals(previous)) return;
         Path tmp = new File(dir,"panel-state.tmp").toPath();
         try {
@@ -117,6 +137,7 @@ final class XdesxPanelState {
     }
     void close() {
         closed = true;
+        context.getContentResolver().unregisterContentObserver(imeObserver);
         context.unregisterReceiver(receiver);
         network.unregisterNetworkCallback(callback);
     }

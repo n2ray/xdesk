@@ -240,9 +240,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         displays.registerDisplayListener(this,null);
         AppSession.get(this).activateIfPaired();
         openInjector();
-        if (!AppSession.get(this).injectorReady()) mouse.postDelayed(()->{
-            if (!isFinishing() && !isDestroyed() && !AppSession.get(this).injectorReady()) setup();
-        },1500);
+        if (injector == null && !connecting) mouse.postDelayed(() -> {
+            if (isFinishing() || isDestroyed() || injector != null || connecting) return;
+            // Wireless activation can finish between onCreate and this delayed check.
+            if (AppSession.get(this).injectorReady()) openInjector();
+            else setup();
+        }, 1500);
         try {macProfiles=new XdesxMacProfiles(this);} catch(IOException e){error(e.toString());}
         panel=new XdesxPanelState(this);
         place();
@@ -473,6 +476,17 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(action.startsWith("notify-")) {notifications.action(action.substring(7));return;}
         if(action.startsWith("mac-")) {
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
+            return;
+        }
+        if (action.equals("ime-picker")) {
+            android.app.Activity host = this;
+            for (MainActivity screen : MainActivity.getInstances()) {
+                if (!screen.isFinishing() && screen.getDisplay() != null && screen.getDisplay().getDisplayId() == external) {
+                    host = screen;
+                    break;
+                }
+            }
+            host.getSystemService(android.view.inputmethod.InputMethodManager.class).showInputMethodPicker();
             return;
         }
         if(action.equals("exit-desktop")) {endDesktop();return;}

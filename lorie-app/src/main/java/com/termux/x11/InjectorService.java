@@ -827,6 +827,8 @@ public class InjectorService extends IInjector.Stub {
             }
             int id = d.getDisplay().getDisplayId();
             appDisplays.put(id, d);
+            if (name.startsWith("XDesX ") && !name.endsWith("/" + XdesxMacActivity.class.getName()))
+                imes.place(id, true);
             Log.i(TAG, "display " + id + " made, " + width + "x" + height + " " + dpi + " dpi");
             return id;
         }
@@ -1130,7 +1132,10 @@ public class InjectorService extends IInjector.Stub {
             } else if (moved >= 0) {
                 xdesxTasks.fullscreen(window, -1, -1);
                 leaveXdesxFullscreen();
-                post(() -> injector.focus(desktopTarget>0?desktopTarget:android.view.Display.DEFAULT_DISPLAY));
+                if (pkg.equals(ownPackage))
+                    post(() -> injector.focus(desktopTarget>0?desktopTarget:android.view.Display.DEFAULT_DISPLAY));
+                else
+                    xdesxWindowFocus(window, true);
             } else if (mouse != null) {
                 mouse.closeAll();
                 if (fullscreenDevices != null) { fullscreenDevices.close(); fullscreenDevices = null; }
@@ -1157,12 +1162,35 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    // Guarded by appDisplays; ignore a late FocusOut from the previous X window.
+    private int xdesxEditor = -1;
+    @Override public void xdesxWindowFocus(int id, boolean focused) {
+        post(() -> {
+            synchronized (appDisplays) {
+                if (sessionOver || xdesxNativeDisplay >= 0 || !appDisplays.containsKey(id)) return;
+                if (focused) {
+                    if (xdesxEditor != id) Log.i(TAG, "X editor focus: display " + id);
+                    xdesxEditor = id;
+                    injector.focus(id);
+                } else if (xdesxEditor == id) {
+                    xdesxEditor = -1;
+                    if (injector.displayId() == id) injector.releaseAll();
+                    if (desktopTarget > 0) injector.focus(desktopTarget);
+                }
+            }
+        });
+    }
+
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
             if (id == xdesxFullscreenWindow) leaveXdesxFullscreen();
             xdesxTasks.remove(id);
             VirtualDisplay d = appDisplays.remove(id);
-            if (d != null) d.release();
+            if (d != null) {
+                imes.place(id, false);
+                if (xdesxEditor == id) xdesxEditor = -1;
+                d.release();
+            }
         }
     }
 
@@ -1171,7 +1199,11 @@ public class InjectorService extends IInjector.Stub {
             if (xdesxFullscreenWindow >= 0) leaveXdesxFullscreen();
             closeDesktopRoute();
             xdesxTasks.clear();
-            for (VirtualDisplay d : appDisplays.values()) d.release();
+            xdesxEditor = -1;
+            for (VirtualDisplay d : appDisplays.values()) {
+                imes.place(d.getDisplay().getDisplayId(), false);
+                d.release();
+            }
             appDisplays.clear();
         }
     }

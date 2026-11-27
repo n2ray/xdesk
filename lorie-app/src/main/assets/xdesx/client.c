@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
     XSetWMProtocols(d,win,protocols,2);
     Atom wm_state=XInternAtom(d,"WM_STATE",False);
     int minimized=0;
-    XSelectInput(d, win, PropertyChangeMask | StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
+    XSelectInput(d, win, FocusChangeMask | PropertyChangeMask | StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
     XMapWindow(d, win);
     XFlush(d);
     xcb_connection_t *conn = XGetXCBConnection(d);
@@ -127,6 +127,9 @@ int main(int argc, char **argv) {
         while (XPending(d)) {
             XEvent e;
             XNextEvent(d, &e);
+            // Temporary keyboard grabs (menus, Alt+Tab) do not change the active editor.
+            if ((e.type==FocusIn || e.type==FocusOut) && e.xfocus.mode==NotifyNormal &&
+                e.xfocus.detail!=NotifyInferior && !event(ctrl,9,e.type==FocusIn,0)) return 1;
             if (e.type==ClientMessage && e.xclient.message_type==activate) {
                 XEvent msg = {0};
                 msg.xclient = (XClientMessageEvent){.type=ClientMessage,.window=win,

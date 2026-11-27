@@ -23,7 +23,7 @@ typedef struct {
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
-    GtkWidget *launcher, *main_button, *bell;
+    GtkWidget *launcher, *main_button, *bell, *ime_button;
     int language, appearance, dark;
     GtkWidget *bell_art,*notification_popup;
     GtkWidget *ubuntu_status,*ubuntu_action,*ubuntu_manage;
@@ -191,10 +191,11 @@ static void activate_window(GtkWidget *i,WnckWindow *w) {
 #include "panel-tasks.h"
 #include "panel-style.h"
 #include "panel-dpi.h"
+static void pick_ime(GtkButton *button, gpointer unused) { action("ime-picker"); }
 static void refresh(Panel *p) {
     char *data=NULL;
     if (!g_file_get_contents("run/panel-state",&data,NULL,NULL)) return;
-    char **fields=g_strsplit(data,"\n",6);
+    char **fields=g_strsplit(data,"\n",7);
     if (g_strv_length(fields)>=5) {
         int scale=atoi(fields[0]),render=atoi(fields[1]);
         gboolean settings_changed=scale!=p->scale || render!=p->render || strcmp(fields[3],p->options)!=0;
@@ -206,6 +207,14 @@ static void refresh(Panel *p) {
         gboolean language_changed=lang!=ui_language;
         gboolean palette_changed=dark!=p->dark;
         ui_language=lang; p->dark=dark;
+        const char *ime=g_strv_length(fields)>6?fields[6]:"";
+        gchar *caption=g_strdup_printf("⌨  %s",ime);
+        gtk_button_set_label(GTK_BUTTON(p->ime_button),caption);
+        GtkLabel *label=GTK_LABEL(gtk_bin_get_child(GTK_BIN(p->ime_button)));
+        gtk_label_set_ellipsize(label,PANGO_ELLIPSIZE_END);
+        gtk_label_set_max_width_chars(label,12);
+        gtk_widget_set_tooltip_text(p->ime_button,T("切换安卓输入法"));
+        g_free(caption);
         if(seq!=p->return_sequence) {
             p->return_sequence=seq;
             WnckWindow *w=wnck_screen_get_active_window(p->screen);
@@ -315,6 +324,10 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_box_pack_end(GTK_BOX(bar),bell,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(bar),p->status,FALSE,FALSE,8);
     gtk_box_pack_end(GTK_BOX(bar),p->icons,FALSE,FALSE,2);
+    p->ime_button=gtk_button_new_with_label("⌨");
+    gtk_widget_set_focus_on_click(p->ime_button,FALSE);
+    gtk_box_pack_end(GTK_BOX(bar),p->ime_button,FALSE,FALSE,2);
+    g_signal_connect(p->ime_button,"clicked",G_CALLBACK(pick_ime),NULL);
     g_signal_connect(p->bell_art,"draw",G_CALLBACK(bell_draw),p);
     g_signal_connect(bell,"clicked",G_CALLBACK(show_notifications),p);
     gtk_container_add(GTK_CONTAINER(plugin),bar);

@@ -51,7 +51,7 @@
             android:theme="@style/XdesxController" android:exported="true"
             android:launchMode="singleTask" android:taskAffinity=".Xdesx"
             android:windowSoftInputMode="stateAlwaysHidden"
-            android:configChanges="orientation|screenSize|keyboardHidden|density|locale|layoutDirection|uiMode">
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|density|locale|layoutDirection|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
