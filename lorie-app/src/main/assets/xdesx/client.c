@@ -128,7 +128,8 @@ int main(int argc, char **argv) {
             XEvent e;
             XNextEvent(d, &e);
             // Temporary keyboard grabs (menus, Alt+Tab) do not change the active editor.
-            if ((e.type==FocusIn || e.type==FocusOut) && e.xfocus.mode==NotifyNormal &&
+            if ((e.type==FocusIn || e.type==FocusOut) &&
+                (e.xfocus.mode==NotifyNormal || e.xfocus.mode==NotifyWhileGrabbed) &&
                 e.xfocus.detail!=NotifyInferior && !event(ctrl,9,e.type==FocusIn,0)) return 1;
             if (e.type==ClientMessage && e.xclient.message_type==activate) {
                 XEvent msg = {0};
