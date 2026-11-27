@@ -167,9 +167,13 @@ final class ScreenShareSource implements ContentSource {
         i.putExtra(ScreenShareLoginActivity.EXTRA_HOST, id);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (result instanceof WindowResult) {
-            Display hdmi=TargetDisplay.real(context.getSystemService(DisplayManager.class));
-            if (hdmi==null) { loginCancelled(id); return; }
-            int target=hdmi.getDisplayId();
+            // The password sheet needs a physical display. The viewer still belongs to displayId.
+            int target=Display.DEFAULT_DISPLAY;
+            if (((XdesxApp)context).phoneDesktopId==Display.INVALID_DISPLAY) {
+                Display hdmi=TargetDisplay.real(context.getSystemService(DisplayManager.class));
+                if (hdmi==null) { loginCancelled(id); return; }
+                target=hdmi.getDisplayId();
+            }
             i.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
             i.putExtra(ScreenShareLoginActivity.EXTRA_DISPLAY,target);
             ActivityOptions options=ActivityOptions.makeBasic();

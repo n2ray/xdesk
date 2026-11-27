@@ -49,7 +49,7 @@ public final class ScreenShareLoginActivity extends Activity {
         host = ScreenShareStore.find(this, getIntent().getStringExtra(EXTRA_HOST));
         if(host!=null)dialogs.put(host.id,this);
         if(getIntent().hasExtra(EXTRA_DISPLAY) &&
-                (getDisplay()==null || getDisplay().getDisplayId()==android.view.Display.DEFAULT_DISPLAY ||
+                (getDisplay()==null ||
                 getDisplay().getDisplayId()!=getIntent().getIntExtra(EXTRA_DISPLAY,-1))) {
             finish(); return;
         }
