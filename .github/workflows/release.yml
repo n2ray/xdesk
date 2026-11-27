@@ -29,8 +29,19 @@ jobs:
         name: ubuntu-arm64-caret
         path: xdesx-accessible-caret
 
+  chrome-caret-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Verify Ubuntu Chrome caret on X11
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends openbox xdotool x11-utils at-spi2-core libatspi2.0-dev libx11-dev
+        cc -std=c11 -Wall -Wextra -Werror -O2 tools/xdesx/accessible-caret.c $(pkg-config --cflags --libs atspi-2 x11 gobject-2.0) -o /tmp/xdesx-accessible-caret
+        timeout 90 dbus-run-session -- xvfb-run -a sh tools/xdesx/test-chrome-caret.sh
+
   release:
-    needs: guest-caret
+    needs: [guest-caret, chrome-caret-test]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -73,12 +84,6 @@ jobs:
       with:
         name: ubuntu-arm64-caret
         path: lorie-app/src/main/assets/linux
-    - name: Verify Ubuntu Chrome caret on X11
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends openbox xdotool at-spi2-core libatspi2.0-dev libx11-dev
-        cc -std=c11 -Wall -Wextra -Werror -O2 tools/xdesx/accessible-caret.c $(pkg-config --cflags --libs atspi-2 x11 gobject-2.0) -o /tmp/xdesx-accessible-caret
-        timeout 90 dbus-run-session -- xvfb-run -a sh tools/xdesx/test-chrome-caret.sh
     - name: Release key
       env:
         KEYSTORE_B64: ${{ secrets.XDESK_KEYSTORE_B64 }}
