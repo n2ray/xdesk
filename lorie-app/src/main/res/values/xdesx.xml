@@ -45,4 +45,6 @@
     <string name="xu_wireless_pairing_failed">Wireless pairing failed: </string>
     <string name="xu_application">Application</string>
     <string name="xu_guest_busy">Linux is still closing. Try again in a moment.</string>
+    <string name="xu_ime_phone_target">Tap the text field on the external display to type with the phone keyboard.</string>
+    <string name="xu_ime_external_target">Input method returned to the external display.</string>
 </resources>

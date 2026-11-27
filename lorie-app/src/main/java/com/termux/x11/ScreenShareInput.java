@@ -8,16 +8,17 @@ import java.util.HashMap;
 /**
  * XDesk's touchpad and keyboard for a Mac reached through macOS Screen Sharing (ScreenShareSource). Screen Sharing
  * takes an absolute pointer: the touchpad's moves are added up here, in pixels of the Mac's virtual screen, and
- * the buttons and wheel go as the VNC button mask. Linux key codes become X keysyms (US layout, as the Mac reads
- * keysyms by character); with XDesk's modifier translation on (MacInput.translateModifiers, as for Sill Macs) Ctrl
+ * the buttons and wheel go as the VNC button mask. The Mac receives layout-resolved X keysyms, with a
+ * US mapping for sources that only supply scan codes. With XDesk's modifier translation on, Ctrl
  * and Command trade places so the PC keyboard's Ctrl+C is the Mac's ⌘C. Text from the phone's keyboard goes as the
  * characters' keysyms. Keys held when the input leaves are let go (releaseAll).
  */
 public final class ScreenShareInput implements InputSink {
     private final String hostId;
     private int x = -1, y = -1, buttons;
-    /** Linux key code -> the keysym sent down for it, to let go of the same one. */
-    private final HashMap<Integer, Integer> down = new HashMap<>();
+    private final HashMap<Integer, Integer> deviceButtons = new HashMap<>();
+    /** Device and scan code identify the original press, even after the layout changes. */
+    private final HashMap<Long, Integer> down = new HashMap<>();
 
     public ScreenShareInput(String hostId) {
         this.hostId = hostId;
@@ -111,9 +112,24 @@ public final class ScreenShareInput implements InputSink {
     }
 
     @Override public void button(int button, boolean isDown) {
+        deviceButton(-1, button, isDown);
+    }
+
+    public void deviceButton(int device, int button, boolean isDown) {
         int b = bit(button);
         if (b == 0) return;
-        buttons = isDown ? buttons | b : buttons & ~b;
+        int held = deviceButtons.getOrDefault(device, 0);
+        int next = isDown ? held | b : held & ~b;
+        if (held == next) return;
+        if (next == 0) deviceButtons.remove(device); else deviceButtons.put(device, next);
+        updateButtons();
+    }
+
+    private void updateButtons() {
+        int mask = 0;
+        for (int held : deviceButtons.values()) mask |= held;
+        if (mask == buttons) return;
+        buttons = mask;
         send();
     }
 
@@ -151,25 +167,62 @@ public final class ScreenShareInput implements InputSink {
     }
 
     @Override public void key(int scan, boolean isDown) {
-        if (isDown && scan == 15) {
+        keyWithLayout(scan, 0, isDown);
+    }
+
+    /** Preserve the actual layout on press and release the same keysym even after a layout switch. */
+    public boolean keyWithLayout(int scan, int layoutSym, boolean isDown) {
+        return deviceKey(-1, scan, layoutSym, isDown);
+    }
+
+    public boolean deviceKey(int device, int scan, int layoutSym, boolean isDown) {
+        long key = ((long) device << 32) | (scan & 0xffffffffL);
+        int sym = layoutSym != 0 ? translateModifier(layoutSym) : keysym(scan);
+        if (sym == 0 && !down.containsKey(key)) return false;
+        if (isDown && sym == 0xff09) {
             // Keep Command down across repeated Tab presses until the physical switcher modifier lifts.
-            for (int modifier : new int[]{56, 100, 125, 126}) {
-                Integer original = down.get(modifier);
+            for (java.util.Map.Entry<Long,Integer> entry : down.entrySet()) {
+                int modifier = entry.getKey().intValue();
+                if (modifier != 56 && modifier != 100 && modifier != 125 && modifier != 126) continue;
+                Integer original = entry.getValue();
                 if (original == null || original == 0xffeb || original == 0xffec) continue;
                 int command = modifier == 100 || modifier == 126 ? 0xffec : 0xffeb;
-                down.put(modifier, command);
+                entry.setValue(command);
                 if (!down.containsValue(original)) keysym(false, original);
                 if (java.util.Collections.frequency(down.values(), command) == 1) keysym(true, command);
             }
         }
         if (isDown) {
-            int sym = keysym(scan);
-            if (sym == 0 || down.containsKey(scan)) return;
-            down.put(scan, sym);
+            if (down.containsKey(key)) return true;
+            down.put(key, sym);
             if (java.util.Collections.frequency(down.values(), sym) == 1) keysym(true, sym);
         } else {
-            Integer sym = down.remove(scan);
-            if (sym != null && !down.containsValue(sym)) keysym(false, sym);
+            Integer held = down.remove(key);
+            if (held != null && !down.containsValue(held)) keysym(false, held);
+        }
+        return true;
+    }
+
+    public void releaseDevice(int device) {
+        if (deviceButtons.remove(device) != null) updateButtons();
+        java.util.Iterator<java.util.Map.Entry<Long,Integer>> it = down.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry<Long,Integer> entry = it.next();
+            if ((int)(entry.getKey() >> 32) != device) continue;
+            int symbol = entry.getValue();
+            it.remove();
+            if (!down.containsValue(symbol)) keysym(false, symbol);
+        }
+    }
+
+    private static int translateModifier(int sym) {
+        if (!MacInput.translateModifiers) return sym;
+        switch (sym) {
+            case 0xffe3: return 0xffeb;
+            case 0xffe4: return 0xffec;
+            case 0xffeb: return 0xffe3;
+            case 0xffec: return 0xffe4;
+            default: return sym;
         }
     }
 
@@ -183,11 +236,37 @@ public final class ScreenShareInput implements InputSink {
         for (int i = 0; i < s.length(); ) {
             int c = s.codePointAt(i);
             i += Character.charCount(c);
-            int sym = c == '\n' ? 0xff0d : c == '\t' ? 0xff09 : c < 32 ? 0 : c <= 255 ? c : 0x01000000 | c;
+            int sym = c == '\n' ? 0xff0d : c == '\t' ? 0xff09 : characterKeysym(c);
             if (sym == 0) continue;
             keysym(true, sym);
             keysym(false, sym);
         }
+    }
+
+    /** Android marks the next key for composition by setting the high bit on a spacing accent. */
+    public static int hardwareCharacterKeysym(int ch) {
+        if (ch >= 0) return characterKeysym(ch);
+        switch (ch & Integer.MAX_VALUE) {
+            case 0x0060: return 0xfe50; // dead_grave
+            case 0x00b4: return 0xfe51; // dead_acute
+            case 0x005e: return 0xfe52; // dead_circumflex
+            case 0x007e: return 0xfe53; // dead_tilde
+            case 0x00af: return 0xfe54; // dead_macron
+            case 0x02d8: return 0xfe55; // dead_breve
+            case 0x02d9: return 0xfe56; // dead_abovedot
+            case 0x00a8: return 0xfe57; // dead_diaeresis
+            case 0x02da: return 0xfe58; // dead_abovering
+            case 0x02dd: return 0xfe59; // dead_doubleacute
+            case 0x02c7: return 0xfe5a; // dead_caron
+            case 0x00b8: return 0xfe5b; // dead_cedilla
+            case 0x02db: return 0xfe5c; // dead_ogonek
+            default: return characterKeysym(ch & Integer.MAX_VALUE);
+        }
+    }
+
+    private static int characterKeysym(int codePoint) {
+        if (Character.isISOControl(codePoint) || !Character.isValidCodePoint(codePoint)) return 0;
+        return codePoint <= 255 ? codePoint : 0x01000000 | codePoint;
     }
 
     private void keysym(boolean isDown, int sym) {
@@ -199,7 +278,8 @@ public final class ScreenShareInput implements InputSink {
     /** Lets go of every key and button held (the input leaves, the screen goes). */
     public void releaseAll() {
         wheelPoints.clear();
-        for (int sym : down.values()) keysym(false, sym);
+        deviceButtons.clear();
+        for (int sym : new java.util.HashSet<>(down.values())) keysym(false, sym);
         down.clear();
         if (buttons != 0) {
             buttons = 0;

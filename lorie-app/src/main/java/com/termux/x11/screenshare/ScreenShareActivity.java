@@ -35,15 +35,15 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     private String hostId;
     private SurfaceView view;
     private com.termux.x11.ScreenShareInput desktopInput;
-    private final io.github.n2ray.xdesk.input.MouseButtons buttons=new io.github.n2ray.xdesk.input.MouseButtons();
+    private final java.util.Map<Integer, io.github.n2ray.xdesk.input.MouseButtons> mice = new java.util.HashMap<>();
     private final int[] pictureOrigin=new int[2];
 
     // X gives coordinates in this virtual display. Use the same Mac input session as HDMI.
     public static boolean windowPointer(int display, int op, int x, int y) {
         ScreenShareActivity a = showing;
-        if (a == null || !a.acceptsWindowPointer(display)) return false;
+        if (a == null || !a.acceptsInput(display)) return false;
         a.ui.post(() -> {
-            if (!a.acceptsWindowPointer(display) || a.view.getWidth() < 1 || a.view.getHeight() < 1) return;
+            if (!a.acceptsInput(display) || a.view.getWidth() < 1 || a.view.getHeight() < 1) return;
             if (a.phonePointer) {
                 a.phonePointer = false;
                 if (a.arrow != null) a.arrow.setVisibility(View.GONE);
@@ -67,18 +67,71 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         });
         return true;
     }
+    private interface RemoteInput {
+        void send(com.termux.x11.ScreenShareInput input);
+    }
+
+    // Socket events arrive on the proxy thread. Serialize them with HDMI and touchpad events,
+    // and recheck the display after posting in case the activity moved during a fullscreen switch.
+    private static boolean toViewer(int display, RemoteInput event) {
+        ScreenShareActivity a = showing;
+        if (a == null || !a.acceptsInput(display)) return false;
+        a.runOnUiThread(() -> {
+            if (a.acceptsInput(display)) event.send(a.desktopInput);
+        });
+        return true;
+    }
+
+    public static boolean sendKeysym(int display, int scan, int keysym, boolean down) {
+        return toViewer(display, input -> input.keyWithLayout(scan, keysym, down));
+    }
+
+    public static boolean sendScan(int display, int scan, boolean down) {
+        return sendKeysym(display, scan, 0, down);
+    }
+
+    public static boolean sendText(int display, String text) {
+        return toViewer(display, input -> input.text(text));
+    }
+
+    public static void releaseInput(int display) {
+        ScreenShareActivity a = showing;
+        if (a == null || !a.acceptsInput(display)) return;
+        a.runOnUiThread(() -> {
+            if (a.acceptsInput(display)) a.releaseDesktopInput();
+        });
+    }
+
+    private void releaseDesktopInput() {
+        windowButtons = 0;
+        mice.clear();
+        padButtons = 0;
+        if (desktopInput != null) desktopInput.releaseAll();
+    }
+
+    private int padButtons;
+    private android.hardware.input.InputManager devices;
+    private final android.hardware.input.InputManager.InputDeviceListener deviceListener =
+            new android.hardware.input.InputManager.InputDeviceListener() {
+        public void onInputDeviceAdded(int id) {}
+        public void onInputDeviceChanged(int id) {}
+        public void onInputDeviceRemoved(int id) {
+            desktopInput.releaseDevice(id);
+            mice.remove(id);
+        }
+    };
+
     private int windowButtons;
-    private boolean acceptsWindowPointer(int display) {
+    private boolean acceptsInput(int display) {
         return resumed && showing == this && desktopInput != null && getDisplay() != null
                 && getDisplay().getDisplayId() == display;
     }
     @Override protected void onResume() { super.onResume(); resumed = true; }
     @Override protected void onPause() {
         resumed = false;
-        windowButtons = 0;
         phonePointer = false;
         if (desktopInput != null && arrow != null) arrow.setVisibility(View.GONE);
-        if (desktopInput != null) desktopInput.releaseAll();
+        releaseDesktopInput();
         super.onPause();
     }
 
@@ -91,15 +144,20 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     /** The phone controller and the viewer share the main thread and the authenticated input session. */
     public static boolean fullscreenPad(int display, int op, float x, float y, PadControls controls) {
         ScreenShareActivity a = showing;
-        if (a == null || !a.acceptsWindowPointer(display) || a.view.getWidth() < 1) return false;
+        if (a == null || !a.acceptsInput(display) || a.view.getWidth() < 1) return false;
         a.phonePointer = true;
         if (op == 1) a.desktopInput.move(Math.round(x), Math.round(y));
         if (!a.desktopInput.pointerPlace(a.padPosition)) return false;
         a.view.getLocationOnScreen(a.pictureOrigin);
         int px = a.pictureOrigin[0] + Math.round(a.padPosition[0] * (a.view.getWidth() - 1));
         int py = a.pictureOrigin[1] + Math.round(a.padPosition[1] * (a.view.getHeight() - 1));
-        if (controls != null && controls.handle(px, py, op, (int)x, y != 0)) return true;
-        if (op == 2) a.desktopInput.button((int)x, y != 0);
+        boolean handled = controls != null && controls.handle(px, py, op, (int)x, y != 0);
+        int bit = op == 2 ? 1 << (int)x : 0;
+        if (handled && !(op == 2 && y == 0 && (a.padButtons & bit) != 0)) return true;
+        if (op == 2) {
+            if (y != 0) a.padButtons |= bit; else a.padButtons &= ~bit;
+            a.desktopInput.button((int)x, y != 0);
+        }
         if (op == 3) a.desktopInput.scrollFine(y,x,io.github.n2ray.xdesk.input.Input.WHEEL);
         return true;
     }
@@ -114,16 +172,23 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
         float x=(e.getRawX()-pictureOrigin[0])/view.getWidth(), y=(e.getRawY()-pictureOrigin[1])/view.getHeight();
         int action=e.getActionMasked();
         boolean inside=x>=0 && x<=1 && y>=0 && y<=1;
-        if (!inside && !buttons.holding() && action!=android.view.MotionEvent.ACTION_UP
+        int device = e.getDeviceId();
+        io.github.n2ray.xdesk.input.MouseButtons buttons = mice.get(device);
+        if (!inside && (buttons == null || !buttons.holding()) && action!=android.view.MotionEvent.ACTION_UP
                 && action!=android.view.MotionEvent.ACTION_CANCEL) return true;
         desktopInput.moveToFraction(x,y);
         if (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
-            buttons.event(action,e.getActionButton(),e.getButtonState(),desktopInput::button);
+            if (buttons == null) {
+                buttons = new io.github.n2ray.xdesk.input.MouseButtons();
+                mice.put(device, buttons);
+            }
+            buttons.event(action,e.getActionButton(),e.getButtonState(),
+                (button, down) -> desktopInput.deviceButton(device, button, down));
             if (action==android.view.MotionEvent.ACTION_SCROLL)
                 desktopInput.scrollFine(-e.getAxisValue(android.view.MotionEvent.AXIS_VSCROLL),
                     e.getAxisValue(android.view.MotionEvent.AXIS_HSCROLL),0);
-        } else if (action==android.view.MotionEvent.ACTION_DOWN) desktopInput.button(1,true);
-        else if (action==android.view.MotionEvent.ACTION_UP || action==android.view.MotionEvent.ACTION_CANCEL) desktopInput.button(1,false);
+        } else if (action==android.view.MotionEvent.ACTION_DOWN) desktopInput.deviceButton(device,1,true);
+        else if (action==android.view.MotionEvent.ACTION_UP || action==android.view.MotionEvent.ACTION_CANCEL) desktopInput.deviceButton(device,1,false);
         return true;
     }
     @Override public boolean dispatchTouchEvent(android.view.MotionEvent e) {
@@ -132,15 +197,33 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
     @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent e) {
         return (e.isFromSource(android.view.InputDevice.SOURCE_MOUSE) && desktopPointer(e)) || super.dispatchGenericMotionEvent(e);
     }
-    @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
-        if (desktopInput!=null && e.getScanCode()>0 && (e.getAction()==0 || e.getAction()==1)) {
-            desktopInput.key(e.getScanCode(),e.getAction()==0); return true;
+    /** Physical key delivered to the phone controller while a Mac viewer owns its target display. UI thread. */
+    public static boolean sendPhysical(int display, android.view.KeyEvent e) {
+        ScreenShareActivity a = showing;
+        return a != null && a.acceptsInput(display) && a.physicalKey(e);
+    }
+
+    private boolean physicalKey(android.view.KeyEvent e) {
+        if (desktopInput != null && e.getScanCode() > 0 &&
+                (e.getAction() == android.view.KeyEvent.ACTION_DOWN || e.getAction() == android.view.KeyEvent.ACTION_UP)) {
+            int layoutMeta = e.getMetaState() & ~(android.view.KeyEvent.META_CTRL_MASK |
+                android.view.KeyEvent.META_META_MASK);
+            // AltGr can select a third level; ordinary Alt remains the Mac's Option shortcut.
+            if ((layoutMeta & android.view.KeyEvent.META_ALT_RIGHT_ON) == 0)
+                layoutMeta &= ~android.view.KeyEvent.META_ALT_MASK;
+            int sym = com.termux.x11.ScreenShareInput.hardwareCharacterKeysym(e.getUnicodeChar(layoutMeta));
+            if (desktopInput.deviceKey(e.getDeviceId(), e.getScanCode(), sym, e.getAction() == android.view.KeyEvent.ACTION_DOWN))
+                return true;
         }
-        return super.dispatchKeyEvent(e);
+        return false;
+    }
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        return physicalKey(e) || super.dispatchKeyEvent(e);
     }
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (!focus && desktopInput!=null) { windowButtons=0; buttons.clear(); desktopInput.releaseAll(); }
+        if (!focus) releaseDesktopInput();
     }
     /** The pointer: Screen Sharing's fast mode does not put the Mac's cursor in the picture, so it is drawn here. */
     private ArrowView arrow;
@@ -309,7 +392,11 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
             return;
         }
         session = s;
-        if (getIntent().getBooleanExtra("xdesx_input",false)) desktopInput=new com.termux.x11.ScreenShareInput(hostId);
+        if (getIntent().getBooleanExtra("xdesx_input",false)) {
+            desktopInput = new com.termux.x11.ScreenShareInput(hostId);
+            devices = getSystemService(android.hardware.input.InputManager.class);
+            if (devices != null) devices.registerInputDeviceListener(deviceListener, ui);
+        }
         if (showing != null && showing != this) showing.finish();
         showing = this;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -378,6 +465,7 @@ public final class ScreenShareActivity extends Activity implements SurfaceHolder
 
     @Override protected void onDestroy() {
         ui.removeCallbacks(showStage);
+        if (devices != null) devices.unregisterInputDeviceListener(deviceListener);
         sampling = false;
         if (session != null) session.detach();
         if (showing == this) showing = null;

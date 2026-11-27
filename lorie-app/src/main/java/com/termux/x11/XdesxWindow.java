@@ -9,12 +9,16 @@ import android.os.*;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
-import android.view.MotionEvent;
+import com.termux.x11.screenshare.ScreenShareActivity;
 import java.io.*;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** A window owns one virtual display. Both ends sleep while there is no damage or input. */
 final class XdesxWindow {
+    private static final AtomicReference<XdesxWindow> focused = new AtomicReference<>();
+    static XdesxWindow focused() { return focused.get(); }
+    int displayId() { return display; }
     private final android.content.Context context;
     private final ICmdEntryInterface server;
     private final IInjector injector;
@@ -23,7 +27,7 @@ final class XdesxWindow {
     private final HandlerThread frames = new HandlerThread("xdesx-frames");
     private volatile ParcelFileDescriptor control;
     private volatile boolean stopped;
-    private ImageReader reader;
+    private volatile ImageReader reader;
     private volatile int display = -1;
     private volatile boolean nativeFullscreen, minimized;
     private int task=-1, densityTarget=-1;
@@ -78,25 +82,38 @@ final class XdesxWindow {
                 if (op==8 && !mac()) setMinimized(x!=0);
                 if (op==7) requestFullscreen.run();
                 if (op==1) resize(x,y);
-                if (display<0 || nativeFullscreen) continue;
+                if (display<0) continue;
                 synchronized (injector) {
-                    if (op==9 && !mac()) {
-                        injector.xdesxWindowFocus(display,x!=0);
-                    } else if (op==4 || op==5) {
-                        injector.setDisplay(display,reader.getWidth(),reader.getHeight());
-                        injector.key(x,op==4);
+                    if (op==9) {
+                        if (x!=0) focused.set(this);
+                        else focused.compareAndSet(this,null);
+                        if (mac() && x==0) ScreenShareActivity.releaseInput(display);
+                        if (!mac()) injector.xdesxWindowFocus(display,x!=0);
+                        continue;
+                    }
+                    if (nativeFullscreen) continue;
+                    if (op==4 || op==5) {
+                        int scan=x & 0xffff;
+                        if (!mac() || !ScreenShareActivity.sendKeysym(display,scan,y,op==4)) {
+                            int source=op==4 ? DesktopInput.keyboardForScan(scan) : -1;
+                            injector.xdesxWindowInput(display,reader.getWidth(),reader.getHeight(),op,x,source);
+                        }
                     } else if (op==6 || (op>=17 && op<=23) || (op>=33 && op<=39)) {
                         // An already-active X window may have lost Android editor focus to the
                         // phone keyboard or panel. Reassert it on a real click, never on hover.
-                        if (op==17 && !mac()) injector.xdesxWindowFocus(display,true);
-                        if (!mac() || !com.termux.x11.screenshare.ScreenShareActivity.windowPointer(display,op,x,y))
-                            injector.xdesxPointer(display,reader.getWidth(),reader.getHeight(),op,x,y);
+                        if (op==17) {
+                            focused.set(this);
+                            if (!mac()) injector.xdesxWindowFocus(display,true);
+                        }
+                        if (!mac() || !ScreenShareActivity.windowPointer(display,op,x,y))
+                            injector.xdesxWindowInput(display,reader.getWidth(),reader.getHeight(),op,x,y);
                     }
                 }
             }
         } catch (EOFException ignored) {
         } catch (Exception e) { Log.e("XDesX","window "+component,e); }
         finally {
+            focused.compareAndSet(this,null);
             stopped=true; control=null;
             restoreDensity();
             if (mac()) XdesxMacActivity.closeWindow(key);
@@ -111,6 +128,10 @@ final class XdesxWindow {
         if (value==minimized || display<0 || reader==null || nativeFullscreen) return;
         injector.setVirtualDisplaySurface(display,value?null:reader.getSurface());
         minimized=value;
+        if (value) {
+            focused.compareAndSet(this,null);
+            injector.xdesxWindowFocus(display,false);
+        }
     }
     private int dpi=160;
     synchronized void density(int value) {
@@ -187,7 +208,7 @@ final class XdesxWindow {
 
     private boolean logged;
     private void frame(ImageReader src) {
-        if (stopped) return;
+        if (stopped || src!=reader) return;
         try (Image image=src.acquireLatestImage()) {
             if (image==null || nativeFullscreen || minimized) return;
             try (HardwareBuffer buffer=image.getHardwareBuffer(); SyncFence fence=image.getFence()) {
@@ -195,6 +216,11 @@ final class XdesxWindow {
                 server.xdesxFrame(key,buffer);
                 if (!logged) { logged=true; Log.i("XDesX","imported "+component+" "+buffer.getWidth()+"x"+buffer.getHeight()); }
             }
-        } catch(Exception e) { if (!stopped) Log.e("XDesX","frame "+component,e); stop(); }
+        } catch(Exception e) {
+            if (!stopped && src==reader) {
+                Log.e("XDesX","frame "+component,e);
+                stop();
+            }
+        }
     }
 }

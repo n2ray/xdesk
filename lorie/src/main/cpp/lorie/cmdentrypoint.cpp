@@ -460,6 +460,20 @@ void handleLorieEvents(int fd, __unused int ready, __unused void *ignored) {
                 }
                 break;
             }
+            case EVENT_LAYOUT_KEY: {
+                // The largest Unicode X keysym is 0x0110ffff, leaving room for the down bit on 32-bit hosts.
+                if (!e.layoutKey.sym || e.layoutKey.sym > 0x0110ffff) break;
+                uintptr_t payload = ((uintptr_t) e.layoutKey.sym << 1) | !!e.layoutKey.state;
+                QueueWorkProc(+[](__unused ClientPtr pClient, void *closure) -> Bool {
+                    uintptr_t key = (uintptr_t) closure;
+                    KeySym sym = key >> 1;
+                    if ((sym & 0xff000000) == 0x01000000) sym = ucs2keysym(sym & 0xffffff);
+                    lorieKeysymKeyboardEvent(sym, key & 1);
+                    return TRUE;
+                }, nullptr, (void*) payload);
+                lorieWakeServer();
+                break;
+            }
             case EVENT_KEY:
             case EVENT_UNICODE: {
                 // UTF-32 code points span at most 21 bits (max 0x10FFFF), so shifting left by 1 is safe even on a 32-bit uintptr_t.

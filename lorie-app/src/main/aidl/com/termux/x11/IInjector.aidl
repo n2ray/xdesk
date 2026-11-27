@@ -126,7 +126,10 @@ interface IInjector {
     void watchXdesxWindow(int display, com.termux.x11.IXdesxWindowListener callback) = 64;
     int moveXdesxTask(int window, int external, String pkg, int task, boolean enter, in Bitmap cursor, int hotspot, int width, int height) = 62;
     oneway void xdesxNativeInput(int op, float x, float y) = 63;
-    oneway void xdesxPointer(int display, int width, int height, int op, int x, int y) = 61;
+    oneway void xdesxWindowInput(int display, int width, int height, int op, int x, int y) = 61;
     oneway void xdesxWindowFocus(int display, boolean focused) = 70;
+    oneway void xdesxWindowText(int display, String text) = 71;
+    int xdesxTogglePhoneIme(int window) = 72;
+    void xdesxRestorePhoneIme() = 73;
     String desktopNightMode(String mode) = 69;
 }

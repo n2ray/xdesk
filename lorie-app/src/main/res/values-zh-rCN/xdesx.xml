@@ -45,4 +45,6 @@
     <string name="xu_wireless_pairing_failed">无法开启无线配对：</string>
     <string name="xu_application">应用</string>
     <string name="xu_guest_busy">Linux 应用仍在关闭，请稍后重试。</string>
+    <string name="xu_ime_phone_target">请轻点外屏应用的输入框，使用手机键盘输入。</string>
+    <string name="xu_ime_external_target">输入法已切回外屏。</string>
 </resources>

@@ -875,18 +875,105 @@ public class InjectorService extends IInjector.Stub {
     }
 
     /** Without DESTROY_CONTENT_ON_REMOVAL the system moves what is left on them to the phone. */
-    @Override public void xdesxPointer(int id,int w,int h,int op,int x,int y) {
-        synchronized (appDisplays) { if (xdesxNativeDisplay >= 0 || !appDisplays.containsKey(id)) return; }
+    // Guarded by appDisplays. A pointer crossing into B must not synthesize key-up in A.
+    private final HashMap<Integer,InputInjector> windowInputs = new HashMap<>();
+
+    private InputInjector windowInput(int id) throws ReflectiveOperationException {
+        InputInjector target = windowInputs.get(id);
+        if (target == null) {
+            target = injector.forWindow();
+            windowInputs.put(id,target);
+        }
+        return target;
+    }
+
+    // Both IDs are private to this desktop session. A fullscreen task retains its original window ID.
+    private int phoneImeDisplay = -1;
+
+    @Override public int xdesxTogglePhoneIme(int window) {
+        synchronized (appDisplays) {
+            VirtualDisplay vd = appDisplays.get(window);
+            if (sessionOver || injector == null || vd == null || !vd.getDisplay().getName().startsWith("XDesX ")
+                    || vd.getDisplay().getName().endsWith("/"+XdesxMacActivity.class.getName())) return -1;
+            if (xdesxNativeDisplay >= 0 ? xdesxFullscreenWindow != window : xdesxEditor != window) return -1;
+            int target = xdesxNativeDisplay >= 0 ? xdesxNativeDisplay : window;
+            if (phoneImeDisplay == target) return restorePhoneIme() ? 0 : -1;
+            if (!restorePhoneIme() || !imes.target(target,true)) return -1;
+            phoneImeDisplay = target;
+            post(() -> {
+                synchronized (appDisplays) {
+                    if (phoneImeDisplay == target) injector.focus(target);
+                }
+            });
+            return 1;
+        }
+    }
+
+    private boolean restorePhoneIme() {
+        if (phoneImeDisplay < 0) return true;
+        if (!imes.target(phoneImeDisplay,false)) return false;
+        phoneImeDisplay = -1;
+        return true;
+    }
+
+    @Override public void xdesxRestorePhoneIme() {
+        synchronized (appDisplays) { restorePhoneIme(); }
+    }
+
+    @Override public void xdesxWindowText(int id, String text) {
+        if (text == null || text.isEmpty()) return;
+        int nativeTarget = xdesxNativeDisplay;
         post(() -> {
-            if (xdesxNativeDisplay >= 0) return;
-            injector.setDisplay(id,w,h);
-            injector.moveTo((float)x/Math.max(1,w-1),(float)y/Math.max(1,h-1));
-            if (op==6) return;
-            int b=op & 15;
-            boolean down=op<32;
-            if (b<=3) injector.button(b==1?1:b==2?4:2,down);
-            else if (down) injector.scroll(b==4?1:b==5?-1:0,b==6?-1:b==7?1:0);
+            synchronized (appDisplays) {
+                VirtualDisplay vd = appDisplays.get(id);
+                if (sessionOver || xdesxNativeDisplay != nativeTarget || vd == null || !vd.getDisplay().getName().startsWith("XDesX ")) return;
+                InputInjector target;
+                if (xdesxNativeDisplay >= 0) {
+                    if (xdesxFullscreenWindow != id || fullscreenPassthrough || injector.displayId() != nativeTarget) return;
+                    target = injector;
+                } else {
+                    if (xdesxEditor != id && !vd.getDisplay().getName().endsWith("/"+XdesxMacActivity.class.getName())) return;
+                    target = windowInput(id);
+                    android.graphics.Point size = new android.graphics.Point();
+                    vd.getDisplay().getRealSize(size);
+                    target.setDisplay(id,size.x,size.y);
+                }
+                if (!target.textCommit(text)) message(ShellText.code(ShellText.TEXT_NOT_SENT));
+            }
         });
+    }
+
+    @Override public void xdesxWindowInput(int id,int w,int h,int op,int x,int y) {
+        post(() -> {
+            synchronized (appDisplays) {
+                if (sessionOver || xdesxNativeDisplay >= 0 || !appDisplays.containsKey(id)) return;
+                InputInjector target = windowInput(id);
+                target.setDisplay(id,w,h);
+                if (op==4 || op==5) {
+                    // X already supplies keyboard repeat. This event belongs to the X client that received it.
+                    target.windowKey(x,op==4,y);
+                    return;
+                }
+                target.moveTo((float)x/Math.max(1,w-1),(float)y/Math.max(1,h-1));
+                if (op==6) return;
+                int b=op & 15;
+                boolean down=op<32;
+                if (b<=3) target.button(b==1?1:b==2?4:2,down);
+                else if (down) target.scroll(b==4?1:b==5?-1:0,b==6?-1:b==7?1:0);
+            }
+        });
+    }
+
+    private void releaseWindowInput(int id) {
+        InputInjector target = windowInputs.remove(id);
+        if (target == null) return;
+        try {
+            target.releaseAll();
+        } catch (ReflectiveOperationException e) {
+            Log.w(TAG,"release window input for display "+id,e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private volatile int xdesxNativeDisplay=-1;
@@ -1040,6 +1127,7 @@ public class InjectorService extends IInjector.Stub {
             fullscreenDevices.close();
             fullscreenDevices = null;
         }
+        if (phoneImeDisplay == external) phoneImeDisplay = -1;
         imes.place(external, false);
         padPointerVisible = false;
         xdesxNativeDisplay = -1;
@@ -1107,12 +1195,16 @@ public class InjectorService extends IInjector.Stub {
             if (enter) {
                 mouse = new EvdevReader(fullscreenInput, true);
                 if (desktopDevices==null && fullscreenDevices == null && !mouse.claimFullscreenMice()) {
+                    mouse.closeAll();
                     Log.w(TAG, "Cannot claim fullscreen mouse devices");
                     return -1;
                 }
             }
             int moved=TaskMover.moveWindowTask(enter?window:external,enter?external:window,pkg,task);
             if (moved >= 0 && enter) {
+                restorePhoneIme();
+                if (xdesxEditor != window) releaseWindowInput(xdesxEditor);
+                releaseWindowInput(window);
                 xdesxNativeDisplay = external;
                 xdesxFullscreenWindow = window;
                 xdesxTasks.fullscreen(window, external, moved);
@@ -1169,12 +1261,17 @@ public class InjectorService extends IInjector.Stub {
             synchronized (appDisplays) {
                 if (sessionOver || xdesxNativeDisplay >= 0 || !appDisplays.containsKey(id)) return;
                 if (focused) {
-                    if (xdesxEditor != id) Log.i(TAG, "X editor focus: display " + id);
+                    if (xdesxEditor != id) {
+                        restorePhoneIme();
+                        releaseWindowInput(xdesxEditor);
+                        Log.i(TAG, "X editor focus: display " + id);
+                    }
                     xdesxEditor = id;
                     injector.focus(id);
                 } else if (xdesxEditor == id) {
                     xdesxEditor = -1;
-                    if (injector.displayId() == id) injector.releaseAll();
+                    restorePhoneIme();
+                    releaseWindowInput(id);
                     if (desktopTarget > 0) injector.focus(desktopTarget);
                 }
             }
@@ -1184,11 +1281,21 @@ public class InjectorService extends IInjector.Stub {
     @Override public void releaseXdesxDisplay(int id) {
         synchronized (appDisplays) {
             if (id == xdesxFullscreenWindow) leaveXdesxFullscreen();
+            releaseWindowInput(id);
             xdesxTasks.remove(id);
             VirtualDisplay d = appDisplays.remove(id);
             if (d != null) {
+                if (phoneImeDisplay == id) phoneImeDisplay = -1;
                 imes.place(id, false);
-                if (xdesxEditor == id) xdesxEditor = -1;
+                if (xdesxEditor == id) {
+                    xdesxEditor = -1;
+                    post(() -> {
+                        synchronized (appDisplays) {
+                            if (xdesxEditor < 0 && xdesxNativeDisplay < 0 && desktopTarget > 0)
+                                injector.focus(desktopTarget);
+                        }
+                    });
+                }
                 d.release();
             }
         }
@@ -1201,6 +1308,7 @@ public class InjectorService extends IInjector.Stub {
             xdesxTasks.clear();
             xdesxEditor = -1;
             for (VirtualDisplay d : appDisplays.values()) {
+                releaseWindowInput(d.getDisplay().getDisplayId());
                 imes.place(d.getDisplay().getDisplayId(), false);
                 d.release();
             }

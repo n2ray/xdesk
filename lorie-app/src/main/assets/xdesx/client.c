@@ -1,6 +1,8 @@
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
 #include <X11/Xatom.h>
+#include <X11/XKBlib.h>
+#include <X11/keysym.h>
 #include <X11/Xutil.h>
 #include <xcb/dri3.h>
 #include <arpa/inet.h>
@@ -54,6 +56,8 @@ int main(int argc, char **argv) {
     if (snprintf(path,sizeof(path),"%s/xdesx-%s",tmp,key)>=(int)sizeof(path)) return 1;
     Display *d = XOpenDisplay(NULL);
     if (!d) return 1;
+    unsigned num_mask = XkbKeysymToModifiers(d, XK_Num_Lock);
+    unsigned scroll_mask = XkbKeysymToModifiers(d, XK_Scroll_Lock);
     int w = 800, h = 560;
     Window win = XCreateSimpleWindow(d, DefaultRootWindow(d), 40, 70, w, h, 0, 0, 0);
     char identity[256]="xdesx.app",metadata[PATH_MAX];
@@ -161,8 +165,21 @@ int main(int argc, char **argv) {
                 unsigned b=e.xbutton.button;
                 if (b<=7 && !event(ctrl,(e.type==ButtonPress?16:32)+b,e.xbutton.x,e.xbutton.y)) return 1;
             }
-            if (e.type == KeyPress || e.type == KeyRelease)
-                if (!event(ctrl, e.type == KeyPress ? 4 : 5, e.xkey.keycode - 8, 0)) return 1;
+            if (e.type == MappingNotify) {
+                XRefreshKeyboardMapping(&e.xmapping);
+                num_mask = XkbKeysymToModifiers(d, XK_Num_Lock);
+                scroll_mask = XkbKeysymToModifiers(d, XK_Scroll_Lock);
+            }
+            if (e.type == KeyPress || e.type == KeyRelease) {
+                unsigned consumed;
+                KeySym sym = NoSymbol;
+                // A VNC keysym names the actual symbol, including the active group, Shift and AltGr.
+                XkbLookupKeySym(d, e.xkey.keycode, e.xkey.state, &consumed, &sym);
+                unsigned locks = !!(e.xkey.state & LockMask)
+                    | (!!(e.xkey.state & num_mask) << 1) | (!!(e.xkey.state & scroll_mask) << 2);
+                unsigned scan_and_locks = (e.xkey.keycode - 8) | (locks << 16);
+                if (!event(ctrl, e.type == KeyPress ? 4 : 5, scan_and_locks, sym)) return 1;
+            }
         }
         if (poll(fds, 3, -1) < 0) { if (errno == EINTR) continue; return 1; }
         if (fds[2].revents & POLLIN) {

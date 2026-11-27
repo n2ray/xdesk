@@ -45,4 +45,6 @@
     <string name="xu_wireless_pairing_failed">無法開啓無線配對：</string>
     <string name="xu_application">應用程式</string>
     <string name="xu_guest_busy">Linux 應用程式仍在關閉，請稍後再試。</string>
+    <string name="xu_ime_phone_target">請點選外接螢幕上應用程式的輸入欄位，以手機鍵盤輸入。</string>
+    <string name="xu_ime_external_target">輸入法已切回外接螢幕。</string>
 </resources>

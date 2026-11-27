@@ -1,8 +1,14 @@
 package com.termux.x11;
 
+import android.os.Build;
+import android.view.InputDevice;
+import android.view.KeyEvent;
 import com.termux.x11.input.InputStub;
 import io.github.n2ray.xdesk.input.Caps;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** 把输入直接交给外屏 MainActivity 里的 LorieView。桌面没连上时丢弃。 */
 final class DesktopInput implements InputSink {
@@ -96,6 +102,87 @@ final class DesktopInput implements InputSink {
         LorieView v = view();
         if (v != null) v.sendMouseWheelEvent(dx * WHEEL_STEP, dy * WHEEL_STEP);
         return true;
+    }
+
+    // The same X server and symbol must receive both edges, even if focus, device or layout changes mid-press.
+    private final HashMap<Integer, Integer> captured = new HashMap<>();
+    private final HashMap<String, Integer> keyboards = new HashMap<>();
+    // The X client runs on a different thread and may read a down after its physical key was released.
+    private static final ConcurrentHashMap<Integer, Integer> keyboardIds = new ConcurrentHashMap<>();
+    static int keyboardForScan(int scan) { return keyboardIds.getOrDefault(scan, -1); }
+
+    private LorieView capturedView;
+    private boolean capsLock;
+
+    private InputDevice keyboard(String name) {
+        Integer cached = keyboards.get(name);
+        InputDevice device = cached == null ? null : InputDevice.getDevice(cached);
+        if (device != null && name.equals(device.getName())) return device;
+        for (int id : InputDevice.getDeviceIds()) {
+            device = InputDevice.getDevice(id);
+            if (device != null && device.isExternal() && !device.isVirtual() && name.equals(device.getName()) &&
+                    device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) {
+                keyboards.put(name, id);
+                return device;
+            }
+        }
+        return null;
+    }
+
+    private int layoutSymbol(InputDevice device, int scan) {
+        Integer code = InputInjector.KEYS.get(scan);
+        if (code == null || InputInjector.metaOf(scan) != 0) return 0;
+        if (device == null) return 0;
+        if (Build.VERSION.SDK_INT >= 33 && scan != 43) {
+            int mapped = device.getKeyCodeForKeyLocation(code);
+            if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
+        }
+        // Shift and AltGr select a character. Ctrl, left Alt and Super are X shortcuts,
+        // so their actual X events stay held but they do not turn Ctrl+C into code point 3.
+        int meta = capsLock ? KeyEvent.META_CAPS_LOCK_ON : 0;
+        for (int held : captured.keySet()) meta |= InputInjector.metaOf(held);
+        int selectors = KeyEvent.META_SHIFT_MASK | KeyEvent.META_CAPS_LOCK_ON;
+        if ((meta & KeyEvent.META_ALT_RIGHT_ON) != 0) selectors |= KeyEvent.META_ALT_MASK;
+        // Keypad keys must keep their XKB KP_* identity (and NumLock semantics).
+        if (code >= KeyEvent.KEYCODE_NUMPAD_0 && code <= KeyEvent.KEYCODE_NUMPAD_RIGHT_PAREN) return 0;
+        return ScreenShareInput.hardwareCharacterKeysym(device.getKeyCharacterMap().get(code, meta & selectors));
+    }
+
+    void capturedKey(String device, int scan, int value, boolean useAndroidLayout) {
+        LorieView v = view();
+        if (v != capturedView) {
+            resetCapturedKeys();
+            capturedView = v;
+        }
+        if (v == null || value == 2) return; // XKB owns repeat, including its configured rate and delay.
+        if (value == 1 && !captured.containsKey(scan)) {
+            if (scan == 58) capsLock = !capsLock;
+            InputDevice physical = keyboard(device);
+            if (physical != null) keyboardIds.put(scan, physical.getId());
+            else keyboardIds.remove(scan);
+            int sym = useAndroidLayout ? layoutSymbol(physical, scan) : 0;
+            captured.put(scan, sym);
+            if (sym != 0) v.sendLayoutKey(sym, true);
+            else v.sendKeyEvent(scan, 0, true);
+        } else if (value == 0) {
+            Integer sym = captured.remove(scan);
+            if (sym == null) return;
+            if (sym != 0) v.sendLayoutKey(sym, false);
+            else v.sendKeyEvent(scan, 0, false);
+        }
+    }
+
+    void resetCapturedKeys() {
+        if (capturedView != null && capturedView.connected()) {
+            for (Map.Entry<Integer,Integer> press : captured.entrySet()) {
+                if (press.getValue() != 0) capturedView.sendLayoutKey(press.getValue(), false);
+                else capturedView.sendKeyEvent(press.getKey(), 0, false);
+            }
+        }
+        captured.clear();
+        keyboards.clear();
+        keyboardIds.clear();
+        capturedView = null;
     }
 
     @Override public void key(int scan, boolean down) {

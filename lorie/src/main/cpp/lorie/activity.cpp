@@ -883,6 +883,12 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, __unused void *reserved) {
                 }
                 return true;
             }},
+            {"sendLayoutKey", "(JIZ)V", (void *) +[](__unused JNIEnv* env, __unused jobject cls, jlong ptr, jint sym, jboolean down) {
+                lastInputTimestampMs = nowMs();
+                auto* r = (LorieViewResources*) ptr;
+                if (r && r->connFd != -1)
+                    sendEvent(r, .layoutKey = { .t = EVENT_LAYOUT_KEY, .state = down, .sym = (uint32_t) sym });
+            }},
             {"sendTextEvent", "(J[B)V", (void *)&sendTextEvent},
             {"requestConnection", "(J)Z", (void *)&requestConnection},
             {"getLastInputTimestamp", "()J", (void *) +[](__unused JNIEnv* env, __unused jclass clazz) -> jlong {

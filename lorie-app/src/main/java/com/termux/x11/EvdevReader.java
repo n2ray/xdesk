@@ -6,7 +6,6 @@ import android.util.Log;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 
@@ -51,7 +50,6 @@ final class EvdevReader extends Thread {
     private final boolean mouseOnly;
     private final HashSet<Integer> exclusive = new HashSet<>();
     private final HashMap<String, Integer> devices = new HashMap<>();
-    private final HashSet<String> skipped = new HashSet<>();
     /**
      * Keyboards and nothing else. They are never grabbed: Android knows each keyboard's layout and gives its keys to the
      * display with the focus, input method included. A key sent on by hand could only guess at the layout.
@@ -153,20 +151,14 @@ final class EvdevReader extends Thread {
             Log.w(TAG, "cannot list " + DIR);
             return;
         }
-        HashSet<String> present = new HashSet<>(Arrays.asList(names));
-        skipped.retainAll(present);
         for (String n : names) {
-            if (!n.startsWith("event") || devices.containsKey(n) || skipped.contains(n) || devices.size() >= MAX_DEVICES) continue;
+            if (!n.startsWith("event") || devices.containsKey(n) || devices.size() >= MAX_DEVICES) continue;
             int fd = Evdev.open(DIR + "/" + n);
-            if (fd < 0) {
-                skipped.add(n);
-                continue;
-            }
+            if (fd < 0) continue; // creation can precede ueventd setting the node permissions
             // The phone's own touch screen, buttons and sensors have no capability that matches and stay untouched
             int capabilities = Evdev.capabilities(fd);
             if (capabilities == 0 || UhidKeyboard.NAME.equals(Evdev.name(fd))) {
                 Evdev.close(fd);
-                skipped.add(n);
                 continue;
             }
             Log.i(TAG, "using " + n + ": " + Evdev.name(fd));
@@ -220,9 +212,11 @@ final class EvdevReader extends Thread {
 
     @Override public void run() {
         openWake();
+        int watch = Evdev.watchDevices();
         try {
-            loop();
+            loop(watch);
         } finally {
+            Evdev.close(watch);
             closeAll();
         }
     }
@@ -243,24 +237,25 @@ final class EvdevReader extends Thread {
         wakeRead = wakeWrite = null;
     }
 
-    private void loop() {
+    private void loop(int watch) {
         int[] out = new int[BUFFER_EVENTS * Evdev.STRIDE];
         while (running) {
             long now = SystemClock.uptimeMillis();
-            if (now - lastScan >= RESCAN_MS) {
+            if (lastScan == 0 || now - lastScan >= RESCAN_MS) {
                 lastScan = now;
                 scan();
             }
             int[] fds = currentFds();
-            if (fds.length == 1) {
+            if (fds.length == 1 && watch < 0) {
                 // Nothing but the wake fd: look for a device now and then
                 SystemClock.sleep(POLL_MS);
+                lastScan = 0;
                 continue;
             }
             boolean wake = fds[fds.length - 1] >= 0;
             // A long timeout while there is a wake fd: a mouse at 1000 Hz must not wake the thread every 200 ms, but a
             // device plugged in while the others are idle is still found within RESCAN_MS
-            int count = Evdev.poll(fds, fds.length, out, wake ? (int) RESCAN_MS : POLL_MS);
+            int count = Evdev.poll(fds, fds.length, out, wake ? (int) RESCAN_MS : POLL_MS, watch);
             if (count < 0) {
                 // A read failed: look at the devices again, and do not spin on the same error
                 lastScan = 0;
@@ -270,6 +265,7 @@ final class EvdevReader extends Thread {
             ArrayList<Integer> gone = null;
             for (int i = 0; i < count; i++) {
                 int at = i * Evdev.STRIDE, type = out[at + 1], code = out[at + 2], value = out[at + 3];
+                if (type == Evdev.DEVICES_CHANGED) { lastScan = 0; continue; }
                 if (out[at] == fds.length - 1) return;  // the wake fd: shutdown
                 if (type == Evdev.GONE) {
                     if (gone == null) gone = new ArrayList<>();

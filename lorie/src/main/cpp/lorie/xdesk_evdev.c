@@ -7,6 +7,7 @@
 #include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/inotify.h>
 #include <unistd.h>
 
 #define CAP_MOUSE 1
@@ -69,12 +70,25 @@ JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_capabilities(JNIEnv *env, jclas
     return caps;
 }
 
-JNIEXPORT jstring JNICALL Java_com_termux_x11_Evdev_name(JNIEnv *env, jclass cls, jint fd) {
-    char name[128] = "";
+JNIEXPORT jbyteArray JNICALL Java_com_termux_x11_Evdev_nameBytes(JNIEnv *env, jclass cls, jint fd) {
+    char name[256] = "";
     ioctl(fd, EVIOCGNAME(sizeof name - 1), name);
-    // NewStringUTF wants modified UTF-8, and a device can report anything
-    for (char *c = name; *c; c++) if ((unsigned char) *c >= 0x80) *c = '?';
-    return (*env)->NewStringUTF(env, name);
+    jsize length = (jsize) strlen(name);
+    jbyteArray raw = (*env)->NewByteArray(env, length);
+    if (raw && length) (*env)->SetByteArrayRegion(env, raw, 0, length, (const jbyte*) name);
+    return raw;
+}
+
+// Read only key state after SYN_DROPPED; no characters or key history are retained.
+JNIEXPORT jintArray JNICALL Java_com_termux_x11_Evdev_pressedKeys(JNIEnv *env, jclass cls, jint fd) {
+    unsigned long keys[BIT_WORDS(KEY_MAX)] = {0};
+    if (ioctl(fd, EVIOCGKEY(sizeof keys), keys) < 0) return NULL;
+    jint held[KEY_MAX + 1];
+    jsize count = 0;
+    for (int code = 0; code <= KEY_MAX; ++code) if (has_bit(keys, code)) held[count++] = code;
+    jintArray result = (*env)->NewIntArray(env, count);
+    if (result && count) (*env)->SetIntArrayRegion(env, result, 0, count, held);
+    return result;
 }
 
 // When Ctrl+Alt+M gives the keyboard back to the Mac, Android still needs the
@@ -95,8 +109,18 @@ JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_grab(JNIEnv *env, jclass cls, j
     return ioctl(fd, EVIOCGRAB, on ? 1 : 0) < 0 ? -errno : 0;
 }
 
-JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_poll(JNIEnv *env, jclass cls, jintArray fds, jint count, jintArray out, jint timeoutMs) {
-    struct pollfd p[MAX_DEVICES];
+// Hotplug and ueventd's later permission changes wake idle readers without periodic device opens.
+JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_watchDevices(JNIEnv *env, jclass cls) {
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (fd >= 0 && inotify_add_watch(fd, "/dev/input", IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_poll(JNIEnv *env, jclass cls, jintArray fds, jint count, jintArray out, jint timeoutMs, jint watchFd) {
+    struct pollfd p[MAX_DEVICES + 1];
     jint in[MAX_DEVICES];
     if (count < 0) count = 0;
     if (count > MAX_DEVICES) count = MAX_DEVICES;
@@ -108,7 +132,8 @@ JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_poll(JNIEnv *env, jclass cls, j
         p[i].events = POLLIN;
         p[i].revents = 0;
     }
-    int ready = poll(p, count, timeoutMs);
+    if (watchFd >= 0) p[count] = (struct pollfd){ .fd = watchFd, .events = POLLIN };
+    int ready = poll(p, count + (watchFd >= 0), timeoutMs);
     if (ready < 0) return errno == EINTR ? 0 : -errno;
     if (ready == 0) return 0;
 
@@ -116,6 +141,15 @@ JNIEXPORT jint JNICALL Java_com_termux_x11_Evdev_poll(JNIEnv *env, jclass cls, j
     jint *o = (*env)->GetIntArrayElements(env, out, NULL);
     if (!o) return -ENOMEM;
     int n = 0;
+    if (watchFd >= 0 && p[count].revents && capacity > 0) {
+        char changes[4096];
+        if (read(watchFd, changes, sizeof(changes)) > 0) {
+            o[0] = -1;
+            o[1] = -2; // DEVICES_CHANGED, not associated with an event fd
+            o[2] = o[3] = 0;
+            n++;
+        }
+    }
     for (int i = 0; i < count && n < capacity; i++) {
         int gone = p[i].revents & (POLLERR | POLLHUP | POLLNVAL);
         if (p[i].revents & POLLIN) {

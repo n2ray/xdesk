@@ -11,7 +11,6 @@ import android.view.MotionEvent;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -107,7 +106,17 @@ final class InputInjector {
     private Method focusTopTask, rootTasksOnDisplay, setFocusedTask, stacksOnDisplay, setFocusedStack;
     private boolean focusResolved;
     private final CursorListener cursor;
-    private final HashSet<Integer> held = new HashSet<>();
+    private static final class HeldKey {
+        final int device, code;
+        final long downTime;
+        int repeats;
+        HeldKey(int device, int code, long downTime) {
+            this.device = device;
+            this.code = code;
+            this.downTime = downTime;
+        }
+    }
+    private final HashMap<Integer,HeldKey> held = new HashMap<>();
     private AppInputProfile profile = AppInputProfile.forPackage(null);
     private int display, width, height, buttons, meta;
     private float x, y, nudge;
@@ -149,6 +158,11 @@ final class InputInjector {
         setDisplayMotion = MotionEvent.class.getMethod("setDisplayId", int.class);
         setDisplayKey = KeyEvent.class.getMethod("setDisplayId", int.class);
         setActionButton = MotionEvent.class.getMethod("setActionButton", int.class);
+    }
+
+    /** Each X client keeps its own buttons, held keys and cursor geometry while sharing Android's input service. */
+    InputInjector forWindow() throws ReflectiveOperationException {
+        return new InputInjector(cursor);
     }
 
     void setProfile(AppInputProfile p) {
@@ -665,42 +679,58 @@ final class InputInjector {
         Thread.sleep(40);
     }
 
+    /** The X client packs its active XKB locks above the scan so they survive a focus or device change. */
+    void windowKey(int packet, boolean down, int deviceId) throws ReflectiveOperationException {
+        int locks = packet >>> 16;
+        int lockMeta = ((locks & 1) == 0 ? 0 : KeyEvent.META_CAPS_LOCK_ON)
+            | ((locks & 2) == 0 ? 0 : KeyEvent.META_NUM_LOCK_ON)
+            | ((locks & 4) == 0 ? 0 : KeyEvent.META_SCROLL_LOCK_ON);
+        key(packet & 0xffff, down ? 1 : 0, lockMeta, deviceId);
+    }
+
     /** @param value 1 down, 0 up, 2 repeat, as in evdev. Keys only reach the display that has focus, see focus(). */
     void key(int linuxCode, int value) throws ReflectiveOperationException {
+        key(linuxCode,value,0,-1);
+    }
+
+    private void key(int linuxCode, int value, int lockMeta, int deviceId) throws ReflectiveOperationException {
         Integer code = KEYS.get(linuxCode);
         if (code == null) {
             Log.i(TAG, "unmapped key " + linuxCode);
             return;
         }
-        int m = metaOf(linuxCode);
-        if (value == 1) {
-            meta |= m;
-            held.add(linuxCode);
-        } else if (value == 0) {
-            meta &= ~m;
-            held.remove(linuxCode);
-        }
-        int device = KeyCharacterMap.VIRTUAL_KEYBOARD;
-        InputDevice keyboard = physicalKeyboard();
-        if (keyboard != null) {
-            // KEYS gives the key's place on a US keyboard. The keyboard's own layout, chosen in the system settings, says what
-            // that place means, and the event must come from that keyboard for apps to read the layout's characters.
-            // Two keys share the US place BACKSLASH: this one, and 86 beside left Shift. The system answers for just one of them,
-            // and that is 86, which a layout such as German moves elsewhere.
-            int mapped = linuxCode == KEY_BACKSLASH ? code : keyboard.getKeyCodeForKeyLocation(code);
-            if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
-            device = keyboard.getId();
-        }
         long now = SystemClock.uptimeMillis();
-        KeyEvent e = new KeyEvent(now, now, value == 0 ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN, code, value == 2 ? 1 : 0, meta,
-            device, linuxCode, KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
+        HeldKey press = held.get(linuxCode);
+        if (press == null) {
+            // Focus loss or a display transition may have already released this key.
+            if (value != 1) return;
+            InputDevice keyboard = deviceId < 0 ? physicalKeyboard() : InputDevice.getDevice(deviceId);
+            if (keyboard != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && linuxCode != KEY_BACKSLASH) {
+                int mapped = keyboard.getKeyCodeForKeyLocation(code);
+                if (mapped != KeyEvent.KEYCODE_UNKNOWN) code = mapped;
+            }
+            press = new HeldKey(keyboard == null ? KeyCharacterMap.VIRTUAL_KEYBOARD : keyboard.getId(), code, now);
+            held.put(linuxCode, press);
+            meta |= metaOf(linuxCode);
+        } else if (value == 0) {
+            held.remove(linuxCode);
+            if (metaOf(linuxCode) != 0) {
+                meta = 0;
+                for (Integer scan : held.keySet()) meta |= metaOf(scan);
+            }
+        } else {
+            press.repeats++;
+        }
+        // Keep down, repeat and up paired even if a Bluetooth keyboard reconnects or its layout changes.
+        KeyEvent e = new KeyEvent(press.downTime, now, value == 0 ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN,
+            press.code, value == 0 ? 0 : press.repeats, meta | lockMeta, press.device, linuxCode,
+            KeyEvent.FLAG_FROM_SYSTEM, InputDevice.SOURCE_KEYBOARD);
         setDisplayKey.invoke(e, display);
         send(e);
     }
 
     /** The plugged-in keyboard whose layout applies, or null to keep the virtual keyboard's US layout. */
     static InputDevice physicalKeyboard() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;  // getKeyCodeForKeyLocation
         InputDevice found = null;
         for (int id : InputDevice.getDeviceIds()) {
             InputDevice d = InputDevice.getDevice(id);
@@ -714,7 +744,7 @@ final class InputInjector {
 
     /** Held down now, and not a modifier: what auto-repeat applies to. */
     boolean repeats(int linuxCode) {
-        return held.contains(linuxCode) && metaOf(linuxCode) == 0 && KEYS.containsKey(linuxCode);
+        return held.containsKey(linuxCode) && metaOf(linuxCode) == 0 && KEYS.containsKey(linuxCode);
     }
 
     /** A key with no key code of its own on a keyboard, such as Back: down and up on the display. */
@@ -745,14 +775,28 @@ final class InputInjector {
                 dropped++;
                 continue;
             }
-            for (KeyEvent k : events) {
-                KeyEvent e = new KeyEvent(k.getDownTime(), k.getEventTime(), k.getAction(), k.getKeyCode(), k.getRepeatCount(),
-                    k.getMetaState() | held, device, k.getScanCode(), k.getFlags(), k.getSource());
-                setDisplayKey.invoke(e, display);
-                send(e);
-            }
+            sendCharacters(events,device,held);
         }
         return dropped;
+    }
+
+    /** Refuse an unmappable IME commit as a unit so it cannot silently become different text. */
+    boolean textCommit(String s) throws ReflectiveOperationException {
+        InputDevice keyboard = physicalKeyboard();
+        int device = keyboard == null ? KeyCharacterMap.VIRTUAL_KEYBOARD : keyboard.getId();
+        KeyEvent[] events = KeyCharacterMap.load(device).getEvents(s.toCharArray());
+        if (events == null) return false;
+        sendCharacters(events,device,0);
+        return true;
+    }
+
+    private void sendCharacters(KeyEvent[] events,int device,int additionalMeta) throws ReflectiveOperationException {
+        for (KeyEvent k : events) {
+            KeyEvent e = new KeyEvent(k.getDownTime(), k.getEventTime(), k.getAction(), k.getKeyCode(), k.getRepeatCount(),
+                k.getMetaState() | additionalMeta, device, k.getScanCode(), k.getFlags(), k.getSource());
+            setDisplayKey.invoke(e, display);
+            send(e);
+        }
     }
 
     /**
@@ -842,7 +886,7 @@ final class InputInjector {
         pendingButton = 0;  // a click that never finished, do not fire it now
         endSwipe();
         cancelTouch();
-        for (Integer code : new ArrayList<>(held)) key(code, 0);
+        for (Integer code : new ArrayList<>(held.keySet())) key(code, 0);
         for (int bit : ALL_BUTTONS) button(bit, false);
     }
 

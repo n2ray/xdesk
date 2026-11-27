@@ -5187,7 +5187,7 @@ public class XDeskActivity extends Activity {
         return code == KeyEvent.KEYCODE_BACK ? io.github.n2ray.xdesk.input.Input.BACK_BUTTON : io.github.n2ray.xdesk.input.Input.FORWARD_BUTTON;
     }
 
-    private static boolean mediaKey(int code) {
+    static boolean mediaKey(int code) {
         switch (code) {
             case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN: case KeyEvent.KEYCODE_VOLUME_MUTE:
             case KeyEvent.KEYCODE_MUTE: case KeyEvent.KEYCODE_MEDIA_PLAY: case KeyEvent.KEYCODE_MEDIA_PAUSE:

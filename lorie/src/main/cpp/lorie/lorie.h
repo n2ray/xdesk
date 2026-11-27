@@ -135,6 +135,7 @@ typedef enum {
     EVENT_SYNC_REPLY,
     EVENT_HEARTBEAT,
     EVENT_CURSOR_HIDDEN,
+    EVENT_LAYOUT_KEY,
 } eventType;
 
 typedef union {
@@ -168,6 +169,10 @@ typedef union {
         uint16_t key;
         uint8_t state;
     } key;
+    struct {
+        uint8_t t, state;
+        uint32_t sym;
+    } layoutKey;
     struct {
         uint8_t t;
         float x, y;

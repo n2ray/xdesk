@@ -5,18 +5,20 @@ import android.app.ActivityOptions;
 import android.content.*;
 import android.content.pm.ResolveInfo;
 import android.hardware.display.DisplayManager;
+import android.hardware.input.InputManager;
 import android.os.*;
 import android.util.Base64;
 import android.util.Log;
 import android.view.*;
 import android.widget.Toast;
 import io.github.n2ray.xdesk.input.GestureOutput;
+import com.termux.x11.screenshare.ScreenShareActivity;
 import java.io.*;
 import java.util.*;
 import org.json.JSONArray;
 
 /** Minimal phone controller for the native Termux energy experiment. */
-public final class XdesxActivity extends Activity implements DisplayManager.DisplayListener {
+public final class XdesxActivity extends Activity implements DisplayManager.DisplayListener, InputManager.InputDeviceListener {
     private final DesktopInput input = new DesktopInput();
     private XdesxRuntime runtime;
     private XdesxLinux linux;
@@ -36,14 +38,17 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private float restX,restY;
     private volatile XdesxFullscreenBar toolbar;
     private XdesxWindow fullWindow;
-    private boolean switching, gamePassthrough, leavingGameTouch, hideImeOnReturn;
+    private boolean switching, gamePassthrough, leavingGameTouch, hideImeOnReturn, phoneImeVisible;
     private void setGame(boolean on) {
         if (injector != null) try { injector.setGameMode(on); }
         catch (RemoteException e) { error(e.toString()); }
     }
     private final IInjectorListener fullscreenEvents = new IInjectorListener.Stub() {
         public void onForwarding(boolean on,int count) {}
-        public void onMessage(String message) {}
+        public void onMessage(String message) {
+            if (ShellText.code(ShellText.TEXT_NOT_SENT).equals(message))
+                error(ShellText.localize(XdesxActivity.this,message));
+        }
         public void onAppInSession(boolean inSession) {}
         public void onButtonUp() {}
         public void onTopApp(String pkg) {}
@@ -52,6 +57,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         public void onClipboard(String text) {}
         @Override public void onGameMode(boolean on) {
             runOnUiThread(() -> {
+                if (on) releasePhoneKeys(-1);
                 gamePassthrough = on && fullWindow != null;
                 if (toolbar != null) toolbar.gameMode(gamePassthrough);
                 if (gamePassthrough) Toast.makeText(XdesxActivity.this,
@@ -79,6 +85,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         IInjector service = injector;
         if (service == null) return;
+        releasePhoneKeys(-1);
+        mouse.releaseMouse();
+        if (w.mac()) ScreenShareActivity.releaseInput(w.fullscreen()?external:w.displayId());
         switching=true;
         syncDesktopKeys();
         android.graphics.Point size=new android.graphics.Point();
@@ -119,26 +128,19 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         },"xdesx-fullscreen").start();
     }
     private IMacKeyboard desktopKeys;
-    private final Set<Integer> pressedDesktopKeys=new HashSet<>();
-
-    private void releaseDesktopKeys() {
-        for(int scan:pressedDesktopKeys)input.key(scan,false);
-        pressedDesktopKeys.clear();
-    }
-
     // Android consumes system shortcuts before Activity key dispatch. The existing external
     // keyboard reader sends physical scan codes straight to X, where xfwm4 owns the shortcuts.
     private void syncDesktopKeys() {
-        boolean wanted=injector!=null && !isFinishing() && !isDestroyed() && !switching && fullWindow==null
+        boolean wanted=injector!=null && !isFinishing() && !isDestroyed() && !switching && !phoneImeVisible && fullWindow==null
             && ((XdesxApp)getApplication()).desktopVisible(external);
         if(wanted==(desktopKeys!=null))return;
-        releaseDesktopKeys();
+        input.resetCapturedKeys();
         desktopKeys=wanted?new IMacKeyboard.Stub(){
-            public void reset(){runOnUiThread(()->{if(desktopKeys==this)releaseDesktopKeys();});}
+            public void reset(){runOnUiThread(()->{if(desktopKeys==this)input.resetCapturedKeys();});}
             public void key(String device,int scan,int value){runOnUiThread(()->{
                 if(desktopKeys!=this || DesktopInput.view()==null)return;
-                if(value==1 && pressedDesktopKeys.add(scan))input.key(scan,true);
-                if(value==0 && pressedDesktopKeys.remove(scan))input.key(scan,false);
+                XdesxWindow focused=XdesxWindow.focused();
+                input.capturedKey(device,scan,value,focused==null || focused.mac());
             });}
         }:null;
         if(injector!=null)try {injector.macKeyboard(desktopKeys);}
@@ -153,6 +155,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             MainActivity.xdesxHardwareCursor(desktopNative);
             if(desktopNative && mouse.hasPointerCapture()) mouse.releasePointerCapture();
         } catch(RemoteException e){error(e.toString());}
+    }
+    private XdesxWindow phoneInputTarget() {
+        return fullWindow!=null ? fullWindow : XdesxWindow.focused();
+    }
+    private int phoneInputDisplay(XdesxWindow target) {
+        return target==fullWindow ? external : target==null ? -1 : target.displayId();
     }
     private boolean padInput(int op, float x, float y) {
         if (!switching && fullWindow != null && fullWindow.mac() &&
@@ -174,6 +182,23 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private final Map<String,XdesxWindow> windows = new HashMap<>();
     private DisplayManager displays;
+    private InputManager devices;
+    private final Set<Integer> keyboards=new HashSet<>();
+    private boolean externalKeyboard(int id) {
+        InputDevice d=devices.getInputDevice(id);
+        return d!=null && !UhidKeyboard.NAME.equals(d.getName()) && !d.isVirtual() && d.isExternal() &&
+                d.getKeyboardType()==InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+    @Override public void onInputDeviceAdded(int id) {
+        if (externalKeyboard(id) && keyboards.add(id) && injector!=null) {
+            try { injector.xdesxRestorePhoneIme(); }
+            catch (RemoteException e) { Log.w("XDesX","restore external IME",e); }
+        }
+    }
+    @Override public void onInputDeviceRemoved(int id) { keyboards.remove(id); releasePhoneKeys(id); }
+    @Override public void onInputDeviceChanged(int id) {
+        if (externalKeyboard(id)) onInputDeviceAdded(id); else keyboards.remove(id);
+    }
     private int external = -1;
     private IInjector injector;
     private Boolean shizuku;
@@ -213,31 +238,53 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }, () -> desktopNative && injector != null && fullWindow == null));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
-                if (fullWindow==null) input.text(s);
-                else try { if (injector!=null) injector.text(s); } catch(RemoteException e) { error(e.toString()); }
+                if (switching || gamePassthrough) return;
+                XdesxWindow target=phoneInputTarget();
+                int display=phoneInputDisplay(target);
+                if (target!=null && target.mac() && ScreenShareActivity.sendText(display,s)) return;
+                if (target==null) input.text(s);
+                else try {
+                    if (injector!=null) injector.xdesxWindowText(target.displayId(),s);
+                } catch(RemoteException e) { error(e.toString()); }
             }
             public void tapKey(int scan) {
-                if (!nativeInput(4,scan,1)) input.tapKey(scan); else nativeInput(4,scan,0);
+                if (switching || gamePassthrough) return;
+                XdesxWindow target=phoneInputTarget();
+                if (target!=null && target.mac() && ScreenShareActivity.sendScan(phoneInputDisplay(target),scan,true)) {
+                    ScreenShareActivity.sendScan(phoneInputDisplay(target),scan,false);
+                } else if (!nativeInput(4,scan,1)) input.tapKey(scan);
+                else nativeInput(4,scan,0);
             }
             public void mouseMove(float dx,float dy) {
                 float gain=panel==null?1f:panel.mouseSpeed/100f;
                 movePointer(dx*gain,dy*gain);
             }
-            public void mouseButton(int b,boolean down) { if (!nativeInput(2,b,down?1:0)) input.button(b,down); }
-            public void mouseScroll(float v,float h) { float k=panel!=null && panel.reverse?-1:1; if (!nativeInput(3,h*k,-v*k)) input.scrollFine(-v*k,h*k,0); }
+            public void mouseButton(int b,boolean down) { if (!padInput(2,b,down?1:0)) input.button(b,down); }
+            public void mouseScroll(float v,float h) { float k=panel!=null && panel.reverse?-1:1; if (!padInput(3,h*k,-v*k)) input.scrollFine(-v*k,h*k,0); }
             public void captureChanged(boolean has) { if(!has) { mouse.releaseMouse(); mouse.postDelayed(XdesxActivity.this::capture,200); } }
-            public Object target() { return input; }
+            public Object target() { XdesxWindow w=phoneInputTarget(); return w==null?input:w; }
             public boolean latched() { return false; }
-            public boolean physicalKey(KeyEvent e) { return dispatchKeyEvent(e); }
+            public boolean physicalKey(KeyEvent e) { return routePhoneKey(e); }
         });
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
         controls=new android.widget.Button(this);
         controls.setText(getString(com.termux.x11.app.R.string.xu_desktop_controls));controls.setAlpha(.72f);
         layout.addView(controls,new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.END));
         controls.setOnClickListener(v -> showDesktopControls());
+        layout.setOnApplyWindowInsetsListener((v,insets) -> {
+            boolean visible=insets.isVisible(WindowInsets.Type.ime());
+            if (phoneImeVisible!=visible) {
+                phoneImeVisible=visible;
+                syncDesktopKeys();
+            }
+            return v.onApplyWindowInsets(insets);
+        });
         setContentView(layout);
         displays = getSystemService(DisplayManager.class);
         displays.registerDisplayListener(this,null);
+        devices=getSystemService(InputManager.class);
+        devices.registerInputDeviceListener(this,settingsHandler);
+        for (int id:devices.getInputDeviceIds()) if (externalKeyboard(id)) keyboards.add(id);
         AppSession.get(this).activateIfPaired();
         openInjector();
         if (injector == null && !connecting) mouse.postDelayed(() -> {
@@ -259,7 +306,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         },"xdesx-start").start();
     }
     private void movePointer(float dx,float dy) {
-        if (!nativeInput(1,dx,dy)) moveXPointer(dx,dy);
+        if (!padInput(1,dx,dy)) moveXPointer(dx,dy);
     }
     private void moveXPointer(float dx,float dy) {
         restX+=dx; restY+=dy;
@@ -279,7 +326,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if(focused) capture(); else if(mouse!=null) mouse.releaseMouse();
+        if(focused) capture(); else { leavingGameTouch=false; releasePhoneKeys(-1); if(mouse!=null) mouse.releaseMouse(); }
     }
     private ActivationPage activation;
     private final Runnable checkSetup=new Runnable() {
@@ -604,12 +651,42 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         return (!gamePassthrough && routeUncapturedMouse(e)) || super.dispatchGenericMotionEvent(e);
     }
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
-        if (e.getScanCode()>0 && e.getKeyCode()!=KeyEvent.KEYCODE_BACK) {
-            boolean down=e.getAction()==KeyEvent.ACTION_DOWN;
-            if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
-            return true;
+        return (!phoneImeVisible && routePhoneKey(e)) || super.dispatchKeyEvent(e);
+    }
+    // Only the Activity fallback uses these events. The grabbed keyboard reader owns its
+    // own device state. Keep the original KeyEvent so a synthetic up retains its layout.
+    private final Map<Long,KeyEvent> phoneKeys=new HashMap<>();
+    private void releasePhoneKeys(int device) {
+        for (Iterator<KeyEvent> it=phoneKeys.values().iterator();it.hasNext();) {
+            KeyEvent held=it.next();
+            if (device>=0 && held.getDeviceId()!=device) continue;
+            it.remove();
+            deliverPhoneKey(KeyEvent.changeAction(held,KeyEvent.ACTION_UP));
         }
-        return super.dispatchKeyEvent(e);
+    }
+    private boolean routePhoneKey(KeyEvent e) {
+        int scan=e.getScanCode(), action=e.getAction();
+        if (scan<=0 || e.getKeyCode()==KeyEvent.KEYCODE_BACK || XDeskActivity.mediaKey(e.getKeyCode()) ||
+                (action!=KeyEvent.ACTION_DOWN && action!=KeyEvent.ACTION_UP)) return false;
+        long id=((long)e.getDeviceId()<<32) | (scan & 0xffffffffL);
+        if (action==KeyEvent.ACTION_UP) {
+            if (phoneKeys.remove(id)==null) return false;
+        } else {
+            if (switching || gamePassthrough) return false;
+            if (e.getRepeatCount()>0 || phoneKeys.putIfAbsent(id,new KeyEvent(e))!=null) return true;
+        }
+        deliverPhoneKey(e);
+        return true;
+    }
+    private void deliverPhoneKey(KeyEvent e) {
+        if (fullWindow!=null && fullWindow.mac() && ScreenShareActivity.sendPhysical(external,e)) return;
+        boolean down=e.getAction()==KeyEvent.ACTION_DOWN;
+        if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
+    }
+    @Override protected void onPause() {
+        leavingGameTouch=false;
+        releasePhoneKeys(-1);
+        super.onPause();
     }
     @Override public void onBackPressed() {
         // Dialogs consume Back themselves. At the touchpad root keep the desktop session alive.
@@ -627,12 +704,26 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     case 1: panelAction("recover"); break;
                     case 2: setup(); break;
                     case 3:
-                        mouse.requestFocus();
-                        getWindow().getInsetsController().show(WindowInsets.Type.ime());
+                        showPhoneKeyboard();
                         break;
                     case 4: confirmEndDesktop(); break;
                 }
             }).setNegativeButton(getString(com.termux.x11.app.R.string.xu_cancel), null).show();
+    }
+    private void showPhoneKeyboard() {
+        XdesxWindow target=phoneInputTarget();
+        if (target!=null && !target.mac() && injector!=null) {
+            try {
+                int mode=injector.xdesxTogglePhoneIme(target.displayId());
+                if (mode>=0) {
+                    Toast.makeText(this,mode==1?com.termux.x11.app.R.string.xu_ime_phone_target:
+                            com.termux.x11.app.R.string.xu_ime_external_target,Toast.LENGTH_LONG).show();
+                    return;
+                }
+            } catch (RemoteException e) { Log.w("XDesX","place phone keyboard",e); }
+        }
+        mouse.requestFocus();
+        getWindow().getInsetsController().show(WindowInsets.Type.ime());
     }
     private void endDesktop() {
         if (isFinishing()) return;
@@ -655,13 +746,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     @Override protected void onDestroy() {
         ((XdesxApp)getApplication()).observeDesktop(null);
         desktopKeys=null;
-        releaseDesktopKeys();
+        input.resetCapturedKeys();
         settingsHandler.removeCallbacks(revertRender);
         closeToolbar();
         if(notifications!=null) notifications.close();
         if(macProfiles!=null) macProfiles.close();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
+        devices.unregisterInputDeviceListener(this);
         if (linux != null) linux.close();
         if(runtime!=null) runtime.close();
         MainActivity.xdesxHardwareCursor(false);

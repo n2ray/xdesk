@@ -10,22 +10,22 @@ import java.util.Map;
  * process. LOCAL puts the candidates of a physical keyboard next to the text on the external display; the default
  * puts them, and the soft keyboard, on the phone. The system keeps the policy across reboots, so what is changed here
  * is put back when the session ends.
- *
- * Never HIDE: it disconnects the input method from the whole display, and a saved HIDE would come back.
  */
 final class ImePlacement {
     private static final String TAG = "XDeskInjector";
-    /** WindowManager.DISPLAY_IME_POLICY_LOCAL and _HIDE. */
-    private static final int LOCAL = 0, HIDE = 2;
+    /** WindowManager.DISPLAY_IME_POLICY_LOCAL. */
+    private static final int LOCAL = 0;
 
     /** The policy each changed display had before. */
     private final HashMap<Integer, Integer> before = new HashMap<>();
+    private final HashMap<Integer, Integer> applied = new HashMap<>();
 
     /** A keyboard with letters that is not the phone's own: the soft keyboard on the phone stays for touch typing. */
     static boolean hasPhysicalKeyboard() {
         for (int id : InputDevice.getDeviceIds()) {
             InputDevice d = InputDevice.getDevice(id);
-            if (d != null && d.isExternal() && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return true;
+            if (d != null && d.isExternal() && !d.isVirtual() && !UhidKeyboard.NAME.equals(d.getName())
+                    && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return true;
         }
         return false;
     }
@@ -38,21 +38,40 @@ final class ImePlacement {
         wm.getClass().getMethod("setDisplayImePolicy", int.class, int.class).invoke(wm, display, policy);
     }
 
-    /** @param local on the display itself, or where it was before */
-    synchronized void place(int display, boolean local) {
-        if (display == android.view.Display.DEFAULT_DISPLAY) return;
+    /** Keep the focused editor as Android's IME client. Only move where its IME is drawn. */
+    synchronized boolean target(int display, boolean phone) {
+        if (display <= android.view.Display.DEFAULT_DISPLAY) return false;
+        int desired = phone ? 1 : LOCAL; // DISPLAY_IME_POLICY_FALLBACK_DISPLAY
         try {
             Object wm = DensityOverride.windowManager();
-            if (local) {
-                int now = get(wm, display);
-                if (!before.containsKey(display)) before.put(display, now == HIDE ? 1 : now);
-                if (now != LOCAL) set(wm, display, LOCAL);
-            } else {
-                Integer old = before.remove(display);
-                if (old != null && get(wm, display) != old) set(wm, display, old);
+            int current = get(wm, display);
+            if (current != desired) {
+                set(wm, display, desired);
+                before.putIfAbsent(display, current);
+                applied.put(display, desired);
             }
+            return get(wm, display) == desired;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
             Log.w(TAG, "input method policy not changed on display " + display, e);
+            return false;
+        }
+    }
+
+    synchronized void place(int display, boolean local) {
+        if (local) {
+            target(display, false);
+            return;
+        }
+        Integer old = before.get(display);
+        if (old == null) return;
+        try {
+            Object wm = DensityOverride.windowManager();
+            // Leave a newer system or user change alone.
+            if (get(wm, display) == applied.get(display).intValue()) set(wm, display, old);
+            before.remove(display);
+            applied.remove(display);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "cannot restore input method policy on display " + display, e);
         }
     }
 
@@ -60,5 +79,6 @@ final class ImePlacement {
     synchronized void restoreAll() {
         for (Map.Entry<Integer, Integer> e : new HashMap<>(before).entrySet()) place(e.getKey(), false);
         before.clear();
+        applied.clear();
     }
 }
