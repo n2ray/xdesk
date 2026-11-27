@@ -141,6 +141,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     // Android consumes system shortcuts before Activity key dispatch. The existing external
     // keyboard reader sends physical scan codes straight to X, where xfwm4 owns the shortcuts.
     private void syncDesktopKeys() {
+        ((XdesxApp)getApplication()).editorHostDisplay(injector!=null && !switching && fullWindow==null &&
+                !isFinishing() && !isDestroyed() ? external : -1);
         boolean wanted=injector!=null && !isFinishing() && !isDestroyed() && !switching && !phoneImeVisible && fullWindow==null
             && ((XdesxApp)getApplication()).desktopVisible(external);
         if(wanted==(desktopKeys!=null))return;
@@ -861,6 +863,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().getInsetsController().show(WindowInsets.Type.ime());
     }
     private void endDesktop() {
+        ((XdesxApp)getApplication()).editorHostDisplay(-1);
         if (isFinishing()) return;
         // The HDMI surface and phone controller belong to separate Android tasks.
         for (MainActivity screen : new java.util.ArrayList<>(MainActivity.getInstances())) {
@@ -874,6 +877,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     @Override protected void onResume(){super.onResume();phoneResumed=true;armPhoneTimeout();if(notifications!=null)notifications.refresh();}
     @Override protected void onDestroy() {
+        ((XdesxApp)getApplication()).editorHostDisplay(-1);
         ((XdesxApp)getApplication()).observeDesktop(null);
         desktopKeys=null;
         input.resetCapturedKeys();

@@ -18,6 +18,15 @@ import java.util.concurrent.atomic.AtomicReference;
 final class XdesxWindow {
     private static final AtomicReference<XdesxWindow> focused = new AtomicReference<>();
     static XdesxWindow focused() { return focused.get(); }
+    private volatile boolean xGrab;
+    boolean ownsAndroidEditor() { return !mac() && !nativeFullscreen && !minimized && !stopped && !xGrab; }
+    private void editorFocus(boolean active) {
+        boolean changed=active ? focused.getAndSet(this)!=this : focused.compareAndSet(this,null);
+        boolean grabbed=xGrab;
+        xGrab=false;
+        if (changed || grabbed) syncHost();
+    }
+    private void syncHost() { ((XdesxApp)context.getApplicationContext()).syncEditorHost(); }
     int displayId() { return display; }
     private final android.content.Context context;
     private final ICmdEntryInterface server;
@@ -74,6 +83,7 @@ final class XdesxWindow {
             if (moved<0) return false;
             task=moved;
             nativeFullscreen=enter;
+            syncHost();
             didMove=true;
             if (!enter) showReturnWindow();
             if (hdmiFirst) {
@@ -131,10 +141,14 @@ final class XdesxWindow {
                 if (display<0) continue;
                 synchronized (injector) {
                     if (op==9) {
-                        if (x!=0) focused.set(this);
-                        else focused.compareAndSet(this,null);
+                        editorFocus(x!=0);
                         if (mac() && x==0) ScreenShareActivity.releaseInput(display);
                         injector.xdesxWindowFocus(display,x!=0);
+                        continue;
+                    }
+                    if (op==11) {
+                        xGrab=x!=0;
+                        if (focused.get()==this) syncHost();
                         continue;
                     }
                     if (nativeFullscreen) continue;
@@ -148,7 +162,7 @@ final class XdesxWindow {
                         // An already-active X window may have lost Android editor focus to the
                         // phone keyboard or panel. Reassert it on a real click, never on hover.
                         if (op==17) {
-                            focused.set(this);
+                            editorFocus(true);
                             injector.xdesxWindowFocus(display,true);
                         }
                         if (!mac() || !ScreenShareActivity.windowPointer(display,op,x,y))
@@ -159,7 +173,7 @@ final class XdesxWindow {
         } catch (EOFException ignored) {
         } catch (Exception e) { Log.e("XDesX","window "+component,e); }
         finally {
-            focused.compareAndSet(this,null);
+            editorFocus(false);
             stopped=true; control=null;
             restoreDensity();
             if (mac()) XdesxMacActivity.closeWindow(key);
@@ -175,7 +189,7 @@ final class XdesxWindow {
         injector.setVirtualDisplaySurface(display,value?null:reader.getSurface());
         minimized=value;
         if (value) {
-            focused.compareAndSet(this,null);
+            editorFocus(false);
             injector.xdesxWindowFocus(display,false);
         }
     }

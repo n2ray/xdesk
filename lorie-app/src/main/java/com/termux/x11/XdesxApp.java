@@ -46,7 +46,38 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
     }
     @Override public void onActivityDestroyed(Activity screen){screens.remove(screen);}
     @Override public void onActivityCreated(Activity screen,Bundle state){}
-    private Activity visibleDesktop;
+    private Activity visibleDesktop, unfocusableHost;
+    private int editorHostDisplay=-1;
+    private final android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshEditorHost=this::syncEditorHost;
+
+    void editorHostDisplay(int display) {
+        editorHostDisplay=display;
+        syncEditorHost();
+    }
+
+    void syncEditorHost() {
+        if (android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()) {
+            main.post(refreshEditorHost);
+            return;
+        }
+        XdesxWindow active=XdesxWindow.focused();
+        // A mouse down on a focusable HDMI Activity raises X before it forwards the event.
+        // Chrome dismisses the active menu on that blur. Leave X touchable and give its
+        // keyboard focus back as soon as the Android client stops owning the editor.
+        Activity target=editorHostDisplay>0 && desktopVisible(editorHostDisplay) && active!=null && active.ownsAndroidEditor()
+                ? visibleDesktop : null;
+        if (unfocusableHost==target) return;
+        int flag=android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        if (unfocusableHost!=null) {
+            if (!unfocusableHost.isDestroyed()) unfocusableHost.getWindow().clearFlags(flag);
+            unfocusableHost=null;
+        }
+        if (target!=null && (target.getWindow().getAttributes().flags & flag)==0) {
+            target.getWindow().addFlags(flag);
+            unfocusableHost=target;
+        }
+    }
     private final java.util.Set<Activity> externalLogins=new java.util.HashSet<>();
     private Runnable desktopChanged;
     void observeDesktop(Runnable listener) {desktopChanged=listener;}
@@ -58,10 +89,12 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
         if(screen instanceof com.termux.x11.screenshare.ScreenShareLoginActivity &&
                 screen.getIntent().hasExtra(com.termux.x11.screenshare.ScreenShareLoginActivity.EXTRA_DISPLAY)) {
             externalLogins.add(screen);
+            syncEditorHost();
             if(desktopChanged!=null)desktopChanged.run();
         }
         if(screen instanceof MainActivity && screen.getIntent().getBooleanExtra("xdesx_quiet",false)){
             visibleDesktop=screen;
+            syncEditorHost();
             if(desktopChanged!=null)desktopChanged.run();
         }
     }
@@ -69,10 +102,12 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
     @Override public void onActivityPaused(Activity screen){}
     @Override public void onActivityStopped(Activity screen){
         if(externalLogins.remove(screen)){
+            syncEditorHost();
             if(desktopChanged!=null)desktopChanged.run();
         }
         if(visibleDesktop==screen){
             visibleDesktop=null;
+            syncEditorHost();
             if(desktopChanged!=null)desktopChanged.run();
         }
     }
