@@ -2,11 +2,16 @@
 static int ui_language=2;
 static const char *T(const char *source) {
     static const struct { const char *source,*en,*hant; } catalog[]={
+        {"在 Mac 上打开「系统设置 → 通用 → 共享」。", "On your Mac, open System Settings → General → Sharing.", "在 Mac 上開啟「系統設定 → 一般 → 共享」。"},
+        {"开启「屏幕共享」，点详情按钮，允许你的 Mac 账户访问。", "Turn on Screen Sharing. Click the info button and allow your Mac account to connect.", "開啟「螢幕共享」，按一下資訊按鈕，允許你的 Mac 帳號連線。"},
+        {"在这里点「添加 Mac」，填写地址和账户。双击保存的设备即可连接。", "Choose Add Mac here and enter its address and account. Double-click the saved device to connect.", "在此按一下「加入 Mac」，輸入位址與帳號。按兩下已儲存的裝置即可連線。"},
+        {"高性能共享要求", "High Performance requirements", "高效能共享需求"},
+        {"Apple 芯片，macOS Sonoma 14 或更新版本。", "Apple silicon with macOS Sonoma 14 or later.", "Apple 晶片，搭配 macOS Sonoma 14 或以上版本。"},
+        {"建议使用低延迟有线网络。每台 Mac 同时支持一个高性能会话。", "A low-latency wired network is recommended. Each Mac supports one High Performance session at a time.", "建議使用低延遲有線網路。每台 Mac 同時支援一個高效能連線。"},
+
         {"共享桌面", "Screen Sharing", "螢幕共享"},
         {"双击连接，或选中后按 Enter。", "Double-click to connect, or select and press Enter.", "按兩下以連線，或選取後按 Enter。"},
         {"在 Mac 上开启屏幕共享", "Set up Screen Sharing on your Mac", "在 Mac 上開啟螢幕共享"},
-        {"打开「系统设置 → 通用 → 共享」，开启「屏幕共享」，在详情中允许你的 Mac 账户访问。", "Open System Settings → General → Sharing. Turn on Screen Sharing and allow your Mac account in its details.", "開啟「系統設定 → 一般 → 共享」，開啟「螢幕共享」，並在詳細資訊允許你的 Mac 帳號取用。"},
-        {"添加 Mac 的网络地址和账户，然后双击设备连接。高性能共享需要 Apple 芯片和 macOS Sonoma 14 或更新版本。建议使用低延迟有线网络。每台 Mac 同时支持一个高性能会话。", "Add the Mac’s network address and account, then double-click its card. High Performance requires Apple silicon and macOS Sonoma 14 or later. A low-latency wired connection is recommended. Each Mac supports one High Performance session at a time.", "加入 Mac 的網路位址與帳號，再按兩下裝置連線。高效能共享需要 Apple 晶片與 macOS Sonoma 14 或以上版本。建議使用低延遲有線網路。每台 Mac 同時支援一個高效能連線。"},
 
         {"共享文件：Ubuntu 在 /mnt/xdesx 保存，安卓在系统文件选择器中打开 xdesx。卸载前请另存需要保留的文件。", "Shared files: save to /mnt/xdesx in Ubuntu and open xdesx in the Android file picker. Copy files you want to keep before uninstalling.", "共享檔案：Ubuntu 儲存到 /mnt/xdesx，Android 在系統檔案選擇器中開啟 xdesx。解除安裝前請另存需要保留的檔案。"},
         {"系统输入法选项…", "System input options…", "系統輸入法選項…"},

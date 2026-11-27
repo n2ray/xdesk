@@ -57,7 +57,35 @@ static GtkWidget *mac_label(const char *text,const char *style) {
     return label;
 }
 static void connect_card(GtkFlowBox *box,GtkFlowBoxChild *child,gpointer unused) {
-    launch(NULL,g_object_get_data(G_OBJECT(child),"session"));
+    const char *session=g_object_get_data(G_OBJECT(child),"session");
+    if(session)launch(NULL,(gpointer)session);
+}
+/* Cap the content width on wide monitors. Let the flow box receive the full available
+ * width inside these margins so GTK can wrap equal-width cards as the window resizes. */
+static void mac_content_width(GtkWidget *viewport,GtkAllocation *allocation,Panel *p) {
+    int margin=MAX(0,(allocation->width-760*p->scale/100)/2);
+    if(gtk_widget_get_margin_start(p->mac_page)!=margin){
+        gtk_widget_set_margin_start(p->mac_page,margin);
+        gtk_widget_set_margin_end(p->mac_page,margin);
+    }
+}
+static void guide_line(GtkWidget *guide,const char *marker,const char *text){
+    GtkWidget *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12);
+    GtkWidget *mark=gtk_label_new(marker);
+    gtk_style_context_add_class(gtk_widget_get_style_context(mark),"guide-marker");
+    gtk_widget_set_valign(mark,GTK_ALIGN_START);
+    GtkWidget *body=gtk_label_new(T(text));
+    gtk_label_set_line_wrap(GTK_LABEL(body),TRUE);
+    gtk_label_set_xalign(GTK_LABEL(body),0);
+    gtk_box_pack_start(GTK_BOX(row),mark,FALSE,FALSE,0);
+    gtk_box_pack_start(GTK_BOX(row),body,TRUE,TRUE,0);
+    gtk_container_add(GTK_CONTAINER(guide),row);
+}
+static void guide_heading(GtkWidget *guide,const char *text){
+    GtkWidget *heading=gtk_label_new(T(text));
+    gtk_label_set_xalign(GTK_LABEL(heading),0);
+    gtk_style_context_add_class(gtk_widget_get_style_context(heading),"guide-heading");
+    gtk_container_add(GTK_CONTAINER(guide),heading);
 }
 static void refresh_mac_settings(Panel *p) {
     GtkWidget *page=p->mac_page;
@@ -73,7 +101,8 @@ static void refresh_mac_settings(Panel *p) {
     gtk_flow_box_set_activate_on_single_click(GTK_FLOW_BOX(grid),FALSE);
     gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(grid),GTK_SELECTION_SINGLE);
     g_signal_connect(grid,"child-activated",G_CALLBACK(connect_card),NULL);
-    gtk_widget_set_halign(grid,GTK_ALIGN_CENTER);
+    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(grid),TRUE);
+    gtk_widget_set_halign(grid,GTK_ALIGN_FILL);
     gtk_box_pack_start(GTK_BOX(page),grid,FALSE,FALSE,0);
     gchar *data=NULL;
     g_file_get_contents("run/mac-hosts",&data,NULL,NULL);
@@ -87,10 +116,13 @@ static void refresh_mac_settings(Panel *p) {
             GdkPixbuf *icon=gdk_pixbuf_new_from_file_at_scale("cache/imac-v1.png",side,side,TRUE,NULL);
             if(icon){gtk_container_add(GTK_CONTAINER(card),gtk_image_new_from_pixbuf(icon));g_object_unref(icon);}
             GtkWidget *name=mac_label(*v[1]?v[1]:v[2],"card-title");
+            gtk_label_set_ellipsize(GTK_LABEL(name),PANGO_ELLIPSIZE_END);
+            gtk_label_set_max_width_chars(GTK_LABEL(name),18);
+            gtk_widget_set_size_request(child,168*p->scale/100,-1);
             gtk_container_add(GTK_CONTAINER(card),name);
             gchar *detail=g_strdup_printf("%s @ %s",v[3],v[2]);
             GtkWidget *address=mac_label(detail,NULL);g_free(detail);
-            gtk_label_set_max_width_chars(GTK_LABEL(address),26);
+            gtk_label_set_max_width_chars(GTK_LABEL(address),18);
             gtk_label_set_ellipsize(GTK_LABEL(address),PANGO_ELLIPSIZE_MIDDLE);
             gtk_container_add(GTK_CONTAINER(card),address);
             GtkWidget *edit=gtk_button_new_with_label(T("设备设置"));
@@ -106,14 +138,24 @@ static void refresh_mac_settings(Panel *p) {
         g_strfreev(v);
     }
     g_strfreev(rows);g_free(data);
-    GtkWidget *add=gtk_button_new_with_label(T("添加 Mac"));
-    gtk_widget_set_halign(add,GTK_ALIGN_CENTER);
+    GtkWidget *add=gtk_button_new(),*face=gtk_box_new(GTK_ORIENTATION_VERTICAL,6);
+    gtk_widget_set_valign(face,GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(face),mac_label("+","add-symbol"));
+    gtk_container_add(GTK_CONTAINER(face),mac_label(T("添加 Mac"),"card-title"));
+    gtk_container_add(GTK_CONTAINER(add),face);
+    gtk_style_context_add_class(gtk_widget_get_style_context(add),"add-device");
+    gtk_widget_set_size_request(add,168*p->scale/100,126*p->scale/100);
     g_signal_connect(add,"clicked",G_CALLBACK(edit_mac),p);
-    gtk_box_pack_start(GTK_BOX(page),add,FALSE,FALSE,4);
+    gtk_container_add(GTK_CONTAINER(grid),add);
     GtkWidget *guide=settings_card(page);
-    gtk_container_add(GTK_CONTAINER(guide),mac_label(T("在 Mac 上开启屏幕共享"),"card-title"));
-    gtk_container_add(GTK_CONTAINER(guide),mac_label(T("打开「系统设置 → 通用 → 共享」，开启「屏幕共享」，在详情中允许你的 Mac 账户访问。"),NULL));
-    gtk_container_add(GTK_CONTAINER(guide),mac_label(T("添加 Mac 的网络地址和账户，然后双击设备连接。高性能共享需要 Apple 芯片和 macOS Sonoma 14 或更新版本。建议使用低延迟有线网络。每台 Mac 同时支持一个高性能会话。"),NULL));
+    guide_heading(guide,"在 Mac 上开启屏幕共享");
+    guide_line(guide,"1","在 Mac 上打开「系统设置 → 通用 → 共享」。");
+    guide_line(guide,"2","开启「屏幕共享」，点详情按钮，允许你的 Mac 账户访问。");
+    guide_line(guide,"3","在这里点「添加 Mac」，填写地址和账户。双击保存的设备即可连接。");
+    GtkWidget *requirements=settings_card(page);
+    guide_heading(requirements,"高性能共享要求");
+    guide_line(requirements,"•","Apple 芯片，macOS Sonoma 14 或更新版本。");
+    guide_line(requirements,"•","建议使用低延迟有线网络。每台 Mac 同时支持一个高性能会话。");
     gtk_widget_show_all(page);
 }
 static void mac_manager_closed(GtkWidget *w,Panel *p){p->mac_manager=NULL;p->mac_page=NULL;}
@@ -124,14 +166,16 @@ static void mac_manager_open(Panel *p){
         gtk_window_set_wmclass(GTK_WINDOW(p->mac_manager),"xdesx-sharing","XdesxSharing");
         gtk_window_set_icon_from_file(GTK_WINDOW(p->mac_manager),"cache/imac-v1.png",NULL);
         gtk_widget_set_name(p->mac_manager,"xdesx-settings");
-        gtk_window_set_default_size(GTK_WINDOW(p->mac_manager),MIN(wnck_screen_get_width(p->screen)-24,680*p->scale/100),MIN(wnck_screen_get_height(p->screen)-64,450*p->scale/100));
+        gtk_window_set_default_size(GTK_WINDOW(p->mac_manager),MIN(wnck_screen_get_width(p->screen)-24,760*p->scale/100),MIN(wnck_screen_get_height(p->screen)-64,540*p->scale/100));
         GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL);
         gtk_container_add(GTK_CONTAINER(p->mac_manager),scroll);
         p->mac_page=gtk_box_new(GTK_ORIENTATION_VERTICAL,14);
-        gtk_widget_set_halign(p->mac_page,GTK_ALIGN_CENTER);
-        gtk_widget_set_valign(p->mac_page,GTK_ALIGN_CENTER);
+        gtk_widget_set_halign(p->mac_page,GTK_ALIGN_FILL);
+        gtk_widget_set_valign(p->mac_page,GTK_ALIGN_START);
         gtk_container_set_border_width(GTK_CONTAINER(p->mac_page),20);
+        gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
         gtk_container_add(GTK_CONTAINER(scroll),p->mac_page);
+        g_signal_connect(gtk_widget_get_parent(p->mac_page),"size-allocate",G_CALLBACK(mac_content_width),p);
         g_signal_connect(p->mac_manager,"destroy",G_CALLBACK(mac_manager_closed),p);
         refresh_mac_settings(p);
         gtk_widget_show_all(p->mac_manager);

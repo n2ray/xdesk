@@ -12,6 +12,8 @@ static void style_desktop(Panel *p) {
         "#xdesx-settings stacksidebar list {background:@surface;} #xdesx-settings stacksidebar row {color:@ink;padding:6px;border-radius:7px;margin:2px 6px;}"
         "#xdesx-settings stacksidebar row:selected {background:@accent;} #xdesx-settings stack {background:@surface;}"
         ".content-card {background:@card;color:@ink;border:1px solid @divider;border-radius:12px;padding:0.9em;} .card-title {font-weight:bold;} #xdesx-settings button,#xdesx-notifications button {background:@surface;border:1px solid @divider;min-height:1.8em;padding:0.28em 0.8em;} #xdesx-settings button.chosen {background:@accent;} .page-title {font-weight:bold;font-size:%dpx;}"
+        ".guide-heading {font-weight:bold;font-size:1.18em;margin-bottom:0.25em;} .guide-marker {font-weight:bold;color:@ink;background:@accent;border-radius:6px;min-width:1.55em;padding:0.1em;}"
+        "#xdesx-settings button.add-device {background:@card;border:1px dashed @divider;border-radius:12px;} #xdesx-settings button.add-device:hover {background:@hover;} .add-symbol {font-size:2em;color:@ink;}"
         "#xdesx-launcher #xdesx-power {color:%s;font-weight:bold;} #xdesx-launcher entry {background:@card;color:@ink;}"
         "#category-content,#xdesx-launcher #category-tabs button:checked {background:@card;}"
         "#xdesx-launcher #category-tabs button {background:transparent;border-radius:6px 6px 0 0;}"
