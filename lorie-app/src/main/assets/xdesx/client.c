@@ -47,7 +47,8 @@ int main(int argc, char **argv) {
         XCloseDisplay(probe);
         return 0;
     }
-    if (argc != 3) return 2;
+    int fixed1080=argc==4 && !strcmp(argv[3],"--fixed-1080") && !strncmp(argv[1],"mac-",4);
+    if (argc != 3 && !fixed1080) return 2;
     const char *menu = getenv("XDESX_MENU"), *tmp = getenv("TMPDIR");
     unsigned char random[16];
     char key[33], path[108], request[160];
@@ -58,7 +59,7 @@ int main(int argc, char **argv) {
     if (!d) return 1;
     unsigned num_mask = XkbKeysymToModifiers(d, XK_Num_Lock);
     unsigned scroll_mask = XkbKeysymToModifiers(d, XK_Scroll_Lock);
-    int w = 800, h = 560;
+    int w = 800, h = fixed1080 ? 450 : 560;
     Window win = XCreateSimpleWindow(d, DefaultRootWindow(d), 40, 70, w, h, 0, 0, 0);
     char identity[256]="xdesx.app",metadata[PATH_MAX];
     snprintf(metadata,sizeof(metadata),"%s.class",argv[2]);
@@ -119,6 +120,13 @@ int main(int argc, char **argv) {
     Atom wm_state=XInternAtom(d,"WM_STATE",False);
     int minimized=0;
     XSelectInput(d, win, FocusChangeMask | PropertyChangeMask | StructureNotifyMask | PointerMotionMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask);
+    if(fixed1080){
+        XSizeHints hints={0};
+        hints.flags=PAspect|PResizeInc;
+        hints.min_aspect.x=hints.max_aspect.x=hints.width_inc=16;
+        hints.min_aspect.y=hints.max_aspect.y=hints.height_inc=9;
+        XSetWMNormalHints(d,win,&hints);
+    }
     XMapWindow(d, win);
     XFlush(d);
     xcb_connection_t *conn = XGetXCBConnection(d);

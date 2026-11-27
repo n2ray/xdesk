@@ -2,6 +2,8 @@
 static int ui_language=2;
 static const char *T(const char *source) {
     static const struct { const char *source,*en,*hant; } catalog[]={
+        {"下次连接使用 1920×1080 原生桌面，窗口保持 16∶9。","Use a native 1920×1080 desktop on the next connection. The window keeps a 16∶9 aspect ratio.","下次連線使用 1920×1080 原生桌面，視窗維持 16∶9。"},
+        {"下次连接时调整 Mac 桌面的文字和控件大小。","Changes the size of Mac text and controls on the next connection.","下次連線時調整 Mac 桌面的文字與控制項大小。"},
         {"在 Mac 上打开「系统设置 → 通用 → 共享」。", "On your Mac, open System Settings → General → Sharing.", "在 Mac 上開啟「系統設定 → 一般 → 共享」。"},
         {"开启「屏幕共享」，点详情按钮，允许你的 Mac 账户访问。", "Turn on Screen Sharing. Click the info button and allow your Mac account to connect.", "開啟「螢幕共享」，按一下資訊按鈕，允許你的 Mac 帳號連線。"},
         {"在这里点「添加 Mac」，填写地址和账户。双击保存的设备即可连接。", "Choose Add Mac here and enter its address and account. Double-click the saved device to connect.", "在此按一下「加入 Mac」，輸入位址與帳號。按兩下已儲存的裝置即可連線。"},

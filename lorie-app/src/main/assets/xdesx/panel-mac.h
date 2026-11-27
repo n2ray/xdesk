@@ -25,6 +25,9 @@ static void edit_mac(GtkButton *button,Panel *p) {
     GtkWidget *fixed=gtk_check_button_new_with_label(T("固定 1080p")),*measure=gtk_check_button_new_with_label(T("记录性能数据"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(fixed),atoi(v[5]));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(measure),atoi(v[6]));
+    g_object_bind_property(fixed,"active",scale,"sensitive",G_BINDING_SYNC_CREATE|G_BINDING_INVERT_BOOLEAN);
+    gtk_widget_set_tooltip_text(fixed,T("下次连接使用 1920×1080 原生桌面，窗口保持 16∶9。"));
+    gtk_widget_set_tooltip_text(scale,T("下次连接时调整 Mac 桌面的文字和控件大小。"));
     gtk_grid_attach(grid,fixed,1,4,1,1);gtk_grid_attach(grid,measure,1,5,1,1);
     gtk_widget_show_all(d);
     for(;;){
@@ -58,17 +61,23 @@ static GtkWidget *mac_label(const char *text,const char *style) {
 }
 static void connect_card(GtkFlowBox *box,GtkFlowBoxChild *child,gpointer unused) {
     const char *session=g_object_get_data(G_OBJECT(child),"session");
-    if(session)launch(NULL,(gpointer)session);
+    if(session)launch_window(session,GPOINTER_TO_INT(g_object_get_data(G_OBJECT(child),"fixed-1080")));
 }
 /* Cap the content width on wide monitors. Let the flow box receive the full available
  * width inside these margins so GTK can wrap equal-width cards as the window resizes. */
-static void mac_content_width(GtkWidget *viewport,GtkAllocation *allocation,Panel *p) {
-    int margin=MAX(0,(allocation->width-760*p->scale/100)/2);
-    if(gtk_widget_get_margin_start(p->mac_page)!=margin){
-        gtk_widget_set_margin_start(p->mac_page,margin);
-        gtk_widget_set_margin_end(p->mac_page,margin);
+typedef struct {GtkBox parent;Panel *panel;} MacPage;
+typedef GtkBoxClass MacPageClass;
+G_DEFINE_TYPE(MacPage,mac_page,GTK_TYPE_BOX)
+static void mac_page_adjust(GtkWidget *widget,GtkOrientation axis,int *minimum,int *natural,int *pos,int *size) {
+    GTK_WIDGET_CLASS(mac_page_parent_class)->adjust_size_allocation(widget,axis,minimum,natural,pos,size);
+    if(axis==GTK_ORIENTATION_HORIZONTAL){
+        MacPage *page=(MacPage*)widget;
+        int limit=760*page->panel->scale/100;
+        if(*size>limit){*pos+=(*size-limit)/2;*size=limit;}
     }
 }
+static void mac_page_class_init(MacPageClass *klass){GTK_WIDGET_CLASS(klass)->adjust_size_allocation=mac_page_adjust;}
+static void mac_page_init(MacPage *page){gtk_orientable_set_orientation(GTK_ORIENTABLE(page),GTK_ORIENTATION_VERTICAL);}
 static void guide_line(GtkWidget *guide,const char *marker,const char *text){
     GtkWidget *row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12);
     GtkWidget *mark=gtk_label_new(marker);
@@ -130,6 +139,7 @@ static void refresh_mac_settings(Panel *p) {
             g_object_set_data_full(G_OBJECT(edit),"device",g_strdup(rows[i]),g_free);
             g_signal_connect(edit,"clicked",G_CALLBACK(edit_mac),p);
             gtk_container_add(GTK_CONTAINER(card),edit);
+            g_object_set_data(G_OBJECT(child),"fixed-1080",GINT_TO_POINTER(atoi(v[5])));
             g_object_set_data_full(G_OBJECT(child),"session",g_strconcat("mac-",v[0],NULL),g_free);
             gtk_widget_set_tooltip_text(child,T("双击连接，或选中后按 Enter。"));
             gtk_container_add(GTK_CONTAINER(child),card);
@@ -169,13 +179,13 @@ static void mac_manager_open(Panel *p){
         gtk_window_set_default_size(GTK_WINDOW(p->mac_manager),MIN(wnck_screen_get_width(p->screen)-24,760*p->scale/100),MIN(wnck_screen_get_height(p->screen)-64,540*p->scale/100));
         GtkWidget *scroll=gtk_scrolled_window_new(NULL,NULL);
         gtk_container_add(GTK_CONTAINER(p->mac_manager),scroll);
-        p->mac_page=gtk_box_new(GTK_ORIENTATION_VERTICAL,14);
+        p->mac_page=g_object_new(mac_page_get_type(),"spacing",14,NULL);
+        ((MacPage*)p->mac_page)->panel=p;
         gtk_widget_set_halign(p->mac_page,GTK_ALIGN_FILL);
         gtk_widget_set_valign(p->mac_page,GTK_ALIGN_START);
         gtk_container_set_border_width(GTK_CONTAINER(p->mac_page),20);
         gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),GTK_POLICY_NEVER,GTK_POLICY_AUTOMATIC);
         gtk_container_add(GTK_CONTAINER(scroll),p->mac_page);
-        g_signal_connect(gtk_widget_get_parent(p->mac_page),"size-allocate",G_CALLBACK(mac_content_width),p);
         g_signal_connect(p->mac_manager,"destroy",G_CALLBACK(mac_manager_closed),p);
         refresh_mac_settings(p);
         gtk_widget_show_all(p->mac_manager);

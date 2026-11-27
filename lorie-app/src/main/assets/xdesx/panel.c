@@ -171,13 +171,13 @@ static void command(GtkWidget *menu,const char *name,const char *value) {
     g_object_set_data_full(G_OBJECT(i),"action",g_strdup(value),g_free);
     g_signal_connect(i,"activate",G_CALLBACK(selected),NULL);
 }
-static void launch(GtkMenuItem *i,gpointer data) {
-    const char *id=data;
+static void launch_window(const char *id,gboolean fixed1080) {
     char *title=g_build_filename(g_get_home_dir(),"titles",id,NULL);
-    char *argv[]={"xdesx-window",(char*)id,title,NULL};
+    char *argv[]={"xdesx-window",(char*)id,title,fixed1080?"--fixed-1080":NULL,NULL};
     g_spawn_async(NULL,argv,NULL,G_SPAWN_SEARCH_PATH,NULL,NULL,NULL,NULL);
     g_free(title);
 }
+static void launch(GtkMenuItem *i,gpointer data){launch_window(data,FALSE);}
 #include "panel-wallpaper.h"
 #include "panel-cursor.h"
 #include "panel-notifications.h"
