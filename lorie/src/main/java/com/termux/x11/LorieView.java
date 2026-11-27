@@ -81,12 +81,28 @@ public class LorieView extends SurfaceView implements InputStub {
     private boolean dimensionsFrozen = false;
     boolean commitedText = false;
     private int caretX,caretY,caretHeight,imeSelection=1;
-    private boolean monitorCaret;
+    private boolean monitorCaret, firstDesktopKeyPending;
+    private final Runnable replayDesktopCaret=this::reportCurrentDesktopCaret;
+    private boolean desktopCaretReady() {
+        return caretHeight>0 && hasWindowFocus() && isFocused() &&
+                inputViewport.width()>0 && inputViewport.height()>0 &&
+                inputSourceWidth>0 && inputSourceHeight>0;
+    }
+    private void reportCurrentDesktopCaret() {
+        if (desktopCaretReady() && mIMM.isActive(this)) reportCaret();
+    }
+    private void desktopEditorChanged() {
+        firstDesktopKeyPending=true;
+        removeCallbacks(replayDesktopCaret);
+        if (caretHeight>0) post(replayDesktopCaret);
+    }
     public void setDesktopCaret(int x,int y,int height) {
         if (caretHeight==0 && height>0 && getDisplay()!=null)
             android.util.Log.i("XDesX","Linux insertion marker available on display "+getDisplay().getDisplayId());
+        if (caretHeight==0 && height>0) firstDesktopKeyPending=true;
         caretX=x; caretY=y; caretHeight=height;
-        if (monitorCaret && hasWindowFocus()) reportCaret();
+        if (height>0) reportCurrentDesktopCaret();
+        else if (monitorCaret && hasWindowFocus()) reportCaret();
     }
     private void reportCaret() {
         CursorAnchorInfo.Builder b=new CursorAnchorInfo.Builder()
@@ -365,6 +381,7 @@ public class LorieView extends SurfaceView implements InputStub {
 
     @Override
     protected void onDetachedFromWindow() {
+        removeCallbacks(replayDesktopCaret);
         super.onDetachedFromWindow();
         nativeDestroy(mNativeContext);
         mNativeContext = 0;
@@ -454,7 +471,7 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     private void updateInputTransform() {
-        if (caretHeight>0 && monitorCaret && hasWindowFocus()) reportCaret();
+        if (caretHeight>0) reportCurrentDesktopCaret();
         if (mCallback != null)
             mCallback.inputTransformChanged(p.x, p.y, getInputTransform());
     }
@@ -620,6 +637,13 @@ public class LorieView extends SurfaceView implements InputStub {
 
     @Override
     public boolean dispatchKeyEventPreIme(KeyEvent event) {
+        // A served editor and its IME session can become ready after focus and the
+        // first geometry update. Replay before the key that starts composition.
+        if (firstDesktopKeyPending && event.getAction()==KeyEvent.ACTION_DOWN &&
+                desktopCaretReady() && mIMM.isActive(this)) {
+            firstDesktopKeyPending=false;
+            reportCaret();
+        }
         if (activity.getIntent().getBooleanExtra("xdesx_quiet",false))
             return false; // The associated Android IME gets the first chance to compose Linux text.
         if (imeBuggyKeys.contains(event.getKeyCode())) {
@@ -725,6 +749,8 @@ public class LorieView extends SurfaceView implements InputStub {
         super.onWindowFocusChanged(hasFocus);
 
         requestFocus();
+        if (hasFocus) desktopEditorChanged();
+        else removeCallbacks(replayDesktopCaret);
 
         if (clipboardSyncEnabled && hasFocus) {
             clipboard.addPrimaryClipChangedListener(clipboardListener);
@@ -737,6 +763,8 @@ public class LorieView extends SurfaceView implements InputStub {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        monitorCaret=false;
+        desktopEditorChanged();
         if (activity.prefs.enforceCharBasedInput.get())
             outAttrs.inputType = InputType.TYPE_NULL;
         else

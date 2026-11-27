@@ -131,19 +131,24 @@ final class XdesxLinux implements AutoCloseable {
             if (verb.equals("refresh")) { refreshApps(); return; }
             String key = keys.get(verb);
             if (key == null) throw new IOException(context.getString(com.termux.x11.app.R.string.xu_refresh_the_linux_application_list));
-            startSession();
+            long start=android.os.SystemClock.elapsedRealtime();
+            boolean cold=startSession();
+            long ready=android.os.SystemClock.elapsedRealtime();
             String result = apps.launch(key, "", TextUtils.join("\n", linux.xdesxCommand(desktop, "xdesk-launch")));
+            Log.i("XDesX","Linux app launch guest="+(cold?"cold":"warm")+" prepareMs="+(ready-start)
+                    +" launchToPidMs="+(android.os.SystemClock.elapsedRealtime()-ready));
             if (result.startsWith("!")) throw new IOException(result.substring(1));
         });
     }
 
-    private void startSession() throws IOException, InterruptedException {
+    private boolean startSession() throws IOException, InterruptedException {
         synchronized (this) {
             if (closed) throw new InterruptedException();
-            if (session != null && session.isAlive()) return;
+            if (session != null && session.isAlive()) return false;
         }
         linux.prepareXdesx(desktop);
         launchSession();
+        return true;
     }
 
     private synchronized void launchSession() throws IOException {
