@@ -63,7 +63,7 @@ public final class ScreenShareSession {
     public volatile int width, height;
     /** 桌面缩放: the screen, the Mac's desktop (points) and the video this session asked for. */
     public volatile ScreenShareSizing sizing;
-    private ScreenShareSizing pendingSize;
+    private ScreenShareSizing pendingSize, lastRenderedSize;
     /** The picture's size as the decoder found it in the stream (0 until then): the Mac may give another than asked. */
     public volatile int actualW, actualH;
     private final Context context;
@@ -196,6 +196,10 @@ public final class ScreenShareSession {
         pendingSize=next;
         if(direct==null || receiver==null)return;
         if(width==next.videoW && height==next.videoH && sizing.desktopW==next.desktopW && sizing.desktopH==next.desktopH)return;
+        changeMode(next);
+    }
+
+    private void changeMode(ScreenShareSizing next){
         sizing=next;width=next.videoW;height=next.videoH;
         send(d->{
             if(sizing!=next)return;
@@ -243,10 +247,10 @@ public final class ScreenShareSession {
             if (h) hevcFail("decoder configure: " + e.getMessage(), attempt);
             return;
         }
+        pictureHidden = false;
         armFirstFrameTimer();
         AvcReceiver r = receiver;
         if (r != null) r.wantKeyframe = true;
-        pictureHidden = false;
         send(d -> {
             if (!pictureHidden) d.showPicture(receiver);
         });
@@ -300,6 +304,7 @@ public final class ScreenShareSession {
             if (host.measure) pipeline.add((delivered - pts * 1000) / 1e6);
             if (pictureSeen || c != codec) return;
             pictureSeen = true;
+            lastRenderedSize = sizing;
             cancelFirstFrameTimer();
             l = picture;
             since = (delivered - (anyPicture ? attachNs : startNs)) / 1000000;
@@ -415,18 +420,31 @@ public final class ScreenShareSession {
      */
     private synchronized void armFirstFrameTimer() {
         cancelFirstFrameTimer();
-        if (!hevc || hevcFailed || closed || codec == null || direct == null || anyPicture) return;
+        if (closed || codec == null || direct == null || pictureSeen || pictureHidden) return;
         final MediaCodec c = codec;
         final int my = attempt;
-        Runnable timer = () -> {
-            synchronized (this) {
-                if (firstFrameTimer == null || codec != c || pictureSeen) return;
-                firstFrameTimer = null;
+        Runnable timer = new Runnable() {
+            private int retries;
+            @Override public void run() {
+                synchronized (ScreenShareSession.this) {
+                    if (firstFrameTimer != this || codec != c || closed || pictureHidden || pictureSeen || my != attempt) return;
+                    if (anyPicture && retries++ < 2) {
+                        send(d -> { if (!pictureHidden) d.showPicture(receiver); });
+                        ui.postDelayed(this, 1300);
+                        return;
+                    }
+                    firstFrameTimer = null;
+                    if (anyPicture && lastRenderedSize != null && lastRenderedSize != sizing) {
+                        Log.w(TAG, "No frame after resize; restoring last rendered mode " + lastRenderedSize);
+                        changeMode(lastRenderedSize);
+                        return;
+                    }
+                }
+                if (hevc) hevcFail("no first picture on current surface", my);
             }
-            hevcFail("no picture " + FIRST_FRAME_MS + " ms after the decoder started", my);
         };
         firstFrameTimer = timer;
-        ui.postDelayed(timer, FIRST_FRAME_MS);
+        ui.postDelayed(timer, anyPicture ? 1300 : FIRST_FRAME_MS);
     }
 
     private synchronized void cancelFirstFrameTimer() {
