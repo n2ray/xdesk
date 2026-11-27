@@ -44,6 +44,13 @@ case "$1" in
         set -- sh -c "exec $cmd"
     fi
     if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+        # Turnip's tiled path can leave stale rectangles in Blender's viewport during video playback.
+        case "$cmd" in
+            blender|blender\ *|/usr/bin/blender|/usr/bin/blender\ *)
+                if [ "${MESA_LOADER_DRIVER_OVERRIDE:-}" = zink ] && [ -e /dev/kgsl-3d0 ]; then
+                    export TU_DEBUG="${TU_DEBUG-sysmem}"
+                fi ;;
+        esac
         case "$term:$cmd" in
             1:*|*:xfce4-terminal|*:xfce4-terminal\ *|*:/usr/bin/xfce4-terminal|*:/usr/bin/xfce4-terminal\ *)
                 export GTK_IM_MODULE=xdesx GTK_IM_MODULE_FILE=/usr/local/bin/xdesx-immodules.cache ;;
