@@ -9,6 +9,7 @@ static Display *display;
 static Window root, owner;
 static Atom active_atom, pid_atom, anchor;
 static AtspiAccessible *editor;
+static gboolean trace;
 
 static unsigned long property(Window window, Atom atom, Atom type) {
     Atom actual;
@@ -90,6 +91,7 @@ static gboolean report(AtspiAccessible *source) {
 
 static void on_event(AtspiEvent *event, void *unused) {
     (void)unused;
+    if (trace) g_printerr("caret event %s detail=%d active=0x%lx source-pid=%u\n", event->type, event->detail1, property(root, active_atom, XA_WINDOW), atspi_accessible_get_process_id(event->source, NULL));
     if (g_str_has_prefix(event->type, "object:state-changed:focused")) {
         if (event->detail1) {
             clear_anchor();
@@ -114,6 +116,7 @@ static int stale_window(Display *d, XErrorEvent *e) {
 }
 
 int main(void) {
+    trace = g_getenv("XDESX_CARET_TRACE") != NULL;
     display = XOpenDisplay(NULL);
     if (!display || atspi_init() != 0) return 1;
     XSetErrorHandler(stale_window);

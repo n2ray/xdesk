@@ -1,6 +1,7 @@
 #!/bin/sh
 # Run under dbus-run-session and Xvfb. Exercise the same fallback the guest uses.
 set -eu
+export XDESX_CARET_TRACE=1
 tmp=$(mktemp -d)
 openbox >"$tmp/wm.log" 2>&1 &
 wm=$!
@@ -12,7 +13,13 @@ echo '<title>xdesx-caret-check</title><input autofocus value="abcdefghijklm">' >
 google-chrome --user-data-dir="$tmp/profile" --ozone-platform=x11 --no-first-run \
     --no-default-browser-check --force-renderer-accessibility "file://$tmp/editor.html" >"$tmp/chrome.log" 2>&1 &
 chrome=$!
-window=$(timeout 40 xdotool search --sync --onlyvisible --name 'xdesx-caret-check' | head -1)
+window=
+for attempt in $(seq 1 40); do
+    window=$(xdotool search --onlyvisible --name 'xdesx-caret-check' 2>/dev/null | head -1)
+    [ -z "$window" ] || break
+    sleep 1
+done
+if [ -z "$window" ]; then tail -30 "$tmp/chrome.log"; exit 1; fi
 xdotool windowactivate --sync "$window"
 read_position() {
     xprop -id "$window" _XDESX_ACCESSIBLE_INSERTION_RECT | sed -n 's/^.*(INTEGER) = \([0-9][0-9]*\), [0-9][0-9]*, [1-9][0-9]*$/\1/p'
