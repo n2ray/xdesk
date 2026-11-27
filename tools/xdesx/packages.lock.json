@@ -92,8 +92,8 @@
     "ac744cb7cd047997da4410ca11d356ca9c952aa474b14a0032414d5677e0fbf1"
   ],
   "libffi": [
-    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libf/libffi/libffi_3.8.1_aarch64.deb",
-    "9e13f3b5c40625c384101992bb669a278e07d9e2baa37d286d7ed164288fab1a"
+    "https://packages-cf.termux.dev/apt/termux-main/pool/main/libf/libffi/libffi_3.8.2_aarch64.deb",
+    "24e32ef321a2c8969cece066422d94928b1062f8fb4ed44b2e3d55bd85903863"
   ],
   "libgraphite": [
     "https://packages-cf.termux.dev/apt/termux-main/pool/main/libg/libgraphite/libgraphite_1.3.15_aarch64.deb",
