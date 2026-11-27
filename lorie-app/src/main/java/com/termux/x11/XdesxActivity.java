@@ -120,7 +120,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     closeToolbar();
                     if (fullWindow != null) {
                         Runnable exit = () -> { if (fullWindow == w) toggleWindow(w); };
-                        toolbar = new XdesxFullscreenBar(this, d, panel.scale, exit, w.mac() ? null : () -> setGame(true), () -> {
+                        toolbar = new XdesxFullscreenBar(this, d, panel, exit, w.mac() ? null : () -> setGame(true),
+                                () -> { if (fullWindow == w && !switching) w.stop(); }, () -> {
                             error(getString(com.termux.x11.app.R.string.xu_toolbar_unavailable));
                             exit.run();
                         });
@@ -654,7 +655,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (fullWindow==null || (requested!=null && requested.awaitingHdmi())) toggleWindow(requested);
             }),
             () -> runOnUiThread(() -> {
-                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); syncDesktopKeys(); }
+                if (windows.remove(key)==fullWindow) { fullWindow=null; closeToolbar(); syncDesktopKeys(); capture(); }
                 panel.opened=windows.size(); panel.publish();
             }));
         w.density(Math.round(160*panel.scale/100f));

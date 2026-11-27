@@ -48,4 +48,6 @@
     <string name="xu_ime_phone_target">请轻点外屏应用的输入框，使用手机键盘输入。</string>
     <string name="xu_ime_external_target">输入法已切回外屏。</string>
     <string name="xu_linux_fullscreen_no_window">未能识别 Ubuntu 应用窗口。你仍可从窗口标题栏进入全屏。</string>
+    <string name="xu_exit_fullscreen">退出全屏</string>
+    <string name="xu_quit_app">退出应用</string>
 </resources>

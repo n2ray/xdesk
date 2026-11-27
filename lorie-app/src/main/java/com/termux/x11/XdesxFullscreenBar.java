@@ -9,6 +9,11 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.graphics.drawable.StateListDrawable;
+import android.graphics.drawable.Drawable;
+import android.content.res.Configuration;
+import android.view.View;
+import com.termux.x11.app.R;
 import android.widget.LinearLayout;
 
 /** The external overlay is attached only while the pointer is near the top in native fullscreen. */
@@ -25,18 +30,28 @@ final class XdesxFullscreenBar {
     private final Runnable show = this::show;
     private final Runnable hide = this::hide;
 
-    XdesxFullscreenBar(Context context, Display display, int scale, Runnable exit, Runnable play, Runnable failure) {
+    XdesxFullscreenBar(Context context, Display display, XdesxPanelState panel, Runnable exit, Runnable play,
+                       Runnable quit, Runnable failure) {
         Context dc = context.createDisplayContext(display);
         windows = dc.getSystemService(WindowManager.class);
+        Configuration config = new Configuration(dc.getResources().getConfiguration());
+        config.setLocale(panel.locale());
+        dc = dc.createConfigurationContext(config);
+        int scale = panel.scale;
+        boolean dark = panel.isDark();
         height = Math.round(38 * scale / 100f);
         this.failure = failure;
         bar = new LinearLayout(dc);
-        addAction(dc, scale, dc.getString(com.termux.x11.app.R.string.xu_return_to_window), exit);
-        if (play != null) addAction(dc, scale, dc.getString(com.termux.x11.app.R.string.xu_direct_game_input), play);
-        GradientDrawable background = new GradientDrawable();
-        background.setColor((dc.getResources().getConfiguration().uiMode & 48)==32 ? 0xff25262a : 0xfff7f7f8);
-        background.setCornerRadius(height / 4f);
-        bar.setBackground(background);
+        int inset = Math.round(3 * scale / 100f);
+        bar.setPadding(inset, inset, inset, inset);
+        GradientDrawable surface = rounded(dark ? 0xff222326 : 0xfff2f3f6, height / 4f);
+        surface.setStroke(1, dark ? 0xff45474c : 0xffd6d8dd);
+        bar.setBackground(surface);
+        int ink = dark ? 0xfff2f3f5 : 0xff20232a;
+        int hover = dark ? 0xff41444b : 0xffe4e7ec;
+        addAction(dc, scale, R.string.xu_exit_fullscreen, R.drawable.xu_bar_window, ink, hover, exit);
+        if (play != null) addAction(dc, scale, R.string.xu_direct_game_input, R.drawable.xu_bar_game, ink, hover, play);
+        addAction(dc, scale, R.string.xu_quit_app, R.drawable.xu_bar_quit, dark ? 0xffff827b : 0xffba322e, hover, quit);
         edge = new android.view.View(dc);
         edge.setOnHoverListener((v, event) -> {
             if (event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_EXIT) {
@@ -53,14 +68,37 @@ final class XdesxFullscreenBar {
 
     }
 
-    private void addAction(Context dc, int scale, String label, Runnable action) {
+    private static GradientDrawable rounded(int color, float radius) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(color);
+        background.setCornerRadius(radius);
+        return background;
+    }
+
+    private void addAction(Context dc, int scale, int label, int icon, int ink, int hover, Runnable action) {
         Button button = new Button(dc);
+        button.setAllCaps(false);
         button.setText(label);
-        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 15 * scale / 100f);
-        button.setTextColor((dc.getResources().getConfiguration().uiMode & 48)==32 ? 0xfff4f4f6 : 0xff19191b);
+        button.setSingleLine(true);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 14 * scale / 100f);
+        button.setTextColor(ink);
         button.setGravity(Gravity.CENTER);
-        button.setPadding(height / 2, 0, height / 2, 0);
-        button.setBackgroundColor(0x00000000);
+        button.setPadding(height / 3, 0, height / 3, 0);
+        Drawable symbol = dc.getDrawable(icon).mutate();
+        int size = Math.round(16 * scale / 100f);
+        symbol.setBounds(0, 0, size, size);
+        symbol.setTint(ink);
+        button.setCompoundDrawablesRelative(symbol, null, null, null);
+        button.setCompoundDrawablePadding(Math.round(6 * scale / 100f));
+        StateListDrawable states = new StateListDrawable();
+        for (int state : new int[]{android.R.attr.state_pressed, android.R.attr.state_hovered, android.R.attr.state_focused})
+            states.addState(new int[]{state}, rounded(hover, height / 6f));
+        states.addState(new int[0], rounded(0, 0));
+        button.setStateListAnimator(null);
+        button.setBackgroundTintList(null);
+        button.setBackground(states);
         button.setOnClickListener(v -> action.run());
         button.setOnHoverListener((v, event) -> {
             cursor(event.getActionMasked() == android.view.MotionEvent.ACTION_HOVER_EXIT ? height + 9 : 3);
@@ -70,24 +108,29 @@ final class XdesxFullscreenBar {
     }
 
     private final int[] padOrigin = new int[2];
-    private boolean padPressed;
+    private View padPressed;
 
-    // The Mac toolbar has one action. Its normal button still handles physical mice.
+    // Route the Mac touchpad click to the same control as a physical pointer.
     boolean padEvent(int x, int y, int op, int button, boolean down) {
         int width = windows.getCurrentWindowMetrics().getBounds().width();
         boolean near = Math.abs(x - width / 2) <= edge.getLayoutParams().width / 2;
-        cursor(near ? y : height + 9);
-        if (op != 2 || button != 1) return false;
-        boolean hit = false;
+        View hit = null;
         if (attached) {
             bar.getLocationOnScreen(padOrigin);
-            hit = x >= padOrigin[0] && x < padOrigin[0] + bar.getWidth()
-                    && y >= padOrigin[1] && y < padOrigin[1] + bar.getHeight();
+            int localX = x - padOrigin[0], localY = y - padOrigin[1];
+            for (int i=0; i<bar.getChildCount(); i++) {
+                View child = bar.getChildAt(i);
+                if (localX >= child.getLeft() && localX < child.getRight() &&
+                        localY >= child.getTop() && localY < child.getBottom()) { hit=child; break; }
+            }
         }
-        if (down) { padPressed = hit; return hit; }
-        if (!padPressed) return false;
-        padPressed = false;
-        if (hit) bar.getChildAt(0).performClick();
+        cursor(near || hit != null ? y : height + 9);
+        if (op != 2 || button != 1) return false;
+        if (down) { padPressed = hit; return hit != null; }
+        View pressed = padPressed;
+        padPressed = null;
+        if (pressed == null) return false;
+        if (hit == pressed) pressed.performClick();
         return true;
     }
 

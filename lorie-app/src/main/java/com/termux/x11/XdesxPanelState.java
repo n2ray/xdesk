@@ -126,13 +126,16 @@ final class XdesxPanelState {
             n.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ? "VPN" : "网络";
         return n.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ? name : name+" · 未验证";
     }
+    Locale locale() { return language==1 ? Locale.ENGLISH : language==2 ? Locale.SIMPLIFIED_CHINESE : language==3 ? Locale.TRADITIONAL_CHINESE : android.content.res.Resources.getSystem().getConfiguration().getLocales().get(0); }
+    boolean isDark() { return appearance==2 || (appearance==0 && (context.getResources().getConfiguration().uiMode & 48)==32); }
+
     void publish() {
         if (closed) return;
         Date now = new Date();
-        Locale locale = language==1 ? Locale.ENGLISH : language==2 ? Locale.SIMPLIFIED_CHINESE : language==3 ? Locale.TRADITIONAL_CHINESE : android.content.res.Resources.getSystem().getConfiguration().getLocales().get(0);
+        Locale locale = locale();
         boolean traditional = locale.getScript().equals("Hant") || java.util.Arrays.asList("TW","HK","MO").contains(locale.getCountry());
         int effectiveLanguage = locale.getLanguage().equals("zh") ? (traditional?3:2) : 1;
-        boolean dark = appearance==2 || (appearance==0 && (context.getResources().getConfiguration().uiMode & 48)==32);
+        boolean dark = isDark();
         String pattern = DateFormat.getBestDateTimePattern(locale,"MMMdEEE");
         String date = new java.text.SimpleDateFormat(pattern,locale).format(now);
         String tooltip=connection()+" · "+battery;
