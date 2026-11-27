@@ -11,6 +11,7 @@
     <string name="xu_connection_permissions">Connection &amp; Permissions</string>
     <string name="xu_desktop_controls">Desktop Controls</string>
     <string name="xu_desktop_controls_are_authorized">Desktop controls are authorized.</string>
+    <string name="xu_pad_exit_game">Exit Game Input</string>
     <string name="xu_direct_game_input">Direct Game Input</string>
     <string name="xu_download_paused_you_can_resume_it_at_any_time">Download paused. You can resume it at any time.</string>
     <string name="xu_enable_pairing_notifications">Enable Pairing Notifications</string>

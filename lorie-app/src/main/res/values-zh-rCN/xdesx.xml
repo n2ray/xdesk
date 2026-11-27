@@ -11,6 +11,7 @@
     <string name="xu_connection_permissions">连接与授权</string>
     <string name="xu_desktop_controls">桌面控制</string>
     <string name="xu_desktop_controls_are_authorized">桌面控制已授权</string>
+    <string name="xu_pad_exit_game">退出直通</string>
     <string name="xu_direct_game_input">游戏直通</string>
     <string name="xu_download_paused_you_can_resume_it_at_any_time">下载已取消，可继续下载</string>
     <string name="xu_enable_pairing_notifications">开启配对通知</string>

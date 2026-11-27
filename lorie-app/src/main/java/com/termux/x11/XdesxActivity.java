@@ -60,6 +60,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (on) releasePhoneKeys(-1);
                 gamePassthrough = on && fullWindow != null;
                 if (toolbar != null) toolbar.gameMode(gamePassthrough);
+                refreshPhoneControls();
                 if (gamePassthrough) Toast.makeText(XdesxActivity.this,
                     getString(com.termux.x11.app.R.string.xu_game_input_hint), Toast.LENGTH_SHORT).show();
             });
@@ -240,7 +241,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     private float previousBrightness;
 
     private void refreshPhoneControls() {
-        if (controls != null) controls.update(panel, fullWindow != null || xFullscreen, idleMinutes);
+        if (controls != null) controls.update(panel, fullWindow != null || xFullscreen, fullWindow != null,
+                fullWindow != null && !fullWindow.mac(), gamePassthrough, idleMinutes);
         if (pad != null && panel != null) pad.desktopAppearance(panel.isDark());
     }
 
@@ -333,6 +335,12 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             public void exitFullscreen(){
                 if(fullWindow!=null) toggleWindow(fullWindow);
                 else if(xFullscreen){panel.returnSequence++; panel.publish();}
+            }
+            public void toggleGame(){
+                if(fullWindow!=null && !fullWindow.mac() && !switching) setGame(!gamePassthrough);
+            }
+            public void quitApp(){
+                if(fullWindow!=null && !switching) fullWindow.stop();
             }
             public void recover(){panelAction("recover");}
             public void permissions(){setup();}
@@ -786,7 +794,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 armPhoneTimeout();
             }
             if(consumeWake) return true;
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && gamePassthrough) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN && gamePassthrough &&
+                    pad != null && e.getY() < pad.getBottom() + ((View)pad.getParent()).getTop()) {
                 leavingGameTouch = true;
                 setGame(false);
             }

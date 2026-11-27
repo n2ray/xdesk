@@ -28,6 +28,8 @@ final class XdesxPhoneControls {
     interface Actions {
         void keyboard();
         void exitFullscreen();
+        void toggleGame();
+        void quitApp();
         void recover();
         void permissions();
         void endSession();
@@ -43,7 +45,7 @@ final class XdesxPhoneControls {
     private final Actions actions;
     private Context labels;
     private Locale locale;
-    private boolean dark, fullscreen;
+    private boolean dark, fullscreen, nativeApp, gameAvailable, gameActive;
     private int minutes, width, height;
     private float fontScale;
     private Dialog sheet;
@@ -56,17 +58,18 @@ final class XdesxPhoneControls {
         bar = new LinearLayout(host);
         bar.setGravity(Gravity.CENTER);
         root.addView(bar, MATCH, WRAP);
-        update(null, false, 5);
+        update(null, false, false, false, false, 5);
     }
 
-    void update(XdesxPanelState panel, boolean fullscreen, int idleMinutes) {
+    void update(XdesxPanelState panel, boolean fullscreen, boolean nativeApp, boolean gameAvailable, boolean gameActive, int idleMinutes) {
         Configuration config = host.getResources().getConfiguration();
         Locale l = panel == null ? config.getLocales().get(0) : panel.locale();
         boolean night = panel == null ? (config.uiMode & Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES : panel.isDark();
         boolean appearance = !l.equals(locale) || night != dark || fontScale != config.fontScale ||
                 width != config.screenWidthDp || height != config.screenHeightDp;
-        boolean toolbar = appearance || fullscreen != this.fullscreen;
+        boolean toolbar = appearance || fullscreen != this.fullscreen || nativeApp != this.nativeApp ||
+                gameAvailable != this.gameAvailable || gameActive != this.gameActive;
         boolean refreshSheet = appearance || minutes != idleMinutes;
         dark = night;
         locale = l;
@@ -74,6 +77,9 @@ final class XdesxPhoneControls {
         width = config.screenWidthDp;
         height = config.screenHeightDp;
         this.fullscreen = fullscreen;
+        this.nativeApp = nativeApp;
+        this.gameAvailable = gameAvailable;
+        this.gameActive = gameActive;
         minutes = idleMinutes;
         if (appearance) {
             Configuration local = new Configuration(config);
@@ -141,15 +147,19 @@ final class XdesxPhoneControls {
         bar.setPadding(dp(8), dp(4), dp(8), dp(4));
         barAction(R.string.xu_pad_keyboard, R.drawable.xd_ic_keyboard, actions::keyboard);
         if (fullscreen) barAction(R.string.xu_exit_fullscreen, R.drawable.xu_bar_window, actions::exitFullscreen);
+        if (gameAvailable) barAction(gameActive ? R.string.xu_pad_exit_game : R.string.xu_direct_game_input,
+                R.drawable.xu_bar_game, actions::toggleGame);
+        if (nativeApp) barAction(R.string.xu_quit_app, R.drawable.xu_bar_quit, actions::quitApp);
         barAction(R.string.xu_pad_more, R.drawable.xu_pad_more, () -> show(Page.MORE));
     }
 
     private void barAction(int title, int image, Runnable click) {
-        TextView button = label(text(title), 13, ink(), true);
+        int color = title == R.string.xu_quit_app ? (dark ? 0xffff827b : 0xffba322e) : ink();
+        TextView button = label(text(title), nativeApp ? 12 : 13, color, true);
         button.setGravity(Gravity.CENTER);
         button.setMinHeight(dp(48));
         button.setPadding(dp(4),dp(2),dp(4),dp(2));
-        button.setCompoundDrawables(null, icon(image, ink(), 20), null, null);
+        button.setCompoundDrawables(null, icon(image, color, 20), null, null);
         button.setCompoundDrawablePadding(dp(2));
         button.setBackground(ripple(surface(), 10));
         button.setFocusable(true);
