@@ -28,7 +28,9 @@ public final class XdesxApp extends LorieApp implements Application.ActivityLife
         config.setLocale(locale);
         res.updateConfiguration(config,res.getDisplayMetrics());
     }
+    int phoneDesktopId = android.view.Display.INVALID_DISPLAY;
     public int desktopScale(){
+        if (phoneDesktopId >= 0) return getSharedPreferences("xdesx-panel",MODE_PRIVATE).getInt("phone-desktop/scale",133);
         android.view.Display hdmi=TargetDisplay.real(getSystemService(android.hardware.display.DisplayManager.class));
         return hdmi==null?100:getSharedPreferences("xdesx-panel",MODE_PRIVATE).getInt(ScreenProfiles.wiredKey(hdmi)+"/scale",133);
     }

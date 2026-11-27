@@ -218,6 +218,63 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (externalKeyboard(id)) onInputDeviceAdded(id); else onInputDeviceRemoved(id);
     }
     private int external = -1;
+    private SurfaceView phoneScreen;
+    private boolean phoneMode;
+    private int phoneDisplay = -1;
+    private boolean screenPressed;
+    private void startPhoneDesktop() {
+        if (external >= 0 || phoneMode || TargetDisplay.real(displays)!=null) return;
+        if (injector==null) { setup(); return; }
+        phoneMode=true;
+        wakePhone();
+        armPhoneTimeout();
+        sizePhoneScreen();
+        phoneScreen.setVisibility(View.VISIBLE);
+    }
+    private void sizePhoneScreen() {
+        int height=getWindowManager().getCurrentWindowMetrics().getBounds().height()/2;
+        android.view.ViewGroup.LayoutParams params=phoneScreen.getLayoutParams();
+        if (params.height!=height) { params.height=height; phoneScreen.setLayoutParams(params); }
+    }
+    private void phoneSurface(Surface surface,int width,int height) {
+        if (!phoneMode || injector==null || isFinishing() || isDestroyed()) return;
+        try {
+            if (phoneDisplay<0) {
+                phoneDisplay=injector.createVirtualDisplay(AppDisplay.PHONE_DESKTOP,width,height,160,surface,0);
+                ((XdesxApp)getApplication()).phoneDesktopId=phoneDisplay;
+                place();
+            } else {
+                injector.resizeVirtualDisplay(phoneDisplay,width,height,160,surface);
+                applyDisplay();
+            }
+        } catch (RuntimeException | RemoteException e) {
+            error(e.toString());
+            if (phoneDisplay>=0) endDesktop();
+            else {phoneMode=false; phoneScreen.setVisibility(View.GONE); place();}
+        }
+    }
+    private boolean touchPhoneScreen(MotionEvent event) {
+        if (switching || external!=phoneDisplay || external<0) return true;
+        int action=event.getActionMasked();
+        if (fullWindow!=null) {
+            if (injector!=null) try {
+                int n=event.getPointerCount();
+                int[] ids=new int[n]; float[] x=new float[n],y=new float[n];
+                for(int i=0;i<n;i++){ids[i]=event.getPointerId(i);x[i]=event.getX(i);y[i]=event.getY(i);}
+                injector.screenTouch(event.getAction(),ids,x,y);
+            } catch(RemoteException e){error(e.toString());}
+        } else if (action==MotionEvent.ACTION_DOWN || screenPressed) {
+            float x=event.getX(), y=event.getY();
+            if (action!=MotionEvent.ACTION_CANCEL) input.warpTo(Math.max(0,Math.min(1,x/Math.max(1,phoneScreen.getWidth()-1))),
+                    Math.max(0,Math.min(1,y/Math.max(1,phoneScreen.getHeight()-1))));
+            if (action==MotionEvent.ACTION_DOWN) {input.button(1,true);screenPressed=true;}
+            if (action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL ||
+                    (action==MotionEvent.ACTION_POINTER_UP && event.getActionIndex()==0)) {
+                input.button(1,false);screenPressed=false;
+            }
+        }
+        return true;
+    }
     private IInjector injector;
     private Boolean shizuku;
     private boolean connecting;
@@ -248,14 +305,14 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
 
     private void armPhoneTimeout() {
         settingsHandler.removeCallbacks(dimPhone);
-        if (phoneResumed && external >= 0 && !touching && !phoneImeVisible && idleMinutes > 0 &&
+        if (!phoneMode && phoneResumed && external >= 0 && !touching && !phoneImeVisible && idleMinutes > 0 &&
                 blankScreen.getVisibility() != View.VISIBLE)
             settingsHandler.postDelayed(dimPhone, idleMinutes * 60000L);
     }
 
     private final Runnable dimPhone = new Runnable() {
         public void run() {
-            if (!phoneResumed || touching || phoneImeVisible || external < 0) return;
+            if (phoneMode || !phoneResumed || touching || phoneImeVisible || external < 0) return;
             if (activation != null || controls.showing()) { armPhoneTimeout(); return; }
             WindowManager.LayoutParams attrs = getWindow().getAttributes();
             previousBrightness = attrs.screenBrightness;
@@ -275,6 +332,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
 
     @Override public void onConfigurationChanged(android.content.res.Configuration config) {
         super.onConfigurationChanged(config);
+        if (phoneMode) sizePhoneScreen();
         refreshPhoneControls();
         if(panel!=null)panel.publish();
     }
@@ -287,6 +345,19 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         android.widget.LinearLayout column=new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.addView(column,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        phoneScreen=new SurfaceView(this);
+        phoneScreen.setVisibility(View.GONE);
+        phoneScreen.setOnTouchListener((v,event)->touchPhoneScreen(event));
+        column.addView(phoneScreen,new android.widget.LinearLayout.LayoutParams(-1,0));
+        phoneScreen.getHolder().addCallback(new SurfaceHolder.Callback(){
+            public void surfaceCreated(SurfaceHolder h) {}
+            public void surfaceChanged(SurfaceHolder h,int format,int w,int height){phoneSurface(h.getSurface(),w,height);}
+            public void surfaceDestroyed(SurfaceHolder h){
+                if(screenPressed){input.button(1,false);screenPressed=false;}
+                if(phoneDisplay>=0 && injector!=null) try { injector.setVirtualDisplaySurface(phoneDisplay,null); }
+                catch(RemoteException | RuntimeException e){Log.w("XDesX","detach phone surface",e);}
+            }
+        });
         pad=new TouchpadView(this, new GestureOutput() {
             public void move(int x,int y) {
                 int speed=panel==null?100:panel.padSpeed;
@@ -331,6 +402,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         idleMinutes=getSharedPreferences("xdesx-phone",MODE_PRIVATE).getInt("idle-minutes",5);
         panel=new XdesxPanelState(this);
         controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
+            public boolean canStartPhoneDesktop(){return external<0 && !phoneMode && displays!=null && TargetDisplay.real(displays)==null;}
+            public void startPhoneDesktop(){XdesxActivity.this.startPhoneDesktop();}
             public void keyboard(){showPhoneKeyboard();}
             public void exitFullscreen(){
                 if(fullWindow!=null) toggleWindow(fullWindow);
@@ -521,13 +594,13 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         connecting=shizuku!=null;
     }
     private void place() {
-        Display d=TargetDisplay.real(displays);
+        Display d=phoneMode ? displays.getDisplay(phoneDisplay) : TargetDisplay.real(displays);
         if (d==null || external==d.getDisplayId()) return;
         external=d.getDisplayId();
         armPhoneTimeout();
         routeDesktop();
         Context app=getApplicationContext();
-        MainActivity.displayAllowed=id -> TargetDisplay.allowsDesktop(app,id);
+        MainActivity.displayAllowed=id -> id==((XdesxApp)app).phoneDesktopId || TargetDisplay.allowsDesktop(app,id);
         panel.screen(d);
         applyDisplay();
         Prefs prefs=((LorieApp)getApplication()).getPrefs(createDisplayContext(d));
@@ -898,6 +971,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if(macProfiles!=null) macProfiles.close();
         if(panel!=null) panel.close();
         displays.unregisterDisplayListener(this);
+        ((XdesxApp)getApplication()).phoneDesktopId=-1;
         devices.unregisterInputDeviceListener(this);
         if (linux != null) linux.close();
         if(runtime!=null) runtime.close();
@@ -906,6 +980,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         for (XdesxWindow w:windows.values()) w.stop();
         if (injector!=null) {
             HdmiScale.restore(this,injector,external);
+            if(phoneDisplay>=0) {
+                try {injector.releaseXdesxDisplay(phoneDisplay);} catch(RemoteException | RuntimeException e){Log.w("XDesX","release phone desktop",e);}
+                phoneDisplay=-1;
+            }
             try { injector.shutdown(); } catch(RemoteException e) { Log.w("XDesX","shutdown",e); }
         }
         if (shizuku!=null) AppSession.get(this).closeWirelessInjector(connection,shizuku);

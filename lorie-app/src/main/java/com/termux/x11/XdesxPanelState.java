@@ -86,7 +86,7 @@ final class XdesxPanelState {
         return java.util.UUID.nameUUIDFromBytes(id.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "");
     }
     void screen(Display d) {
-        profile = ScreenProfiles.wiredKey(d);
+        profile = AppDisplay.PHONE_DESKTOP.equals(d.getName()) ? "phone-desktop" : ScreenProfiles.wiredKey(d);
         layoutKey=java.util.UUID.nameUUIDFromBytes(profile.getBytes(StandardCharsets.UTF_8)).toString();
         scale = prefs.getInt(profile + "/scale", 133);
         render = prefs.getInt(profile + "/render", 100);

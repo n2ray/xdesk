@@ -1226,7 +1226,8 @@ public class InjectorService extends IInjector.Stub {
                                     int hotspot,int width,int height,String launch) {
         synchronized (appDisplays) {
             VirtualDisplay d=appDisplays.get(window);
-            if (sessionOver || d==null || external<=0 || appDisplays.containsKey(external) ||
+            if (sessionOver || d==null || external<=0 || (appDisplays.containsKey(external) &&
+                    !AppDisplay.PHONE_DESKTOP.equals(appDisplays.get(external).getDisplay().getName())) ||
                 !d.getDisplay().getName().startsWith("XDesX "+pkg+"/")) return -1;
             if (launch!=null && !("XDesX "+launch).equals(d.getDisplay().getName())) return -1;
             if (enter ? xdesxFullscreenWindow >= 0 : xdesxFullscreenWindow != window) return -1;

@@ -27,6 +27,8 @@ final class AppDisplay {
     private static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8, FLAG_SUPPORTS_TOUCH = 1 << 6, FLAG_TRUSTED = 1 << 10, FLAG_OWN_DISPLAY_GROUP = 1 << 11,
         FLAG_ALWAYS_UNLOCKED = 1 << 12, FLAG_TOUCH_FEEDBACK_DISABLED = 1 << 13;
 
+    static final String PHONE_DESKTOP = "xdesx phone desktop";
+
     private AppDisplay() { }
 
     /**
@@ -48,7 +50,7 @@ final class AppDisplay {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             f |= FLAG_TRUSTED | FLAG_OWN_DISPLAY_GROUP | FLAG_ALWAYS_UNLOCKED | FLAG_TOUCH_FEEDBACK_DISABLED;
         }
-        if (name.startsWith("XDesX ")) f |= FLAG_DESTROY_CONTENT_ON_REMOVAL;
+        if (name.startsWith("XDesX ") || PHONE_DESKTOP.equals(name)) f |= FLAG_DESTROY_CONTENT_ON_REMOVAL;
         if (name.startsWith("XDesX ") && Build.VERSION.SDK_INT >= 34) {
             f |= 1 << 14; // OWN_FOCUS
             // A click in an Android editor must be able to make this display the IME target.

@@ -26,6 +26,8 @@ import java.util.Locale;
 /** Phone-only controls. The session owns the timeout, fullscreen transitions and IME. */
 final class XdesxPhoneControls {
     interface Actions {
+        boolean canStartPhoneDesktop();
+        void startPhoneDesktop();
         void keyboard();
         void exitFullscreen();
         void toggleGame();
@@ -246,6 +248,7 @@ final class XdesxPhoneControls {
             });
             row(body,text(R.string.xu_cancel),0,null,false,() -> sheet.dismiss());
         } else {
+            if (actions.canStartPhoneDesktop()) row(body,text(R.string.xu_phone_desktop),R.drawable.xd_ic_display,null,false,() -> run(actions::startPhoneDesktop));
             row(body,text(R.string.xu_pad_dim),R.drawable.xd_ic_moon,interval(minutes),false,() -> show(Page.TIMEOUT));
             row(body,text(R.string.xu_restore_native_display),R.drawable.xd_ic_display,null,false,() -> run(actions::recover));
             row(body,text(R.string.xu_connection_permissions),R.drawable.xd_ic_shield,null,false,() -> run(actions::permissions));
