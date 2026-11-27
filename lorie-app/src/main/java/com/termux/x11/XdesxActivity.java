@@ -224,6 +224,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private int external = -1;
     private SurfaceView phoneScreen;
+    private PhoneDesktopViewport phoneViewport;
     private boolean phoneMode, leavePhoneRequested;
     private int phoneDisplay = -1;
     private boolean screenPressed;
@@ -231,15 +232,16 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (external >= 0 || phoneMode || TargetDisplay.real(displays)!=null) return;
         if (injector==null) { setup(); return; }
         phoneMode=true;
+        phoneViewport.reset();
         wakePhone();
         armPhoneTimeout();
         sizePhoneScreen();
-        phoneScreen.setVisibility(View.VISIBLE);
+        phoneViewport.setVisibility(View.VISIBLE);
     }
     private void sizePhoneScreen() {
         int height=getWindowManager().getCurrentWindowMetrics().getBounds().height()/2;
-        android.view.ViewGroup.LayoutParams params=phoneScreen.getLayoutParams();
-        if (params.height!=height) { params.height=height; phoneScreen.setLayoutParams(params); }
+        android.view.ViewGroup.LayoutParams params=phoneViewport.getLayoutParams();
+        if (params.height!=height) { params.height=height; phoneViewport.setLayoutParams(params); }
     }
     private void phoneSurface(Surface surface,int width,int height) {
         if (!phoneMode || injector==null || isFinishing() || isDestroyed()) return;
@@ -256,30 +258,26 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         } catch (RuntimeException | RemoteException e) {
             error(e.toString());
             if (phoneDisplay>=0) endDesktop();
-            else {phoneMode=false; phoneScreen.setVisibility(View.GONE); place();}
+            else {phoneMode=false; phoneViewport.setVisibility(View.GONE); place();}
         }
     }
-    private boolean touchPhoneScreen(MotionEvent event) {
-        if (switching || external!=phoneDisplay || external<0) return true;
-        int action=event.getActionMasked();
+    private void touchPhoneScreen(int action,float x,float y) {
+        if (action==MotionEvent.ACTION_CANCEL && screenPressed) {
+            input.button(1,false);
+            screenPressed=false;
+            return;
+        }
+        if (switching || external!=phoneDisplay || external<0) return;
         if (fullWindow!=null) {
             if (injector!=null) try {
-                int n=event.getPointerCount();
-                int[] ids=new int[n]; float[] x=new float[n],y=new float[n];
-                for(int i=0;i<n;i++){ids[i]=event.getPointerId(i);x[i]=event.getX(i);y[i]=event.getY(i);}
-                injector.screenTouch(event.getAction(),ids,x,y);
+                injector.screenTouch(action,new int[]{0},new float[]{x},new float[]{y});
             } catch(RemoteException e){error(e.toString());}
         } else if (action==MotionEvent.ACTION_DOWN || screenPressed) {
-            float x=event.getX(), y=event.getY();
-            if (action!=MotionEvent.ACTION_CANCEL) input.warpTo(Math.max(0,Math.min(1,x/Math.max(1,phoneScreen.getWidth()-1))),
+            input.warpTo(Math.max(0,Math.min(1,x/Math.max(1,phoneScreen.getWidth()-1))),
                     Math.max(0,Math.min(1,y/Math.max(1,phoneScreen.getHeight()-1))));
             if (action==MotionEvent.ACTION_DOWN) {input.button(1,true);screenPressed=true;}
-            if (action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL ||
-                    (action==MotionEvent.ACTION_POINTER_UP && event.getActionIndex()==0)) {
-                input.button(1,false);screenPressed=false;
-            }
+            if (action==MotionEvent.ACTION_UP) {input.button(1,false);screenPressed=false;}
         }
-        return true;
     }
     private IInjector injector;
     private Boolean shizuku;
@@ -351,10 +349,10 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         android.widget.LinearLayout column=new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.addView(column,new android.widget.FrameLayout.LayoutParams(-1,-1));
-        phoneScreen=new SurfaceView(this);
-        phoneScreen.setVisibility(View.GONE);
-        phoneScreen.setOnTouchListener((v,event)->touchPhoneScreen(event));
-        column.addView(phoneScreen,new android.widget.LinearLayout.LayoutParams(-1,0));
+        phoneViewport=new PhoneDesktopViewport(this,this::touchPhoneScreen);
+        phoneScreen=phoneViewport.screen;
+        phoneViewport.setVisibility(View.GONE);
+        column.addView(phoneViewport,new android.widget.LinearLayout.LayoutParams(-1,0));
         phoneScreen.getHolder().addCallback(new SurfaceHolder.Callback(){
             public void surfaceCreated(SurfaceHolder h) {}
             public void surfaceChanged(SurfaceHolder h,int format,int w,int height){phoneSurface(h.getSurface(),w,height);}
@@ -647,6 +645,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     }
     private void hidePhoneDesktop(boolean moved) {
         leavePhoneRequested=false;
+        phoneViewport.reset();
         releasePhoneKeys(-1);
         if (screenPressed) { input.button(1,false); screenPressed=false; }
         mouse.releaseMouse();
@@ -659,7 +658,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         MainActivity.xdesxHardwareCursor(false);
         try {
             if (injector!=null) injector.routeXdesxDesktop(-1);
-            phoneScreen.setVisibility(View.GONE);
+            phoneViewport.setVisibility(View.GONE);
             if (moved && phoneDisplay>=0 && injector!=null) {
                 int old=phoneDisplay;
                 phoneDisplay=-1;
