@@ -101,7 +101,7 @@ panel=native/"libxdpanel.so"
 subprocess.run([BIN/"aarch64-linux-android30-clang","-O2","-fPIC","-shared",
     *["-I"+str(prefix/i) for i in includes],assets/"panel.c","-L"+str(prefix/"lib"),
     "-Wl,--allow-shlib-undefined","-lxfce4panel-2.0","-lxfconf-0","-lwnck-3","-lgtk-3",
-    "-lgdk-3","-lgdk_pixbuf-2.0","-lgio-2.0","-lgobject-2.0","-lglib-2.0","-lX11","-lcairo","-lXcursor","-lXfixes","-lm","-o",panel],check=True)
+    "-lgdk-3","-lgdk_pixbuf-2.0","-lgio-2.0","-lgobject-2.0","-lglib-2.0","-lX11","-lcairo","-lXcursor","-lXi","-lXfixes","-lm","-o",panel],check=True)
 links["lib/xfce4/panel/plugins/libxdesx.so"]=panel.name
 schemas=prefix/"share/glib-2.0/schemas"
 subprocess.run(["glib-compile-schemas",schemas],check=True)

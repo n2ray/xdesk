@@ -53,6 +53,8 @@ final class XdesxPanelState {
         network.registerDefaultNetworkCallback(callback, main);
         context.getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor(
                 android.provider.Settings.Secure.DEFAULT_INPUT_METHOD), false, imeObserver);
+        context.getContentResolver().registerContentObserver(android.provider.Settings.Secure.getUriFor(
+                android.provider.Settings.Secure.ENABLED_INPUT_METHODS), false, imeObserver);
         refreshIme();
     }
     private String imeName = "";
@@ -65,12 +67,23 @@ final class XdesxPanelState {
         imeName = "";
         android.view.inputmethod.InputMethodManager manager =
                 context.getSystemService(android.view.inputmethod.InputMethodManager.class);
+        StringBuilder rows = new StringBuilder();
         for (android.view.inputmethod.InputMethodInfo info : manager.getEnabledInputMethodList()) {
-            if (info.getId().equals(id)) {
-                imeName = info.loadLabel(context.getPackageManager()).toString().replace('\n', ' ').replace('\r', ' ');
-                break;
-            }
+            String label = info.loadLabel(context.getPackageManager()).toString().replaceAll("[\\t\\r\\n]", " ");
+            String key = imeKey(info.getId());
+            boolean selected = info.getId().equals(id);
+            if (selected) imeName = label;
+            rows.append(key).append('\t').append(selected ? "1" : "0").append('\t').append(label).append('\n');
         }
+        try {
+            Path tmp = new File(dir,"ime-list.tmp").toPath();
+            Files.write(tmp,rows.toString().getBytes(StandardCharsets.UTF_8));
+            Files.move(tmp,new File(dir,"ime-list").toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) { Log.w("XDesX","input method list",e); }
+    }
+
+    static String imeKey(String id) {
+        return java.util.UUID.nameUUIDFromBytes(id.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "");
     }
     void screen(Display d) {
         profile = ScreenProfiles.wiredKey(d);

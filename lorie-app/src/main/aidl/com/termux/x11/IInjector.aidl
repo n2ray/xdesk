@@ -132,4 +132,5 @@ interface IInjector {
     int xdesxTogglePhoneIme(int window) = 72;
     void xdesxRestorePhoneIme() = 73;
     String desktopNightMode(String mode) = 69;
+    boolean selectDesktopIme(String id);
 }

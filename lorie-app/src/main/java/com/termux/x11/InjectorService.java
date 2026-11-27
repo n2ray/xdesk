@@ -1452,6 +1452,13 @@ public class InjectorService extends IInjector.Stub {
         }
     }
 
+    @Override public boolean selectDesktopIme(String id) {
+        if (id == null || android.content.ComponentName.unflattenFromString(id) == null || id.startsWith("-")) return false;
+        String[] enabled = exec(3000, "/system/bin/ime", "list", "-s");
+        if (enabled[0] != null || !java.util.Arrays.asList(enabled[1].split("\\R")).contains(id)) return false;
+        return exec(3000, "/system/bin/ime", "set", id)[0] == null;
+    }
+
     @Override public void setApp(final String pkg) {
         packageName = pkg;
         inSession = false;

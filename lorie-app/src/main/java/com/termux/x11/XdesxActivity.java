@@ -531,6 +531,25 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             try {if(macProfiles!=null) macProfiles.apply(action);} catch(IllegalArgumentException e){error(e.getMessage());}
             return;
         }
+        if (action.startsWith("ime-set-")) {
+            String key = action.substring(8);
+            IInjector service = injector;
+            if (service != null) {
+                for (android.view.inputmethod.InputMethodInfo info :
+                        getSystemService(android.view.inputmethod.InputMethodManager.class).getEnabledInputMethodList()) {
+                    if (!XdesxPanelState.imeKey(info.getId()).equals(key)) continue;
+                    new Thread(() -> {
+                        try {
+                            if (service.selectDesktopIme(info.getId())) return;
+                        } catch (android.os.RemoteException e) { android.util.Log.w("XDesX","IME selection",e); }
+                        runOnUiThread(() -> panelAction("ime-picker"));
+                    }, "xdesx-ime-select").start();
+                    return;
+                }
+            }
+            panelAction("ime-picker");
+            return;
+        }
         if (action.equals("ime-picker")) {
             android.app.Activity host = this;
             for (MainActivity screen : MainActivity.getInstances()) {

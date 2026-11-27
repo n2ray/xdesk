@@ -101,14 +101,40 @@ final class XdesxLinux implements AutoCloseable {
             String id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "");
             keys.put(id, key);
             File icon = null;
-            try { icon = apps.menuIcon(e.get("Icon"), theme); }
-            catch (IOException ignored) { /* Keep the entry if the icon disappeared during a package update. */ }
+            try { icon = panelIcon(apps.menuIcon(e.get("Icon"), theme)); }
+            catch (IOException | com.caverock.androidsvg.SVGParseException ex) { Log.w("XDesX","Linux icon: "+e.id,ex); }
             rows.add(BuiltinApps.name(e, locale).replaceAll("[\\t\\r\\n]", " ") + "\t" + id + "\t"
                     + (icon == null ? "" : icon.getPath()) + "\n");
         }
         java.util.Collections.sort(rows);
         publish("ubuntu-apps", TextUtils.join("", rows));
         listed = true;
+    }
+
+    private File panelIcon(File icon) throws IOException, com.caverock.androidsvg.SVGParseException {
+        if (icon == null || !icon.getName().endsWith(".svg")) return icon;
+        byte[] svg = Files.readAllBytes(icon.toPath());
+        File dir = new File(context.getCacheDir(), "linux-menu-icons");
+        Files.createDirectories(dir.toPath());
+        File png = new File(dir, UUID.nameUUIDFromBytes(svg) + ".png");
+        if (png.isFile()) return png;
+        com.caverock.androidsvg.SVG doc = com.caverock.androidsvg.SVG.getFromInputStream(
+                new java.io.ByteArrayInputStream(svg));
+        doc.setDocumentWidth("100%");
+        doc.setDocumentHeight("100%");
+        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(128,128,android.graphics.Bitmap.Config.ARGB_8888);
+        File tmp = File.createTempFile("icon-", ".png", dir);
+        try {
+            doc.renderToCanvas(new android.graphics.Canvas(bitmap));
+            try (java.io.OutputStream out = Files.newOutputStream(tmp.toPath())) {
+                if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out)) throw new IOException("PNG encoding failed");
+            }
+            Files.move(tmp.toPath(),png.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+            return png;
+        } finally {
+            bitmap.recycle();
+            Files.deleteIfExists(tmp.toPath());
+        }
     }
 
     void action(String verb) {

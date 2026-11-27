@@ -193,14 +193,35 @@ public final class BuiltinApps {
     File menuIcon(String name, String theme) throws IOException {
         if (name.isEmpty() || name.indexOf('\t') >= 0 || name.indexOf('\n') >= 0) return null;
         File file = icon(name, theme);
-        if (file == null && !name.contains("/")) {
-            File dir = new File(root, "usr/share/pixmaps");
-            for (String suffix : new String[]{".xpm", "_48x48.xpm", ".svg"}) {
-                File candidate = new File(dir, name + suffix);
-                if (candidate.isFile()) { file = candidate; break; }
+        if (file == null && name.startsWith("/")) {
+            if (name.endsWith(".xpm") || name.endsWith(".svg")) file = new File(root,name.substring(1));
+        } else if (file == null && !name.contains("/")) {
+            String stem = name.replaceFirst("(?i)\\.(svg|png|xpm)$", "");
+            List<String> themes = new ArrayList<>();
+            if (theme != null && !theme.isEmpty()) themes.add(theme);
+            for (String t : THEMES_AFTER) if (!themes.contains(t)) themes.add(t);
+            File[] bases = {new File(home,".local/share/icons"),new File(home,".icons"),
+                    new File(root,"usr/local/share/icons"),new File(root,"usr/share/icons")};
+            for (String t : themes) {
+                for (File base : bases) {
+                    File dir = new File(base,t);
+                    for (String layout : new String[]{"scalable/apps","apps/scalable","symbolic/apps"}) {
+                        File candidate = new File(new File(dir,layout),stem+".svg");
+                        if (candidate.isFile()) { file=candidate; break; }
+                    }
+                    if (file != null) break;
+                }
+                if (file != null) break;
+            }
+            if (file == null) {
+                File dir = new File(root, "usr/share/pixmaps");
+                for (String suffix : new String[]{".xpm", "_48x48.xpm", ".svg"}) {
+                    File candidate = new File(dir, stem + suffix);
+                    if (candidate.isFile()) { file = candidate; break; }
+                }
             }
         }
-        if (file == null) return null;
+        if (file == null || !file.isFile()) return null;
         File resolved = file.getCanonicalFile();
         if (!resolved.toPath().startsWith(root.getCanonicalFile().toPath()) &&
                 !resolved.toPath().startsWith(home.getCanonicalFile().toPath())) return null;

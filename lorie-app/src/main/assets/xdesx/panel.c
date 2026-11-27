@@ -4,6 +4,7 @@
 #include <libwnck/libwnck.h>
 #include <gdk/gdkx.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/XInput2.h>
 #include <X11/Xcursor/Xcursor.h>
 #include <X11/extensions/Xfixes.h>
 #include <math.h>
@@ -37,7 +38,9 @@ typedef struct {
     GtkWidget *fullscreen_bar, *fullscreen_reveal;
     Atom anchor_atom, accessible_anchor_atom;
     int anchor_x,anchor_y,anchor_h;
-    guint anchor_idle;
+    guint anchor_idle, click_watch;
+    Display *click_display;
+    int xi_opcode;
     guint tasks_idle;
     guint reveal_timer, hide_timer;
 } Panel;
@@ -195,7 +198,32 @@ static void activate_window(GtkWidget *i,WnckWindow *w) {
 #include "panel-tasks.h"
 #include "panel-style.h"
 #include "panel-dpi.h"
-static void pick_ime(GtkButton *button, gpointer unused) { action("ime-picker"); }
+static void pick_ime(GtkButton *button, gpointer unused) {
+    char *data=NULL;
+    if (!g_file_get_contents("run/ime-list",&data,NULL,NULL) || !*data) {
+        g_free(data);
+        action("ime-picker");
+        return;
+    }
+    GtkWidget *menu=gtk_menu_new();
+    char **lines=g_strsplit(data,"\n",-1);
+    for (char **row=lines;*row;row++) {
+        char **f=g_strsplit(*row,"\t",3);
+        if (g_strv_length(f)==3 && strlen(f[0])==32) {
+            char *op=g_strconcat("ime-set-",f[0],NULL);
+            char *label=g_strconcat(!strcmp(f[1],"1")?"✓  ":"     ",f[2],NULL);
+            command(menu,label,op);
+            g_free(label);
+            g_free(op);
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    g_free(data);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu),gtk_separator_menu_item_new());
+    command(menu,T("系统输入法选项…"),"ime-picker");
+    popup(menu,GTK_WIDGET(button));
+}
 static void refresh(Panel *p) {
     char *data=NULL;
     if (!g_file_get_contents("run/panel-state",&data,NULL,NULL)) return;
@@ -294,6 +322,8 @@ static void destroy(XfcePanelPlugin *plugin,Panel *p) {
     Pixmap wallpaper=p->wallpaper;
     if(wallpaper) { XDeleteProperty(d,DefaultRootWindow(d),XInternAtom(d,"_XROOTPMAP_ID",False));XFreePixmap(d,wallpaper); }
     if(p->cursor_event) gdk_window_remove_filter(NULL,cursor_event,p);
+    if (p->click_watch) g_source_remove(p->click_watch);
+    if (p->click_display) XCloseDisplay(p->click_display);
     gdk_window_remove_filter(NULL,anchor_event,p);
     if (p->anchor_idle) g_source_remove(p->anchor_idle);
     if (p->tasks_idle) g_source_remove(p->tasks_idle);
@@ -341,6 +371,7 @@ static void construct(XfcePanelPlugin *plugin) {
     p->screen=wnck_screen_get_default(); wnck_screen_force_update(p->screen);
     p->accessible_anchor_atom=XInternAtom(GDK_DISPLAY_XDISPLAY(gdk_display_get_default()),"_XDESX_ACCESSIBLE_INSERTION_RECT",False);
     p->anchor_atom=XInternAtom(GDK_DISPLAY_XDISPLAY(gdk_display_get_default()),"_XDESX_INSERTION_RECT",False);
+    watch_anchor_clicks(p);
     gdk_window_add_filter(NULL,anchor_event,p);
     queue_anchor(p);
     g_signal_connect(p->screen,"active-window-changed",G_CALLBACK(active_task_changed),p);
