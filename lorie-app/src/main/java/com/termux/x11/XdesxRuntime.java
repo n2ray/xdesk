@@ -96,6 +96,23 @@ final class XdesxRuntime {
             return "applications-other";
         }
     }
+    private void windowIcon(int index,String icon) throws IOException {
+        if (icon.startsWith("/")) {
+            File raw=new File(icon+".argb");
+            if (!raw.isFile()) {
+                android.graphics.Bitmap image=android.graphics.BitmapFactory.decodeFile(icon);
+                if (image!=null) {
+                    int[] pixels=new int[64*64];
+                    image.getPixels(pixels,0,64,0,0,64,64);
+                    image.recycle();
+                    try (DataOutputStream out=new DataOutputStream(new BufferedOutputStream(new FileOutputStream(raw)))) {
+                        for (int pixel:pixels) out.writeInt(pixel);
+                    }
+                }
+            }
+            text("titles/"+index+".icon",raw.getPath());
+        } else path("titles/"+index+".icon").delete();
+    }
     private void configure() throws Exception {
         for(String dir:new String[]{"tmp","run","data/applications","cache","config"}) path(dir).mkdirs();
         String dir=prefix.getPath();
@@ -116,29 +133,25 @@ final class XdesxRuntime {
             text("titles/"+i,label);
             // Preserve existing layout keys for originals. Each profile owns its X selection.
             text("titles/"+i+".class",app.inOtherProfile()?app.packageInUser():app.packageName);
-            if (icon.startsWith("/")) {
-                File raw=new File(icon+".argb");
-                if (!raw.isFile()) {
-                    android.graphics.Bitmap image=android.graphics.BitmapFactory.decodeFile(icon);
-                    if (image!=null) {
-                        int[] pixels=new int[64*64];
-                        image.getPixels(pixels,0,64,0,0,64,64);
-                        image.recycle();
-                        try (DataOutputStream out=new DataOutputStream(new BufferedOutputStream(new FileOutputStream(raw)))) {
-                            for (int pixel:pixels) out.writeInt(pixel);
-                        }
-                    }
-                }
-                text("titles/"+i+".icon",raw.getPath());
-            } else path("titles/"+i+".icon").delete();
+            windowIcon(i,icon);
             menu.append(i).append('\t').append(label).append('\t').append(icon).append("\tandroid\t").append(app.component()).append('\n');
         }
         int mac=apps.size();
         apps.add(new ComponentName(context,XdesxMacActivity.class).flattenToString());
         text("titles/"+mac,context.getString(com.termux.x11.app.R.string.xu_mac_screen_sharing));
         text("titles/"+mac+".class","xdesx.mac");
-        path("titles/"+mac+".icon").delete();
-        menu.append(mac).append("\t连接 Mac\t\tmac\n");
+        File iconFile=path("cache/imac-v1.png");
+        if(!iconFile.isFile()) {
+            android.graphics.drawable.Drawable icon=context.getDrawable(com.termux.x11.app.R.drawable.xdesx_mac_display);
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(64,64,android.graphics.Bitmap.Config.ARGB_8888);
+            try(OutputStream out=new FileOutputStream(iconFile)){
+                icon.setBounds(0,0,64,64);
+                icon.draw(new android.graphics.Canvas(bitmap));
+                if(!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out))throw new IOException("Mac icon");
+            } finally {bitmap.recycle();}
+        }
+        windowIcon(mac,iconFile.getAbsolutePath());
+        menu.append(mac).append("\t连接 Mac\t").append(iconFile.getAbsolutePath()).append("\tmac\n");
         text("apps.tsv",menu.toString());
         int scale=100;
         List<String> state=path("run/panel-state").isFile()?Files.readAllLines(path("run/panel-state").toPath()):Collections.emptyList();

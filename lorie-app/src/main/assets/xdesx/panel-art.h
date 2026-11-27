@@ -9,6 +9,18 @@ static gboolean draw_logo(GtkWidget *w,cairo_t *cr,Panel *p) {
     cairo_move_to(cr,mid+gap,mid-gap); cairo_line_to(cr,size-edge,edge); cairo_stroke(cr);
     return FALSE;
 }
+static gboolean draw_keyboard(GtkWidget *w,cairo_t *cr,Panel *p) {
+    double k=p->scale/100.;
+    cairo_translate(cr,0,(gtk_widget_get_allocated_height(w)-20*k)/2);
+    cairo_scale(cr,k,k);
+    if(p->dark)cairo_set_source_rgb(cr,.93,.94,.96);else cairo_set_source_rgb(cr,.1,.1,.12);
+    cairo_set_line_width(cr,1.6);cairo_set_line_join(cr,CAIRO_LINE_JOIN_ROUND);
+    cairo_rectangle(cr,2,4,20,12);cairo_stroke(cr);
+    for(int row=0;row<2;row++) for(int key=0;key<5;key++)
+        cairo_rectangle(cr,5+3.1*key,6.5+2.6*row,1.5,1.4);
+    cairo_rectangle(cr,7,12,10,1.4);cairo_fill(cr);
+    return FALSE;
+}
 static gboolean draw_status(GtkWidget *w,cairo_t *cr,Panel *p) {
     double k=p->scale/100.;
     if(k<=0) return FALSE;

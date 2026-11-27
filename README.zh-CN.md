@@ -6,6 +6,8 @@
 
 **[网站](https://n2ray.github.io/xdesk/?lang=zh)** · [下载](https://github.com/n2ray/xdesk/releases/latest) · [English](README.md) · [使用手册](MANUAL.zh-CN.md) · GPL-3.0
 
+**xdesx 外屏桌面**：实测推荐小企鹅输入法搭配实体键盘。安卓和 Ubuntu 应用的候选框表现、手机键盘操作见[中文输入说明](release-notes/xdesx-0.1.0-preview.13.md#中文输入)。
+
 ## 能干什么
 
 不是每台手机都有 DeX 或桌面模式，也不是每块屏都插得上线。XDesk 补上这一块，大屏上能跑三样东西：

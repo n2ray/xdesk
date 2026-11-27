@@ -122,6 +122,8 @@ jobs:
         [[ "${RELEASE_REPO,,}" != "n2ray/xdesk" ]]
         args=()
         if [[ "$VERSION" == *-* ]]; then args+=(--prerelease --latest=false); fi
+        notes=(--notes "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA")
+        if [[ -f "release-notes/xdesx-$VERSION.md" ]]; then notes=(--notes-file "release-notes/xdesx-$VERSION.md"); fi
         gh release create "v$VERSION" --repo "$RELEASE_REPO" "${args[@]}" \
-          --title "xdesx $VERSION" --notes "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA" \
+          --title "xdesx $VERSION" "${notes[@]}" \
           out/xdesx.apk out/SHA256SUMS

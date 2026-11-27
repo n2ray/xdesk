@@ -88,7 +88,7 @@ final class XdesxWindow {
                         if (x!=0) focused.set(this);
                         else focused.compareAndSet(this,null);
                         if (mac() && x==0) ScreenShareActivity.releaseInput(display);
-                        if (!mac()) injector.xdesxWindowFocus(display,x!=0);
+                        injector.xdesxWindowFocus(display,x!=0);
                         continue;
                     }
                     if (nativeFullscreen) continue;
@@ -103,7 +103,7 @@ final class XdesxWindow {
                         // phone keyboard or panel. Reassert it on a real click, never on hover.
                         if (op==17) {
                             focused.set(this);
-                            if (!mac()) injector.xdesxWindowFocus(display,true);
+                            injector.xdesxWindowFocus(display,true);
                         }
                         if (!mac() || !ScreenShareActivity.windowPointer(display,op,x,y))
                             injector.xdesxWindowInput(display,reader.getWidth(),reader.getHeight(),op,x,y);

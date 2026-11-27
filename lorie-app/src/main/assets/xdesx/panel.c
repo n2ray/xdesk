@@ -24,7 +24,7 @@ typedef struct {
     WnckScreen *screen;
     GFileMonitor *monitor;
     GtkCssProvider *css;
-    GtkWidget *launcher, *main_button, *bell, *ime_button;
+    GtkWidget *launcher, *main_button, *bell, *ime_button, *ime_art;
     int language, appearance, dark;
     GtkWidget *bell_art,*notification_popup;
     GtkWidget *ubuntu_status,*ubuntu_action,*ubuntu_manage;
@@ -240,13 +240,10 @@ static void refresh(Panel *p) {
         gboolean palette_changed=dark!=p->dark;
         ui_language=lang; p->dark=dark;
         const char *ime=g_strv_length(fields)>6?fields[6]:"";
-        gchar *caption=g_strdup_printf("⌨  %s",ime);
-        gtk_button_set_label(GTK_BUTTON(p->ime_button),caption);
-        GtkLabel *label=GTK_LABEL(gtk_bin_get_child(GTK_BIN(p->ime_button)));
-        gtk_label_set_ellipsize(label,PANGO_ELLIPSIZE_END);
-        gtk_label_set_max_width_chars(label,12);
-        gtk_widget_set_tooltip_text(p->ime_button,T("切换安卓输入法"));
-        g_free(caption);
+        gchar *tip=g_strdup_printf("%s · %s",T("切换安卓输入法"),ime);
+        gtk_widget_set_tooltip_text(p->ime_button,tip);
+        atk_object_set_name(gtk_widget_get_accessible(p->ime_button),tip);
+        g_free(tip);
         if(seq!=p->return_sequence) {
             p->return_sequence=seq;
             WnckWindow *w=wnck_screen_get_active_window(p->screen);
@@ -267,7 +264,7 @@ static void refresh(Panel *p) {
             if(p->scale!=scale)publish_dpi(p,scale);
             p->scale=scale;
             int icon=(24*scale+50)/100;
-            gtk_widget_set_size_request(p->logo,icon,icon);gtk_widget_set_size_request(p->icons,94*scale/100,20*scale/100);
+            gtk_widget_set_size_request(p->ime_art,24*scale/100,20*scale/100);gtk_widget_set_size_request(p->logo,icon,icon);gtk_widget_set_size_request(p->icons,94*scale/100,20*scale/100);
             style_desktop(p);
             xfconf_channel_set_uint(xfconf_channel_get("xfce4-panel"),"/panels/panel-1/size",(36*scale+50)/100);
             char theme[32];snprintf(theme,sizeof(theme),"Xdesx%s%d",dark?"Dark":"",scale);
@@ -360,7 +357,10 @@ static void construct(XfcePanelPlugin *plugin) {
     gtk_box_pack_end(GTK_BOX(bar),bell,FALSE,FALSE,0);
     gtk_box_pack_end(GTK_BOX(bar),p->status,FALSE,FALSE,8);
     gtk_box_pack_end(GTK_BOX(bar),p->icons,FALSE,FALSE,2);
-    p->ime_button=gtk_button_new_with_label("⌨");
+    p->ime_button=gtk_button_new();
+    p->ime_art=gtk_drawing_area_new();
+    gtk_container_add(GTK_CONTAINER(p->ime_button),p->ime_art);
+    g_signal_connect(p->ime_art,"draw",G_CALLBACK(draw_keyboard),p);
     gtk_widget_set_focus_on_click(p->ime_button,FALSE);
     gtk_box_pack_end(GTK_BOX(bar),p->ime_button,FALSE,FALSE,2);
     g_signal_connect(p->ime_button,"clicked",G_CALLBACK(pick_ime),NULL);

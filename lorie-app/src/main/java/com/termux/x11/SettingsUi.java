@@ -130,6 +130,10 @@ final class SettingsUi {
 
     /** 浮在中间的圆角卡片，比如选一项或应用卡片。内容太长时可以滚动。 */
     Dialog sheet(String title, String note, View content) {
+        return sheet(title,note,content,false);
+    }
+
+    Dialog sheet(String title,String note,View content,boolean desktopLogin) {
         Dialog d = new Dialog(c, android.R.style.Theme_Material_Dialog_NoActionBar);
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -150,12 +154,18 @@ final class SettingsUi {
         ScrollView scroll = new ScrollView(c);
         scroll.setBackground(Style.rounded(c, Style.SURFACE, 16));
         scroll.addView(box);
-        d.setContentView(scroll);
+        if (desktopLogin) {
+            MacLogin.PointerFrame frame = new MacLogin.PointerFrame(c);
+            int cardWidth = Math.min(dp(SHEET_MAX_WIDTH_DP), Math.round(c.getResources().getDisplayMetrics().widthPixels * .92f));
+            frame.addView(scroll,new FrameLayout.LayoutParams(cardWidth,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.CENTER));
+            d.setContentView(frame);
+            d.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } else d.setContentView(scroll);
         d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         d.show();
         int width = Math.min(dp(SHEET_MAX_WIDTH_DP), Math.round(c.getResources().getDisplayMetrics().widthPixels * 0.92f));
-        d.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        d.getWindow().setLayout(desktopLogin ? -1 : width, desktopLogin ? -1 : ViewGroup.LayoutParams.WRAP_CONTENT);
         return d;
     }
 

@@ -6,6 +6,8 @@
 
 **[Website](https://n2ray.github.io/xdesk/)** · [Download](https://github.com/n2ray/xdesk/releases/latest) · [中文](README.zh-CN.md) · [Manual](MANUAL.md) · GPL-3.0
 
+**xdesx external desktop:** For Chinese input with a hardware keyboard, we tested Fcitx5 for Android on Xiaomi. See the [tested configurations and setup](https://github.com/n2ray/xdesx#chinese-input--中文输入).
+
 ## What it does
 
 Not every phone has DeX or a desktop mode, and not every screen can take a cable. XDesk fills that gap, with three kinds of things to run there:

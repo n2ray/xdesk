@@ -44,6 +44,45 @@ public final class MacLogin {
 
     // --- the phone's sheet (ScreenShareLoginActivity) ---
 
+    /** A secure Android window can suppress the hardware cursor. Draw one at Android's
+     * reported event coordinates, without taking the event away from the password controls. */
+    static final class PointerFrame extends FrameLayout {
+        private final View pointer;
+        private float x,y;
+        private boolean visible;
+        PointerFrame(Context context) {
+            super(context);
+            pointer=CursorOverlay.arrow(context,getResources().getDisplayMetrics().density);
+            int side=pointer.getLayoutParams().width;
+            pointer.layout(0,0,side,side);
+        }
+        @Override public android.view.PointerIcon onResolvePointerIcon(android.view.MotionEvent e,int index) {
+            return android.view.PointerIcon.getSystemIcon(getContext(),android.view.PointerIcon.TYPE_NULL);
+        }
+        private void track(android.view.MotionEvent e) {
+            if(e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+                x=e.getX(); y=e.getY(); visible=e.getActionMasked()!=android.view.MotionEvent.ACTION_HOVER_EXIT;
+                invalidate();
+            }
+        }
+        @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent e) {
+            track(e); return super.dispatchGenericMotionEvent(e);
+        }
+        @Override public boolean dispatchTouchEvent(android.view.MotionEvent e) {
+            track(e); return super.dispatchTouchEvent(e);
+        }
+        @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if(visible) {
+                int save=canvas.save();
+                int tip=CursorOverlay.arrowTipX(pointer);
+                canvas.translate(x-tip,y);
+                pointer.draw(canvas);
+                canvas.restoreToCount(save);
+            }
+        }
+    }
+
     public interface Typed {
         /** The password typed, and whether to keep it. Cleared by whoever takes it. */
         void typed(char[] password, boolean remember);
@@ -57,7 +96,10 @@ public final class MacLogin {
         final boolean[] remember = new boolean[1];
         LinearLayout box = new LinearLayout(a);
         box.setOrientation(LinearLayout.VERTICAL);
+        boolean desktopLogin=a.getIntent().hasExtra(ScreenShareLoginActivity.EXTRA_DISPLAY);
         final EditText secret = new EditText(a);
+        Runnable keyboardPolicy=()->secret.setShowSoftInputOnFocus(!desktopLogin || !ImePlacement.hasPhysicalKeyboard());
+        keyboardPolicy.run();
         secret.setHint(R.string.xd_ss_password);
         secret.setSingleLine();
         secret.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
@@ -116,11 +158,25 @@ public final class MacLogin {
         rp.topMargin = Style.dp(a, 16);
         box.addView(row, rp);
         d[0] = ui.sheet(a.getString(R.string.xd_ss_login_title, host.label()),
-            a.getString(R.string.xd_ss_login_who, host.account, host.host), box);
+            a.getString(R.string.xd_ss_login_who, host.account, host.host), box, desktopLogin);
         d[0].getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        d[0].getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+        d[0].getWindow().setSoftInputMode((secret.getShowSoftInputOnFocus() ? WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            : WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
             | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        android.hardware.input.InputManager devices=a.getSystemService(android.hardware.input.InputManager.class);
+        android.hardware.input.InputManager.InputDeviceListener listener=new android.hardware.input.InputManager.InputDeviceListener() {
+            private void update() {
+                keyboardPolicy.run();
+                if(!secret.getShowSoftInputOnFocus()) a.getSystemService(android.view.inputmethod.InputMethodManager.class)
+                    .hideSoftInputFromWindow(secret.getWindowToken(),0);
+            }
+            public void onInputDeviceAdded(int id){update();}
+            public void onInputDeviceChanged(int id){update();}
+            public void onInputDeviceRemoved(int id){update();}
+        };
+        if(desktopLogin)devices.registerInputDeviceListener(listener,null);
         d[0].setOnDismissListener(x -> {
+            if(desktopLogin)devices.unregisterInputDeviceListener(listener);
             if (!answered[0]) out.cancelled();
         });
         secret.requestFocus();
