@@ -8,4 +8,8 @@
     <string name="xu_leave_phone_desktop">Exit phone desktop</string>
     <string name="xu_fn_keys">Function keys</string>
     <string name="xu_move_keys">Move function keys</string>
+    <string name="xu_customize_keys">Customize function keys</string>
+    <string name="xu_visible_keys">On the key bar</string>
+    <string name="xu_candidate_keys">Available keys</string>
+    <string name="xu_key_gesture">Tap to add or remove. Hold and drag to reorder or move between grids.</string>
 </resources>

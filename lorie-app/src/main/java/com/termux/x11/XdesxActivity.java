@@ -494,8 +494,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
         idleMinutes=getSharedPreferences("xdesx-phone",MODE_PRIVATE).getInt("idle-minutes",5);
         panel=new XdesxPanelState(this);
-        functionKeys=new PhoneFunctionKeys(layout,pad,phoneViewport,this::functionKey,() -> phoneText("@"),getString(com.termux.x11.app.R.string.xu_move_keys));
-        controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
+        functionKeys=new PhoneFunctionKeys(layout,pad,phoneViewport,this::functionKey,this::phoneText,getString(com.termux.x11.app.R.string.xu_move_keys));
+        controls=new XdesxPhoneControls(this,column,functionKeys,new XdesxPhoneControls.Actions() {
             public boolean canStartPhoneDesktop(){return external<0 && !phoneMode && displays!=null && TargetDisplay.real(displays)==null;}
             public boolean usingPhoneDesktop(){return phoneMode;}
             public void startPhoneDesktop(){

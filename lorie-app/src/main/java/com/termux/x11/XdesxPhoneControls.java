@@ -41,7 +41,7 @@ final class XdesxPhoneControls {
         void menuDismissed();
     }
 
-    private enum Page { MORE, TIMEOUT, END }
+    private enum Page { MORE, TIMEOUT, KEYS, END }
     private static final int WRAP = -2, MATCH = -1;
     private static final int[] MINUTES = {1, 5, 10, 15, 0};
     private final Activity host;
@@ -49,6 +49,7 @@ final class XdesxPhoneControls {
     private final LinearLayout root;
     private boolean rail,railLeft;
     private android.graphics.Rect camera=new android.graphics.Rect();
+    private final PhoneFunctionKeys functionKeys;
     private final Actions actions;
     private Context labels;
     private Locale locale;
@@ -59,8 +60,9 @@ final class XdesxPhoneControls {
     private Page page;
     private Runnable end;
 
-    XdesxPhoneControls(Activity host, LinearLayout root, Actions actions) {
+    XdesxPhoneControls(Activity host, LinearLayout root, PhoneFunctionKeys functionKeys, Actions actions) {
         this.host = host;
+        this.functionKeys = functionKeys;
         this.actions = actions;
         this.root=root;
         bar = new LinearLayout(host) {
@@ -249,7 +251,7 @@ final class XdesxPhoneControls {
         attrs.dimAmount = .4f;
         window.setAttributes(attrs);
         dialog.setOnKeyListener((d, key, event) -> {
-            if (key != android.view.KeyEvent.KEYCODE_BACK || page != Page.TIMEOUT) return false;
+            if (key != android.view.KeyEvent.KEYCODE_BACK || (page != Page.TIMEOUT && page != Page.KEYS)) return false;
             if (event.getAction() == android.view.KeyEvent.ACTION_UP) show(Page.MORE);
             return true;
         });
@@ -260,7 +262,11 @@ final class XdesxPhoneControls {
 
     private void sizeWindow() {
         int available = host.getWindowManager().getCurrentWindowMetrics().getBounds().width();
-        sheet.getWindow().setLayout(Math.min(dp(500), available), WRAP);
+        android.view.WindowMetrics metrics=host.getWindowManager().getCurrentWindowMetrics();
+        android.graphics.Insets bars=metrics.getWindowInsets().getInsetsIgnoringVisibility(
+                android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+        int usableHeight=metrics.getBounds().height()-bars.top-bars.bottom;
+        sheet.getWindow().setLayout(Math.min(dp(500), available),page==Page.KEYS?Math.min(dp(660),usableHeight):WRAP);
     }
 
     private void renderSheet() {
@@ -277,11 +283,11 @@ final class XdesxPhoneControls {
         header.setGravity(Gravity.CENTER_VERTICAL);
         body.addView(header, MATCH, WRAP);
         int title = page == Page.END ? R.string.xu_end_the_desktop_session :
-                page == Page.TIMEOUT ? R.string.xu_pad_dim : R.string.xu_desktop_controls;
+                page == Page.KEYS ? R.string.xu_customize_keys : page == Page.TIMEOUT ? R.string.xu_pad_dim : R.string.xu_desktop_controls;
         TextView heading = label(text(title), 21, ink(), true);
         heading.setAccessibilityHeading(true);
         header.addView(heading, new LinearLayout.LayoutParams(0, WRAP, 1));
-        boolean back = page == Page.TIMEOUT;
+        boolean back = page == Page.TIMEOUT || page == Page.KEYS;
         ImageButton close = new ImageButton(host);
         close.setPadding(dp(12),dp(12),dp(12),dp(12));
         close.setImageDrawable(icon(back ? R.drawable.xd_ic_back : R.drawable.xd_ic_close, muted(), 22));
@@ -289,6 +295,15 @@ final class XdesxPhoneControls {
         close.setBackground(ripple(surface(),24));
         close.setOnClickListener(v -> { if (back) show(Page.MORE); else sheet.dismiss(); });
         header.addView(close, dp(48), dp(48));
+        if (page == Page.KEYS) {
+            scroller.removeView(body);
+            body.setBackground(shape(surface(),20));
+            body.addView(label(text(R.string.xu_key_gesture),14,muted(),false));
+            new PhoneKeyEditor(host,functionKeys,body,text(R.string.xu_visible_keys),text(R.string.xu_candidate_keys),ink(),card(),dark);
+            sheet.setContentView(body);
+            if(sheet.isShowing())sizeWindow();
+            return;
+        }
         if (page == Page.TIMEOUT) {
             for (int n : MINUTES) {
                 row(body, interval(n), n == minutes ? R.drawable.xu_pad_check : 0, null, false, () -> {
@@ -310,6 +325,7 @@ final class XdesxPhoneControls {
             row(body,text(R.string.xu_cancel),0,null,false,() -> sheet.dismiss());
         } else {
             if (actions.usingPhoneDesktop() || actions.canStartPhoneDesktop()) row(body,text(actions.usingPhoneDesktop() ? R.string.xu_leave_phone_desktop : R.string.xu_phone_desktop),R.drawable.xd_ic_display,null,false,() -> run(actions::startPhoneDesktop));
+            row(body,text(R.string.xu_customize_keys),R.drawable.xu_fn_keys,null,false,() -> show(Page.KEYS));
             row(body,text(R.string.xu_pad_dim),R.drawable.xd_ic_moon,interval(minutes),false,() -> show(Page.TIMEOUT));
             row(body,text(R.string.xu_restore_native_display),R.drawable.xd_ic_display,null,false,() -> run(actions::recover));
             row(body,text(R.string.xu_connection_permissions),R.drawable.xd_ic_shield,null,false,() -> run(actions::permissions));

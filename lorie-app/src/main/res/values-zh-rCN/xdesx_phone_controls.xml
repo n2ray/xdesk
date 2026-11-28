@@ -8,4 +8,8 @@
     <string name="xu_leave_phone_desktop">退出手机桌面</string>
     <string name="xu_fn_keys">功能键</string>
     <string name="xu_move_keys">移动功能键条</string>
+    <string name="xu_customize_keys">自定义功能键条</string>
+    <string name="xu_visible_keys">已显示的按键</string>
+    <string name="xu_candidate_keys">候选按键</string>
+    <string name="xu_key_gesture">轻点添加或移除。长按拖动可调整顺序，也可拖到另一组。</string>
 </resources>

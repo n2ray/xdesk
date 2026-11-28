@@ -13,6 +13,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import android.content.SharedPreferences;
 
 /** Phone-local shortcut row. A short modifier tap arms one chord, a hold lasts until lift. */
 final class PhoneFunctionKeys extends LinearLayout {
@@ -20,13 +24,16 @@ final class PhoneFunctionKeys extends LinearLayout {
     private final FrameLayout root;
     private final View pad,viewport,handle;
     private final Sink sink;
-    private final TextView atKey;
+    private final LinearLayout row;
+    private final Map<String,TextView> catalog=new LinkedHashMap<>();
+    private final List<String> visible=new ArrayList<>();
+    private final SharedPreferences preferences;
     private final Map<Integer,Key> keys=new LinkedHashMap<>();
     private boolean side,dark;
     private float floatX=Float.NaN,floatY=Float.NaN;
     private final int slop;
 
-    PhoneFunctionKeys(FrameLayout root, View pad, View viewport, Sink sink, Runnable insertAt, String moveLabel) {
+    PhoneFunctionKeys(FrameLayout root, View pad, View viewport, Sink sink, Consumer<String> insertText, String moveLabel) {
         super(root.getContext());
         this.root=root;this.pad=pad;this.viewport=viewport;this.sink=sink;
         slop=ViewConfiguration.get(getContext()).getScaledTouchSlop();
@@ -47,24 +54,28 @@ final class PhoneFunctionKeys extends LinearLayout {
         });
         HorizontalScrollView scroll=new HorizontalScrollView(getContext());
         scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout row=new LinearLayout(getContext());scroll.addView(row);
+        row=new LinearLayout(getContext());scroll.addView(row);
         addView(scroll,new LayoutParams(0,-1,1));
         int[] scans={29,56,53,105,108,103,106,15,1,28,57,14,111};
         String[] labels={"Ctrl","Alt","/","←","↓","↑","→","Tab","Esc","↵","Space","⌫","Del"};
-        for(int i=0;i<scans.length;i++) addKey(row,scans[i],labels[i]);
+        for(int i=0;i<scans.length;i++) addKey(scans[i],labels[i]);
 
-        // Insert the literal character regardless of the user's keyboard layout.
-        atKey=new TextView(getContext());
-        atKey.setText("@");atKey.setGravity(Gravity.CENTER);atKey.setTextSize(14);
-        atKey.setFocusable(false);
-        atKey.setOnClickListener(v -> insertAt.run());
-        row.addView(atKey,dp(44),-1);
-
-        addKey(row,42,"Shift");
-        addKey(row,102,"Home");addKey(row,107,"End");
-        addKey(row,104,"PgUp");addKey(row,109,"PgDn");
-        for(int i=0;i<10;i++) addKey(row,59+i,"F"+(i+1));
-        addKey(row,87,"F11");addKey(row,88,"F12");
+        addText("@",insertText);
+        addKey(42,"Shift");
+        addKey(102,"Home");addKey(107,"End");
+        addKey(104,"PgUp");addKey(109,"PgDn");
+        for(int i=0;i<10;i++) addKey(59+i,"F"+(i+1));
+        addKey(87,"F11");addKey(88,"F12");
+        visible.addAll(catalog.keySet());
+        addKey(110,"Ins");addKey(58,"Caps");addKey(127,"Menu");
+        for(String literal:new String[]{"~","|","\\","-","_","$","#","&","*","[","]","{","}"}) addText(literal,insertText);
+        preferences=root.getContext().getSharedPreferences("xdesx-phone",0);
+        String saved=preferences.getString("function-key-order",null);
+        if(saved!=null){
+            visible.clear();
+            for(String id:saved.split(" ")) if(catalog.containsKey(id) && !visible.contains(id)) visible.add(id);
+        }
+        rebuildRow();
         root.addView(this,new FrameLayout.LayoutParams(-1,dp(46)));
         setVisibility(GONE);
         View.OnLayoutChangeListener reposition=(v,l,t,r,b,ol,ot,or,ob)->place();
@@ -72,10 +83,38 @@ final class PhoneFunctionKeys extends LinearLayout {
         pad.addOnLayoutChangeListener(reposition);
         viewport.addOnLayoutChangeListener(reposition);
     }
-    private void addKey(LinearLayout row,int scan,String label) {
+    private void addKey(int scan,String label) {
         Key key=new Key(scan,label);
         keys.put(scan,key);
-        row.addView(key,dp(label.length()>3?57:44),-1);
+        catalog.put(label,key);
+    }
+    private void addText(String literal, Consumer<String> insertText){
+        TextView key=new TextView(getContext());
+        key.setText(literal);key.setGravity(Gravity.CENTER);key.setTextSize(14);
+        key.setFocusable(false);key.setOnClickListener(v -> insertText.accept(literal));
+        catalog.put(literal,key);
+    }
+    List<String> editorKeys(boolean active){
+        if(active)return new ArrayList<>(visible);
+        List<String> more=new ArrayList<>(catalog.keySet());
+        more.removeAll(visible);
+        return more;
+    }
+    void moveKey(String id,boolean active,int slot){
+        if(!catalog.containsKey(id))return;
+        int previous=visible.indexOf(id);
+        if(previous>=0){
+            visible.remove(previous);
+            if(previous<slot)slot--;
+        }
+        if(active)visible.add(Math.max(0,Math.min(slot,visible.size())),id);
+        preferences.edit().putString("function-key-order",String.join(" ",visible)).apply();
+        rebuildRow();
+    }
+    private void rebuildRow(){
+        release();
+        row.removeAllViews();
+        for(String id:visible)row.addView(catalog.get(id),dp(id.length()>3?57:44),-1);
     }
     private int dp(int n){return Math.round(getResources().getDisplayMetrics().density*n);}
     void configure(boolean landscape,boolean night) {
@@ -83,7 +122,7 @@ final class PhoneFunctionKeys extends LinearLayout {
         side=landscape;dark=night;handle.setVisibility(side?VISIBLE:GONE);
         GradientDrawable bg=new GradientDrawable();bg.setColor(dark?0xff292b30:0xffeceef2);
         bg.setCornerRadius(dp(side?10:0));setBackground(bg);
-        atKey.setTextColor(dark?Color.WHITE:Color.BLACK);
+        for(TextView key:catalog.values())key.setTextColor(dark?Color.WHITE:Color.BLACK);
         ((TextView)handle).setTextColor(dark?Color.WHITE:Color.DKGRAY);
         for(Key k:keys.values())k.paint();
         place();
