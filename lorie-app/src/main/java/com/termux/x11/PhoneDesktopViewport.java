@@ -10,10 +10,31 @@ import android.widget.FrameLayout;
 /** Magnify the phone's view of the desktop without resizing its virtual display. */
 final class PhoneDesktopViewport extends FrameLayout {
     interface Touch { void send(int action, float x, float y); }
-    interface Scroll { boolean at(float x,float y,float dx,float dy); }
+    interface Scroll {
+        boolean begin(float x,float y);
+        void move(float dx,float dy);
+    }
     private final Scroll scroll;
     private boolean scrolling;
-    private float lastX,lastY;
+    private float lastX,lastY,queuedX,queuedY;
+    private boolean framePending;
+    private final Runnable scrollFrame=this::flushScroll;
+    private void flushScroll() {
+        if (framePending) removeCallbacks(scrollFrame);
+        framePending=false;
+        if (queuedX!=0 || queuedY!=0) scroll.move(queuedX,queuedY);
+        queuedX=queuedY=0;
+    }
+    private void queueScroll(float x,float y) {
+        queuedX+=(x-lastX)/zoom;
+        queuedY+=(y-lastY)/zoom;
+        lastX=x;
+        lastY=y;
+        if (!framePending) {
+            framePending=true;
+            postOnAnimation(scrollFrame);
+        }
+    }
     final SurfaceView screen;
     private final Touch touch;
     private final int slop;
@@ -75,6 +96,9 @@ final class PhoneDesktopViewport extends FrameLayout {
     private void cancelPress() {
         removeCallbacks(beginPress);
         if (pressed) send(MotionEvent.ACTION_CANCEL,downX,downY);
+        if (framePending) removeCallbacks(scrollFrame);
+        framePending=false;
+        queuedX=queuedY=0;
         pending=pressed=scrolling=false;
     }
 
@@ -114,17 +138,21 @@ final class PhoneDesktopViewport extends FrameLayout {
         } else if (action==MotionEvent.ACTION_CANCEL) {
             cancelPress();
         } else if (action==MotionEvent.ACTION_MOVE || action==MotionEvent.ACTION_UP) {
-            if (action==MotionEvent.ACTION_MOVE &&
-                    (scrolling || (pending && Math.hypot(x-downX,y-downY)>slop))) {
-                if (scroll.at((downX-left)/zoom,(downY-top)/zoom,(x-lastX)/zoom,(y-lastY)/zoom)) {
+            if (pending && Math.hypot(x-downX,y-downY)>slop) {
+                if (scroll.begin((downX-left)/zoom,(downY-top)/zoom)) {
                     removeCallbacks(beginPress);
                     pending=false;
                     scrolling=true;
-                } else if (pending) {
+                } else {
                     beginPress();
                 }
-                lastX=x;
-                lastY=y;
+            }
+            if (scrolling) {
+                queueScroll(x,y);
+                if (action==MotionEvent.ACTION_UP) {
+                    flushScroll();
+                    scrolling=false;
+                }
             }
             if (action==MotionEvent.ACTION_UP && pending) beginPress();
             if (pressed) send(action,x,y);
