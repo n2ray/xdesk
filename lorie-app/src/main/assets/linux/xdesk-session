@@ -114,14 +114,19 @@ export PULSE_SERVER=unix:/tmp/xdesk-pulse
 if command -v pulseaudio >/dev/null 2>&1; then
     # One still going away makes the new one fail ("Daemon startup failed", no sound at all); --kill and --check go
     # through that runtime directory too, so by name
-    if [ "${XDESX_SHARED_X:-0}" != 1 ]; then
+    # Burrow owns the shared session process tree. A stale guest PID may have
+    # been reused by an unrelated Android process whose identity is unreadable.
+    pulse_pid_file=yes
+    if [ "${XDESX_SHARED_X:-0}" = 1 ]; then
+        pulse_pid_file=no
+    else
         pkill -x pulseaudio 2>/dev/null
         i=0
         while [ $i -lt 30 ] && pgrep -x pulseaudio >/dev/null 2>&1; do sleep 0.1; i=$((i+1)); done
     fi
     rm -f /tmp/xdesk-audio /tmp/xdesk-pulse
     for try in 1 2 3; do
-        pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
+        pulseaudio --use-pid-file="$pulse_pid_file" --daemonize=yes --exit-idle-time=-1 -n \
             -L "module-native-protocol-unix socket=/tmp/xdesk-pulse auth-anonymous=1" \
             -L "module-null-sink sink_name=xdesk rate=48000 channels=2" \
             -L "module-simple-protocol-unix socket=/tmp/xdesk-audio source=xdesk.monitor record=true playback=false format=s16le rate=48000 channels=2" \
