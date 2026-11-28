@@ -223,6 +223,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (externalKeyboard(id)) onInputDeviceAdded(id); else onInputDeviceRemoved(id);
     }
     private int external = -1;
+    private android.widget.LinearLayout column;
+    private int normalCutout;
     private SurfaceView phoneScreen;
     private PhoneDesktopViewport phoneViewport;
     private boolean phoneMode, leavePhoneRequested;
@@ -239,9 +241,36 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         phoneViewport.setVisibility(View.VISIBLE);
     }
     private void sizePhoneScreen() {
-        int height=getWindowManager().getCurrentWindowMetrics().getBounds().height()/2;
-        android.view.ViewGroup.LayoutParams params=phoneViewport.getLayoutParams();
-        if (params.height!=height) { params.height=height; phoneViewport.setLayoutParams(params); }
+        WindowMetrics metrics=getWindowManager().getCurrentWindowMetrics();
+        android.graphics.Rect bounds=metrics.getBounds();
+        boolean side=phoneMode && bounds.width()>bounds.height();
+        WindowManager.LayoutParams attrs=getWindow().getAttributes();
+        int cutoutMode=side?WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS:normalCutout;
+        if (attrs.layoutInDisplayCutoutMode!=cutoutMode) {
+            attrs.layoutInDisplayCutoutMode=cutoutMode;
+            getWindow().setAttributes(attrs);
+        }
+        android.graphics.Rect camera=new android.graphics.Rect();
+        boolean left=getDisplay().getRotation()!=Surface.ROTATION_270;
+        DisplayCutout cutout=metrics.getWindowInsets().getDisplayCutout();
+        if (side && cutout!=null) {
+            android.graphics.Rect l=cutout.getBoundingRectLeft(),r=cutout.getBoundingRectRight();
+            if (!l.isEmpty() || !r.isEmpty()) {
+                left=!l.isEmpty();
+                camera.set(left?l:r);
+            }
+        }
+        column.setOrientation(side?android.widget.LinearLayout.HORIZONTAL:android.widget.LinearLayout.VERTICAL);
+        // The rail is on a physical edge, independently of the phone language.
+        column.setLayoutDirection(side?View.LAYOUT_DIRECTION_LTR:View.LAYOUT_DIRECTION_LOCALE);
+        pad.setVisibility(side?View.GONE:View.VISIBLE);
+        android.widget.LinearLayout.LayoutParams params=(android.widget.LinearLayout.LayoutParams)phoneViewport.getLayoutParams();
+        int width=side?0:-1,height=side?-1:bounds.height()/2;
+        if (params.height!=height || params.width!=width) {
+            params.height=height;params.width=width;params.weight=side?1:0;
+            phoneViewport.setLayoutParams(params);
+        }
+        controls.placeToolbar(side,left,camera);
     }
     private void phoneSurface(Surface surface,int width,int height) {
         if (!phoneMode || injector==null || isFinishing() || isDestroyed()) return;
@@ -258,7 +287,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         } catch (RuntimeException | RemoteException e) {
             error(e.toString());
             if (phoneDisplay>=0) endDesktop();
-            else {phoneMode=false; phoneViewport.setVisibility(View.GONE); place();}
+            else {phoneMode=false; sizePhoneScreen(); phoneViewport.setVisibility(View.GONE); place();}
         }
     }
     private boolean beginPhoneScroll(float x,float y) {
@@ -359,7 +388,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(5894);
         android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
-        android.widget.LinearLayout column=new android.widget.LinearLayout(this);
+        normalCutout=getWindow().getAttributes().layoutInDisplayCutoutMode;
+        column=new android.widget.LinearLayout(this);
         column.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.addView(column,new android.widget.FrameLayout.LayoutParams(-1,-1));
         phoneViewport=new PhoneDesktopViewport(this,this::touchPhoneScreen,new PhoneDesktopViewport.Scroll() {
@@ -456,6 +486,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         blankScreen.setVisibility(View.GONE);
         layout.addView(blankScreen,new android.widget.FrameLayout.LayoutParams(-1,-1));
         layout.setOnApplyWindowInsetsListener((v,insets) -> {
+            if (phoneMode) sizePhoneScreen();
             boolean visible=insets.isVisible(WindowInsets.Type.ime());
             if (phoneImeVisible!=visible) {
                 phoneImeVisible=visible;
@@ -668,6 +699,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         mouse.releasePointerCapture();
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
         phoneMode=false;
+        sizePhoneScreen();
         external=-1;
         desktopNative=false;
         syncDesktopKeys();
@@ -884,7 +916,9 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
     }
     public void onDisplayAdded(int id) { place(); }
-    public void onDisplayChanged(int id) { }
+    public void onDisplayChanged(int id) {
+        if (phoneMode && getDisplay()!=null && id==getDisplay().getDisplayId()) sizePhoneScreen();
+    }
     public void onDisplayRemoved(int id) { if (external == id) endDesktop(); }
     private void error(String s) {
         Log.e("XDesX",s);

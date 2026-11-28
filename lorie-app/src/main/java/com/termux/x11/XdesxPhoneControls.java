@@ -45,6 +45,9 @@ final class XdesxPhoneControls {
     private static final int[] MINUTES = {1, 5, 10, 15, 0};
     private final Activity host;
     private final LinearLayout bar;
+    private final LinearLayout root;
+    private boolean rail,railLeft;
+    private android.graphics.Rect camera=new android.graphics.Rect();
     private final Actions actions;
     private Context labels;
     private Locale locale;
@@ -58,10 +61,53 @@ final class XdesxPhoneControls {
     XdesxPhoneControls(Activity host, LinearLayout root, Actions actions) {
         this.host = host;
         this.actions = actions;
-        bar = new LinearLayout(host);
+        this.root=root;
+        bar = new LinearLayout(host) {
+            @Override protected void onLayout(boolean changed,int l,int t,int r,int b) {
+                super.onLayout(changed,l,t,r,b);
+                if (!rail || getChildCount()==0) return;
+                int[] pos=new int[2];
+                getLocationInWindow(pos);
+                int h=getHeight(), count=getChildCount();
+                boolean intersects=!camera.isEmpty() && camera.left<pos[0]+getWidth() && camera.right>pos[0];
+                int start=intersects?Math.max(0,Math.min(h,camera.top-pos[1]-dp(4))):h;
+                int end=intersects?Math.max(start,Math.min(h,camera.bottom-pos[1]+dp(4))):h;
+                int usable=start+h-end;
+                int before=usable>0?Math.round(count*(float)start/usable):0;
+                for (int i=0;i<count;i++) {
+                    boolean upper=i<before;
+                    int slots=upper?before:count-before;
+                    int slot=upper?i:i-before;
+                    int space=upper?start:h-end;
+                    int size=Math.min(dp(52),space/slots);
+                    int y=(upper?0:end)+(space-size*slots)/2+slot*size;
+                    getChildAt(i).layout(0,y,getWidth(),y+size);
+                }
+            }
+        };
         bar.setGravity(Gravity.CENTER);
         root.addView(bar, MATCH, WRAP);
         update(null, false, false, false, false, 5);
+    }
+
+    void placeToolbar(boolean side,boolean left,android.graphics.Rect cutout) {
+        boolean moved=rail!=side || (side && railLeft!=left);
+        if (!camera.equals(cutout)) {camera.set(cutout);bar.requestLayout();}
+        int width=side?Math.max(dp(48),camera.width()):MATCH;
+        if (!moved) {
+            if (side && bar.getLayoutParams().width!=width) {
+                bar.getLayoutParams().width=width;
+                bar.requestLayout();
+            }
+            return;
+        }
+        rail=side;
+        railLeft=left;
+        root.removeView(bar);
+        bar.setOrientation(side?LinearLayout.VERTICAL:LinearLayout.HORIZONTAL);
+        root.addView(bar,side && left?0:root.getChildCount(),
+                new LinearLayout.LayoutParams(width,side?MATCH:WRAP));
+        renderBar();
     }
 
     void update(XdesxPanelState panel, boolean fullscreen, boolean nativeApp, boolean gameAvailable, boolean gameActive, int idleMinutes) {
@@ -147,7 +193,8 @@ final class XdesxPhoneControls {
     private void renderBar() {
         bar.removeAllViews();
         bar.setBackgroundColor(surface());
-        bar.setPadding(dp(8), dp(4), dp(8), dp(4));
+        if (rail) bar.setPadding(0,0,0,0);
+        else bar.setPadding(dp(8), dp(4), dp(8), dp(4));
         barAction(R.string.xu_pad_keyboard, R.drawable.xd_ic_keyboard, actions::keyboard);
         if (fullscreen) barAction(R.string.xu_exit_fullscreen, R.drawable.xu_bar_window, actions::exitFullscreen);
         if (gameAvailable) barAction(gameActive ? R.string.xu_pad_exit_game : R.string.xu_direct_game_input,
@@ -158,6 +205,17 @@ final class XdesxPhoneControls {
 
     private void barAction(int title, int image, Runnable click) {
         int color = title == R.string.xu_quit_app ? (dark ? 0xffff827b : 0xffba322e) : ink();
+        if (rail) {
+            Drawable glyph=icon(image,color,22);
+            ImageButton action=new ImageButton(host);
+            action.setImageDrawable(glyph);
+            action.setContentDescription(text(title));
+            action.setTooltipText(text(title));
+            action.setBackground(ripple(surface(),10));
+            action.setOnClickListener(v -> click.run());
+            bar.addView(action,new LinearLayout.LayoutParams(MATCH,dp(52)));
+            return;
+        }
         TextView button = label(text(title), nativeApp ? 12 : 13, color, true);
         button.setGravity(Gravity.CENTER);
         button.setMinHeight(dp(48));
