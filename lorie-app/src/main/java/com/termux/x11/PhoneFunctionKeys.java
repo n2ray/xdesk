@@ -30,7 +30,8 @@ final class PhoneFunctionKeys extends LinearLayout {
     private final SharedPreferences preferences;
     private final Map<Integer,Key> keys=new LinkedHashMap<>();
     private boolean side,dark;
-    private float floatX=Float.NaN,floatY=Float.NaN;
+    private static final String POSITION_X="function-key-position-x", POSITION_Y="function-key-position-y";
+    private float fractionX, fractionY;
     private final int slop;
 
     PhoneFunctionKeys(FrameLayout root, View pad, View viewport, Sink sink, Consumer<String> insertText, String moveLabel) {
@@ -46,9 +47,34 @@ final class PhoneFunctionKeys extends LinearLayout {
         addView(grip,dp(36),-1);
         grip.setOnTouchListener(new OnTouchListener(){
             float dx,dy;
+            boolean moved;
             public boolean onTouch(View v,MotionEvent e) {
-                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){dx=getX()-e.getRawX();dy=getY()-e.getRawY();}
-                else if(e.getActionMasked()==MotionEvent.ACTION_MOVE){floatX=e.getRawX()+dx;floatY=e.getRawY()+dy;place();}
+                switch(e.getActionMasked()){
+                    case MotionEvent.ACTION_DOWN:
+                        dx=getX()-e.getRawX();
+                        dy=getY()-e.getRawY();
+                        moved=false;
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        if(side){
+                            View area=floatingArea();
+                            int travelX=area.getWidth()-Math.min(dp(336),area.getWidth());
+                            int travelY=root.getHeight()-getHeight();
+                            if(travelX>0)fractionX=unit((e.getRawX()+dx-area.getLeft())/travelX);
+                            if(travelY>0)fractionY=unit((e.getRawY()+dy)/travelY);
+                            moved=true;
+                            place();
+                        }
+                        break;
+                    case MotionEvent.ACTION_UP:
+                        if(moved && side)preferences.edit().putFloat(POSITION_X,fractionX)
+                                .putFloat(POSITION_Y,fractionY).apply();
+                        break;
+                    case MotionEvent.ACTION_CANCEL:
+                        loadPosition();
+                        place();
+                        break;
+                }
                 return true;
             }
         });
@@ -70,6 +96,7 @@ final class PhoneFunctionKeys extends LinearLayout {
         addKey(110,"Ins");addKey(58,"Caps");addKey(127,"Menu");
         for(String literal:new String[]{"~","|","\\","-","_","$","#","&","*","[","]","{","}"}) addText(literal,insertText);
         preferences=root.getContext().getSharedPreferences("xdesx-phone",0);
+        loadPosition();
         String saved=preferences.getString("function-key-order",null);
         if(saved!=null){
             visible.clear();
@@ -128,18 +155,24 @@ final class PhoneFunctionKeys extends LinearLayout {
         place();
     }
     void toggle(){boolean show=getVisibility()!=VISIBLE;release();setVisibility(show?VISIBLE:GONE);if(show)place();}
+    private void loadPosition(){
+        fractionX=preferences.getFloat(POSITION_X,.5f);
+        fractionY=preferences.getFloat(POSITION_Y,Float.NaN);
+    }
+    private static float unit(float n){return Math.max(0f,Math.min(1f,n));}
+    private View floatingArea(){return viewport.getVisibility()==VISIBLE ? viewport : pad;}
     private void place(){
         if(getVisibility()!=VISIBLE || root.getWidth()<=0)return;
-        View area=side && viewport.getVisibility()==VISIBLE ? viewport : pad;
+        View area=side ? floatingArea() : pad;
         int left=area.getLeft(),w=side?Math.min(dp(336),area.getWidth()):area.getWidth();
         if(w<=0)return;
         FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)getLayoutParams();
         if(lp.width!=w){lp.width=w;setLayoutParams(lp);}
         if(side){
-            float x=Float.isNaN(floatX)?left+(area.getWidth()-w)/2f:floatX;
-            float y=Float.isNaN(floatY)?area.getBottom()-dp(54):floatY;
-            setX(Math.max(left,Math.min(x,area.getRight()-w)));
-            setY(Math.max(0,Math.min(y,root.getHeight()-lp.height)));
+            int travelY=Math.max(0,root.getHeight()-lp.height);
+            float y=Float.isNaN(fractionY)?area.getBottom()-dp(54):fractionY*travelY;
+            setX(left+fractionX*(area.getWidth()-w));
+            setY(Math.max(0,Math.min(y,travelY)));
         }else{setX(left);setY(pad.getTop());}
     }
     void release(){for(Key k:keys.values()){k.removeCallbacks(k.hold);k.up();k.tracking=false;k.sticky=false;k.paint();}}
