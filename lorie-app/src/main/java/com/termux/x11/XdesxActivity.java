@@ -348,6 +348,18 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (target!=null && target.mac() && ScreenShareActivity.sendScan(phoneInputDisplay(target),scan,down)) return;
         if(!nativeInput(4,scan,down?1:0)) input.key(scan,down);
     }
+    private void phoneText(String s) {
+        if (switching || gamePassthrough) return;
+        if(shortcutText(s))return;
+        if(functionKeys!=null)functionKeys.chordUsed();
+        XdesxWindow target=phoneInputTarget();
+        int display=phoneInputDisplay(target);
+        if (target!=null && target.mac() && ScreenShareActivity.sendText(display,s)) return;
+        if (target==null) input.text(s);
+        else try {
+            if (injector!=null) injector.xdesxWindowText(target.displayId(),s);
+        } catch(RemoteException e) { error(e.toString()); }
+    }
     private boolean shortcutText(String value) {
         if(functionKeys==null || !functionKeys.shortcutArmed() || value.length()!=1)return false;
         char c=Character.toLowerCase(value.charAt(0));
@@ -458,18 +470,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }, () -> !phoneMode && desktopNative && injector != null && fullWindow == null);
         column.addView(pad,new android.widget.LinearLayout.LayoutParams(-1,0,1));
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
-            public void text(String s) {
-                if (switching || gamePassthrough) return;
-                if(shortcutText(s))return;
-                if(functionKeys!=null)functionKeys.chordUsed();
-                XdesxWindow target=phoneInputTarget();
-                int display=phoneInputDisplay(target);
-                if (target!=null && target.mac() && ScreenShareActivity.sendText(display,s)) return;
-                if (target==null) input.text(s);
-                else try {
-                    if (injector!=null) injector.xdesxWindowText(target.displayId(),s);
-                } catch(RemoteException e) { error(e.toString()); }
-            }
+            public void text(String s) { phoneText(s); }
             public void tapKey(int scan) {
                 if (switching || gamePassthrough) return;
                 XdesxWindow target=phoneInputTarget();
@@ -493,7 +494,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
         idleMinutes=getSharedPreferences("xdesx-phone",MODE_PRIVATE).getInt("idle-minutes",5);
         panel=new XdesxPanelState(this);
-        functionKeys=new PhoneFunctionKeys(layout,pad,phoneViewport,this::functionKey,getString(com.termux.x11.app.R.string.xu_move_keys));
+        functionKeys=new PhoneFunctionKeys(layout,pad,phoneViewport,this::functionKey,() -> phoneText("@"),getString(com.termux.x11.app.R.string.xu_move_keys));
         controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
             public boolean canStartPhoneDesktop(){return external<0 && !phoneMode && displays!=null && TargetDisplay.real(displays)==null;}
             public boolean usingPhoneDesktop(){return phoneMode;}

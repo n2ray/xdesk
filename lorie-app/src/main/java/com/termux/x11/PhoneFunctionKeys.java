@@ -20,12 +20,13 @@ final class PhoneFunctionKeys extends LinearLayout {
     private final FrameLayout root;
     private final View pad,viewport,handle;
     private final Sink sink;
+    private final TextView atKey;
     private final Map<Integer,Key> keys=new LinkedHashMap<>();
     private boolean side,dark;
     private float floatX=Float.NaN,floatY=Float.NaN;
     private final int slop;
 
-    PhoneFunctionKeys(FrameLayout root, View pad, View viewport, Sink sink, String moveLabel) {
+    PhoneFunctionKeys(FrameLayout root, View pad, View viewport, Sink sink, Runnable insertAt, String moveLabel) {
         super(root.getContext());
         this.root=root;this.pad=pad;this.viewport=viewport;this.sink=sink;
         slop=ViewConfiguration.get(getContext()).getScaledTouchSlop();
@@ -48,12 +49,22 @@ final class PhoneFunctionKeys extends LinearLayout {
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row=new LinearLayout(getContext());scroll.addView(row);
         addView(scroll,new LayoutParams(0,-1,1));
-        int[] scans={29,56,53,105,108,103,106,15,1,28,57,42,102,107,104,109};
-        String[] labels={"Ctrl","Alt","/","←","↓","↑","→","Tab","Esc","↵","Space","Shift","Home","End","PgUp","PgDn"};
-        for(int i=0;i<scans.length;i++) {
-            Key key=new Key(scans[i],labels[i]);keys.put(scans[i],key);
-            row.addView(key,dp(labels[i].length()>3?57:44),-1);
-        }
+        int[] scans={29,56,53,105,108,103,106,15,1,28,57,14,111};
+        String[] labels={"Ctrl","Alt","/","←","↓","↑","→","Tab","Esc","↵","Space","⌫","Del"};
+        for(int i=0;i<scans.length;i++) addKey(row,scans[i],labels[i]);
+
+        // Insert the literal character regardless of the user's keyboard layout.
+        atKey=new TextView(getContext());
+        atKey.setText("@");atKey.setGravity(Gravity.CENTER);atKey.setTextSize(14);
+        atKey.setFocusable(false);
+        atKey.setOnClickListener(v -> insertAt.run());
+        row.addView(atKey,dp(44),-1);
+
+        addKey(row,42,"Shift");
+        addKey(row,102,"Home");addKey(row,107,"End");
+        addKey(row,104,"PgUp");addKey(row,109,"PgDn");
+        for(int i=0;i<10;i++) addKey(row,59+i,"F"+(i+1));
+        addKey(row,87,"F11");addKey(row,88,"F12");
         root.addView(this,new FrameLayout.LayoutParams(-1,dp(46)));
         setVisibility(GONE);
         View.OnLayoutChangeListener reposition=(v,l,t,r,b,ol,ot,or,ob)->place();
@@ -61,12 +72,18 @@ final class PhoneFunctionKeys extends LinearLayout {
         pad.addOnLayoutChangeListener(reposition);
         viewport.addOnLayoutChangeListener(reposition);
     }
+    private void addKey(LinearLayout row,int scan,String label) {
+        Key key=new Key(scan,label);
+        keys.put(scan,key);
+        row.addView(key,dp(label.length()>3?57:44),-1);
+    }
     private int dp(int n){return Math.round(getResources().getDisplayMetrics().density*n);}
     void configure(boolean landscape,boolean night) {
         if(side!=landscape)release();
         side=landscape;dark=night;handle.setVisibility(side?VISIBLE:GONE);
         GradientDrawable bg=new GradientDrawable();bg.setColor(dark?0xff292b30:0xffeceef2);
         bg.setCornerRadius(dp(side?10:0));setBackground(bg);
+        atKey.setTextColor(dark?Color.WHITE:Color.BLACK);
         ((TextView)handle).setTextColor(dark?Color.WHITE:Color.DKGRAY);
         for(Key k:keys.values())k.paint();
         place();
