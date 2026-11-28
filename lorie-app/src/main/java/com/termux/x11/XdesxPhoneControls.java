@@ -30,6 +30,7 @@ final class XdesxPhoneControls {
         boolean usingPhoneDesktop();
         void startPhoneDesktop();
         void keyboard();
+        void functionKeys();
         void exitFullscreen();
         void toggleGame();
         void quitApp();
@@ -196,6 +197,7 @@ final class XdesxPhoneControls {
         if (rail) bar.setPadding(0,0,0,0);
         else bar.setPadding(dp(8), dp(4), dp(8), dp(4));
         barAction(R.string.xu_pad_keyboard, R.drawable.xd_ic_keyboard, actions::keyboard);
+        barAction(R.string.xu_fn_keys,R.drawable.xu_fn_keys,actions::functionKeys);
         if (fullscreen) barAction(R.string.xu_exit_fullscreen, R.drawable.xu_bar_window, actions::exitFullscreen);
         if (gameAvailable) barAction(gameActive ? R.string.xu_pad_exit_game : R.string.xu_direct_game_input,
                 R.drawable.xu_bar_game, actions::toggleGame);

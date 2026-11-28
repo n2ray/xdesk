@@ -57,7 +57,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         public void onClipboard(String text) {}
         @Override public void onGameMode(boolean on) {
             runOnUiThread(() -> {
-                if (on) releasePhoneKeys(-1);
+                if (on) {if(functionKeys!=null)functionKeys.release();releasePhoneKeys(-1);}
                 gamePassthrough = on && fullWindow != null;
                 if (toolbar != null) toolbar.gameMode(gamePassthrough);
                 refreshPhoneControls();
@@ -91,6 +91,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         }
         IInjector service = injector;
         if (service == null) { w.cancelInitialFullscreen(); return; }
+        if(functionKeys!=null)functionKeys.release();
         releasePhoneKeys(-1);
         mouse.releaseMouse();
         if (w.mac()) ScreenShareActivity.releaseInput(w.fullscreen()?external:w.displayId());
@@ -271,6 +272,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             phoneViewport.setLayoutParams(params);
         }
         controls.placeToolbar(side,left,camera);
+        if(functionKeys!=null)functionKeys.configure(bounds.width()>bounds.height(),panel.isDark());
     }
     private void phoneSurface(Surface surface,int width,int height) {
         if (!phoneMode || injector==null || isFinishing() || isDestroyed()) return;
@@ -338,7 +340,27 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
     };
     private XdesxPhoneControls controls;
     private TouchpadView pad;
+    private PhoneFunctionKeys functionKeys;
     private View blankScreen;
+    private void functionKey(int scan,boolean down) {
+        if (external<0 || switching || gamePassthrough) return;
+        XdesxWindow target=phoneInputTarget();
+        if (target!=null && target.mac() && ScreenShareActivity.sendScan(phoneInputDisplay(target),scan,down)) return;
+        if(!nativeInput(4,scan,down?1:0)) input.key(scan,down);
+    }
+    private boolean shortcutText(String value) {
+        if(functionKeys==null || !functionKeys.shortcutArmed() || value.length()!=1)return false;
+        char c=Character.toLowerCase(value.charAt(0));
+        String[] rows={"1234567890-=","qwertyuiop[]","asdfghjkl;'","zxcvbnm,./"," "};
+        int[] first={2,16,30,44,57};
+        for(int i=0;i<rows.length;i++){
+            int index=rows[i].indexOf(c);
+            if(index<0)continue;
+            int scan=first[i]+index;
+            functionKey(scan,true);functionKey(scan,false);functionKeys.chordUsed();return true;
+        }
+        return false;
+    }
     private boolean xFullscreen, phoneResumed, touching, waking;
     private int idleMinutes;
     private float previousBrightness;
@@ -347,6 +369,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (controls != null) controls.update(panel, fullWindow != null || xFullscreen, fullWindow != null,
                 fullWindow != null && !fullWindow.mac(), gamePassthrough, idleMinutes);
         if (pad != null && panel != null) pad.desktopAppearance(panel.isDark());
+        if(functionKeys!=null)functionKeys.configure(getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE,panel.isDark());
     }
 
     private void armPhoneTimeout() {
@@ -437,6 +460,8 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         mouse=new KeyInputView(this,new KeyInputView.Sink() {
             public void text(String s) {
                 if (switching || gamePassthrough) return;
+                if(shortcutText(s))return;
+                if(functionKeys!=null)functionKeys.chordUsed();
                 XdesxWindow target=phoneInputTarget();
                 int display=phoneInputDisplay(target);
                 if (target!=null && target.mac() && ScreenShareActivity.sendText(display,s)) return;
@@ -452,6 +477,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                     ScreenShareActivity.sendScan(phoneInputDisplay(target),scan,false);
                 } else if (!nativeInput(4,scan,1)) input.tapKey(scan);
                 else nativeInput(4,scan,0);
+                if(functionKeys!=null)functionKeys.chordUsed();
             }
             public void mouseMove(float dx,float dy) {
                 float gain=panel==null?1f:panel.mouseSpeed/100f;
@@ -467,6 +493,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         layout.addView(mouse,new android.widget.FrameLayout.LayoutParams(1,1));
         idleMinutes=getSharedPreferences("xdesx-phone",MODE_PRIVATE).getInt("idle-minutes",5);
         panel=new XdesxPanelState(this);
+        functionKeys=new PhoneFunctionKeys(layout,pad,phoneViewport,this::functionKey,getString(com.termux.x11.app.R.string.xu_move_keys));
         controls=new XdesxPhoneControls(this,column,new XdesxPhoneControls.Actions() {
             public boolean canStartPhoneDesktop(){return external<0 && !phoneMode && displays!=null && TargetDisplay.real(displays)==null;}
             public boolean usingPhoneDesktop(){return phoneMode;}
@@ -474,6 +501,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
                 if (phoneMode) {leavePhoneRequested=true; place();}
                 else XdesxActivity.this.startPhoneDesktop();
             }
+            public void functionKeys(){XdesxActivity.this.functionKeys.toggle();}
             public void keyboard(){showPhoneKeyboard();}
             public void exitFullscreen(){
                 if(fullWindow!=null) toggleWindow(fullWindow);
@@ -1030,6 +1058,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
             if (e.getRepeatCount()>0 || phoneKeys.putIfAbsent(id,new KeyEvent(e))!=null) return true;
         }
         deliverPhoneKey(e);
+        if(action==KeyEvent.ACTION_UP && functionKeys!=null)functionKeys.chordUsed();
         return true;
     }
     private void deliverPhoneKey(KeyEvent e) {
@@ -1038,6 +1067,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
     }
     @Override protected void onPause() {
+        if(functionKeys!=null)functionKeys.release();
         if(phoneViewport!=null)phoneViewport.cancelGestures();
         phoneResumed=false; touching=false; waking=false;
         settingsHandler.removeCallbacks(dimPhone);
