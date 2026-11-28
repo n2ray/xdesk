@@ -395,6 +395,22 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         phoneViewport=new PhoneDesktopViewport(this,this::touchPhoneScreen,new PhoneDesktopViewport.Scroll() {
             public boolean begin(float x,float y) {return beginPhoneScroll(x,y);}
             public void move(float dx,float dy) {movePhoneScroll(dx,dy);}
+        },new PhoneDesktopViewport.DesktopActions() {
+            private boolean alt;
+            public boolean available(){return phoneMode && !switching && fullWindow==null && external>=0 && external==phoneDisplay;}
+            public void contextClick(float x,float y){
+                input.warpTo(x/Math.max(1,phoneScreen.getWidth()-1),y/Math.max(1,phoneScreen.getHeight()-1));
+                input.click(3);
+            }
+            public void cycle(int direction){
+                if (!alt){input.key(56,true);alt=true;}
+                if (direction<0) input.key(42,true);
+                input.tapKey(15);
+                if (direction<0) input.key(42,false);
+            }
+            public void finishCycle(boolean cancel){
+                if (alt){if(cancel) input.tapKey(1);input.key(56,false);alt=false;}
+            }
         });
         phoneScreen=phoneViewport.screen;
         phoneViewport.setVisibility(View.GONE);
@@ -1022,6 +1038,7 @@ public final class XdesxActivity extends Activity implements DisplayManager.Disp
         if (!nativeInput(4,e.getScanCode(),down?1:0)) input.key(e.getScanCode(),down);
     }
     @Override protected void onPause() {
+        if(phoneViewport!=null)phoneViewport.cancelGestures();
         phoneResumed=false; touching=false; waking=false;
         settingsHandler.removeCallbacks(dimPhone);
         wakePhone();
